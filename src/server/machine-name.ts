@@ -2,7 +2,7 @@ import { hostname } from "node:os"
 import process from "node:process"
 import { spawnSync } from "node:child_process"
 
-const MAX_MACHINE_NAME_LENGTH = 80
+export const MAX_MACHINE_NAME_LENGTH = 80
 
 function runAndRead(command: string, args: string[]) {
   const result = spawnSync(command, args, { encoding: "utf8" })
@@ -11,8 +11,9 @@ function runAndRead(command: string, args: string[]) {
   return value || null
 }
 
-function normalizeMachineName(value: string | undefined) {
-  const normalized = value?.replace(/[\u0000-\u001f\u007f]/g, "").trim()
+export function normalizeMachineName(value: unknown) {
+  if (typeof value !== "string") return null
+  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, "").trim()
   return normalized ? normalized.slice(0, MAX_MACHINE_NAME_LENGTH) : null
 }
 

@@ -116,7 +116,9 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   let router: ReturnType<typeof createWsRouter>
   const terminals = new TerminalManager()
   const keybindings = new KeybindingsManager()
-  const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"))
+  const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
+    defaultMachineName: machineDisplayName,
+  })
   await appSettings.initialize()
   await keybindings.initialize()
   const analytics = new KannaAnalyticsReporter({
@@ -163,7 +165,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     },
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
-    machineDisplayName,
+    machineDisplayName: () => appSettings.getSnapshot().machineName,
     updateManager,
   })
   const staleEmptyChatPruneInterval = setInterval(() => {

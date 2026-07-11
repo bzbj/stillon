@@ -1,6 +1,6 @@
 {
-  "name": "StillOn",
-  "short_name": "StillOn",
+  "name": "Still On",
+  "short_name": "Still On",
   "description": "Leave your Mac. Keep your Claude Code and Codex agents.",
   "start_url": "/",
   "scope": "/",
@@ -33,14 +33,14 @@
       "sizes": "1600x1000",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "StillOn light theme workspace"
+      "label": "Still On light theme workspace"
     },
     {
       "src": "/screenshot.png",
       "sizes": "1600x1000",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "StillOn dark theme workspace"
+      "label": "Still On dark theme workspace"
     }
   ]
 }

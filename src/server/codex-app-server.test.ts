@@ -80,6 +80,10 @@ describe("CodexAppServerManager", () => {
 
     expect(process.messages).toHaveLength(3)
     expect((process.messages[0] as any).method).toBe("initialize")
+    expect((process.messages[0] as any).params.clientInfo).toMatchObject({
+      title: "Still On",
+      version: "0.1.0",
+    })
     expect((process.messages[1] as any).method).toBe("initialized")
     expect((process.messages[2] as any).method).toBe("thread/start")
   })

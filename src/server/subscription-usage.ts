@@ -7,6 +7,7 @@ import type {
   SubscriptionUsageSnapshot,
   SubscriptionUsageWindow,
 } from "../shared/types"
+import { APP_NAME, APP_VERSION } from "../shared/branding"
 
 const CODEX_APP_SERVER_TIMEOUT_MS = 20_000
 const COMMAND_TIMEOUT_MS = 10_000
@@ -563,8 +564,8 @@ async function readCodexAppServerSnapshot(
     await send("initialize", {
       clientInfo: {
         name: "stillon",
-        title: "StillOn",
-        version: "0.0.0",
+        title: APP_NAME,
+        version: APP_VERSION,
       },
       capabilities: {},
     })

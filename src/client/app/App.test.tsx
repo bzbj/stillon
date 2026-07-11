@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { getAppAuthStateFromStatus, shouldPlayChatNotificationSound, shouldRedirectToChangelog, shouldRetryAuthStatusRequest } from "./App"
+import { getAppAuthStateFromStatus, getAppPageTitle, shouldPlayChatNotificationSound, shouldRedirectToChangelog, shouldRetryAuthStatusRequest } from "./App"
 import { getChatNotificationSnapshot, getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
-import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth } from "./KannaSidebar"
+import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth, getConnectionStatusPresentation } from "./KannaSidebar"
 import { isBrowserUnfocused, shouldPlayChatSound } from "../lib/chatSounds"
 import type { AppSettingsSnapshot, SidebarChatRow } from "../../shared/types"
 
@@ -28,12 +28,34 @@ describe("shouldRedirectToChangelog", () => {
   })
 })
 
+describe("getAppPageTitle", () => {
+  test("puts the current machine before the Still On wordmark and preserves notification counts", () => {
+    expect(getAppPageTitle("Office Mac")).toBe("Office Mac — Still On")
+    expect(getAppPageTitle("Office Mac", 2)).toBe("[2] Office Mac — Still On")
+    expect(getAppPageTitle(null)).toBe("Still On")
+  })
+})
+
 describe("clampSidebarWidth", () => {
   test("keeps sidebar resizing within bounds", () => {
     expect(clampSidebarWidth(MIN_SIDEBAR_WIDTH - 1)).toBe(MIN_SIDEBAR_WIDTH)
     expect(clampSidebarWidth(MAX_SIDEBAR_WIDTH + 1)).toBe(MAX_SIDEBAR_WIDTH)
     expect(clampSidebarWidth(333.6)).toBe(334)
     expect(clampSidebarWidth(Number.NaN)).toBe(DEFAULT_SIDEBAR_WIDTH)
+  })
+})
+
+describe("connection status presentation", () => {
+  test("uses the Still On brand for a live machine and a clear unreachable state when disconnected", () => {
+    expect(getConnectionStatusPresentation("connected", true)).toMatchObject({
+      label: "Still On",
+      dotClassName: expect.stringContaining("emerald"),
+    })
+    expect(getConnectionStatusPresentation("connecting", false)).toMatchObject({ label: "Reconnecting…" })
+    expect(getConnectionStatusPresentation("disconnected", true)).toMatchObject({
+      label: "Out of Reach",
+      dotClassName: expect.stringContaining("rose"),
+    })
   })
 })
 

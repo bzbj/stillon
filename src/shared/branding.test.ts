@@ -59,7 +59,7 @@ describe("StillOn release helpers", () => {
   test("defines tooltip descriptions for every release", () => {
     expect(Object.keys(RELEASE_EDITION_DESCRIPTIONS)).toEqual([...RELEASE_EDITION_SEQUENCE])
     for (const edition of RELEASE_EDITION_SEQUENCE) {
-      expect(getReleaseEditionTooltip(edition)).toBe(`StillOn release: ${edition}.\n${RELEASE_EDITION_DESCRIPTIONS[edition]}`)
+      expect(getReleaseEditionTooltip(edition)).toBe(`Still On release: ${edition}.\n${RELEASE_EDITION_DESCRIPTIONS[edition]}`)
     }
   })
 })

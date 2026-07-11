@@ -85,7 +85,7 @@ const sidebarItems = [
     id: "general",
     label: "General",
     icon: Settings2,
-    subtitle: "Manage appearance, editor behavior, and embedded terminal defaults.",
+    subtitle: "Manage this machine's identity, appearance, editor behavior, and embedded terminal defaults.",
   },
   {
     id: "skills",
@@ -1028,7 +1028,8 @@ export function SettingsPage() {
   const [changelogError, setChangelogError] = useState<string | null>(null)
   const selectedPage = resolveSettingsSectionId(sectionId) ?? "general"
   const isConnecting = state.connectionStatus === "connecting" || !state.localProjectsReady
-  const machineName = state.localProjects?.machine.displayName ?? "Unavailable"
+  const appSettings = state.appSettings
+  const machineName = appSettings?.machineName ?? state.localProjects?.machine.displayName ?? "Unavailable"
   const projectCount = state.localProjects?.projects.length ?? 0
   const appVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const scrollbackLines = useTerminalPreferencesStore((store) => store.scrollbackLines)
@@ -1044,7 +1045,6 @@ export function SettingsPage() {
   const setChatSoundPreference = useChatSoundPreferencesStore((store) => store.setChatSoundPreference)
   const setChatSoundId = useChatSoundPreferencesStore((store) => store.setChatSoundId)
   const keybindings = state.keybindings
-  const appSettings = state.appSettings
   const llmProvider = state.llmProvider
   const defaultProvider = useChatPreferencesStore((store) => store.defaultProvider)
   const providerDefaults = useChatPreferencesStore((store) => store.providerDefaults)
@@ -1058,6 +1058,7 @@ export function SettingsPage() {
   const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
   const [minColumnWidthDraft, setMinColumnWidthDraft] = useState(String(minColumnWidth))
   const [editorCommandDraft, setEditorCommandDraft] = useState(editorCommandTemplate)
+  const [machineNameDraft, setMachineNameDraft] = useState(machineName)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null)
@@ -1125,6 +1126,10 @@ export function SettingsPage() {
   useEffect(() => {
     setEditorCommandDraft(editorCommandTemplate)
   }, [editorCommandTemplate])
+
+  useEffect(() => {
+    setMachineNameDraft(machineName)
+  }, [machineName])
 
   useEffect(() => {
     setKeybindingDrafts(Object.fromEntries(
@@ -1252,6 +1257,18 @@ export function SettingsPage() {
     if (event.key !== "Enter") return
     commit()
     event.currentTarget.blur()
+  }
+
+  function commitMachineName() {
+    const nextMachineName = machineNameDraft.trim()
+    if (!nextMachineName) {
+      setMachineNameDraft(machineName)
+      return
+    }
+
+    void handleWriteAppSettings({ machineName: nextMachineName }).catch((error) => {
+      setAppSettingsError(error instanceof Error ? error.message : "Unable to save the machine name.")
+    })
   }
 
   function commitEditorCommand() {
@@ -1681,6 +1698,27 @@ export function SettingsPage() {
                           <div>Current: {updateSnapshot?.currentVersion ?? appVersion}</div>
                           <div className="text-xs text-muted-foreground">
                             Latest: {updateSnapshot?.latestVersion ?? "Unknown"}
+                          </div>
+                        </div>
+                      </SettingsRow>
+
+                      <SettingsRow
+                        title="Machine Name"
+                        description="Shown in the sidebar and browser tab so you can tell which computer you are controlling remotely."
+                      >
+                        <div className="flex w-full min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
+                          <Input
+                            type="text"
+                            value={machineNameDraft}
+                            onChange={(event) => setMachineNameDraft(event.target.value)}
+                            onBlur={commitMachineName}
+                            onKeyDown={(event) => handleTextInputKeyDown(event, commitMachineName)}
+                            maxLength={80}
+                            aria-label="Machine name"
+                            className="min-h-11"
+                          />
+                          <div className="text-xs text-muted-foreground">
+                            Up to 80 characters. Press Enter or click away to save.
                           </div>
                         </div>
                       </SettingsRow>

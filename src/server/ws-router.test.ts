@@ -79,6 +79,7 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
   analyticsEnabled: true,
   browserSettingsMigrated: false,
+  machineName: "Local Machine",
   theme: "system",
   chatSoundPreference: "always",
   chatSoundId: "funk",
@@ -718,6 +719,60 @@ describe("ws-router", () => {
         },
       },
     ])
+  })
+
+  test("pushes a refreshed local machine snapshot after its name changes", () => {
+    let snapshot: AppSettingsSnapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
+    let listener: (nextSnapshot: AppSettingsSnapshot) => void = () => {}
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      appSettings: {
+        getSnapshot: () => snapshot,
+        write: async () => snapshot,
+        onChange: (nextListener) => {
+          listener = nextListener
+          return () => {
+            listener = () => {}
+          }
+        },
+      },
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: () => snapshot.machineName,
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+    ws.data.subscriptions.set("local-projects-sub-1", { type: "local-projects" })
+    router.handleOpen(ws as never)
+
+    snapshot = { ...snapshot, machineName: "Office Mac" }
+    listener(snapshot)
+
+    expect(ws.sent).toContainEqual({
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id: "local-projects-sub-1",
+      snapshot: {
+        type: "local-projects",
+        data: {
+          machine: {
+            id: "local",
+            displayName: "Office Mac",
+            platform: process.platform,
+          },
+          projects: [],
+        },
+      },
+    })
   })
 
   test("tracks analytics preference transitions in the correct order", async () => {
