@@ -1,5 +1,5 @@
 import { PatchDiff } from "@pierre/diffs/react"
-import { AlertTriangle, ArrowUp, Ban, Building2, Check, ChevronDown, ChevronUp, Code, Columns2, Copy, Download, Ellipsis, FileText, FolderOpen, GitBranch, GitBranchPlus, Github, GitMerge, GitPullRequest, Globe, LoaderCircle, Lock, Minus, PencilLine, PenLine, RefreshCw, Rows3, Search, Sparkles, Trash2, Upload, UserRound, WrapText } from "lucide-react"
+import { AlertTriangle, ArrowUp, Ban, Building2, Check, ChevronDown, ChevronUp, Code, Columns2, Copy, Download, Ellipsis, FileText, FolderOpen, GitBranch, GitBranchPlus, GitMerge, GitPullRequest, Globe, LoaderCircle, Lock, Minus, PencilLine, PenLine, RefreshCw, Rows3, Search, Sparkles, Trash2, Upload, UserRound, WrapText } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react"
 import type {
   ChatAttachment,
@@ -1788,7 +1788,7 @@ function GitPanelImpl({
                 onClick={() => setIsGitHubPublishModalOpen(true)}
                 className="h-7 gap-1.5 px-3 text-xs"
               >
-                <Github className="h-3.5 w-3.5" />
+                <GitBranch className="h-3.5 w-3.5" />
                 <span>Push to GitHub</span>
               </Button>
             ) : syncAction === "publish" ? (

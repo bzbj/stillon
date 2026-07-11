@@ -15,7 +15,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": false,
     "types": ["bun"],
-    "baseUrl": "."
+    "noUncheckedSideEffectImports": false
   },
   "include": [
     "scripts/**/*.ts",
