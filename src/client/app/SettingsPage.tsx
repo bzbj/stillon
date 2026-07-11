@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
+  CheckCircle2,
+  Circle,
   Command,
   Code,
+  Copy,
   ExternalLink,
   Gauge,
   Info,
@@ -15,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Sparkles,
   Sun,
   DownloadCloud,
   LogOut,
@@ -81,6 +85,12 @@ import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, typ
 import type { KannaState } from "./useKannaState"
 
 const sidebarItems = [
+  {
+    id: "welcome",
+    label: "Get started",
+    icon: Sparkles,
+    subtitle: "Name this machine, verify the local service, and connect Claude Code.",
+  },
   {
     id: "general",
     label: "General",
@@ -850,6 +860,284 @@ export function SubscriptionUsageSection({
           No usage snapshot loaded.
         </div>
       )}
+    </div>
+  )
+}
+
+const ONBOARDING_PROGRESS_STORAGE_KEY = "stillon:onboarding-progress-v1"
+
+type OnboardingProgress = {
+  nameConfirmed: boolean
+  claudeChecked: boolean
+  providerTestConfirmed: boolean
+}
+
+const EMPTY_ONBOARDING_PROGRESS: OnboardingProgress = {
+  nameConfirmed: false,
+  claudeChecked: false,
+  providerTestConfirmed: false,
+}
+
+function readOnboardingProgress(): OnboardingProgress {
+  if (typeof window === "undefined") return EMPTY_ONBOARDING_PROGRESS
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ONBOARDING_PROGRESS_STORAGE_KEY) ?? "{}") as Partial<OnboardingProgress>
+    return {
+      nameConfirmed: parsed.nameConfirmed === true,
+      claudeChecked: parsed.claudeChecked === true,
+      providerTestConfirmed: parsed.providerTestConfirmed === true,
+    }
+  } catch {
+    return EMPTY_ONBOARDING_PROGRESS
+  }
+}
+
+function saveOnboardingProgress(progress: OnboardingProgress) {
+  window.localStorage.setItem(ONBOARDING_PROGRESS_STORAGE_KEY, JSON.stringify(progress))
+}
+
+function OnboardingStep({
+  number,
+  title,
+  description,
+  complete,
+  children,
+}: {
+  number: number
+  title: string
+  description: string
+  complete: boolean
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-semibold",
+            complete
+              ? "border-emerald-600/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-border bg-muted text-muted-foreground",
+          )}
+          aria-label={complete ? `Step ${number} complete` : `Step ${number}`}
+        >
+          {complete ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : number}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <div className="mt-4">{children}</div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WelcomeChecklist({ state }: { state: KannaState }) {
+  const navigate = useNavigate()
+  const currentMachineName = state.appSettings?.machineName ?? state.localProjects?.machine.displayName ?? ""
+  const [machineNameDraft, setMachineNameDraft] = useState(currentMachineName)
+  const [isSavingName, setIsSavingName] = useState(false)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [usageSnapshot, setUsageSnapshot] = useState<SubscriptionUsageSnapshot | null>(null)
+  const [usageStatus, setUsageStatus] = useState<SubscriptionUsageLoadStatus>("idle")
+  const [usageError, setUsageError] = useState<string | null>(null)
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")
+  const [progress, setProgress] = useState<OnboardingProgress>(readOnboardingProgress)
+
+  useEffect(() => {
+    setMachineNameDraft(currentMachineName)
+  }, [currentMachineName])
+
+  const claude = usageSnapshot?.providers.find((provider) => provider.provider === "claude") ?? null
+  const localServiceReady = state.connectionStatus === "connected" && state.localProjectsReady
+  const claudeReady = claude?.status === "available"
+  const completedSteps = [progress.nameConfirmed, localServiceReady, progress.claudeChecked && claudeReady, progress.providerTestConfirmed]
+    .filter(Boolean)
+    .length
+
+  function updateProgress(patch: Partial<OnboardingProgress>) {
+    const next = { ...progress, ...patch }
+    setProgress(next)
+    saveOnboardingProgress(next)
+  }
+
+  async function saveMachineName() {
+    const nextName = machineNameDraft.trim()
+    if (!nextName) {
+      setNameError("Enter a name for this machine before continuing.")
+      return
+    }
+
+    setIsSavingName(true)
+    setNameError(null)
+    try {
+      await state.handleWriteAppSettings({ machineName: nextName })
+      updateProgress({ nameConfirmed: true })
+    } catch (error) {
+      setNameError(error instanceof Error ? error.message : "Unable to save the machine name.")
+    } finally {
+      setIsSavingName(false)
+    }
+  }
+
+  async function checkClaudeCode() {
+    if (state.connectionStatus !== "connected") {
+      setUsageError("Reconnect to StillOn before checking Claude Code.")
+      setUsageStatus("error")
+      return
+    }
+
+    setUsageStatus("loading")
+    setUsageError(null)
+    try {
+      const snapshot = await state.socket.command<SubscriptionUsageSnapshot>({ type: "settings.readSubscriptionUsage" })
+      setUsageSnapshot(snapshot)
+      setUsageStatus("success")
+      const claudeProvider = snapshot.providers.find((provider) => provider.provider === "claude")
+      if (claudeProvider?.status === "available") {
+        updateProgress({ claudeChecked: true })
+      }
+    } catch (error) {
+      setUsageError(error instanceof Error ? error.message : "Unable to check Claude Code.")
+      setUsageStatus("error")
+    }
+  }
+
+  async function copyClaudeLoginCommand() {
+    try {
+      await navigator.clipboard.writeText("claude login")
+      setCopyStatus("copied")
+    } catch {
+      setCopyStatus("error")
+    }
+  }
+
+  function startProviderTest() {
+    const firstProject = state.localProjects?.projects[0]
+    if (firstProject) {
+      void state.handleOpenLocalProject(firstProject.localPath)
+      return
+    }
+
+    navigate("/")
+    state.openAddProjectModal()
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-4xl pb-16">
+      <header className="rounded-2xl border border-border bg-card px-5 py-6 shadow-sm sm:px-7 sm:py-8">
+        <div className="flex items-start gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-logo/15 text-logo">
+            <Sparkles className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-logo">First run</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">Set up {APP_NAME}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Name this machine, confirm the local connection, then verify that Claude Code is ready. Provider checks never send a chat or consume model usage.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex items-center gap-3 text-sm text-muted-foreground" aria-live="polite">
+          <span className="font-medium text-foreground">{completedSteps} of 4 ready</span>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+            <div className="h-full rounded-full bg-logo transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${completedSteps * 25}%` }} />
+          </div>
+        </div>
+      </header>
+
+      <div className="mt-5 space-y-4">
+        <OnboardingStep
+          number={1}
+          title="Name this machine"
+          description="This label appears in the sidebar and browser tab so you can identify the computer when connecting remotely."
+          complete={progress.nameConfirmed}
+        >
+          <label htmlFor="onboarding-machine-name" className="text-sm font-medium text-foreground">Machine name</label>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="onboarding-machine-name"
+              value={machineNameDraft}
+              onChange={(event) => setMachineNameDraft(event.target.value)}
+              maxLength={80}
+              className="min-h-11 flex-1"
+              aria-describedby={nameError ? "onboarding-machine-name-error" : "onboarding-machine-name-help"}
+            />
+            <Button type="button" onClick={() => { void saveMachineName() }} disabled={isSavingName} className="min-h-11 shrink-0">
+              {isSavingName ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Save name
+            </Button>
+          </div>
+          <p id="onboarding-machine-name-help" className="mt-2 text-xs leading-5 text-muted-foreground">You can change it later in Settings → General.</p>
+          {nameError ? <p id="onboarding-machine-name-error" role="alert" className="mt-2 text-sm text-destructive">{nameError}</p> : null}
+        </OnboardingStep>
+
+        <OnboardingStep
+          number={2}
+          title="Confirm the local StillOn service"
+          description="The app checks the active local connection. Remote access can be configured later, after this local setup is working."
+          complete={localServiceReady}
+        >
+          <div className={cn("flex items-center gap-2 text-sm", localServiceReady ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")}>
+            {localServiceReady ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <Circle className="h-4 w-4" aria-hidden="true" />}
+            <span>{localServiceReady ? "StillOn is connected locally." : "Waiting for a local StillOn connection…"}</span>
+          </div>
+        </OnboardingStep>
+
+        <OnboardingStep
+          number={3}
+          title="Connect Claude Code"
+          description="Check whether the locally installed Claude Code CLI can report its account and usage. This check does not send a model prompt."
+          complete={progress.claudeChecked && claudeReady}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button type="button" variant="outline" onClick={() => { void checkClaudeCode() }} disabled={usageStatus === "loading"} className="min-h-11 shrink-0">
+              {usageStatus === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Check Claude Code
+            </Button>
+            {claudeReady ? (
+              <div className="text-sm text-emerald-700 dark:text-emerald-300">
+                Connected{claude?.accountEmail ? ` as ${claude.accountEmail}` : ""}.
+              </div>
+            ) : null}
+          </div>
+          {usageError ? <p role="alert" className="mt-3 text-sm text-destructive">{usageError}</p> : null}
+          {usageStatus === "success" && !claudeReady ? (
+            <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-foreground">
+              <p>Claude Code is not ready yet. In a local terminal, run <code className="rounded bg-background px-1.5 py-0.5 text-xs">claude login</code> and complete the browser sign-in, then check again.</p>
+              <Button type="button" size="sm" variant="secondary" onClick={() => { void copyClaudeLoginCommand() }} className="mt-3 min-h-9">
+                <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                {copyStatus === "copied" ? "Copied" : "Copy login command"}
+              </Button>
+              {copyStatus === "error" ? <p role="alert" className="mt-2 text-xs text-destructive">Could not copy the command. Select it manually instead.</p> : null}
+            </div>
+          ) : null}
+        </OnboardingStep>
+
+        <OnboardingStep
+          number={4}
+          title="Send a first Claude message"
+          description="This is the only step that can use Claude quota. Start it only when you are ready, then confirm after you receive a reply in StillOn."
+          complete={progress.providerTestConfirmed}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button type="button" onClick={startProviderTest} disabled={!claudeReady} className="min-h-11 shrink-0">
+              Start a test chat
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => updateProgress({ providerTestConfirmed: !progress.providerTestConfirmed })}
+              className="min-h-11 shrink-0"
+            >
+              {progress.providerTestConfirmed ? "Mark test incomplete" : "I received a Claude reply"}
+            </Button>
+          </div>
+          {!claudeReady ? <p className="mt-3 text-xs leading-5 text-muted-foreground">Complete the Claude Code check before starting a test chat.</p> : null}
+        </OnboardingStep>
+      </div>
     </div>
   )
 }
@@ -1666,7 +1954,9 @@ export function SettingsPage() {
                   </div>
                 </div>
 
-                {selectedPage === "general" ? (
+                {selectedPage === "welcome" ? (
+                  <WelcomeChecklist state={state} />
+                ) : selectedPage === "general" ? (
                   <>
                     {appSettingsError ? (
                       <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
