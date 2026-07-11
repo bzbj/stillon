@@ -456,7 +456,7 @@ export function App() {
         <Routes>
           <Route element={<KannaLayout />}>
             <Route path="/" element={<LocalProjectsPage />} />
-            <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+            <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route
               path="/settings/:sectionId"
               element={(

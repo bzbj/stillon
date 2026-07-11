@@ -567,7 +567,7 @@ function KannaSidebarImpl({
             <button
             type="button"
             onClick={() => {
-              navigate("/settings/general")
+              navigate("/settings/welcome")
               onClose()
             }}
             className={cn(
