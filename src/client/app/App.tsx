@@ -102,7 +102,7 @@ export function shouldRetryAuthStatusRequest(responseOk: boolean | null) {
 
 export function getAppPageTitle(machineName: string | null | undefined, notificationCount = 0) {
   const normalizedMachineName = machineName?.trim()
-  const baseTitle = normalizedMachineName ? `${normalizedMachineName} — ${APP_NAME}` : APP_NAME
+  const baseTitle = normalizedMachineName ? `${normalizedMachineName}, ${APP_NAME}` : APP_NAME
   return notificationCount > 0 ? `[${notificationCount}] ${baseTitle}` : baseTitle
 }
 
