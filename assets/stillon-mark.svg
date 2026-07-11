@@ -17,14 +17,14 @@
   </defs>
   <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#bg)"/>
   <path
-    d="M178 74c-16-20-40-28-65-22-29 7-48 28-43 50 4 20 23 30 48 34l24 4c27 4 44 15 45 34 1 22-21 39-50 40-26 1-49-10-63-29"
+    d="M176 69c-16-19-38-26-61-21-27 6-45 26-41 46 4 19 22 29 46 33l25 4c29 4 46 16 47 36 1 23-22 40-51 41-27 1-52-11-66-32"
     fill="none"
     stroke="url(#signal)"
     stroke-width="22"
     stroke-linecap="round"
     stroke-linejoin="round"
   />
-  <circle cx="178" cy="74" r="16" fill="#66D9FF" opacity=".24" filter="url(#glow)"/>
-  <circle cx="178" cy="74" r="8" fill="#C9F3FF"/>
-  <circle cx="178" cy="74" r="3" fill="#FFFFFF"/>
+  <circle cx="176" cy="69" r="16" fill="#66D9FF" opacity=".24" filter="url(#glow)"/>
+  <circle cx="176" cy="69" r="8" fill="#C9F3FF"/>
+  <circle cx="176" cy="69" r="3" fill="#FFFFFF"/>
 </svg>
