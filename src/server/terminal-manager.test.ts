@@ -6,6 +6,7 @@ import { TerminalManager } from "./terminal-manager"
 
 const SHELL_START_TIMEOUT_MS = 5_000
 const COMMAND_TIMEOUT_MS = 5_000
+const EOF_TIMEOUT_MS = 10_000
 const FOCUS_IN_SEQUENCE = "\x1b[I"
 const RAW_READ_HEX_COMMAND = `python3 -c "exec('import os,sys,tty,termios,select\\nfd=sys.stdin.fileno()\\nold=termios.tcgetattr(fd)\\ntty.setraw(fd)\\ntry:\\n    sys.stdout.write(\"__RAW_READY__\\\\n\")\\n    sys.stdout.flush()\\n    r,_,_=select.select([fd],[],[],1)\\n    data=os.read(fd,8) if r else b\"\"\\n    print(data.hex() or \"__EMPTY__\")\\nfinally:\\n    termios.tcsetattr(fd, termios.TCSADRAIN, old)')"\r`
 
@@ -144,7 +145,7 @@ describeIfSupported("TerminalManager", () => {
     try {
       manager.write(terminalId, "\x04")
 
-      await waitFor(() => manager.getSnapshot(terminalId)?.status === "exited", COMMAND_TIMEOUT_MS)
+      await waitFor(() => manager.getSnapshot(terminalId)?.status === "exited", EOF_TIMEOUT_MS)
 
       expect(manager.getSnapshot(terminalId)?.exitCode).toBe(0)
     } finally {
