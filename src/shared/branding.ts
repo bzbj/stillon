@@ -33,7 +33,6 @@ export const RELEASE_EDITION_DESCRIPTIONS: Record<ReleaseEdition, string> = {
   Border: "A Border Collie: intensely smart, responsive, and built for advanced work.",
 }
 export const RUNTIME_PROFILE_ENV_VAR = "STILLON_RUNTIME_PROFILE"
-const LEGACY_RUNTIME_PROFILE_ENV_VARS = ["HUSKY_RUNTIME_PROFILE", "KANNA_RUNTIME_PROFILE"] as const
 // Read version from package.json — JSON import works in both Bun and Vite
 import pkg from "../../package.json"
 export const APP_VERSION = pkg.version
@@ -57,7 +56,6 @@ function getRuntimeEnv(): RuntimeEnv {
 
 export function getRuntimeProfile(env: RuntimeEnv = getRuntimeEnv()): RuntimeProfile {
   const runtimeProfile = env?.[RUNTIME_PROFILE_ENV_VAR]
-    ?? LEGACY_RUNTIME_PROFILE_ENV_VARS.map((name) => env?.[name]).find(Boolean)
   return runtimeProfile?.trim().toLowerCase() === "dev" ? "dev" : "prod"
 }
 

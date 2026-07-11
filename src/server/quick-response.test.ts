@@ -160,8 +160,8 @@ describe("QuickResponseAdapter", () => {
   })
 
   test("uses the StillOn app data root as the quick-response workspace", async () => {
-    const previousProfile = process.env.KANNA_RUNTIME_PROFILE
-    process.env.KANNA_RUNTIME_PROFILE = "dev"
+    const previousProfile = process.env.STILLON_RUNTIME_PROFILE
+    process.env.STILLON_RUNTIME_PROFILE = "dev"
 
     try {
       let claudeCwd = ""
@@ -204,9 +204,9 @@ describe("QuickResponseAdapter", () => {
       expect(claudeCwd.endsWith("/.stillon-dev")).toBe(true)
     } finally {
       if (previousProfile === undefined) {
-        delete process.env.KANNA_RUNTIME_PROFILE
+        delete process.env.STILLON_RUNTIME_PROFILE
       } else {
-        process.env.KANNA_RUNTIME_PROFILE = previousProfile
+        process.env.STILLON_RUNTIME_PROFILE = previousProfile
       }
     }
   })

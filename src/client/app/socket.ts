@@ -209,7 +209,7 @@ export class KannaSocket {
       }
 
       if (isSendToStartingProfilingEnabled() && payload.type === "snapshot" && payload.snapshot.type === "chat" && payload.snapshot.data?.runtime.status === "starting") {
-        console.debug("[kanna/send->starting][client-ws]", {
+        console.debug("[stillon/send->starting][client-ws]", {
           stage: "socket_message_received",
           receivedAt,
           payloadBytes: rawText.length,
@@ -220,7 +220,7 @@ export class KannaSocket {
       }
 
       if (isSendToStartingProfilingEnabled() && payload.type === "ack") {
-        console.debug("[kanna/send->starting][client-ws]", {
+        console.debug("[stillon/send->starting][client-ws]", {
           stage: "socket_ack_received",
           receivedAt,
           payloadBytes: rawText.length,

@@ -41,7 +41,6 @@ const SKILL_AGENT_ALIASES = ["universal", "claude-code"] as const
 
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
-    || process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
 }
 
 function logSendToStartingProfile(
@@ -54,7 +53,7 @@ function logSendToStartingProfile(
     return
   }
 
-  console.log("[kanna/send->starting][server]", JSON.stringify({
+  console.log("[stillon/send->starting][server]", JSON.stringify({
     traceId,
     stage,
     elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
@@ -595,7 +594,7 @@ export function createWsRouter({
       protectedChatIds: protectedDraftChatIds,
     })
     if (isSendToStartingProfilingEnabled()) {
-      console.log("[kanna/send->starting][server]", JSON.stringify({
+      console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.prune_stale_empty_chats",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         activeChatCount: activeChatIds.size,
@@ -652,7 +651,7 @@ export function createWsRouter({
     })
     if (isSendToStartingProfilingEnabled()) {
       const totalChats = data.projectGroups.reduce((count, group) => count + group.chats.length, 0)
-      console.log("[kanna/send->starting][server]", JSON.stringify({
+      console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.sidebar_snapshot_built",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         projectGroupCount: data.projectGroups.length,
@@ -844,7 +843,7 @@ export function createWsRouter({
       }
     }
     if (isSendToStartingProfilingEnabled()) {
-      console.log("[kanna/send->starting][server]", JSON.stringify({
+      console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.push_snapshots_completed",
         elapsedMs: Number((performance.now() - pushStartedAt).toFixed(1)),
         skipPrune: Boolean(options?.skipPrune),
@@ -864,7 +863,7 @@ export function createWsRouter({
       await pushSnapshots(ws, { skipPrune: true, cache })
     }
     if (isSendToStartingProfilingEnabled()) {
-      console.log("[kanna/send->starting][server]", JSON.stringify({
+      console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         pruneMs: 0,
@@ -884,7 +883,7 @@ export function createWsRouter({
       await pushSnapshots(ws, { skipPrune: true, filter, cache })
     }
     if (isSendToStartingProfilingEnabled()) {
-      console.log("[kanna/send->starting][server]", JSON.stringify({
+      console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_filtered_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         socketCount,

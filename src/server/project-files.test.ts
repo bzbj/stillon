@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { buildLocalFileContentUrl } from "../shared/local-file-urls"
-import { startKannaServer } from "./server"
+import { startStillOnServer } from "./server"
 
 const tempDirs: string[] = []
 
@@ -15,7 +15,7 @@ async function startProjectFileServer() {
   const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-files-"))
   const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-project-files-data-"))
   tempDirs.push(projectDir, dataDir)
-  const server = await startKannaServer({
+  const server = await startStillOnServer({
     dataDir,
     port: 4460,
     strictPort: false,
@@ -76,7 +76,7 @@ describe("project file routes", () => {
     await writeFile(markdownPath, "# Skill\n\nBody", "utf8")
     await writeFile(envPath, "SECRET=1", "utf8")
 
-    const server = await startKannaServer({
+    const server = await startStillOnServer({
       dataDir,
       port: 4460,
       strictPort: false,

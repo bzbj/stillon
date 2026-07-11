@@ -472,7 +472,7 @@ function logSendToStartingTrace(
     return
   }
 
-  console.debug("[kanna/send->starting][client]", {
+  console.debug("[stillon/send->starting][client]", {
     traceId: trace.traceId,
     stage,
     elapsedMs: elapsedTraceMs(trace.startedAt),

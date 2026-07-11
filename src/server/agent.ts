@@ -163,12 +163,12 @@ interface SendToStartingProfile {
 }
 
 function isClaudeSteerLoggingEnabled() {
-  return process.env.KANNA_LOG_CLAUDE_STEER === "1"
+  return process.env.STILLON_LOG_CLAUDE_STEER === "1"
 }
 
 function logClaudeSteer(stage: string, details?: Record<string, unknown>) {
   if (!isClaudeSteerLoggingEnabled()) return
-  console.log("[kanna/claude-steer]", JSON.stringify({
+  console.log("[stillon/claude-steer]", JSON.stringify({
     stage,
     ...details,
   }))
@@ -235,7 +235,6 @@ function escapeXmlAttribute(value: string) {
 
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
-    || process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
 }
 
 function elapsedProfileMs(startedAt: number) {
@@ -251,7 +250,7 @@ function logSendToStartingProfile(
     return
   }
 
-  console.log("[kanna/send->starting][server]", JSON.stringify({
+  console.log("[stillon/send->starting][server]", JSON.stringify({
     traceId: profile.traceId,
     stage,
     elapsedMs: elapsedProfileMs(profile.startedAt),

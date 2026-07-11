@@ -85,8 +85,8 @@ async function createSession(terminalId: string) {
     scrollback: 1_000,
   })
 
-  manager.write(terminalId, "printf '__KANNA_READY__\\n'\r")
-  await waitFor(() => output.includes("__KANNA_READY__"), SHELL_START_TIMEOUT_MS)
+  manager.write(terminalId, "printf '__STILLON_READY__\\n'\r")
+  await waitFor(() => output.includes("__STILLON_READY__"), SHELL_START_TIMEOUT_MS)
 
   return {
     manager,
@@ -104,17 +104,17 @@ describeIfSupported("TerminalManager", () => {
     const { manager, getOutput } = await createSession(terminalId)
 
     try {
-      manager.write(terminalId, `python3 -c "import time; print('__KANNA_SLEEP__', flush=True); time.sleep(30)"\r`)
-      await waitFor(() => getOutput().includes("__KANNA_SLEEP__"), COMMAND_TIMEOUT_MS)
+      manager.write(terminalId, `python3 -c "import time; print('__STILLON_SLEEP__', flush=True); time.sleep(30)"\r`)
+      await waitFor(() => getOutput().includes("__STILLON_SLEEP__"), COMMAND_TIMEOUT_MS)
 
       manager.write(terminalId, "\x03")
-      manager.write(terminalId, "printf '__KANNA_AFTER_INT__\\n'\r")
+      manager.write(terminalId, "printf '__STILLON_AFTER_INT__\\n'\r")
 
-      await waitFor(() => getOutput().includes("__KANNA_AFTER_INT__"), COMMAND_TIMEOUT_MS)
+      await waitFor(() => getOutput().includes("__STILLON_AFTER_INT__"), COMMAND_TIMEOUT_MS)
 
       const snapshot = manager.getSnapshot(terminalId)
       expect(snapshot?.status).toBe("running")
-      expect(getOutput()).toContain("__KANNA_AFTER_INT__")
+      expect(getOutput()).toContain("__STILLON_AFTER_INT__")
     } finally {
       manager.close(terminalId)
     }
@@ -143,8 +143,8 @@ describeIfSupported("TerminalManager", () => {
     const { manager, getOutput } = await createSession(terminalId)
 
     try {
-      manager.write(terminalId, "printf '__KANNA_CAT_READY__\\n'; exec cat\r")
-      await waitForOutputToContain(getOutput, "__KANNA_CAT_READY__")
+      manager.write(terminalId, "printf '__STILLON_CAT_READY__\\n'; exec cat\r")
+      await waitForOutputToContain(getOutput, "__STILLON_CAT_READY__")
       manager.write(terminalId, "\x04")
 
       await waitFor(() => manager.getSnapshot(terminalId)?.status === "exited", EOF_TIMEOUT_MS)
@@ -318,8 +318,8 @@ describeIfSupported("TerminalManager", () => {
         rows: 24,
         scrollback: 1_000,
       })
-      manager.write(terminalId, "printf '__KANNA_READY__\\n'\r")
-      await waitForOutputToContain(() => getOutput(terminalId), "__KANNA_READY__", SHELL_START_TIMEOUT_MS)
+      manager.write(terminalId, "printf '__STILLON_READY__\\n'\r")
+      await waitForOutputToContain(() => getOutput(terminalId), "__STILLON_READY__", SHELL_START_TIMEOUT_MS)
     }
 
     try {
@@ -335,8 +335,8 @@ describeIfSupported("TerminalManager", () => {
       await waitFor(() => getOutput(secondTerminalId).length > before, COMMAND_TIMEOUT_MS)
       manager.write(secondTerminalId, FOCUS_IN_SEQUENCE)
       manager.write(secondTerminalId, "\x03")
-      manager.write(secondTerminalId, "printf '__KANNA_FRESH_SESSION__\\n'\r")
-      await waitForOutputToContain(() => getOutput(secondTerminalId), "__KANNA_FRESH_SESSION__")
+      manager.write(secondTerminalId, "printf '__STILLON_FRESH_SESSION__\\n'\r")
+      await waitForOutputToContain(() => getOutput(secondTerminalId), "__STILLON_FRESH_SESSION__")
 
       const interactionOutput = getOutput(secondTerminalId).slice(before)
       expect(interactionOutput).not.toContain("^[[I")

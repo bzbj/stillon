@@ -11,12 +11,14 @@ describe("createServiceLaunchSpec", () => {
       homeDirectory: "/home/alice",
       pathEnvironment: "/opt/bun/bin:/usr/bin",
       port: 4000,
+      environmentFile: "/etc/stillon/production.env",
     })).toEqual({
       executable: "/opt/bun/bin/bun",
-      args: ["/opt/stillon/bin/stillon", "--no-open", "--strict-port", "--port", "4000"],
+      args: ["--env-file", "/etc/stillon/production.env", "/opt/stillon/bin/stillon", "--no-open", "--strict-port", "--port", "4000"],
       workingDirectory: "/srv/stillon",
       homeDirectory: "/home/alice",
       pathEnvironment: "/opt/bun/bin:/usr/bin",
+      environmentFile: "/etc/stillon/production.env",
       localAppDataDirectory: undefined,
     })
   })
@@ -26,14 +28,19 @@ describe("createServiceLaunchSpec", () => {
     expect(() => createServiceLaunchSpec({ entrypoint: "/stillon", port: 70000 })).toThrow("Invalid service port")
   })
 
-  test("uses the home directory as the durable default working directory", () => {
+  test("uses the runtime root as the durable default working directory", () => {
     const launch = createServiceLaunchSpec({
       executable: "/opt/bun/bin/bun",
       entrypoint: "/opt/stillon/bin/stillon",
       homeDirectory: "/home/alice",
     })
 
-    expect(launch.workingDirectory).toBe("/home/alice")
+    expect(launch.workingDirectory).toBe("/opt/stillon")
+  })
+
+  test("rejects an empty environment file path", () => {
+    expect(() => createServiceLaunchSpec({ entrypoint: "/stillon", environmentFile: "  " }))
+      .toThrow("Service environment file path cannot be empty")
   })
 })
 

@@ -7,7 +7,7 @@ import type { ShareMode } from "../shared/share"
 import { createAuthManager } from "./auth"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
-import { KannaAnalyticsReporter } from "./analytics"
+import { StillOnAnalyticsReporter } from "./analytics"
 import { AppSettingsManager } from "./app-settings"
 import { DiffStore } from "./diff-store"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
@@ -62,7 +62,7 @@ export async function persistUploadedFiles(args: {
   return attachments
 }
 
-export interface StartKannaServerOptions {
+export interface StartStillOnServerOptions {
   port?: number
   host?: string
   openBrowser?: boolean
@@ -85,7 +85,7 @@ export interface StartKannaServerOptions {
   }
 }
 
-export async function startKannaServer(options: StartKannaServerOptions = {}) {
+export async function startStillOnServer(options: StartStillOnServerOptions = {}) {
   const port = options.port ?? 3210
   const hostname = options.host ?? "127.0.0.1"
   const strictPort = options.strictPort ?? false
@@ -121,7 +121,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   })
   await appSettings.initialize()
   await keybindings.initialize()
-  const analytics = new KannaAnalyticsReporter({
+  const analytics = new StillOnAnalyticsReporter({
     settings: appSettings,
     currentVersion: options.update?.version ?? "unknown",
     environment: runtimeProfile === "dev" ? "dev" : "prod",

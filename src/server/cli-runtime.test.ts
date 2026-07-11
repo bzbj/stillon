@@ -5,17 +5,11 @@ import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const originalSuppressOpen = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
 const originalStillOnTrustProxy = process.env.STILLON_TRUST_PROXY
-const originalGatewayTrustProxy = process.env.KANNAGW_TRUST_PROXY
 const originalStillOnDisableSelfUpdate = process.env.STILLON_DISABLE_SELF_UPDATE
-const originalHuskyDisableSelfUpdate = process.env.HUSKY_DISABLE_SELF_UPDATE
-const originalKannaDisableSelfUpdate = process.env.KANNA_DISABLE_SELF_UPDATE
 
 beforeEach(() => {
   delete process.env.STILLON_DISABLE_SELF_UPDATE
-  delete process.env.HUSKY_DISABLE_SELF_UPDATE
-  delete process.env.KANNA_DISABLE_SELF_UPDATE
   delete process.env.STILLON_TRUST_PROXY
-  delete process.env.KANNAGW_TRUST_PROXY
 })
 
 afterEach(() => {
@@ -29,11 +23,6 @@ afterEach(() => {
   } else {
     process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] = originalSuppressOpen
   }
-  if (originalGatewayTrustProxy === undefined) {
-    delete process.env.KANNAGW_TRUST_PROXY
-  } else {
-    process.env.KANNAGW_TRUST_PROXY = originalGatewayTrustProxy
-  }
   if (originalStillOnTrustProxy === undefined) {
     delete process.env.STILLON_TRUST_PROXY
   } else {
@@ -43,16 +32,6 @@ afterEach(() => {
     delete process.env.STILLON_DISABLE_SELF_UPDATE
   } else {
     process.env.STILLON_DISABLE_SELF_UPDATE = originalStillOnDisableSelfUpdate
-  }
-  if (originalHuskyDisableSelfUpdate === undefined) {
-    delete process.env.HUSKY_DISABLE_SELF_UPDATE
-  } else {
-    process.env.HUSKY_DISABLE_SELF_UPDATE = originalHuskyDisableSelfUpdate
-  }
-  if (originalKannaDisableSelfUpdate === undefined) {
-    delete process.env.KANNA_DISABLE_SELF_UPDATE
-  } else {
-    process.env.KANNA_DISABLE_SELF_UPDATE = originalKannaDisableSelfUpdate
   }
 })
 
@@ -80,7 +59,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
     shareTunnel: [] as Array<{ localUrl: string; shareMode: "quick" | { kind: "token"; token: string } }>,
     renderShareQr: [] as string[],
     shareTunnelStops: 0,
-    manageService: [] as Array<{ action: "install" | "status" | "logs" | "uninstall"; port: number }>,
+    manageService: [] as Array<{ action: "install" | "status" | "logs" | "uninstall"; port: number; environmentFile?: string }>,
   }
 
   const deps: Parameters<typeof runCli>[1] = {
@@ -129,7 +108,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
       }
     },
     manageService: async (action, options) => {
-      calls.manageService.push({ action, port: options.port })
+      calls.manageService.push({ action, ...options })
     },
     ...overrides,
   }
@@ -295,6 +274,11 @@ describe("parseArgs", () => {
       action: "install",
       options: { port: 4000 },
     })
+    expect(parseArgs(["service", "install", "--env-file", "/etc/stillon/production.env"])).toEqual({
+      kind: "service",
+      action: "install",
+      options: { port: 3210, environmentFile: "/etc/stillon/production.env" },
+    })
     expect(parseArgs(["service", "status"])).toEqual({
       kind: "service",
       action: "status",
@@ -317,6 +301,7 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["service", "restart"])).toThrow("Unknown service action")
     expect(() => parseArgs(["service", "status", "--port", "4000"])).toThrow("Unexpected argument")
     expect(() => parseArgs(["service", "install", "--port", "0"])).toThrow("Invalid service port")
+    expect(() => parseArgs(["service", "install", "--env-file"])).toThrow("Missing value for --env-file")
     expect(() => parseArgs(["service", "install", "--remote"])).toThrow("Unexpected argument")
   })
 })
@@ -344,10 +329,10 @@ describe("runCli", () => {
   test("runs service management without checking updates or starting the server", async () => {
     const { calls, deps } = createDeps()
 
-    const result = await runCli(["service", "install", "--port", "4000"], deps)
+    const result = await runCli(["service", "install", "--port", "4000", "--env-file", "/etc/stillon/production.env"], deps)
 
     expect(result).toEqual({ kind: "exited", code: 0 })
-    expect(calls.manageService).toEqual([{ action: "install", port: 4000 }])
+    expect(calls.manageService).toEqual([{ action: "install", port: 4000, environmentFile: "/etc/stillon/production.env" }])
     expect(calls.fetchLatestVersion).toEqual([])
     expect(calls.startServer).toEqual([])
   })

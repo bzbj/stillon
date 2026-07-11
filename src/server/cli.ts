@@ -7,7 +7,7 @@ import {
   runCli,
 } from "./cli-runtime"
 import { CLI_STARTUP_UPDATE_RESTART_EXIT_CODE, CLI_UI_UPDATE_RESTART_EXIT_CODE } from "./restart"
-import { startKannaServer } from "./server"
+import { startStillOnServer } from "./server"
 import { manageService } from "./service"
 
 // Read version from package.json at the package root
@@ -21,7 +21,7 @@ const result = await runCli(argv, {
   version: VERSION,
   bunVersion: Bun.version,
   startServer: async (options) => {
-    const started = await startKannaServer(options)
+    const started = await startStillOnServer(options)
     if (started.updateManager && options.update) {
       started.updateManager.onChange((snapshot) => {
         if (snapshot.status !== "restart_pending") return
@@ -34,8 +34,7 @@ const result = await runCli(argv, {
   },
   fetchLatestVersion: fetchLatestPackageVersion,
   installVersion: installPackageVersion,
-  selfUpdateEnabled: process.env.STILLON_ENABLE_SELF_UPDATE === "1"
-    || process.env.HUSKY_ENABLE_SELF_UPDATE === "1",
+  selfUpdateEnabled: process.env.STILLON_ENABLE_SELF_UPDATE === "1",
   openUrl,
   log: console.log,
   warn: console.warn,
