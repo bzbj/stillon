@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { KannaAnalyticsReporter, getLaunchAnalyticsProperties } from "./analytics"
+import { StillOnAnalyticsReporter, getLaunchAnalyticsProperties } from "./analytics"
 
-const originalLogAnalytics = process.env.KANNA_LOG_ANALYTICS
+const originalLogAnalytics = process.env.STILLON_LOG_ANALYTICS
 
 function restoreAnalyticsLoggingEnv() {
   if (originalLogAnalytics === undefined) {
-    delete process.env.KANNA_LOG_ANALYTICS
+    delete process.env.STILLON_LOG_ANALYTICS
     return
   }
-  process.env.KANNA_LOG_ANALYTICS = originalLogAnalytics
+  process.env.STILLON_LOG_ANALYTICS = originalLogAnalytics
 }
 
 describe("getLaunchAnalyticsProperties", () => {
@@ -33,14 +33,14 @@ describe("getLaunchAnalyticsProperties", () => {
   })
 })
 
-describe("KannaAnalyticsReporter", () => {
+describe("StillOnAnalyticsReporter", () => {
   test("posts the userId, event name, and shared properties", async () => {
     const originalLog = console.log
     const calls: Array<{ url: string; init?: RequestInit }> = []
     console.log = () => {}
 
     try {
-      const reporter = new KannaAnalyticsReporter({
+      const reporter = new StillOnAnalyticsReporter({
         endpoint: "https://kanna.sh/api/t",
         currentVersion: "0.33.9",
         environment: "dev",
@@ -85,7 +85,7 @@ describe("KannaAnalyticsReporter", () => {
 
   test("posts app_launch with launch flags as properties", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
-    const reporter = new KannaAnalyticsReporter({
+    const reporter = new StillOnAnalyticsReporter({
       endpoint: "https://kanna.sh/api/t",
       currentVersion: "0.33.9",
       environment: "prod",
@@ -136,7 +136,7 @@ describe("KannaAnalyticsReporter", () => {
 
   test("skips requests when analytics is disabled", async () => {
     let called = false
-    const reporter = new KannaAnalyticsReporter({
+    const reporter = new StillOnAnalyticsReporter({
       currentVersion: "0.33.9",
       environment: "prod",
       settings: {
@@ -165,10 +165,10 @@ describe("KannaAnalyticsReporter", () => {
     console.warn = (...args: unknown[]) => {
       warnings.push(args)
     }
-    delete process.env.KANNA_LOG_ANALYTICS
+    delete process.env.STILLON_LOG_ANALYTICS
 
     try {
-      const reporter = new KannaAnalyticsReporter({
+      const reporter = new StillOnAnalyticsReporter({
         endpoint: "https://kanna.sh/api/t",
         currentVersion: "0.33.9",
         environment: "dev",
@@ -199,10 +199,10 @@ describe("KannaAnalyticsReporter", () => {
     console.warn = (...args: unknown[]) => {
       warnings.push(args)
     }
-    process.env.KANNA_LOG_ANALYTICS = "1"
+    process.env.STILLON_LOG_ANALYTICS = "1"
 
     try {
-      const reporter = new KannaAnalyticsReporter({
+      const reporter = new StillOnAnalyticsReporter({
         endpoint: "https://kanna.sh/api/t",
         currentVersion: "0.33.9",
         environment: "prod",
@@ -236,10 +236,10 @@ describe("KannaAnalyticsReporter", () => {
     console.log = (...args: unknown[]) => {
       logs.push(args)
     }
-    process.env.KANNA_LOG_ANALYTICS = "1"
+    process.env.STILLON_LOG_ANALYTICS = "1"
 
     try {
-      const reporter = new KannaAnalyticsReporter({
+      const reporter = new StillOnAnalyticsReporter({
         endpoint: "https://kanna.sh/api/t",
         currentVersion: "0.33.9",
         environment: "dev",
@@ -275,10 +275,10 @@ describe("KannaAnalyticsReporter", () => {
     console.log = (...args: unknown[]) => {
       logs.push(args)
     }
-    delete process.env.KANNA_LOG_ANALYTICS
+    delete process.env.STILLON_LOG_ANALYTICS
 
     try {
-      const reporter = new KannaAnalyticsReporter({
+      const reporter = new StillOnAnalyticsReporter({
         endpoint: "https://kanna.sh/api/t",
         currentVersion: "0.33.9",
         environment: "prod",

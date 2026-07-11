@@ -14,10 +14,8 @@ import { getProjectExportDir } from "./paths"
 
 const STANDALONE_TRANSCRIPT_BUNDLE_VERSION = 1 as const
 const STANDALONE_SHARE_UPLOAD_BASE_URL = process.env.STILLON_SHARE_UPLOAD_BASE_URL?.trim()
-  ?? process.env.HUSKY_SHARE_UPLOAD_BASE_URL?.trim()
   ?? ""
 const STANDALONE_SHARE_PUBLIC_BASE_URL = process.env.STILLON_SHARE_PUBLIC_BASE_URL?.trim()
-  ?? process.env.HUSKY_SHARE_PUBLIC_BASE_URL?.trim()
   ?? ""
 const STANDALONE_SHARE_WORKSPACE_PATH = "/workspace"
 const STANDALONE_SHARE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"

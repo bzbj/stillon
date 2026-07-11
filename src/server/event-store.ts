@@ -42,7 +42,6 @@ function normalizeSidebarProjectOrder(value: unknown) {
 
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
-    || process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
 }
 
 function logSendToStartingProfile(stage: string, details?: Record<string, unknown>) {
@@ -50,7 +49,7 @@ function logSendToStartingProfile(stage: string, details?: Record<string, unknow
     return
   }
 
-  console.log("[kanna/send->starting][server]", JSON.stringify({
+  console.log("[stillon/send->starting][server]", JSON.stringify({
     stage,
     ...details,
   }))

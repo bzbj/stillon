@@ -24,6 +24,8 @@ export interface ServiceLaunchSpec {
   workingDirectory: string
   homeDirectory: string
   pathEnvironment: string
+  /** An optional Bun dotenv file loaded before the StillOn CLI starts. */
+  environmentFile?: string
   localAppDataDirectory?: string
 }
 

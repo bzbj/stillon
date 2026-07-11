@@ -59,7 +59,7 @@ export interface CliRuntimeDeps {
   warn: (message: string) => void
   renderShareQr?: (url: string) => Promise<string>
   startShareTunnel?: (localUrl: string, shareMode: Exclude<ShareMode, false>) => Promise<StartedShareTunnel>
-  manageService: (action: ServiceAction, options: { port: number }) => Promise<void>
+  manageService: (action: ServiceAction, options: { port: number; environmentFile?: string }) => Promise<void>
   /** Source checkouts do not have a published package to update from. */
   selfUpdateEnabled?: boolean
 }
@@ -73,7 +73,7 @@ export interface UpdateInstallAttemptResult {
 
 type ParsedArgs =
   | { kind: "run"; options: CliOptions }
-  | { kind: "service"; action: ServiceAction; options: { port: number } }
+  | { kind: "service"; action: ServiceAction; options: { port: number; environmentFile?: string } }
   | { kind: "help" }
   | { kind: "version" }
 
@@ -110,7 +110,8 @@ Background service:
   service uninstall    Stop and remove the native background service
 
 Service install options:
-  --port <number>      Fixed service port (default: ${PROD_SERVER_PORT})`)
+  --port <number>      Fixed service port (default: ${PROD_SERVER_PORT})
+  --env-file <path>    Load service-only environment variables from this file`)
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -125,18 +126,23 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     let port = PROD_SERVER_PORT
+    let environmentFile: string | undefined
     const serviceArgs = argv.slice(2)
     if (action === "install") {
       for (let index = 0; index < serviceArgs.length; index += 1) {
         const arg = serviceArgs[index]
-        if (arg !== "--port") {
+        if (arg !== "--port" && arg !== "--env-file") {
           throw new Error(`Unexpected argument for service install: ${arg}`)
         }
         const value = serviceArgs[index + 1]
-        if (!value || value.startsWith("-")) throw new Error("Missing value for --port")
-        port = Number(value)
-        if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
-          throw new Error(`Invalid service port: ${value}`)
+        if (!value || value.startsWith("-")) throw new Error(`Missing value for ${arg}`)
+        if (arg === "--port") {
+          port = Number(value)
+          if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+            throw new Error(`Invalid service port: ${value}`)
+          }
+        } else {
+          environmentFile = value
         }
         index += 1
       }
@@ -144,7 +150,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       throw new Error(`Unexpected argument for service ${action}: ${serviceArgs[0]}`)
     }
 
-    return { kind: "service", action, options: { port } }
+    return { kind: "service", action, options: { port, ...(environmentFile ? { environmentFile } : {}) } }
   }
 
   let port = PROD_SERVER_PORT
@@ -261,9 +267,7 @@ function normalizeVersion(version: string) {
 
 async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
   if (deps.selfUpdateEnabled === false
-    || process.env.STILLON_DISABLE_SELF_UPDATE === "1"
-    || process.env.HUSKY_DISABLE_SELF_UPDATE === "1"
-    || process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
+    || process.env.STILLON_DISABLE_SELF_UPDATE === "1") {
     return null
   }
 
@@ -342,8 +346,7 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
   const { port, stop } = await deps.startServer({
     ...parsedArgs.options,
     trustProxy: isShareEnabled(parsedArgs.options.share)
-      || process.env.STILLON_TRUST_PROXY === "1"
-      || process.env.KANNAGW_TRUST_PROXY === "1",
+      || process.env.STILLON_TRUST_PROXY === "1",
     onMigrationProgress: deps.log,
     update: deps.selfUpdateEnabled === false ? undefined : {
       version: deps.version,

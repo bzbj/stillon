@@ -25,8 +25,6 @@ type AnalyticsEnvironment = "dev" | "prod"
 
 function isAnalyticsLoggingEnabled() {
   return process.env.STILLON_LOG_ANALYTICS === "1"
-    || process.env.HUSKY_LOG_ANALYTICS === "1"
-    || process.env.KANNA_LOG_ANALYTICS === "1"
 }
 
 export interface AnalyticsReporter {
@@ -41,7 +39,7 @@ interface AnalyticsSettings {
   }
 }
 
-export class KannaAnalyticsReporter implements AnalyticsReporter {
+export class StillOnAnalyticsReporter implements AnalyticsReporter {
   private readonly settings: AnalyticsSettings
   private readonly endpoint: string
   private readonly fetchImpl: FetchLike
@@ -61,7 +59,6 @@ export class KannaAnalyticsReporter implements AnalyticsReporter {
     this.environment = args.environment
     this.endpoint = args.endpoint
       ?? process.env.STILLON_ANALYTICS_ENDPOINT?.trim()
-      ?? process.env.HUSKY_ANALYTICS_ENDPOINT?.trim()
       ?? ANALYTICS_ENDPOINT
     this.fetchImpl = args.fetchImpl ?? fetch
   }

@@ -64,7 +64,9 @@ bun install -g .
 stillon
 ```
 
-The legacy `husky` and `kanna` commands remain as compatibility aliases.
+The supported command is `stillon`. Existing `kanna` launchers should be
+replaced rather than kept as aliases; this avoids accidentally starting a
+previous application after a migration.
 
 ## Background service
 
@@ -78,9 +80,17 @@ stillon service logs
 stillon service uninstall
 ```
 
-Use `stillon service install --port 4000` to choose a fixed port. Managed
+Use `stillon service install --port 4000` to choose a fixed port. Pass
+`--env-file /absolute/path/to/stillon.env` to load a dedicated service-only
+environment file. Managed
 services always start with `--no-open` and `--strict-port`, so a port conflict
 is reported instead of silently moving StillOn to a different address.
+
+For an isolated, rollback-friendly production installation, follow
+[Production runtime installs](docs/production-runtime.md). The service uses
+the runtime directory that contains its `bin/stillon` entrypoint as its
+working directory, rather than the directory from which `service install` was
+run.
 
 | Platform | Native integration | Lifecycle |
 | --- | --- | --- |
@@ -166,7 +176,10 @@ New state is stored under `~/.stillon/`; per-project uploads, exports, and quick
 
 On first launch, StillOn automatically renames an existing `~/.kanna/` data root to `~/.stillon/`. Existing project attachments and quick actions under `.kanna/` remain readable, while new files use `.stillon/`.
 
-The old `HUSKY_*` and `KANNA_*` environment variables continue to work where they had public equivalents. New configuration should use `STILLON_*`.
+Runtime configuration uses `STILLON_*` variables. Legacy `KANNA_*` variables
+and the `kanna` command are not read by StillOn. Data migration is isolated to
+the documented data roots above, so importing old history does not reactivate
+old launch configuration.
 
 Choose a non-sensitive machine label in **Settings → General → Machine Name**; it is shown in the sidebar and browser tab so remote sessions are easy to identify. `STILLON_MACHINE_NAME` remains supported as the initial default—for example, `STILLON_MACHINE_NAME="Office Mac"`.
 

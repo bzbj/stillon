@@ -3,7 +3,7 @@ import { CodexAppServerManager } from "./codex-app-server"
 import { fallbackTitleFromMessage, generateTitleForChatDetailed } from "./generate-title"
 import { QuickResponseAdapter, runClaudeStructured, runCodexStructured } from "./quick-response"
 
-const shouldRunLiveTests = process.env.KANNA_RUN_LIVE_TITLE_TESTS === "1"
+const shouldRunLiveTests = process.env.STILLON_RUN_LIVE_TITLE_TESTS === "1"
 const LIVE_MESSAGE = "Please help me debug a websocket reconnection issue in a Bun server app"
 
 if (shouldRunLiveTests) {

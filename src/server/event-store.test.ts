@@ -7,14 +7,14 @@ import type { TranscriptEntry } from "../shared/types"
 import type { SnapshotFile } from "./events"
 import { EventStore } from "./event-store"
 
-const originalRuntimeProfile = process.env.KANNA_RUNTIME_PROFILE
+const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const tempDirs: string[] = []
 
 afterEach(async () => {
   if (originalRuntimeProfile === undefined) {
-    delete process.env.KANNA_RUNTIME_PROFILE
+    delete process.env.STILLON_RUNTIME_PROFILE
   } else {
-    process.env.KANNA_RUNTIME_PROFILE = originalRuntimeProfile
+    process.env.STILLON_RUNTIME_PROFILE = originalRuntimeProfile
   }
 
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
@@ -36,7 +36,7 @@ function entry(kind: "user_prompt" | "assistant_text", createdAt: number, extra:
 
 describe("EventStore", () => {
   test("uses the runtime profile for the default data dir", () => {
-    process.env.KANNA_RUNTIME_PROFILE = "dev"
+    process.env.STILLON_RUNTIME_PROFILE = "dev"
 
     const store = new EventStore()
 

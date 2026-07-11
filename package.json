@@ -27,9 +27,7 @@
     "url": "git+https://github.com/bzbj/stillon.git"
   },
   "bin": {
-    "stillon": "./bin/stillon",
-    "husky": "./bin/stillon",
-    "kanna": "./bin/stillon"
+    "stillon": "./bin/stillon"
   },
   "packageManager": "bun@1.3.5",
   "files": [

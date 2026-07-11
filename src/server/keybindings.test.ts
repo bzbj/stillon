@@ -128,17 +128,17 @@ describe("KeybindingsManager", () => {
   })
 
   test("uses the runtime profile for the default keybindings path", () => {
-    const previous = process.env.KANNA_RUNTIME_PROFILE
-    process.env.KANNA_RUNTIME_PROFILE = "dev"
+    const previous = process.env.STILLON_RUNTIME_PROFILE
+    process.env.STILLON_RUNTIME_PROFILE = "dev"
 
     const manager = new KeybindingsManager()
 
     expect(manager.filePath).toEndWith("/.stillon-dev/keybindings.json")
 
     if (previous === undefined) {
-      delete process.env.KANNA_RUNTIME_PROFILE
+      delete process.env.STILLON_RUNTIME_PROFILE
     } else {
-      process.env.KANNA_RUNTIME_PROFILE = previous
+      process.env.STILLON_RUNTIME_PROFILE = previous
     }
   })
 })

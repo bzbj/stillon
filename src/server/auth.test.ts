@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { persistProjectUpload } from "./uploads"
-import { startKannaServer } from "./server"
+import { startStillOnServer } from "./server"
 
 const tempDirs: string[] = []
 
@@ -16,7 +16,7 @@ async function startPasswordServer(options: { trustProxy?: boolean; port?: numbe
   const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-auth-data-"))
   tempDirs.push(projectDir)
   tempDirs.push(dataDir)
-  const server = await startKannaServer({
+  const server = await startStillOnServer({
     dataDir,
     port: options.port ?? 4320,
     strictPort: true,

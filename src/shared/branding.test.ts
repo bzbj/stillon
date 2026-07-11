@@ -33,9 +33,9 @@ describe("runtime profile helpers", () => {
     expect(getKeybindingsFilePathDisplay(env)).toBe("~/.stillon-dev/keybindings.json")
   })
 
-  test("accepts the previous runtime-profile variables", () => {
-    expect(getRuntimeProfile({ HUSKY_RUNTIME_PROFILE: "dev" })).toBe("dev")
-    expect(getRuntimeProfile({ KANNA_RUNTIME_PROFILE: "dev" })).toBe("dev")
+  test("ignores legacy runtime-profile variables", () => {
+    expect(getRuntimeProfile({ HUSKY_RUNTIME_PROFILE: "dev" })).toBe("prod")
+    expect(getRuntimeProfile({ KANNA_RUNTIME_PROFILE: "dev" })).toBe("prod")
   })
 })
 

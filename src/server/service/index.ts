@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
 import os from "node:os"
+import path from "node:path"
 import process from "node:process"
 import { PROD_SERVER_PORT } from "../../shared/ports"
 import { linuxServiceBackend } from "./linux"
@@ -23,6 +24,7 @@ export interface ManageServiceOptions {
   pathEnvironment?: string
   localAppDataDirectory?: string
   port?: number
+  environmentFile?: string
   run?: ServiceCommandRunner
   log?: (message: string) => void
   warn?: (message: string) => void
@@ -91,13 +93,32 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
     throw new Error(`Invalid service port: ${port}`)
   }
   const homeDirectory = options.homeDirectory ?? os.homedir()
+  const entrypointPath = path.resolve(entrypoint)
+  const entrypointDirectory = path.dirname(entrypointPath)
+  // The normal source/runtime layout is <runtime>/bin/stillon. Keep the
+  // managed service rooted at <runtime>, never at the caller's shell cwd.
+  const defaultWorkingDirectory = path.basename(entrypointDirectory) === "bin"
+    ? path.dirname(entrypointDirectory)
+    : entrypointDirectory
+  const environmentFile = options.environmentFile?.trim()
+  if (options.environmentFile !== undefined && !environmentFile) {
+    throw new Error("Service environment file path cannot be empty")
+  }
 
   return {
     executable,
-    args: [entrypoint, "--no-open", "--strict-port", "--port", String(port)],
-    workingDirectory: options.workingDirectory ?? homeDirectory,
+    args: [
+      ...(environmentFile ? ["--env-file", path.resolve(environmentFile)] : []),
+      entrypoint,
+      "--no-open",
+      "--strict-port",
+      "--port",
+      String(port),
+    ],
+    workingDirectory: options.workingDirectory ?? defaultWorkingDirectory,
     homeDirectory,
     pathEnvironment: options.pathEnvironment ?? process.env.PATH ?? "",
+    environmentFile: environmentFile ? path.resolve(environmentFile) : undefined,
     localAppDataDirectory: options.localAppDataDirectory ?? process.env.LOCALAPPDATA,
   }
 }
