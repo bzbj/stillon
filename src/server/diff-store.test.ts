@@ -24,16 +24,16 @@ async function run(command: string[], cwd: string) {
 }
 
 async function createRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), "kanna-diff-store-"))
-  await run(["git", "init"], root)
-  await run(["git", "config", "user.email", "kanna@example.com"], root)
-  await run(["git", "config", "user.name", "Kanna"], root)
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-diff-store-"))
+  await run(["git", "init", "--initial-branch=main"], root)
+  await run(["git", "config", "user.email", "stillon@example.com"], root)
+  await run(["git", "config", "user.name", "StillOn"], root)
   return root
 }
 
 async function createBareRemote() {
-  const root = await mkdtemp(path.join(tmpdir(), "kanna-diff-remote-"))
-  await run(["git", "init", "--bare"], root)
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-diff-remote-"))
+  await run(["git", "init", "--bare", "--initial-branch=main"], root)
   return root
 }
 
@@ -214,7 +214,7 @@ describe("DiffStore", () => {
   test("refreshSnapshot reports origin presence before the first commit", async () => {
     const repoRoot = await createRepo()
     tempDirs.push(repoRoot)
-    await run(["git", "remote", "add", "origin", "https://github.com/jakemor/test224.git"], repoRoot)
+    await run(["git", "remote", "add", "origin", "https://github.com/example/stillon-test.git"], repoRoot)
     await writeFile(path.join(repoRoot, "poem.md"), "rose\n", "utf8")
 
     const store = new DiffStore(repoRoot)
@@ -225,7 +225,7 @@ describe("DiffStore", () => {
       status: "ready",
       branchName: "main",
       hasOriginRemote: true,
-      originRepoSlug: "jakemor/test224",
+      originRepoSlug: "example/stillon-test",
     })
   })
 
@@ -426,7 +426,7 @@ describe("DiffStore", () => {
     expect(snapshot.branchHistory?.entries).toHaveLength(1)
     expect(snapshot.branchHistory?.entries[0]).toMatchObject({
       summary: "Initial commit",
-      authorName: "Kanna",
+      authorName: "StillOn",
       tags: ["v1.0.0"],
       githubUrl: expect.stringContaining("https://github.com/acme/repo/commit/"),
     })
@@ -636,7 +636,7 @@ describe("DiffStore", () => {
   test("syncBranch pull rebases divergent local commits onto the upstream branch", async () => {
     const repoRoot = await createRepo()
     const remoteRoot = await createBareRemote()
-    const remoteWorktree = await mkdtemp(path.join(tmpdir(), "kanna-diff-remote-worktree-"))
+    const remoteWorktree = await mkdtemp(path.join(tmpdir(), "stillon-diff-remote-worktree-"))
     tempDirs.push(repoRoot, remoteRoot, remoteWorktree)
 
     await writeFile(path.join(repoRoot, "app.txt"), "base\n", "utf8")
@@ -647,8 +647,8 @@ describe("DiffStore", () => {
     await run(["git", "push", "-u", "origin", "main"], repoRoot)
 
     await run(["git", "clone", "-b", "main", remoteRoot, remoteWorktree], tmpdir())
-    await run(["git", "config", "user.email", "kanna@example.com"], remoteWorktree)
-    await run(["git", "config", "user.name", "Kanna"], remoteWorktree)
+    await run(["git", "config", "user.email", "stillon@example.com"], remoteWorktree)
+    await run(["git", "config", "user.name", "StillOn"], remoteWorktree)
     await writeFile(path.join(remoteWorktree, "remote.txt"), "remote\n", "utf8")
     await run(["git", "add", "."], remoteWorktree)
     await run(["git", "commit", "-m", "remote change"], remoteWorktree)

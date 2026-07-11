@@ -1,14 +1,30 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { getAppleMobileWebAppStatusBarStyle, syncThemeMetadata } from "./useTheme"
 
-const originalDocument = globalThis.document
-const originalWindow = globalThis.window
-const originalGetComputedStyle = globalThis.getComputedStyle
+const originalDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document")
+const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window")
+const originalGetComputedStyleDescriptor = Object.getOwnPropertyDescriptor(globalThis, "getComputedStyle")
+
+function setGlobalProperty(name: string, value: unknown) {
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    writable: true,
+    value,
+  })
+}
+
+function restoreGlobalProperty(name: string, descriptor: PropertyDescriptor | undefined) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor)
+  } else {
+    Reflect.deleteProperty(globalThis, name)
+  }
+}
 
 afterEach(() => {
-  globalThis.document = originalDocument
-  globalThis.window = originalWindow
-  globalThis.getComputedStyle = originalGetComputedStyle
+  restoreGlobalProperty("document", originalDocumentDescriptor)
+  restoreGlobalProperty("window", originalWindowDescriptor)
+  restoreGlobalProperty("getComputedStyle", originalGetComputedStyleDescriptor)
 })
 
 function createFakeDocument() {
@@ -61,9 +77,9 @@ describe("getAppleMobileWebAppStatusBarStyle", () => {
 describe("syncThemeMetadata", () => {
   test("updates theme-color and color-scheme from the active theme", () => {
     const fakeDocument = createFakeDocument()
-    globalThis.document = fakeDocument as typeof document
-    globalThis.window = {} as typeof window
-    globalThis.getComputedStyle = (() => ({ backgroundColor: "rgb(34, 34, 34)" })) as typeof getComputedStyle
+    setGlobalProperty("document", fakeDocument as typeof document)
+    setGlobalProperty("window", {} as typeof window)
+    setGlobalProperty("getComputedStyle", (() => ({ backgroundColor: "rgb(34, 34, 34)" })) as typeof getComputedStyle)
 
     syncThemeMetadata("dark")
 

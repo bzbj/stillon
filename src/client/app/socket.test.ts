@@ -113,10 +113,26 @@ class FakeWebSocket {
   }
 }
 
+function setGlobalProperty(name: string, value: unknown) {
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    writable: true,
+    value,
+  })
+}
+
+function restoreGlobalProperty(name: string, descriptor: PropertyDescriptor | undefined) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor)
+  } else {
+    Reflect.deleteProperty(globalThis, name)
+  }
+}
+
 describe("KannaSocket", () => {
-  const originalWindow = globalThis.window
-  const originalDocument = globalThis.document
-  const originalWebSocket = globalThis.WebSocket
+  const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window")
+  const originalDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document")
+  const originalWebSocketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")
 
   let windowTarget: FakeEventTarget
   let documentTarget: FakeEventTarget & { visibilityState: "visible" | "hidden" }
@@ -128,21 +144,21 @@ describe("KannaSocket", () => {
     windowTarget = new FakeEventTarget()
     documentTarget = Object.assign(new FakeEventTarget(), { visibilityState: "visible" as const })
 
-    ;(globalThis as any).window = Object.assign(windowTarget, {
+    setGlobalProperty("window", Object.assign(windowTarget, {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
       setInterval: timers.setInterval,
       clearInterval: timers.clearInterval,
       location: { protocol: "http:", host: "localhost:3211" },
-    })
-    ;(globalThis as any).document = documentTarget
-    ;(globalThis as any).WebSocket = FakeWebSocket
+    }))
+    setGlobalProperty("document", documentTarget)
+    setGlobalProperty("WebSocket", FakeWebSocket)
   })
 
   afterEach(() => {
-    ;(globalThis as any).window = originalWindow
-    ;(globalThis as any).document = originalDocument
-    ;(globalThis as any).WebSocket = originalWebSocket
+    restoreGlobalProperty("window", originalWindowDescriptor)
+    restoreGlobalProperty("document", originalDocumentDescriptor)
+    restoreGlobalProperty("WebSocket", originalWebSocketDescriptor)
   })
 
   test("does not ping when the connection is already fresh", async () => {
