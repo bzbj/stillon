@@ -66,6 +66,46 @@ stillon
 
 The legacy `husky` and `kanna` commands remain as compatibility aliases.
 
+## Background service
+
+After installing the `stillon` command globally, you can opt in to a native
+per-user background service:
+
+```bash
+stillon service install
+stillon service status
+stillon service logs
+stillon service uninstall
+```
+
+Use `stillon service install --port 4000` to choose a fixed port. Managed
+services always start with `--no-open` and `--strict-port`, so a port conflict
+is reported instead of silently moving StillOn to a different address.
+
+| Platform | Native integration | Lifecycle |
+| --- | --- | --- |
+| macOS | Per-user LaunchAgent | Starts at login and is kept alive by `launchd` |
+| Linux | systemd user service | Starts with the user manager and restarts after exit |
+| Windows | Per-user Task Scheduler task | Starts at sign-in with bounded failure retries |
+
+On Linux, a user service normally stops when the user manager exits. To keep it
+running after logout and start the user manager at boot, an administrator can
+enable lingering for that account:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+The service integration deliberately does not expose StillOn to the LAN or
+internet, store passwords or tunnel tokens, or prevent the computer from
+sleeping. It listens on the normal loopback address. Continue running StillOn
+under your own supervisor when you need custom launch arguments; remote access
+must still be configured and authenticated explicitly. Removing the service
+does not remove projects or data under `~/.stillon/`.
+
+Windows service management is included for forward compatibility, but the
+broader Windows runtime remains planned rather than supported in this beta.
+
 ## Why StillOn
 
 - **Remote continuation** — reach the same local coding-agent workspace from a laptop, tablet, or phone
