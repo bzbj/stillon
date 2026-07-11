@@ -46,7 +46,7 @@ function BrandMark({ className }: { className?: string }) {
 
 function SidebarIdentity({ machineName }: { machineName: string }) {
   return (
-    <span className="font-machine-identity block min-w-0 max-w-[190px] shrink truncate text-[15px] leading-5 text-foreground" title={machineName}>
+    <span className="font-machine-identity block min-w-0 max-w-[230px] shrink truncate text-[23px] leading-7 text-foreground" title={machineName}>
       {machineName}
     </span>
   )
@@ -429,7 +429,7 @@ function KannaSidebarImpl({
         )}
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
-        <div className="px-[5px] h-[47px] md:h-auto md:min-h-[46px] md:py-1 border-b grid grid-cols-[40px_minmax(0,1fr)_40px] items-center md:pl-3 md:pr-1 md:flex md:justify-between">
+        <div className="px-[5px] h-[47px] md:h-auto md:min-h-[64px] md:py-2 border-b grid grid-cols-[40px_minmax(0,1fr)_40px] items-center md:pl-3 md:pr-1 md:flex md:justify-between">
           <div className="md:hidden">
             <Button
               variant="ghost"
@@ -446,10 +446,10 @@ function KannaSidebarImpl({
               type="button"
               onClick={onCollapse}
               title="Collapse sidebar"
-              className="hidden md:flex group/sidebar-collapse relative items-center justify-center h-5 w-5 sm:h-6 sm:w-6"
+              className="hidden md:flex group/sidebar-collapse relative items-center justify-center h-9 w-9"
             >
-              <BrandMark className="absolute inset-0.5 h-4 w-4 sm:h-5 sm:w-5 rounded-md object-contain transition-all duration-200 ease-out opacity-100 scale-100 group-hover/sidebar-collapse:opacity-0 group-hover/sidebar-collapse:scale-0" />
-              <PanelLeft className="absolute inset-0 h-4 w-4 sm:h-6 sm:w-6 text-slate-500 dark:text-slate-400 transition-all duration-200 ease-out opacity-0 scale-0 group-hover/sidebar-collapse:opacity-100 group-hover/sidebar-collapse:scale-80 hover:opacity-50" />
+              <BrandMark className="absolute inset-0.5 h-[30px] w-[30px] rounded-md object-contain transition-all duration-200 ease-out opacity-100 scale-100 group-hover/sidebar-collapse:opacity-0 group-hover/sidebar-collapse:scale-0" />
+              <PanelLeft className="absolute inset-0 h-7 w-7 text-slate-500 dark:text-slate-400 transition-all duration-200 ease-out opacity-0 scale-0 group-hover/sidebar-collapse:opacity-100 group-hover/sidebar-collapse:scale-80 hover:opacity-50" />
             </button>
             <BrandMark className="h-5 w-5 rounded-md object-contain sm:h-6 sm:w-6 md:hidden" />
             <SidebarIdentity machineName={machineName} />
