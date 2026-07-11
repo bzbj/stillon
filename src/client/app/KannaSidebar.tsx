@@ -46,7 +46,7 @@ function BrandMark({ className }: { className?: string }) {
 
 function SidebarIdentity({ machineName }: { machineName: string }) {
   return (
-    <span className="block min-w-0 max-w-[190px] shrink truncate text-sm font-semibold tracking-[-0.01em] text-foreground" title={machineName}>
+    <span className="font-machine-identity block min-w-0 max-w-[190px] shrink truncate text-sm text-foreground" title={machineName}>
       {machineName}
     </span>
   )
