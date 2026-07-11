@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
 import { StandaloneShareDialog } from "../components/chat-ui/StandaloneShareDialog"
 import { AppDialogProvider } from "../components/ui/app-dialog"
@@ -12,14 +12,71 @@ import type { ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
 import { playChatNotificationSound, shouldPlayChatSound } from "../lib/chatSounds"
 import { getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
 import { KannaSidebar } from "./KannaSidebar"
-import { ChatPage } from "./ChatPage"
 import { LocalProjectsPage } from "./LocalProjectsPage"
-import { SettingsPage } from "./SettingsPage"
 import { useKannaState } from "./useKannaState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 
 const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
 const AUTH_STATUS_RETRY_DELAY_MS = 500
+
+const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
+const SettingsPage = lazy(() => import("./SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })))
+
+function LoadingBlock({ className }: { className: string }) {
+  return (
+    <div aria-hidden="true" className={`animate-pulse rounded-md bg-muted/70 ${className}`} />
+  )
+}
+
+function RouteLoadingFallback({ page }: { page: "chat" | "settings" }) {
+  const loadingLabel = page === "chat" ? "Loading conversation…" : "Loading settings…"
+
+  return (
+    <div className="relative flex flex-1 min-w-0 overflow-hidden bg-background" aria-busy="true">
+      <span className="sr-only" role="status">{loadingLabel}</span>
+      {page === "chat" ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex h-[72px] shrink-0 items-center border-b border-border px-5">
+            <LoadingBlock className="h-4 w-36" />
+          </div>
+          <div className="flex-1 space-y-6 overflow-hidden px-5 pt-8 pb-40">
+            <div className="mx-auto max-w-[800px] space-y-3">
+              <LoadingBlock className="h-4 w-3/4" />
+              <LoadingBlock className="h-4 w-2/5" />
+            </div>
+            <div className="mx-auto max-w-[800px] space-y-3">
+              <LoadingBlock className="ml-auto h-4 w-2/3" />
+              <LoadingBlock className="ml-auto h-4 w-1/3" />
+            </div>
+          </div>
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background px-5 pt-8 pb-5">
+            <div className="mx-auto max-w-[800px] rounded-2xl border border-border/70 bg-card p-3">
+              <LoadingBlock className="h-12 w-full" />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex w-full flex-col gap-6 p-5 lg:flex-row lg:p-8">
+          <div className="flex shrink-0 gap-3 lg:w-52 lg:flex-col">
+            <LoadingBlock className="h-9 flex-1 lg:w-full" />
+            <LoadingBlock className="h-9 flex-1 lg:w-full" />
+            <LoadingBlock className="h-9 flex-1 lg:w-full" />
+          </div>
+          <div className="flex-1 space-y-5">
+            <LoadingBlock className="h-7 w-44" />
+            <LoadingBlock className="h-4 w-full max-w-xl" />
+            <LoadingBlock className="h-4 w-4/5 max-w-lg" />
+            <div className="mt-8 space-y-4 rounded-2xl border border-border/70 p-5">
+              <LoadingBlock className="h-4 w-32" />
+              <LoadingBlock className="h-10 w-full max-w-md" />
+              <LoadingBlock className="h-10 w-full max-w-md" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface AuthStatusResponse {
   enabled: boolean
@@ -400,8 +457,22 @@ export function App() {
           <Route element={<KannaLayout />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
-            <Route path="/settings/:sectionId" element={<SettingsPage />} />
-            <Route path="/chat/:chatId" element={<ChatPage />} />
+            <Route
+              path="/settings/:sectionId"
+              element={(
+                <Suspense fallback={<RouteLoadingFallback page="settings" />}>
+                  <SettingsPage />
+                </Suspense>
+              )}
+            />
+            <Route
+              path="/chat/:chatId"
+              element={(
+                <Suspense fallback={<RouteLoadingFallback page="chat" />}>
+                  <ChatPage />
+                </Suspense>
+              )}
+            />
           </Route>
         </Routes>
       </AppDialogProvider>

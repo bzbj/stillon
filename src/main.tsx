@@ -4,7 +4,6 @@ import { BrowserRouter } from "react-router-dom"
 import "@fontsource-variable/bricolage-grotesque"
 import { App } from "./client/app/App"
 import { ThemeProvider } from "./client/hooks/useTheme"
-import "@xterm/xterm/css/xterm.css"
 import "./index.css"
 
 const container = document.getElementById("root")

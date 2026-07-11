@@ -57,5 +57,9 @@ export default defineConfig({
   build: {
     outDir: "dist/client",
     emptyOutDir: true,
+    // @pierre/diffs lazily loads a few syntax grammars that are close to 780 kB.
+    // Keep the warning threshold above that expected on-demand ceiling so it
+    // remains useful for unexpectedly large application chunks.
+    chunkSizeWarningLimit: 800,
   },
 })

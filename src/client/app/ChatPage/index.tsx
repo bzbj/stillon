@@ -1,11 +1,10 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
-import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
-import { GitPanel } from "../../components/chat-ui/GitPanel"
+import type { GitPanelProps } from "../../components/chat-ui/GitPanel"
 import { useAppDialog } from "../../components/ui/app-dialog"
 import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
@@ -30,9 +29,6 @@ import { useStickyChatFocus } from "../useStickyChatFocus"
 import { useTerminalToggleAnimation } from "../useTerminalToggleAnimation"
 import type { KannaState } from "../useKannaState"
 import { getNextMeasuredInputHeight, getTranscriptPaddingBottom } from "../useKannaState"
-import { ChatInputDock } from "./ChatInputDock"
-import { ChatTranscriptViewport } from "./ChatTranscriptViewport"
-import { TerminalWorkspaceShell } from "./TerminalWorkspaceShell"
 import { useChatPageSidebarActions, EMPTY_DIFF_SNAPSHOT } from "./useChatPageSidebarActions"
 import {
   EMPTY_STATE_TEXT,
@@ -40,6 +36,12 @@ import {
   hasFileDragTypes,
   sameContextWindowSnapshot,
 } from "./utils"
+
+const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
+const ChatInputDock = lazy(() => import("./ChatInputDock").then(({ ChatInputDock }) => ({ default: ChatInputDock })))
+const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").then(({ ChatTranscriptViewport }) => ({ default: ChatTranscriptViewport })))
+const GitPanel = lazy(() => import("../../components/chat-ui/GitPanel").then(({ GitPanel }) => ({ default: GitPanel })))
+const TerminalWorkspaceShell = lazy(() => import("./TerminalWorkspaceShell").then(({ TerminalWorkspaceShell }) => ({ default: TerminalWorkspaceShell })))
 
 export {
   getIgnoreFolderEntryFromDiffPath,
@@ -256,6 +258,7 @@ interface ChatWorkspaceProps {
   chatCard: ReactNode
   projectId: string
   shouldRenderTerminalLayout: boolean
+  shouldRenderTerminalWorkspace: boolean
   showTerminalPane: boolean
   terminalLayout: ReturnType<typeof useTerminalLayoutStore.getState>["projects"][string]
   mainPanelGroupRef: RefObject<GroupImperativeHandle | null>
@@ -277,16 +280,60 @@ interface ChatWorkspaceProps {
   onLayoutChanged: (layout: Record<string, number>) => void
 }
 
-type ChatSidebarContentProps = ComponentProps<typeof GitPanel>
+type ChatSidebarContentProps = GitPanelProps
 
 const ChatSidebarContent = memo(function ChatSidebarContent(props: ChatSidebarContentProps) {
   return (
-    <GitPanel
-      {...props}
-      diffs={props.diffs ?? EMPTY_DIFF_SNAPSHOT}
-    />
+    <Suspense fallback={<PanelLoadingFallback label="Loading changes…" />}>
+      <GitPanel
+        {...props}
+        diffs={props.diffs ?? EMPTY_DIFF_SNAPSHOT}
+      />
+    </Suspense>
   )
 })
+
+function PanelLoadingFallback({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col justify-center gap-4 p-6" aria-busy="true">
+      <span className="sr-only" role="status">{label}</span>
+      <div aria-hidden="true" className="space-y-3 animate-pulse">
+        <div className="h-4 w-2/5 rounded-md bg-muted/70" />
+        <div className="h-20 rounded-xl bg-muted/60" />
+        <div className="h-20 rounded-xl bg-muted/60" />
+      </div>
+    </div>
+  )
+}
+
+function ChatTranscriptLoadingFallback() {
+  return (
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden px-5 pt-[96px] pb-40" aria-busy="true">
+      <span className="sr-only" role="status">Loading conversation…</span>
+      <div aria-hidden="true" className="mx-auto w-full max-w-[800px] space-y-6 animate-pulse">
+        <div className="space-y-3">
+          <div className="h-4 w-3/4 rounded-md bg-muted/70" />
+          <div className="h-4 w-2/5 rounded-md bg-muted/70" />
+        </div>
+        <div className="ml-auto w-2/3 space-y-3">
+          <div className="ml-auto h-4 w-full rounded-md bg-muted/70" />
+          <div className="ml-auto h-4 w-1/2 rounded-md bg-muted/70" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatInputLoadingFallback() {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-background via-background px-5 pt-8 pb-5" aria-busy="true">
+      <span className="sr-only" role="status">Loading message composer…</span>
+      <div aria-hidden="true" className="mx-auto max-w-[800px] animate-pulse rounded-2xl border border-border/70 bg-card p-3">
+        <div className="h-12 rounded-xl bg-muted/70" />
+      </div>
+    </div>
+  )
+}
 
 export function getTerminalPanelDefaultSizes(showTerminalPane: boolean, mainSizes: [number, number]): [number, number] {
   return showTerminalPane ? mainSizes : [100, 0]
@@ -386,6 +433,7 @@ function ChatWorkspace({
   chatCard,
   projectId,
   shouldRenderTerminalLayout,
+  shouldRenderTerminalWorkspace,
   showTerminalPane,
   terminalLayout,
   mainPanelGroupRef,
@@ -446,23 +494,27 @@ function ChatWorkspace({
             "--terminal-toggle-duration": `${TERMINAL_TOGGLE_ANIMATION_DURATION_MS}ms`,
           } as CSSProperties}
         >
-          <TerminalWorkspaceShell
-            projectId={projectId}
-            fixedTerminalHeight={fixedTerminalHeight}
-            terminalLayout={terminalLayout}
-            addTerminal={addTerminal}
-            socket={socket}
-            connectionStatus={connectionStatus}
-            scrollback={scrollback}
-            minColumnWidth={minColumnWidth}
-            splitTerminalShortcut={splitTerminalShortcut}
-            pendingCommandsByTerminalId={pendingCommandsByTerminalId}
-            focusRequestVersion={terminalFocusRequestVersion}
-            onTerminalCommandSent={onTerminalCommandSent}
-            onInitialTerminalCommandSent={onInitialTerminalCommandSent}
-            onRemoveTerminal={onRemoveTerminal}
-            onTerminalLayout={onTerminalLayout}
-          />
+          {shouldRenderTerminalWorkspace ? (
+            <Suspense fallback={<PanelLoadingFallback label="Loading terminal…" />}>
+              <TerminalWorkspaceShell
+                projectId={projectId}
+                fixedTerminalHeight={fixedTerminalHeight}
+                terminalLayout={terminalLayout}
+                addTerminal={addTerminal}
+                socket={socket}
+                connectionStatus={connectionStatus}
+                scrollback={scrollback}
+                minColumnWidth={minColumnWidth}
+                splitTerminalShortcut={splitTerminalShortcut}
+                pendingCommandsByTerminalId={pendingCommandsByTerminalId}
+                focusRequestVersion={terminalFocusRequestVersion}
+                onTerminalCommandSent={onTerminalCommandSent}
+                onInitialTerminalCommandSent={onInitialTerminalCommandSent}
+                onRemoveTerminal={onRemoveTerminal}
+                onTerminalLayout={onTerminalLayout}
+              />
+            </Suspense>
+          ) : null}
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -521,6 +573,8 @@ export function ChatPage() {
   const activeRightPanel = projectId ? rightSidebarVisibility.rightPanel : "hidden"
   const showRightSidebar = Boolean(projectId && activeRightPanel !== "hidden")
   const showGitPanel = Boolean(projectId && activeRightPanel === "git")
+  const [lastOpenedTerminalProjectId, setLastOpenedTerminalProjectId] = useState<string | null>(null)
+  const [lastOpenedGitPanelProjectId, setLastOpenedGitPanelProjectId] = useState<string | null>(null)
   const shouldRenderRightSidebarLayout = Boolean(projectId)
   const isMobileRightSidebarOverlay = useMobileRightSidebarOverlayEnabled()
   const shouldRenderDesktopRightSidebarLayout = shouldRenderRightSidebarLayout && !isMobileRightSidebarOverlay
@@ -534,6 +588,18 @@ export function ChatPage() {
     shouldRenderTerminalLayout,
     terminalMainSizes: terminalLayout.mainSizes,
   })
+
+  useEffect(() => {
+    if (showTerminalPane && projectId) {
+      setLastOpenedTerminalProjectId(projectId)
+    }
+  }, [projectId, showTerminalPane])
+
+  useEffect(() => {
+    if (showGitPanel && projectId) {
+      setLastOpenedGitPanelProjectId(projectId)
+    }
+  }, [projectId, showGitPanel])
 
   const {
     isAnimating: isTerminalAnimating,
@@ -988,57 +1054,61 @@ export function ChatPage() {
           hasGitRepo={state.chatDiffSnapshot?.status !== "no_repo"}
           gitStatus={state.chatDiffSnapshot?.status}
         />
-        <ChatTranscriptViewport
-          activeChatId={state.activeChatId}
-          listRef={transcriptListRef}
-          messages={state.messages}
-          queuedMessages={state.queuedMessages}
-          transcriptPaddingBottom={transcriptPaddingBottom}
-          localPath={state.runtime?.localPath}
-          latestToolIds={state.latestToolIds}
-          isHistoryLoading={state.isHistoryLoading}
-          hasOlderHistory={state.hasOlderHistory}
-          isProcessing={state.isProcessing}
-          runtimeStatus={state.runtimeStatus}
-          isDraining={state.isDraining}
-          commandError={state.commandError}
-          loadOlderHistory={state.loadOlderHistory}
-          onStopDraining={state.handleStopDraining}
-          onSteerQueuedMessage={state.handleSteerQueuedMessage}
-          onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
-          onOpenLocalLink={handleOpenTranscriptLocalLink}
-          editorPreset={editorPreset}
-          editorCommandTemplate={editorCommandTemplate}
-          platform={state.localProjects?.machine.platform}
-          onAskUserQuestionSubmit={state.handleAskUserQuestion}
-          onExitPlanModeConfirm={state.handleExitPlanMode}
-          showScrollButton={showScrollToBottom && state.messages.length > 0}
-          onIsAtEndChange={onIsAtEndChange}
-          scrollToBottom={() => scrollToTranscriptEnd(true)}
-          typedEmptyStateText={typedEmptyStateText}
-          isEmptyStateTypingComplete={isEmptyStateTypingComplete}
-          isPageFileDragActive={isPageFileDragActive}
-          showEmptyState={showEmptyState}
-        />
+        <Suspense fallback={<ChatTranscriptLoadingFallback />}>
+          <ChatTranscriptViewport
+            activeChatId={state.activeChatId}
+            listRef={transcriptListRef}
+            messages={state.messages}
+            queuedMessages={state.queuedMessages}
+            transcriptPaddingBottom={transcriptPaddingBottom}
+            localPath={state.runtime?.localPath}
+            latestToolIds={state.latestToolIds}
+            isHistoryLoading={state.isHistoryLoading}
+            hasOlderHistory={state.hasOlderHistory}
+            isProcessing={state.isProcessing}
+            runtimeStatus={state.runtimeStatus}
+            isDraining={state.isDraining}
+            commandError={state.commandError}
+            loadOlderHistory={state.loadOlderHistory}
+            onStopDraining={state.handleStopDraining}
+            onSteerQueuedMessage={state.handleSteerQueuedMessage}
+            onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
+            onOpenLocalLink={handleOpenTranscriptLocalLink}
+            editorPreset={editorPreset}
+            editorCommandTemplate={editorCommandTemplate}
+            platform={state.localProjects?.machine.platform}
+            onAskUserQuestionSubmit={state.handleAskUserQuestion}
+            onExitPlanModeConfirm={state.handleExitPlanMode}
+            showScrollButton={showScrollToBottom && state.messages.length > 0}
+            onIsAtEndChange={onIsAtEndChange}
+            scrollToBottom={() => scrollToTranscriptEnd(true)}
+            typedEmptyStateText={typedEmptyStateText}
+            isEmptyStateTypingComplete={isEmptyStateTypingComplete}
+            isPageFileDragActive={isPageFileDragActive}
+            showEmptyState={showEmptyState}
+          />
+        </Suspense>
       </CardContent>
 
-      <ChatInputDock
-        inputRef={inputRef}
-        onLayoutChange={syncInputHeight}
-        chatInputRef={chatInputRef}
-        chatInputElementRef={chatInputElementRef}
-        activeChatId={state.activeChatId}
-        previousPrompt={state.previousPrompt}
-        hasSelectedProject={state.hasSelectedProject}
-        runtimeStatus={state.runtimeStatus}
-        canCancel={state.canCancel}
-        projectId={projectId}
-        activeProvider={state.runtime?.provider ?? null}
-        availableProviders={state.availableProviders}
-        contextWindowSnapshot={contextWindowSnapshot}
-        onSubmit={handleChatSubmit}
-        onCancel={handleCancel}
-      />
+      <Suspense fallback={<ChatInputLoadingFallback />}>
+        <ChatInputDock
+          inputRef={inputRef}
+          onLayoutChange={syncInputHeight}
+          chatInputRef={chatInputRef}
+          chatInputElementRef={chatInputElementRef}
+          activeChatId={state.activeChatId}
+          previousPrompt={state.previousPrompt}
+          hasSelectedProject={state.hasSelectedProject}
+          runtimeStatus={state.runtimeStatus}
+          canCancel={state.canCancel}
+          projectId={projectId}
+          activeProvider={state.runtime?.provider ?? null}
+          availableProviders={state.availableProviders}
+          contextWindowSnapshot={contextWindowSnapshot}
+          onSubmit={handleChatSubmit}
+          onCancel={handleCancel}
+        />
+      </Suspense>
     </Card>
   )
 
@@ -1047,6 +1117,11 @@ export function ChatPage() {
       chatCard={chatCard}
       projectId={projectId}
       shouldRenderTerminalLayout={shouldRenderTerminalLayout}
+      shouldRenderTerminalWorkspace={Boolean(
+        projectId
+        && hasTerminals
+        && (showTerminalPane || lastOpenedTerminalProjectId === projectId)
+      )}
       showTerminalPane={showTerminalPane}
       terminalLayout={terminalLayout}
       mainPanelGroupRef={mainPanelGroupRef}
@@ -1138,9 +1213,14 @@ export function ChatPage() {
     state.editorLabel,
     wrapDiffLines,
   ])
+  const shouldKeepGitPanelMounted = Boolean(projectId && (showGitPanel || lastOpenedGitPanelProjectId === projectId))
   const rightPanelContent = activeRightPanel === "browser" && projectId
-    ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
-    : gitPanelContentProps
+    ? (
+      <Suspense fallback={<PanelLoadingFallback label="Loading browser…" />}>
+        <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
+      </Suspense>
+    )
+    : shouldKeepGitPanelMounted && gitPanelContentProps
       ? <ChatSidebarContent {...gitPanelContentProps} />
       : null
 

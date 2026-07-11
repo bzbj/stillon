@@ -1,4 +1,5 @@
 import { memo } from "react"
+import "@xterm/xterm/css/xterm.css"
 import { TerminalWorkspace } from "../../components/chat-ui/TerminalWorkspace"
 import { useTerminalLayoutStore } from "../../stores/terminalLayoutStore"
 import type { KannaState } from "../useKannaState"

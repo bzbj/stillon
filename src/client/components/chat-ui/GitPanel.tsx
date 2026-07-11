@@ -88,7 +88,7 @@ export interface DiffFileActions {
   onCopyRelativePath: (path: string) => void
 }
 
-interface GitPanelProps extends DiffFileActions {
+export interface GitPanelProps extends DiffFileActions {
   projectId: string | null
   diffs: ChatDiffSnapshot
   editorLabel: string
