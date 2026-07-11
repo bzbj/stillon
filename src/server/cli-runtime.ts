@@ -7,6 +7,7 @@ import { assertNoHostOverride, getShareCliFlag, isShareEnabled, isTokenShareMode
 import type { UpdateInstallErrorCode } from "../shared/types"
 import { PROD_SERVER_PORT } from "../shared/ports"
 import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
+import type { ServiceAction } from "./service/types"
 import { logShareDetails, renderTerminalQr, startShareTunnel, type StartedShareTunnel } from "./share"
 
 export interface CliOptions {
@@ -58,6 +59,7 @@ export interface CliRuntimeDeps {
   warn: (message: string) => void
   renderShareQr?: (url: string) => Promise<string>
   startShareTunnel?: (localUrl: string, shareMode: Exclude<ShareMode, false>) => Promise<StartedShareTunnel>
+  manageService: (action: ServiceAction, options: { port: number }) => Promise<void>
   /** Source checkouts do not have a published package to update from. */
   selfUpdateEnabled?: boolean
 }
@@ -71,6 +73,7 @@ export interface UpdateInstallAttemptResult {
 
 type ParsedArgs =
   | { kind: "run"; options: CliOptions }
+  | { kind: "service"; action: ServiceAction; options: { port: number } }
   | { kind: "help" }
   | { kind: "version" }
 
@@ -85,6 +88,7 @@ function printHelp() {
 
 Usage:
   ${CLI_COMMAND} [options]
+  ${CLI_COMMAND} service <install|status|logs|uninstall> [options]
 
 Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
@@ -97,10 +101,52 @@ Options:
   --strict-port        Fail instead of trying another port
   --no-open            Don't open browser automatically
   --version            Print version and exit
-  --help               Show this help message`)
+  --help               Show this help message
+
+Background service:
+  service install      Install and start the native per-user background service
+  service status       Show the native service status
+  service logs         Show recent service logs
+  service uninstall    Stop and remove the native background service
+
+Service install options:
+  --port <number>      Fixed service port (default: ${PROD_SERVER_PORT})`)
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
+  if (argv[0] === "service") {
+    const action = argv[1]
+    if (action === "--help" || action === "-h") return { kind: "help" }
+    if (!action) {
+      throw new Error("Missing service action: expected install, status, logs, or uninstall")
+    }
+    if (action !== "install" && action !== "status" && action !== "logs" && action !== "uninstall") {
+      throw new Error(`Unknown service action: ${action}`)
+    }
+
+    let port = PROD_SERVER_PORT
+    const serviceArgs = argv.slice(2)
+    if (action === "install") {
+      for (let index = 0; index < serviceArgs.length; index += 1) {
+        const arg = serviceArgs[index]
+        if (arg !== "--port") {
+          throw new Error(`Unexpected argument for service install: ${arg}`)
+        }
+        const value = serviceArgs[index + 1]
+        if (!value || value.startsWith("-")) throw new Error("Missing value for --port")
+        port = Number(value)
+        if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+          throw new Error(`Invalid service port: ${value}`)
+        }
+        index += 1
+      }
+    } else if (serviceArgs.length > 0) {
+      throw new Error(`Unexpected argument for service ${action}: ${serviceArgs[0]}`)
+    }
+
+    return { kind: "service", action, options: { port } }
+  }
+
   let port = PROD_SERVER_PORT
   let host = "127.0.0.1"
   let openBrowser = true
@@ -255,6 +301,16 @@ async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
 
 export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliRunResult> {
   const parsedArgs = parseArgs(argv)
+  if (parsedArgs.kind === "service") {
+    try {
+      await deps.manageService(parsedArgs.action, parsedArgs.options)
+      return { kind: "exited", code: 0 }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      deps.warn(`${LOG_PREFIX} ${message}`)
+      return { kind: "exited", code: 1 }
+    }
+  }
   if (parsedArgs.kind === "version") {
     deps.log(deps.version)
     return { kind: "exited", code: 0 }

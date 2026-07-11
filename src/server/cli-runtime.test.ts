@@ -80,6 +80,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
     shareTunnel: [] as Array<{ localUrl: string; shareMode: "quick" | { kind: "token"; token: string } }>,
     renderShareQr: [] as string[],
     shareTunnelStops: 0,
+    manageService: [] as Array<{ action: "install" | "status" | "logs" | "uninstall"; port: number }>,
   }
 
   const deps: Parameters<typeof runCli>[1] = {
@@ -126,6 +127,9 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
           calls.shareTunnelStops += 1
         },
       }
+    },
+    manageService: async (action, options) => {
+      calls.manageService.push({ action, port: options.port })
     },
     ...overrides,
   }
@@ -279,6 +283,42 @@ describe("parseArgs", () => {
     expect(parseArgs(["--version"])).toEqual({ kind: "version" })
     expect(parseArgs(["--help"])).toEqual({ kind: "help" })
   })
+
+  test("parses native background service actions", () => {
+    expect(parseArgs(["service", "install"])).toEqual({
+      kind: "service",
+      action: "install",
+      options: { port: 3210 },
+    })
+    expect(parseArgs(["service", "install", "--port", "4000"])).toEqual({
+      kind: "service",
+      action: "install",
+      options: { port: 4000 },
+    })
+    expect(parseArgs(["service", "status"])).toEqual({
+      kind: "service",
+      action: "status",
+      options: { port: 3210 },
+    })
+    expect(parseArgs(["service", "logs"])).toEqual({
+      kind: "service",
+      action: "logs",
+      options: { port: 3210 },
+    })
+    expect(parseArgs(["service", "uninstall"])).toEqual({
+      kind: "service",
+      action: "uninstall",
+      options: { port: 3210 },
+    })
+  })
+
+  test("rejects invalid background service commands", () => {
+    expect(() => parseArgs(["service"])).toThrow("Missing service action")
+    expect(() => parseArgs(["service", "restart"])).toThrow("Unknown service action")
+    expect(() => parseArgs(["service", "status", "--port", "4000"])).toThrow("Unexpected argument")
+    expect(() => parseArgs(["service", "install", "--port", "0"])).toThrow("Invalid service port")
+    expect(() => parseArgs(["service", "install", "--remote"])).toThrow("Unexpected argument")
+  })
 })
 
 describe("compareVersions", () => {
@@ -301,6 +341,31 @@ describe("classifyInstallVersionFailure", () => {
 })
 
 describe("runCli", () => {
+  test("runs service management without checking updates or starting the server", async () => {
+    const { calls, deps } = createDeps()
+
+    const result = await runCli(["service", "install", "--port", "4000"], deps)
+
+    expect(result).toEqual({ kind: "exited", code: 0 })
+    expect(calls.manageService).toEqual([{ action: "install", port: 4000 }])
+    expect(calls.fetchLatestVersion).toEqual([])
+    expect(calls.startServer).toEqual([])
+  })
+
+  test("reports service management failures", async () => {
+    const { calls, deps } = createDeps({
+      manageService: async () => {
+        throw new Error("native service failed")
+      },
+    })
+
+    const result = await runCli(["service", "status"], deps)
+
+    expect(result).toEqual({ kind: "exited", code: 1 })
+    expect(calls.warn).toContain("[stillon] native service failed")
+    expect(calls.startServer).toEqual([])
+  })
+
   test("skips update checks for --version", async () => {
     const { calls, deps } = createDeps()
 

@@ -8,6 +8,7 @@ import {
 } from "./cli-runtime"
 import { CLI_STARTUP_UPDATE_RESTART_EXIT_CODE, CLI_UI_UPDATE_RESTART_EXIT_CODE } from "./restart"
 import { startKannaServer } from "./server"
+import { manageService } from "./service"
 
 // Read version from package.json at the package root
 const pkg = await Bun.file(new URL("../../package.json", import.meta.url)).json()
@@ -38,6 +39,11 @@ const result = await runCli(argv, {
   openUrl,
   log: console.log,
   warn: console.warn,
+  manageService: (action, options) => manageService(action, {
+    ...options,
+    log: console.log,
+    warn: console.warn,
+  }),
 })
 
 if (result.kind === "exited") {

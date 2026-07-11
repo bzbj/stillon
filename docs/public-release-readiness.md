@@ -26,7 +26,8 @@ StillOn's first public release should be treated as a **macOS-first, source-avai
 | Open file/editor | Primary | Distribution-dependent | Partial implementation |
 | Local HTTP process discovery | lsof / ps | lsof / ps | Not implemented |
 | Local file-link parsing | Unix paths | Unix paths | Drive/UNC paths incomplete |
-| Installer and auto-start | Not packaged | Not packaged | Not packaged |
+| Installer | Not packaged | Not packaged | Not packaged |
+| Background auto-start | CLI-managed LaunchAgent | CLI-managed systemd user service | CLI-managed scheduled task; runtime experimental |
 
 Bun itself now provides Windows ConPTY support, so Windows work is primarily StillOn integration, path handling, process discovery, provider CLI validation, and CI—not a runtime rewrite.
 
@@ -46,7 +47,8 @@ Bun itself now provides Windows ConPTY support, so Windows work is primarily Sti
 - Decide between source-only, npm CLI, standalone binaries, or a desktop wrapper.
 - Keep **private: true** until the npm package name, provenance, and updater are ready.
 - For macOS packaging, add code signing, notarization, checksums, and a verified update channel.
-- Add Linux packages only after testing shell, desktop opener, lsof, and service-management variants.
+- Add Linux packages only after testing shell, desktop opener, lsof, and the
+  CLI-managed systemd user-service integration across target distributions.
 - Add Windows only after a native Windows CI job passes and embedded terminal/process discovery blockers are removed.
 - Publish a rollback procedure and data-format compatibility policy.
 
