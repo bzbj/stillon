@@ -1,0 +1,1257 @@
+export const STORE_VERSION = 2 as const
+export const PROTOCOL_VERSION = 1 as const
+
+export type AgentProvider = "claude" | "codex"
+export type LlmProviderKind = "openai" | "openrouter" | "custom"
+export type AppThemePreference = "light" | "dark" | "system"
+export type ChatSoundPreference = "never" | "unfocused" | "always"
+export type ChatSoundId = "blow" | "bottle" | "frog" | "funk" | "glass" | "ping" | "pop" | "purr" | "tink"
+export type DefaultProviderPreference = "last_used" | AgentProvider
+export type EditorPreset = "cursor" | "vscode" | "xcode" | "windsurf" | "custom"
+export const DEFAULT_OPENAI_SDK_MODEL = "gpt-5.4-mini"
+export const DEFAULT_OPENROUTER_SDK_MODEL = "moonshotai/kimi-k2.5:nitro"
+
+export type AttachmentKind = "image" | "file"
+export type StandaloneTranscriptAttachmentMode = "metadata" | "bundle"
+export type StandaloneTranscriptTheme = "light" | "dark"
+
+export interface SkillSearchResult {
+  id: string
+  skillId: string
+  name: string
+  installs: number
+  source: string
+}
+
+export interface SkillSearchSnapshot {
+  query: string
+  searchType: string
+  skills: SkillSearchResult[]
+  count: number
+  duration_ms: number
+}
+
+export interface SkillInstallResult {
+  source: string
+  skillId: string
+  command: string[]
+  cwd: string
+  stdout: string
+  stderr: string
+}
+
+export interface SkillUninstallResult {
+  skillId: string
+  command: string[]
+  cwd: string
+  stdout: string
+  stderr: string
+}
+
+export type SubscriptionUsageProvider = "codex" | "claude"
+export type SubscriptionUsageWindowId = "five_hour" | "weekly" | "fable_weekly"
+export type SubscriptionUsageStatus = "available" | "unavailable" | "error" | "stale"
+
+export interface SubscriptionUsageWindow {
+  id: SubscriptionUsageWindowId
+  label: string
+  usedPercent: number | null
+  windowMinutes?: number
+  resetsAt?: number | null
+  resetsAtText?: string | null
+}
+
+export interface SubscriptionUsageProviderSnapshot {
+  provider: SubscriptionUsageProvider
+  label: string
+  status: SubscriptionUsageStatus
+  planType?: string | null
+  accountEmail?: string | null
+  source: string
+  updatedAt: number | null
+  error: string | null
+  windows: SubscriptionUsageWindow[]
+}
+
+export interface SubscriptionUsageSnapshot {
+  generatedAt: number
+  providers: SubscriptionUsageProviderSnapshot[]
+}
+
+export interface InstalledSkillSummary {
+  name: string
+  source: string
+  sourceType: string
+  sourceUrl: string
+  skillPath?: string
+  installedAt: string
+  updatedAt: string
+  pluginName?: string
+}
+
+export interface InstalledSkillsSnapshot {
+  lockFilePath: string
+  skills: InstalledSkillSummary[]
+}
+
+export interface ChatAttachment {
+  id: string
+  kind: AttachmentKind
+  displayName: string
+  absolutePath: string
+  relativePath: string
+  contentUrl: string
+  mimeType: string
+  size: number
+}
+
+export interface StandaloneTranscriptBundle {
+  version: 1
+  chatId: string
+  title: string
+  localPath: string
+  exportedAt: string
+  viewerVersion: string
+  theme: StandaloneTranscriptTheme
+  attachmentMode: StandaloneTranscriptAttachmentMode
+  messages: TranscriptEntry[]
+}
+
+export interface StandaloneTranscriptExportResult {
+  ok: true
+  outputDir: string
+  indexHtmlPath: string
+  transcriptJsonPath: string
+  attachmentMode: StandaloneTranscriptAttachmentMode
+  totalAttachmentCount: number
+  bundledAttachmentCount: number
+  shareSlug: string
+  shareUrl: string
+  uploadedFileCount: number
+}
+
+export interface StandaloneTranscriptExportFailureResult {
+  ok: false
+  error: string
+  outputDir: string
+  transcriptJsonPath: string
+  transcriptFileName: string
+  transcriptJson: string
+  shareSlug: string
+  shareUrl: string
+}
+
+export type StandaloneTranscriptExportCommandResult =
+  | StandaloneTranscriptExportResult
+  | StandaloneTranscriptExportFailureResult
+
+export interface QueuedChatMessage {
+  id: string
+  content: string
+  attachments: ChatAttachment[]
+  createdAt: number
+  provider?: AgentProvider
+  model?: string
+  modelOptions?: ModelOptions
+  planMode?: boolean
+  permissionMode?: AgentPermissionMode
+}
+
+export interface InternalUserAttachmentsData {
+  userText: string
+  attachments: ChatAttachment[]
+  llmHintText: string
+}
+
+export interface ProviderModelOption {
+  id: string
+  label: string
+  description?: string
+  supportsEffort: boolean
+  aliases?: readonly string[]
+  contextWindowOptions?: readonly ProviderContextWindowOption[]
+  supportsMaxReasoningEffort?: boolean
+  supportedReasoningEfforts?: readonly CodexReasoningEffort[]
+  supportsFastMode?: boolean
+}
+
+export interface ProviderEffortOption {
+  id: string
+  label: string
+}
+
+export interface ProviderPermissionOption<TPermissionMode extends string = string> {
+  id: TPermissionMode
+  label: string
+  description: string
+}
+
+export interface ProviderContextWindowOption {
+  id: ClaudeContextWindow
+  label: string
+}
+
+export const CLAUDE_REASONING_OPTIONS = [
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "xhigh", label: "XHigh" },
+  { id: "max", label: "Max" },
+] as const satisfies readonly ProviderEffortOption[]
+
+export const CODEX_REASONING_OPTIONS = [
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "xhigh", label: "XHigh" },
+  { id: "max", label: "Max" },
+  { id: "ultra", label: "Ultra" },
+] as const satisfies readonly ProviderEffortOption[]
+
+export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_OPTIONS)[number]["id"]
+export type CodexReasoningEffort = (typeof CODEX_REASONING_OPTIONS)[number]["id"]
+export type ClaudeContextWindow = "200k" | "1m"
+export type ServiceTier = "fast"
+
+export const CLAUDE_PERMISSION_OPTIONS = [
+  { id: "default", label: "Default Approval", description: "Use Claude Code's standard permission prompts." },
+  { id: "acceptEdits", label: "Accept Edits", description: "Auto-accept file edits while keeping other prompts." },
+  { id: "auto", label: "Auto Approve", description: "Let Claude Code classify permission prompts automatically." },
+  { id: "dontAsk", label: "Deny Unapproved", description: "Do not ask; deny actions that are not already allowed." },
+  { id: "bypassPermissions", label: "Bypass Permissions", description: "Bypass permission checks for trusted local work." },
+] as const satisfies readonly ProviderPermissionOption[]
+
+export const CODEX_PERMISSION_OPTIONS = [
+  { id: "request", label: "Request Approval", description: "Work in the sandbox and ask before crossing it." },
+  { id: "auto", label: "Auto Approve", description: "Work in the sandbox and route approvals to auto-review." },
+  { id: "full", label: "Full Access", description: "Run without sandbox restrictions or approval prompts." },
+] as const satisfies readonly ProviderPermissionOption[]
+
+export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_OPTIONS)[number]["id"]
+export type CodexPermissionMode = (typeof CODEX_PERMISSION_OPTIONS)[number]["id"]
+export type AgentPermissionMode = ClaudePermissionMode | CodexPermissionMode
+
+export interface ClaudeModelOptions {
+  reasoningEffort: ClaudeReasoningEffort
+  contextWindow: ClaudeContextWindow
+}
+
+export interface CodexModelOptions {
+  reasoningEffort: CodexReasoningEffort
+  fastMode: boolean
+}
+
+export interface ProviderModelOptionsByProvider {
+  claude: ClaudeModelOptions
+  codex: CodexModelOptions
+}
+
+export interface ProviderPreference<TModelOptions, TPermissionMode extends string = string> {
+  model: string
+  modelOptions: TModelOptions
+  planMode: boolean
+  permissionMode?: TPermissionMode
+}
+
+export type ChatProviderPreferences = {
+  claude: ProviderPreference<ClaudeModelOptions, ClaudePermissionMode>
+  codex: ProviderPreference<CodexModelOptions, CodexPermissionMode>
+}
+
+export type ModelOptions = Partial<{
+  [K in AgentProvider]: Partial<ProviderModelOptionsByProvider[K]>
+}>
+
+export const DEFAULT_CLAUDE_MODEL_OPTIONS = {
+  reasoningEffort: "high",
+  contextWindow: "200k",
+} as const satisfies ClaudeModelOptions
+
+export const DEFAULT_CODEX_MODEL_OPTIONS = {
+  reasoningEffort: "xhigh",
+  fastMode: true,
+} as const satisfies CodexModelOptions
+
+export const DEFAULT_CLAUDE_PERMISSION_MODE: ClaudePermissionMode = "acceptEdits"
+export const DEFAULT_CODEX_PERMISSION_MODE: CodexPermissionMode = "full"
+
+const CODEX_STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const
+const CODEX_EXTENDED_REASONING_EFFORTS = [...CODEX_STANDARD_REASONING_EFFORTS, "max"] as const
+const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_EXTENDED_REASONING_EFFORTS, "ultra"] as const
+
+export const CODEX_MODELS: ProviderModelOption[] = [
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6-Sol",
+    description: "Latest frontier agentic coding model.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6-Terra",
+    description: "Balanced agentic coding model for everyday work.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6-Luna",
+    description: "Fast and affordable agentic coding model.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_EXTENDED_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    description: "Frontier model for complex coding, research, and real-world work.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
+    id: "gpt-5.4",
+    label: "GPT-5.4",
+    description: "Strong model for everyday coding.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
+    id: "gpt-5.4-mini",
+    label: "GPT-5.4-Mini",
+    description: "Small, fast, and cost-efficient model for simpler coding tasks.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
+    supportsFastMode: false,
+  },
+  {
+    id: "gpt-5.3-codex-spark",
+    label: "GPT-5.3-Codex-Spark",
+    description: "Ultra-fast coding model.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
+    supportsFastMode: false,
+  },
+]
+
+export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
+  return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
+}
+
+export function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
+  return CODEX_REASONING_OPTIONS.some((option) => option.id === value)
+}
+
+export function isClaudePermissionMode(value: unknown): value is ClaudePermissionMode {
+  return CLAUDE_PERMISSION_OPTIONS.some((option) => option.id === value)
+}
+
+export function isCodexPermissionMode(value: unknown): value is CodexPermissionMode {
+  return CODEX_PERMISSION_OPTIONS.some((option) => option.id === value)
+}
+
+export function normalizeClaudePermissionMode(value: unknown): ClaudePermissionMode {
+  return isClaudePermissionMode(value) ? value : DEFAULT_CLAUDE_PERMISSION_MODE
+}
+
+export function normalizeCodexPermissionMode(value: unknown): CodexPermissionMode {
+  return isCodexPermissionMode(value) ? value : DEFAULT_CODEX_PERMISSION_MODE
+}
+
+export const CLAUDE_CONTEXT_WINDOW_OPTIONS = [
+  { id: "200k", label: "200k" },
+  { id: "1m", label: "1M" },
+] as const satisfies readonly ProviderContextWindowOption[]
+
+export function isClaudeContextWindow(value: unknown): value is ClaudeContextWindow {
+  return CLAUDE_CONTEXT_WINDOW_OPTIONS.some((option) => option.id === value)
+}
+
+function titleCaseWord(value: string) {
+  return value.length === 0 ? value : `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}`
+}
+
+export function deriveClaudeModelLabel(modelId: string): string {
+  const parts = modelId.replace(/^claude-/, "").split("-").filter(Boolean)
+  if (parts.length === 0) return modelId
+  return titleCaseWord(parts[0] ?? modelId)
+}
+
+export interface ProviderCatalogEntry {
+  id: AgentProvider
+  label: string
+  defaultModel: string
+  defaultEffort?: string
+  supportsPlanMode: boolean
+  models: ProviderModelOption[]
+  efforts: ProviderEffortOption[]
+}
+
+export const PROVIDERS: ProviderCatalogEntry[] = [
+  {
+    id: "claude",
+    label: "Claude",
+    defaultModel: "claude-sonnet-4-6",
+    defaultEffort: "high",
+    supportsPlanMode: true,
+    models: [
+      {
+        id: "claude-fable-5",
+        label: deriveClaudeModelLabel("claude-fable-5"),
+        supportsEffort: true,
+        aliases: ["fable"],
+        contextWindowOptions: [{ id: "1m", label: "1M" }],
+        supportsMaxReasoningEffort: true,
+      },
+      {
+        id: "claude-opus-4-8",
+        label: deriveClaudeModelLabel("claude-opus-4-8"),
+        supportsEffort: true,
+        aliases: ["opus"],
+        contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
+        supportsMaxReasoningEffort: true,
+      },
+      {
+        id: "claude-sonnet-4-6",
+        label: deriveClaudeModelLabel("claude-sonnet-4-6"),
+        supportsEffort: true,
+        aliases: ["sonnet"],
+        contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
+      },
+      {
+        id: "claude-haiku-4-5-20251001",
+        label: deriveClaudeModelLabel("claude-haiku-4-5-20251001"),
+        supportsEffort: true,
+        aliases: ["haiku"],
+      },
+    ],
+    efforts: [...CLAUDE_REASONING_OPTIONS],
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    defaultModel: "gpt-5.6-sol",
+    supportsPlanMode: true,
+    models: CODEX_MODELS,
+    efforts: [...CODEX_REASONING_OPTIONS],
+  },
+]
+
+export function getProviderCatalog(provider: AgentProvider): ProviderCatalogEntry {
+  const entry = PROVIDERS.find((candidate) => candidate.id === provider)
+  if (!entry) {
+    throw new Error(`Unknown provider: ${provider}`)
+  }
+  return entry
+}
+
+function getProviderModelMatch(provider: AgentProvider, modelId?: string): ProviderModelOption | undefined {
+  if (!modelId) return undefined
+
+  return getProviderCatalog(provider).models.find((candidate) =>
+    candidate.id === modelId || candidate.aliases?.includes(modelId)
+  )
+}
+
+export function normalizeProviderModelId(
+  provider: AgentProvider,
+  modelId?: string,
+  fallbackModelId?: string
+): string {
+  return getProviderModelMatch(provider, modelId)?.id
+    ?? fallbackModelId
+    ?? getProviderCatalog(provider).defaultModel
+}
+
+export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "claude-opus-4-8"): string {
+  return normalizeProviderModelId("claude", modelId, fallbackModelId)
+}
+
+export function normalizeCodexModelId(modelId?: string, fallbackModelId = "gpt-5.6-sol"): string {
+  return normalizeProviderModelId("codex", modelId, fallbackModelId)
+}
+
+export function getProviderModelOption(provider: AgentProvider, modelId: string): ProviderModelOption | undefined {
+  const normalizedModelId = normalizeProviderModelId(provider, modelId)
+  return getProviderCatalog(provider).models.find((candidate) => candidate.id === normalizedModelId)
+}
+
+export function getClaudeModelOption(modelId: string): ProviderModelOption | undefined {
+  return getProviderModelOption("claude", modelId)
+}
+
+export function getCodexModelOption(modelId: string): ProviderModelOption | undefined {
+  return getProviderModelOption("codex", modelId)
+}
+
+export function getCodexReasoningOptions(modelId: string): readonly CodexReasoningEffort[] {
+  return getCodexModelOption(modelId)?.supportedReasoningEfforts ?? CODEX_STANDARD_REASONING_EFFORTS
+}
+
+export function normalizeCodexReasoningEffort(modelId: string, effort?: unknown): CodexReasoningEffort {
+  const supportedEfforts = getCodexReasoningOptions(modelId)
+  if (isCodexReasoningEffort(effort) && supportedEfforts.includes(effort)) {
+    return effort
+  }
+  if (supportedEfforts.includes(DEFAULT_CODEX_MODEL_OPTIONS.reasoningEffort)) {
+    return DEFAULT_CODEX_MODEL_OPTIONS.reasoningEffort
+  }
+  return supportedEfforts[0] ?? DEFAULT_CODEX_MODEL_OPTIONS.reasoningEffort
+}
+
+export function supportsCodexFastMode(modelId: string): boolean {
+  return Boolean(getCodexModelOption(modelId)?.supportsFastMode)
+}
+
+export function supportsClaudeMaxReasoningEffort(modelId: string): boolean {
+  return Boolean(getClaudeModelOption(modelId)?.supportsMaxReasoningEffort)
+}
+
+export function getClaudeContextWindowOptions(modelId: string): readonly ProviderContextWindowOption[] {
+  return getClaudeModelOption(modelId)?.contextWindowOptions ?? []
+}
+
+export function normalizeClaudeContextWindow(modelId: string, contextWindow?: unknown): ClaudeContextWindow {
+  const options = getClaudeContextWindowOptions(modelId)
+  if (options.length === 0) return DEFAULT_CLAUDE_MODEL_OPTIONS.contextWindow
+  return options.some((option) => option.id === contextWindow)
+    ? contextWindow as ClaudeContextWindow
+    : options[0]?.id ?? DEFAULT_CLAUDE_MODEL_OPTIONS.contextWindow
+}
+
+export function resolveClaudeApiModelId(modelId: string, contextWindow?: ClaudeContextWindow): string {
+  return contextWindow === "1m" ? `${modelId}[1m]` : modelId
+}
+
+export function resolveClaudeContextWindowTokens(contextWindow: ClaudeContextWindow): number {
+  switch (contextWindow) {
+    case "1m":
+      return 1_000_000
+    case "200k":
+    default:
+      return 200_000
+  }
+}
+
+export type KannaStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "waiting_for_user"
+  | "failed"
+
+export interface ProjectSummary {
+  id: string
+  localPath: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SidebarChatRow {
+  _id: string
+  _creationTime: number
+  chatId: string
+  title: string
+  status: KannaStatus
+  unread: boolean
+  localPath: string
+  provider: AgentProvider | null
+  lastMessageAt?: number
+  hasAutomation: boolean
+  canFork?: boolean
+}
+
+export interface SidebarProjectGroup {
+  groupKey: string
+  title: string
+  realTitle: string
+  sidebarTitle?: string
+  localPath: string
+  chats: SidebarChatRow[]
+  previewChats: SidebarChatRow[]
+  olderChats: SidebarChatRow[]
+  archivedChats?: SidebarChatRow[]
+  defaultCollapsed: boolean
+}
+
+export interface SidebarData {
+  projectGroups: SidebarProjectGroup[]
+}
+
+export interface LocalProjectSummary {
+  localPath: string
+  title: string
+  source: "saved" | "discovered"
+  lastOpenedAt?: number
+  chatCount: number
+}
+
+export interface LocalProjectsSnapshot {
+  machine: {
+    id: "local"
+    displayName: string
+    platform: NodeJS.Platform
+  }
+  projects: LocalProjectSummary[]
+}
+
+export interface AppSettingsSnapshot {
+  analyticsEnabled: boolean
+  browserSettingsMigrated: boolean
+  theme: AppThemePreference
+  chatSoundPreference: ChatSoundPreference
+  chatSoundId: ChatSoundId
+  terminal: {
+    scrollbackLines: number
+    minColumnWidth: number
+  }
+  editor: {
+    preset: EditorPreset
+    commandTemplate: string
+  }
+  defaultProvider: DefaultProviderPreference
+  providerDefaults: ChatProviderPreferences
+  warning: string | null
+  filePathDisplay: string
+}
+
+export interface AppSettingsPatch {
+  analyticsEnabled?: boolean
+  browserSettingsMigrated?: boolean
+  theme?: AppThemePreference
+  chatSoundPreference?: ChatSoundPreference
+  chatSoundId?: ChatSoundId
+  terminal?: Partial<AppSettingsSnapshot["terminal"]>
+  editor?: Partial<AppSettingsSnapshot["editor"]>
+  defaultProvider?: DefaultProviderPreference
+  providerDefaults?: {
+    claude?: Partial<ProviderPreference<ClaudeModelOptions>>
+    codex?: Partial<ProviderPreference<CodexModelOptions>>
+  }
+}
+
+export interface LlmProviderFile {
+  provider?: LlmProviderKind
+  apiKey?: string
+  model?: string
+  baseUrl?: string | null
+}
+
+export interface LlmProviderSnapshot {
+  provider: LlmProviderKind
+  apiKey: string
+  model: string
+  baseUrl: string
+  resolvedBaseUrl: string
+  enabled: boolean
+  warning: string | null
+  filePathDisplay: string
+}
+
+export interface LlmProviderValidationResult {
+  ok: boolean
+  error: unknown | null
+}
+
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "up_to_date"
+  | "updating"
+  | "restart_pending"
+  | "error"
+
+export interface UpdateSnapshot {
+  currentVersion: string
+  latestVersion: string | null
+  status: UpdateStatus
+  updateAvailable: boolean
+  lastCheckedAt: number | null
+  error: string | null
+  installAction: "restart" | "reload"
+  reloadRequestedAt: number | null
+}
+
+export type UpdateInstallErrorCode =
+  | "version_not_live_yet"
+  | "install_failed"
+  | "command_missing"
+
+export interface UpdateInstallResult {
+  ok: boolean
+  action: "restart" | "reload"
+  errorCode: UpdateInstallErrorCode | null
+  userTitle: string | null
+  userMessage: string | null
+}
+
+export type KeybindingAction =
+  | "toggleEmbeddedTerminal"
+  | "toggleRightSidebar"
+  | "openInFinder"
+  | "openInEditor"
+  | "addSplitTerminal"
+  | "jumpToSidebarChat"
+  | "createChatInCurrentProject"
+  | "openAddProject"
+
+export const DEFAULT_KEYBINDINGS: Record<KeybindingAction, string[]> = {
+  toggleEmbeddedTerminal: ["cmd+j", "ctrl+`"],
+  toggleRightSidebar: ["cmd+b", "ctrl+b"],
+  openInFinder: ["cmd+alt+f", "ctrl+alt+f"],
+  openInEditor: ["cmd+shift+o", "ctrl+shift+o"],
+  addSplitTerminal: ["cmd+/", "ctrl+/"],
+  jumpToSidebarChat: ["cmd+alt"],
+  createChatInCurrentProject: ["cmd+alt+n"],
+  openAddProject: ["cmd+alt+o"],
+}
+
+export interface KeybindingsSnapshot {
+  bindings: Record<KeybindingAction, string[]>
+  warning: string | null
+  filePathDisplay: string
+}
+
+export interface McpServerInfo {
+  name: string
+  status: string
+  error?: string
+}
+
+export interface AccountInfo {
+  email?: string
+  organization?: string
+  subscriptionType?: string
+  tokenSource?: string
+  apiKeySource?: string
+}
+
+export interface AskUserQuestionOption {
+  label: string
+  description?: string
+}
+
+export interface AskUserQuestionItem {
+  id?: string
+  question: string
+  header?: string
+  options?: AskUserQuestionOption[]
+  multiSelect?: boolean
+}
+
+export type AskUserQuestionAnswerMap = Record<string, string[]>
+
+export interface TodoItem {
+  content: string
+  status: "pending" | "in_progress" | "completed"
+  activeForm: string
+}
+
+interface TranscriptEntryBase {
+  _id: string
+  messageId?: string
+  createdAt: number
+  hidden?: boolean
+  debugRaw?: string
+}
+
+interface ToolCallBase<TKind extends string, TInput> {
+  kind: "tool"
+  toolKind: TKind
+  toolName: string
+  toolId: string
+  input: TInput
+  rawInput?: Record<string, unknown>
+}
+
+export interface AskUserQuestionToolCall
+  extends ToolCallBase<"ask_user_question", { questions: AskUserQuestionItem[] }> { }
+
+export interface ExitPlanModeToolCall
+  extends ToolCallBase<"exit_plan_mode", { plan?: string; summary?: string }> { }
+
+export interface TodoWriteToolCall
+  extends ToolCallBase<"todo_write", { todos: TodoItem[] }> { }
+
+export interface SkillToolCall
+  extends ToolCallBase<"skill", { skill: string }> { }
+
+export interface GlobToolCall
+  extends ToolCallBase<"glob", { pattern: string }> { }
+
+export interface GrepToolCall
+  extends ToolCallBase<"grep", { pattern: string; outputMode?: string }> { }
+
+export interface BashToolCall
+  extends ToolCallBase<"bash", { command: string; description?: string; timeoutMs?: number; runInBackground?: boolean }> { }
+
+export interface WebSearchToolCall
+  extends ToolCallBase<"web_search", { query: string }> { }
+
+export interface ReadFileToolCall
+  extends ToolCallBase<"read_file", { filePath: string }> { }
+
+export interface WriteFileToolCall
+  extends ToolCallBase<"write_file", { filePath: string; content: string }> { }
+
+export interface EditFileToolCall
+  extends ToolCallBase<"edit_file", { filePath: string; oldString: string; newString: string }> { }
+
+export interface DeleteFileToolCall
+  extends ToolCallBase<"delete_file", { filePath: string; content: string }> { }
+
+export interface SubagentTaskToolCall
+  extends ToolCallBase<"subagent_task", { subagentType?: string }> { }
+
+export interface McpGenericToolCall
+  extends ToolCallBase<"mcp_generic", { server: string; tool: string; payload: Record<string, unknown> }> { }
+
+export interface UnknownToolCall
+  extends ToolCallBase<"unknown_tool", { payload: Record<string, unknown> }> { }
+
+export type NormalizedToolCall =
+  | AskUserQuestionToolCall
+  | ExitPlanModeToolCall
+  | TodoWriteToolCall
+  | SkillToolCall
+  | GlobToolCall
+  | GrepToolCall
+  | BashToolCall
+  | WebSearchToolCall
+  | ReadFileToolCall
+  | WriteFileToolCall
+  | EditFileToolCall
+  | DeleteFileToolCall
+  | SubagentTaskToolCall
+  | McpGenericToolCall
+  | UnknownToolCall
+
+export interface ToolResultEntry extends TranscriptEntryBase {
+  kind: "tool_result"
+  toolId: string
+  content: unknown
+  isError?: boolean
+}
+
+export interface UserPromptEntry extends TranscriptEntryBase {
+  kind: "user_prompt"
+  content: string
+  attachments?: ChatAttachment[]
+  steered?: boolean
+}
+
+export interface SystemInitEntry extends TranscriptEntryBase {
+  kind: "system_init"
+  provider: AgentProvider
+  model: string
+  tools: string[]
+  agents: string[]
+  slashCommands: string[]
+  mcpServers: McpServerInfo[]
+}
+
+export interface AccountInfoEntry extends TranscriptEntryBase {
+  kind: "account_info"
+  accountInfo: AccountInfo
+}
+
+export interface AssistantTextEntry extends TranscriptEntryBase {
+  kind: "assistant_text"
+  text: string
+}
+
+export interface ToolCallEntry extends TranscriptEntryBase {
+  kind: "tool_call"
+  tool: NormalizedToolCall
+}
+
+export interface ResultEntry extends TranscriptEntryBase {
+  kind: "result"
+  subtype: "success" | "error" | "cancelled"
+  isError: boolean
+  durationMs: number
+  result: string
+  costUsd?: number
+}
+
+export interface StatusEntry extends TranscriptEntryBase {
+  kind: "status"
+  status: string
+}
+
+export interface ContextWindowUsageSnapshot {
+  usedTokens: number
+  totalProcessedTokens?: number
+  maxTokens?: number
+  inputTokens?: number
+  cachedInputTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
+  lastUsedTokens?: number
+  lastInputTokens?: number
+  lastCachedInputTokens?: number
+  lastOutputTokens?: number
+  lastReasoningOutputTokens?: number
+  toolUses?: number
+  durationMs?: number
+  compactsAutomatically: boolean
+}
+
+export interface ChatDiffFile {
+  path: string
+  changeType: "added" | "deleted" | "modified" | "renamed"
+  isUntracked: boolean
+  additions: number
+  deletions: number
+  patchDigest: string
+  mimeType?: string
+  size?: number
+}
+
+export interface ChatBranchHistoryEntry {
+  sha: string
+  summary: string
+  description: string
+  authorName?: string
+  authoredAt: string
+  tags: string[]
+  githubUrl?: string
+}
+
+export interface ChatBranchHistorySnapshot {
+  entries: ChatBranchHistoryEntry[]
+}
+
+export type ChatBranchListEntryKind = "local" | "remote" | "pull_request"
+
+export interface ChatBranchListEntry {
+  id: string
+  kind: ChatBranchListEntryKind
+  name: string
+  displayName: string
+  updatedAt?: string
+  description?: string
+  remoteRef?: string
+  prNumber?: number
+  prTitle?: string
+  headRefName?: string
+  headLabel?: string
+  headRepoCloneUrl?: string
+  isCrossRepository?: boolean
+}
+
+export interface ChatBranchListResult {
+  currentBranchName?: string
+  defaultBranchName?: string
+  recent: ChatBranchListEntry[]
+  local: ChatBranchListEntry[]
+  remote: ChatBranchListEntry[]
+  pullRequests: ChatBranchListEntry[]
+  pullRequestsStatus: "available" | "unavailable" | "error"
+  pullRequestsError?: string
+}
+
+export interface GitHubPublishInfo {
+  ghInstalled: boolean
+  authenticated: boolean
+  activeAccountLogin?: string
+  owners: string[]
+  suggestedRepoName: string
+}
+
+export interface GitHubRepoAvailabilityResult {
+  available: boolean
+  message: string
+}
+
+export interface BranchMetadata {
+  branchName?: string
+  defaultBranchName?: string
+  hasOriginRemote?: boolean
+  originRepoSlug?: string
+  hasUpstream?: boolean
+}
+
+export interface UpstreamStatus {
+  aheadCount?: number
+  behindCount?: number
+  lastFetchedAt?: string
+}
+
+export interface ChatDiffSnapshot extends BranchMetadata, UpstreamStatus {
+  status: "unknown" | "ready" | "no_repo"
+  files: ChatDiffFile[]
+  branchHistory?: ChatBranchHistorySnapshot
+}
+
+export interface BranchActionSuccess {
+  ok: true
+  branchName?: string
+  snapshotChanged: boolean
+}
+
+export interface BranchActionFailure {
+  ok: false
+  title: string
+  message: string
+  detail?: string
+  cancelled?: boolean
+  snapshotChanged?: boolean
+}
+
+export type ChatSyncSuccess = BranchActionSuccess & {
+  action: "fetch" | "pull" | "push" | "publish"
+  aheadCount?: number
+  behindCount?: number
+}
+
+export type ChatSyncFailure = BranchActionFailure & {
+  action: "fetch" | "pull" | "push" | "publish"
+}
+
+export type ChatSyncResult = ChatSyncSuccess | ChatSyncFailure
+
+export type DiffCommitMode = "commit_and_push" | "commit_only"
+
+export type ChatCheckoutBranchSuccess = BranchActionSuccess
+export type ChatCheckoutBranchFailure = BranchActionFailure
+export type ChatCheckoutBranchResult = ChatCheckoutBranchSuccess | ChatCheckoutBranchFailure
+
+export type ChatCreateBranchSuccess = BranchActionSuccess & { branchName: string }
+export type ChatCreateBranchFailure = BranchActionFailure
+export type ChatCreateBranchResult = ChatCreateBranchSuccess | ChatCreateBranchFailure
+
+export type ChatMergePreviewStatus = "up_to_date" | "mergeable" | "conflicts" | "error"
+
+export interface ChatMergePreviewResult {
+  currentBranchName?: string
+  targetBranchName: string
+  targetDisplayName: string
+  status: ChatMergePreviewStatus
+  commitCount: number
+  hasConflicts: boolean
+  message: string
+  detail?: string
+}
+
+export type ChatMergeBranchSuccess = BranchActionSuccess
+export type ChatMergeBranchFailure = BranchActionFailure
+export type ChatMergeBranchResult = ChatMergeBranchSuccess | ChatMergeBranchFailure
+
+export type DiffCommitSuccess = BranchActionSuccess & {
+  mode: DiffCommitMode
+  pushed: boolean
+}
+
+export type DiffCommitFailure = BranchActionFailure & {
+  mode: DiffCommitMode
+  phase: "commit" | "push"
+  localCommitCreated?: boolean
+}
+
+export type DiffCommitResult = DiffCommitSuccess | DiffCommitFailure
+
+export interface ContextWindowUpdatedEntry extends TranscriptEntryBase {
+  kind: "context_window_updated"
+  usage: ContextWindowUsageSnapshot
+}
+
+export interface CompactBoundaryEntry extends TranscriptEntryBase {
+  kind: "compact_boundary"
+}
+
+export interface CompactSummaryEntry extends TranscriptEntryBase {
+  kind: "compact_summary"
+  summary: string
+}
+
+export interface ContextClearedEntry extends TranscriptEntryBase {
+  kind: "context_cleared"
+}
+
+export interface InterruptedEntry extends TranscriptEntryBase {
+  kind: "interrupted"
+}
+
+export type TranscriptEntry =
+  | UserPromptEntry
+  | SystemInitEntry
+  | AccountInfoEntry
+  | AssistantTextEntry
+  | ToolCallEntry
+  | ToolResultEntry
+  | ResultEntry
+  | StatusEntry
+  | ContextWindowUpdatedEntry
+  | CompactBoundaryEntry
+  | CompactSummaryEntry
+  | ContextClearedEntry
+  | InterruptedEntry
+
+export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {
+  id: string
+  messageId?: string
+  hidden?: boolean
+  kind: "tool"
+  toolKind: TKind
+  toolName: string
+  toolId: string
+  input: TInput
+  result?: TResult
+  rawResult?: unknown
+  isError?: boolean
+  timestamp: string
+}
+
+export interface AskUserQuestionToolResult {
+  answers: AskUserQuestionAnswerMap
+  discarded?: boolean
+}
+
+export interface ExitPlanModeToolResult {
+  confirmed?: boolean
+  clearContext?: boolean
+  message?: string
+  discarded?: boolean
+}
+
+export type HydratedAskUserQuestionToolCall =
+  HydratedToolCallBase<"ask_user_question", AskUserQuestionToolCall["input"], AskUserQuestionToolResult>
+
+export type HydratedExitPlanModeToolCall =
+  HydratedToolCallBase<"exit_plan_mode", ExitPlanModeToolCall["input"], ExitPlanModeToolResult>
+
+export type HydratedTodoWriteToolCall =
+  HydratedToolCallBase<"todo_write", TodoWriteToolCall["input"], unknown>
+
+export type HydratedSkillToolCall =
+  HydratedToolCallBase<"skill", SkillToolCall["input"], unknown>
+
+export type HydratedGlobToolCall =
+  HydratedToolCallBase<"glob", GlobToolCall["input"], unknown>
+
+export type HydratedGrepToolCall =
+  HydratedToolCallBase<"grep", GrepToolCall["input"], unknown>
+
+export type HydratedBashToolCall =
+  HydratedToolCallBase<"bash", BashToolCall["input"], unknown>
+
+export type HydratedWebSearchToolCall =
+  HydratedToolCallBase<"web_search", WebSearchToolCall["input"], unknown>
+
+export interface ReadFileTextBlock {
+  type: "text"
+  text: string
+}
+
+export interface ReadFileImageBlock {
+  type: "image"
+  data: string
+  mimeType?: string
+}
+
+export interface ReadFileToolResult {
+  content: string
+  blocks?: Array<ReadFileTextBlock | ReadFileImageBlock>
+}
+
+export type HydratedReadFileToolCall =
+  HydratedToolCallBase<"read_file", ReadFileToolCall["input"], ReadFileToolResult | string>
+
+export type HydratedWriteFileToolCall =
+  HydratedToolCallBase<"write_file", WriteFileToolCall["input"], unknown>
+
+export type HydratedEditFileToolCall =
+  HydratedToolCallBase<"edit_file", EditFileToolCall["input"], unknown>
+
+export type HydratedDeleteFileToolCall =
+  HydratedToolCallBase<"delete_file", DeleteFileToolCall["input"], unknown>
+
+export type HydratedSubagentTaskToolCall =
+  HydratedToolCallBase<"subagent_task", SubagentTaskToolCall["input"], unknown>
+
+export type HydratedMcpGenericToolCall =
+  HydratedToolCallBase<"mcp_generic", McpGenericToolCall["input"], unknown>
+
+export type HydratedUnknownToolCall =
+  HydratedToolCallBase<"unknown_tool", UnknownToolCall["input"], unknown>
+
+export type HydratedToolCall =
+  | HydratedAskUserQuestionToolCall
+  | HydratedExitPlanModeToolCall
+  | HydratedTodoWriteToolCall
+  | HydratedSkillToolCall
+  | HydratedGlobToolCall
+  | HydratedGrepToolCall
+  | HydratedBashToolCall
+  | HydratedWebSearchToolCall
+  | HydratedReadFileToolCall
+  | HydratedWriteFileToolCall
+  | HydratedEditFileToolCall
+  | HydratedDeleteFileToolCall
+  | HydratedSubagentTaskToolCall
+  | HydratedMcpGenericToolCall
+  | HydratedUnknownToolCall
+
+export type HydratedTranscriptMessage =
+  | ({ kind: "user_prompt"; content: string; attachments?: ChatAttachment[]; steered?: boolean; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "system_init"; model: string; tools: string[]; agents: string[]; slashCommands: string[]; mcpServers: McpServerInfo[]; provider: AgentProvider; id: string; messageId?: string; timestamp: string; hidden?: boolean; debugRaw?: string })
+  | ({ kind: "account_info"; accountInfo: AccountInfo; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "assistant_text"; text: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "result"; success: boolean; cancelled?: boolean; result: string; durationMs: number; costUsd?: number; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "status"; status: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "context_window_updated"; usage: ContextWindowUsageSnapshot; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "compact_boundary"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "compact_summary"; summary: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "context_cleared"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "interrupted"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "unknown"; json: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ id: string; messageId?: string; hidden?: boolean } & HydratedToolCall)
+
+export interface ChatRuntime {
+  chatId: string
+  projectId: string
+  localPath: string
+  title: string
+  status: KannaStatus
+  isDraining: boolean
+  provider: AgentProvider | null
+  planMode: boolean
+  sessionToken: string | null
+}
+
+export interface ChatHistorySnapshot {
+  hasOlder: boolean
+  olderCursor: string | null
+  recentLimit: number
+}
+
+export interface ChatSnapshot {
+  runtime: ChatRuntime
+  queuedMessages: QueuedChatMessage[]
+  messages: TranscriptEntry[]
+  history: ChatHistorySnapshot
+  availableProviders: ProviderCatalogEntry[]
+}
+
+export interface ChatHistoryPage {
+  messages: TranscriptEntry[]
+  hasOlder: boolean
+  olderCursor: string | null
+}
+
+export interface KannaSnapshot {
+  sidebar: SidebarData
+  chat?: ChatSnapshot | null
+}
+
+export interface PendingToolSnapshot {
+  toolUseId: string
+  toolKind: "ask_user_question" | "exit_plan_mode"
+}

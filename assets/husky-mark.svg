@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Husky</title>
+  <desc id="desc">A geometric husky face in blue and white.</desc>
+  <defs>
+    <linearGradient id="bg" x1="28" y1="20" x2="228" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14233D"/>
+      <stop offset="1" stop-color="#08111F"/>
+    </linearGradient>
+    <linearGradient id="ice" x1="70" y1="42" x2="184" y2="210" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BCEBFF"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#bg)"/>
+  <path d="M63 103 72 47c1-8 10-11 16-5l34 31M193 103l-9-56c-1-8-10-11-16-5l-34 31" fill="#55B5F6"/>
+  <path d="M53 103c0-23 17-43 41-48 10-2 20 0 34 11 14-11 24-13 34-11 24 5 41 25 41 48v41c0 39-32 70-70 70h-10c-38 0-70-31-70-70v-41Z" fill="url(#ice)"/>
+  <path d="M79 94c13-9 31-12 49 3 18-15 36-12 49-3l-12 44-37 22-37-22-12-44Z" fill="#0E365B"/>
+  <path d="M105 72h46l-10 38-13 18-13-18-10-38Z" fill="#F3FBFF"/>
+  <path d="M73 143 99 128l29 32 29-32 26 15c-1 30-25 54-55 54s-54-24-55-54Z" fill="#F6FCFF"/>
+  <path d="M91 139c0-8 7-14 15-14s15 6 15 14c0 5-3 9-7 12l-7 4-8-4c-5-3-8-7-8-12ZM135 139c0-8 7-14 15-14s15 6 15 14c0 5-3 9-8 12l-8 4-7-4c-4-3-7-7-7-12Z" fill="#08111F"/>
+  <path d="M118 164c0-6 5-10 10-10s10 4 10 10c0 5-4 9-10 12-6-3-10-7-10-12Z" fill="#08111F"/>
+  <path d="M112 180c5 7 11 10 16 10s11-3 16-10" fill="none" stroke="#08111F" stroke-width="5" stroke-linecap="round"/>
+  <path d="M81 102c6-16 16-27 31-31" fill="none" stroke="#E8F8FF" stroke-width="7" stroke-linecap="round" opacity=".75"/>
+  <circle cx="101" cy="139" r="3" fill="#E8F8FF"/>
+  <circle cx="155" cy="139" r="3" fill="#E8F8FF"/>
+</svg>
