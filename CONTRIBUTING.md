@@ -9,7 +9,7 @@ Install Bun 1.3.5 or newer, then run:
 ~~~bash
 bun install
 bun run check
-bun test --timeout 20000
+bun run test
 bun run audit
 ~~~
 

@@ -350,7 +350,7 @@ export function openUrl(url: string) {
   if (platform === "darwin") {
     void spawnDetached("open", [url]).catch(() => {})
   } else if (platform === "win32") {
-    void spawnDetached("cmd", ["/c", "start", "", url]).catch(() => {})
+    void spawnDetached("explorer.exe", [url]).catch(() => {})
   } else {
     void spawnDetached("xdg-open", [url]).catch(() => {})
   }

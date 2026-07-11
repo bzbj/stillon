@@ -16,11 +16,16 @@ function formatSpawnError(command: string, error: unknown) {
   return new Error(error.message || `Failed to start ${command}`)
 }
 
-export function spawnDetached(command: string, args: string[]) {
+export function spawnDetached(command: string, args: string[], options: { cwd?: string } = {}) {
   return new Promise<void>((resolve, reject) => {
     let child
     try {
-      child = spawn(command, args, { stdio: "ignore", detached: true, shell: false })
+      child = spawn(command, args, {
+        cwd: options.cwd,
+        stdio: "ignore",
+        detached: true,
+        shell: false,
+      })
     } catch (error) {
       reject(formatSpawnError(command, error))
       return

@@ -212,6 +212,11 @@ export class TerminalManager {
             data: chunk,
           })
         },
+        exit: (_terminal, exitCode) => {
+          const active = this.sessions.get(args.terminalId)
+          if (!active) return
+          this.markTerminalExited(active, exitCode)
+        },
       }),
       headless,
       serializeAddon,
@@ -234,28 +239,16 @@ export class TerminalManager {
     void session.process.exited.then((exitCode) => {
       const active = this.sessions.get(args.terminalId)
       if (!active) return
-      active.status = "exited"
-      active.exitCode = exitCode
-      this.emit({
-        type: "terminal.exit",
-        terminalId: args.terminalId,
-        exitCode,
-      })
+      this.markTerminalExited(active, exitCode)
     }).catch((error) => {
       const active = this.sessions.get(args.terminalId)
       if (!active) return
-      active.status = "exited"
-      active.exitCode = 1
       this.emit({
         type: "terminal.output",
         terminalId: args.terminalId,
         data: `\r\n[terminal error] ${error instanceof Error ? error.message : String(error)}\r\n`,
       })
-      this.emit({
-        type: "terminal.exit",
-        terminalId: args.terminalId,
-        exitCode: 1,
-      })
+      this.markTerminalExited(active, 1)
     })
 
     this.sessions.set(args.terminalId, session)
@@ -352,6 +345,17 @@ export class TerminalManager {
       status: session.status,
       exitCode: session.exitCode,
     }
+  }
+
+  private markTerminalExited(session: TerminalSession, exitCode: number) {
+    if (session.status === "exited") return
+    session.status = "exited"
+    session.exitCode = exitCode
+    this.emit({
+      type: "terminal.exit",
+      terminalId: session.terminalId,
+      exitCode,
+    })
   }
 
   private emit(event: TerminalEvent) {

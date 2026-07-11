@@ -103,7 +103,7 @@ export async function openExternal(command: OpenExternalCommand) {
         await spawnDetached("wt", ["-d", resolvedPath])
         return
       }
-      await spawnDetached("cmd", ["/c", "start", "", "cmd", "/K", `cd /d ${resolvedPath}`])
+      await spawnDetached("cmd.exe", ["/K"], { cwd: resolvedPath })
       return
     }
   }
@@ -183,7 +183,7 @@ export function buildDefaultOpenCommand(args: {
     return { command: "open", args: [args.localPath] }
   }
   if (args.platform === "win32") {
-    return { command: "cmd", args: ["/c", "start", "", args.localPath] }
+    return { command: "explorer.exe", args: [args.localPath] }
   }
   return { command: "xdg-open", args: [args.localPath] }
 }

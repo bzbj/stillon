@@ -138,11 +138,13 @@ describeIfSupported("TerminalManager", () => {
     }
   })
 
-  test("ctrl+d preserves eof behavior", async () => {
+  test("ctrl+d delivers EOF to a foreground process", async () => {
     const terminalId = "terminal-ctrl-d"
-    const { manager } = await createSession(terminalId)
+    const { manager, getOutput } = await createSession(terminalId)
 
     try {
+      manager.write(terminalId, "printf '__KANNA_CAT_READY__\\n'; exec cat\r")
+      await waitForOutputToContain(getOutput, "__KANNA_CAT_READY__")
       manager.write(terminalId, "\x04")
 
       await waitFor(() => manager.getSnapshot(terminalId)?.status === "exited", EOF_TIMEOUT_MS)
@@ -258,6 +260,41 @@ describeIfSupported("TerminalManager", () => {
       { cols: 120, rows: 40 },
     ])
     expect(killCalls).toContainEqual({ pid: -4321, signal: "SIGWINCH" })
+  })
+
+  test("reports a terminal exit only once when PTY and process lifecycle events both arrive", () => {
+    const manager = new TerminalManager() as unknown as {
+      markTerminalExited: (session: {
+        terminalId: string
+        status: "running" | "exited"
+        exitCode: number | null
+      }, exitCode: number) => void
+      onEvent: (listener: (event: { type: string; terminalId: string; exitCode?: number }) => void) => void
+    }
+    const exitEvents: Array<{ type: string; terminalId: string; exitCode?: number }> = []
+    const session: {
+      terminalId: string
+      status: "running" | "exited"
+      exitCode: number | null
+    } = {
+      terminalId: "terminal-eof",
+      status: "running",
+      exitCode: null,
+    }
+
+    manager.onEvent((event) => {
+      if (event.type === "terminal.exit") exitEvents.push(event)
+    })
+
+    manager.markTerminalExited(session, 0)
+    manager.markTerminalExited(session, 0)
+
+    expect(session).toEqual({
+      terminalId: "terminal-eof",
+      status: "exited",
+      exitCode: 0,
+    })
+    expect(exitEvents).toEqual([{ type: "terminal.exit", terminalId: "terminal-eof", exitCode: 0 }])
   })
 
   test("new sessions reset focus mode back to filtered", async () => {

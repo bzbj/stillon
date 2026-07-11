@@ -108,5 +108,9 @@ describe("buildDefaultOpenCommand", () => {
       command: "xdg-open",
       args: ["/tmp/mock.png"],
     })
+    expect(buildDefaultOpenCommand({ localPath: "C:\\Users\\example\\mock.png", platform: "win32" })).toEqual({
+      command: "explorer.exe",
+      args: ["C:\\Users\\example\\mock.png"],
+    })
   })
 })
