@@ -138,7 +138,7 @@ interface CreateWsRouterArgs {
   }
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
-  machineDisplayName: string
+  machineDisplayName: string | (() => string)
   updateManager: UpdateManager | null
 }
 
@@ -396,6 +396,9 @@ export function createWsRouter({
   machineDisplayName,
   updateManager,
 }: CreateWsRouterArgs) {
+  const getCurrentMachineDisplayName = typeof machineDisplayName === "function"
+    ? machineDisplayName
+    : () => machineDisplayName
   const sockets = new Set<ServerWebSocket<ClientState>>()
   let pendingBroadcastTimer: ReturnType<typeof setTimeout> | null = null
   let pendingBroadcastAll = false
@@ -463,6 +466,7 @@ export function createWsRouter({
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {
     analyticsEnabled: true,
     browserSettingsMigrated: false,
+    machineName: "This Machine",
     theme: "system",
     chatSoundPreference: "always",
     chatSoundId: "funk",
@@ -689,7 +693,7 @@ export function createWsRouter({
 
     if (topic.type === "local-projects") {
       const discoveredProjects = getDiscoveredProjects()
-      const data = deriveLocalProjectsSnapshot(store.state, discoveredProjects, machineDisplayName)
+      const data = deriveLocalProjectsSnapshot(store.state, discoveredProjects, getCurrentMachineDisplayName())
 
       return {
         v: PROTOCOL_VERSION,
@@ -1015,7 +1019,7 @@ export function createWsRouter({
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
-        if (topic.type !== "app-settings") continue
+        if (topic.type !== "app-settings" && topic.type !== "local-projects") continue
         const envelope = createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)

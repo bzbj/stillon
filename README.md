@@ -128,7 +128,7 @@ On first launch, StillOn automatically renames an existing `~/.kanna/` data root
 
 The old `HUSKY_*` and `KANNA_*` environment variables continue to work where they had public equivalents. New configuration should use `STILLON_*`.
 
-Set `STILLON_MACHINE_NAME` to choose the non-sensitive machine label shown in the UI—for example, `STILLON_MACHINE_NAME="Office Mac"`.
+Choose a non-sensitive machine label in **Settings → General → Machine Name**; it is shown in the sidebar and browser tab so remote sessions are easy to identify. `STILLON_MACHINE_NAME` remains supported as the initial default—for example, `STILLON_MACHINE_NAME="Office Mac"`.
 
 ## Release editions
 

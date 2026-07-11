@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import { getSettingsFilePath, LOG_PREFIX } from "../shared/branding"
+import { normalizeMachineName } from "./machine-name"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CLAUDE_PERMISSION_MODE,
@@ -37,6 +38,7 @@ interface AppSettingsFile {
   analyticsEnabled?: unknown
   analyticsUserId?: unknown
   browserSettingsMigrated?: unknown
+  machineName?: unknown
   theme?: unknown
   chatSoundPreference?: unknown
   chatSoundId?: unknown
@@ -63,6 +65,11 @@ interface NormalizedAppSettings {
   payload: AppSettingsState
   warning: string | null
   shouldWrite: boolean
+}
+
+export interface AppSettingsManagerOptions {
+  /** The system-provided label used until the user saves a custom local name. */
+  defaultMachineName?: string
 }
 
 const DEFAULT_TERMINAL_SCROLLBACK = 1_000
@@ -227,6 +234,7 @@ function toFilePayload(state: AppSettingsState) {
     analyticsEnabled: state.analyticsEnabled,
     analyticsUserId: state.analyticsUserId,
     browserSettingsMigrated: state.browserSettingsMigrated,
+    machineName: state.machineName,
     theme: state.theme,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
@@ -241,6 +249,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
   return {
     analyticsEnabled: state.analyticsEnabled,
     browserSettingsMigrated: state.browserSettingsMigrated,
+    machineName: state.machineName,
     theme: state.theme,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
@@ -255,7 +264,8 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
 
 function normalizeAppSettings(
   value: unknown,
-  filePath = getSettingsFilePath(homedir())
+  filePath = getSettingsFilePath(homedir()),
+  defaultMachineName = "This Machine",
 ): NormalizedAppSettings {
   const source = value && typeof value === "object" && !Array.isArray(value)
     ? value as AppSettingsFile
@@ -281,10 +291,14 @@ function normalizeAppSettings(
   }
 
   const editorPreset = normalizeEditorPreset(source?.editor?.preset)
+  const machineName = normalizeMachineName(source?.machineName)
+    ?? normalizeMachineName(defaultMachineName)
+    ?? "This Machine"
   const state: AppSettingsState = {
     analyticsEnabled,
     analyticsUserId,
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
+    machineName,
     theme: normalizeTheme(source?.theme),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
@@ -319,6 +333,7 @@ function toComparablePayload(source: AppSettingsFile) {
     analyticsEnabled: source.analyticsEnabled,
     analyticsUserId: typeof source.analyticsUserId === "string" ? source.analyticsUserId.trim() : source.analyticsUserId,
     browserSettingsMigrated: source.browserSettingsMigrated,
+    machineName: source.machineName,
     theme: source.theme,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
@@ -329,7 +344,11 @@ function toComparablePayload(source: AppSettingsFile) {
   }
 }
 
-function applyPatch(state: AppSettingsState, patch: AppSettingsPatch): AppSettingsState {
+function applyPatch(
+  state: AppSettingsState,
+  patch: AppSettingsPatch,
+  defaultMachineName: string,
+): AppSettingsState {
   return normalizeAppSettings({
     ...toFilePayload(state),
     ...patch,
@@ -359,7 +378,7 @@ function applyPatch(state: AppSettingsState, patch: AppSettingsPatch): AppSettin
         },
       },
     },
-  }, state.filePathDisplay).payload
+  }, state.filePathDisplay, defaultMachineName).payload
 }
 
 export async function readAppSettingsSnapshot(filePath = getSettingsFilePath(homedir())) {
@@ -390,13 +409,15 @@ export async function readAppSettingsSnapshot(filePath = getSettingsFilePath(hom
 
 export class AppSettingsManager {
   readonly filePath: string
+  private readonly defaultMachineName: string
   private watcher: FSWatcher | null = null
   private state: AppSettingsState
   private readonly listeners = new Set<(snapshot: AppSettingsSnapshot) => void>()
 
-  constructor(filePath = getSettingsFilePath(homedir())) {
+  constructor(filePath = getSettingsFilePath(homedir()), options: AppSettingsManagerOptions = {}) {
     this.filePath = filePath
-    this.state = normalizeAppSettings(undefined, filePath).payload
+    this.defaultMachineName = normalizeMachineName(options.defaultMachineName) ?? "This Machine"
+    this.state = normalizeAppSettings(undefined, filePath, this.defaultMachineName).payload
   }
 
   async initialize() {
@@ -437,7 +458,7 @@ export class AppSettingsManager {
 
   async writePatch(patch: AppSettingsPatch) {
     const nextState = {
-      ...applyPatch(this.state, patch),
+      ...applyPatch(this.state, patch, this.defaultMachineName),
       warning: null,
       filePathDisplay: formatDisplayPath(this.filePath),
     }
@@ -453,7 +474,7 @@ export class AppSettingsManager {
     try {
       const text = await file.text()
       const hasText = text.trim().length > 0
-      const normalized = normalizeAppSettings(hasText ? JSON.parse(text) : undefined, this.filePath)
+      const normalized = normalizeAppSettings(hasText ? JSON.parse(text) : undefined, this.filePath, this.defaultMachineName)
       if (options?.persistNormalized && (!hasText || normalized.shouldWrite)) {
         await writeFile(this.filePath, `${JSON.stringify(toFilePayload(normalized.payload), null, 2)}\n`, "utf8")
       }
@@ -466,7 +487,7 @@ export class AppSettingsManager {
         throw error
       }
 
-      const normalized = normalizeAppSettings(undefined, this.filePath)
+      const normalized = normalizeAppSettings(undefined, this.filePath, this.defaultMachineName)
       if (options?.persistNormalized) {
         await writeFile(this.filePath, `${JSON.stringify(toFilePayload(normalized.payload), null, 2)}\n`, "utf8")
       }

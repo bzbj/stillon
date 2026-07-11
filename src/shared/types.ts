@@ -603,6 +603,7 @@ export interface LocalProjectsSnapshot {
 export interface AppSettingsSnapshot {
   analyticsEnabled: boolean
   browserSettingsMigrated: boolean
+  machineName: string
   theme: AppThemePreference
   chatSoundPreference: ChatSoundPreference
   chatSoundId: ChatSoundId
@@ -623,6 +624,7 @@ export interface AppSettingsSnapshot {
 export interface AppSettingsPatch {
   analyticsEnabled?: boolean
   browserSettingsMigrated?: boolean
+  machineName?: string
   theme?: AppThemePreference
   chatSoundPreference?: ChatSoundPreference
   chatSoundId?: ChatSoundId

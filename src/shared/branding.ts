@@ -1,4 +1,4 @@
-export const APP_NAME = "StillOn"
+export const APP_NAME = "Still On"
 export const APP_TAGLINE = "You go. Your agents stay on."
 export const CLI_COMMAND = "stillon"
 export const DATA_ROOT_NAME = ".stillon"
@@ -39,7 +39,8 @@ import pkg from "../../package.json"
 export const APP_VERSION = pkg.version
 export const SDK_CLIENT_APP = `stillon/${pkg.version}`
 export const LOG_PREFIX = "[stillon]"
-export const DEFAULT_NEW_PROJECT_ROOT = `~/${APP_NAME}`
+// Keep the filesystem default stable even when the user-facing wordmark changes.
+export const DEFAULT_NEW_PROJECT_ROOT = "~/StillOn"
 
 export type RuntimeProfile = "dev" | "prod"
 
@@ -113,5 +114,5 @@ export function getCliInvocation(arg?: string) {
 }
 
 export function getReleaseEditionTooltip(edition: ReleaseEdition = RELEASE_EDITION) {
-  return `StillOn release: ${edition}.\n${RELEASE_EDITION_DESCRIPTIONS[edition]}`
+  return `${APP_NAME} release: ${edition}.\n${RELEASE_EDITION_DESCRIPTIONS[edition]}`
 }

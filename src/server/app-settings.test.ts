@@ -22,6 +22,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
   return {
     analyticsEnabled: false,
     browserSettingsMigrated: false,
+    machineName: "This Machine",
     theme: "system",
     chatSoundPreference: "always",
     chatSoundId: "funk",
@@ -158,6 +159,22 @@ describe("AppSettingsManager", () => {
     expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
+
+    manager.dispose()
+  })
+
+  test("uses the system label as a default and persists a sanitized custom machine name", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath, { defaultMachineName: "  Office Mac\n" })
+
+    await manager.initialize()
+    expect(manager.getSnapshot().machineName).toBe("Office Mac")
+
+    const snapshot = await manager.writePatch({ machineName: "  Studio\u0000 Mac\n" })
+    const payload = JSON.parse(await readFile(filePath, "utf8")) as { machineName: string }
+
+    expect(snapshot.machineName).toBe("Studio Mac")
+    expect(payload.machineName).toBe("Studio Mac")
 
     manager.dispose()
   })

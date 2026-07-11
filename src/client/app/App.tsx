@@ -43,6 +43,12 @@ export function shouldRetryAuthStatusRequest(responseOk: boolean | null) {
   return responseOk !== true
 }
 
+export function getAppPageTitle(machineName: string | null | undefined, notificationCount = 0) {
+  const normalizedMachineName = machineName?.trim()
+  const baseTitle = normalizedMachineName ? `${normalizedMachineName} — ${APP_NAME}` : APP_NAME
+  return notificationCount > 0 ? `[${notificationCount}] ${baseTitle}` : baseTitle
+}
+
 function PasswordScreen({
   error,
   onSubmit,
@@ -203,6 +209,8 @@ function KannaLayout() {
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
+  const machineName = state.appSettings?.machineName ?? state.localProjects?.machine.displayName ?? null
+  const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
   const previousSidebarDataRef = useRef<ReturnType<typeof useKannaState>["sidebarData"] | null>(null)
   const handleSidebarCreateChat = useCallback((projectId: string) => {
     void state.handleCreateChat(projectId)
@@ -250,6 +258,7 @@ function KannaLayout() {
     <KannaSidebar
       data={state.sidebarData}
       activeChatId={state.activeChatId}
+      machineName={machineName ?? "This Machine"}
       connectionStatus={state.connectionStatus}
       ready={state.sidebarReady}
       open={state.sidebarOpen}
@@ -293,6 +302,7 @@ function KannaLayout() {
     handleSidebarShareChat,
     handleSidebarReorderProjectGroups,
     handleSidebarHideProject,
+    machineName,
     showMobileOpenButton,
     state.activeChatId,
     state.activeProjectId,
@@ -319,16 +329,16 @@ function KannaLayout() {
   }, [currentVersion, location.pathname, navigate])
 
   useLayoutEffect(() => {
-    document.title = APP_NAME
-  }, [location.key])
+    document.title = appPageTitle
+  }, [appPageTitle, location.key])
 
   useEffect(() => {
     function handlePageShow() {
-      document.title = APP_NAME
+      document.title = appPageTitle
     }
 
     function handlePageHide() {
-      document.title = APP_NAME
+      document.title = appPageTitle
     }
 
     window.addEventListener("pageshow", handlePageShow)
@@ -337,12 +347,7 @@ function KannaLayout() {
       window.removeEventListener("pageshow", handlePageShow)
       window.removeEventListener("pagehide", handlePageHide)
     }
-  }, [])
-
-  useEffect(() => {
-    const notificationCount = getNotificationTitleCount(state.sidebarData)
-    document.title = notificationCount > 0 ? `[${notificationCount}] ${APP_NAME}` : APP_NAME
-  }, [state.sidebarData])
+  }, [appPageTitle])
 
   useEffect(() => {
     const burstCount = getChatSoundBurstCount(previousSidebarDataRef.current, state.sidebarData)

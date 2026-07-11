@@ -44,17 +44,42 @@ function BrandMark({ className }: { className?: string }) {
   return <img src="/stillon-mark.svg" alt="" aria-hidden="true" draggable={false} className={className} />
 }
 
-function SidebarWordmark() {
+function SidebarIdentity({ machineName }: { machineName: string }) {
   return (
-    <span className="inline-flex min-w-0 max-w-[190px] shrink items-center font-logo text-lg font-semibold tracking-[0.02em] text-slate-700 dark:text-slate-100">
-      <span className="truncate">{APP_NAME}</span>
+    <span className="block min-w-0 max-w-[190px] shrink truncate text-sm font-semibold tracking-[-0.01em] text-foreground" title={machineName}>
+      {machineName}
     </span>
   )
+}
+
+export function getConnectionStatusPresentation(connectionStatus: SocketStatus, ready: boolean) {
+  if (connectionStatus === "connected" && ready) {
+    return {
+      label: "Still On",
+      description: "Connected to this machine",
+      dotClassName: "bg-emerald-400 shadow-[0_0_0_3px] shadow-emerald-500/15",
+    }
+  }
+
+  if (connectionStatus === "connecting" || !ready) {
+    return {
+      label: "Reconnecting…",
+      description: "Reconnecting to this machine",
+      dotClassName: "bg-amber-400 animate-pulse",
+    }
+  }
+
+  return {
+    label: "Out of Reach",
+    description: "This machine is currently unreachable",
+    dotClassName: "bg-rose-400",
+  }
 }
 
 interface KannaSidebarProps {
   data: SidebarData
   activeChatId: string | null
+  machineName: string
   connectionStatus: SocketStatus
   ready: boolean
   open: boolean
@@ -87,6 +112,7 @@ interface KannaSidebarProps {
 function KannaSidebarImpl({
   data,
   activeChatId,
+  machineName,
   connectionStatus,
   ready,
   open,
@@ -357,8 +383,7 @@ function KannaSidebarImpl({
   const isSettingsActive = location.pathname.startsWith("/settings")
   const isUtilityPageActive = isLocalProjectsActive || isSettingsActive
   const isConnecting = connectionStatus === "connecting" || !ready
-  const statusLabel = isConnecting ? "Connecting" : connectionStatus === "connected" ? "Connected" : "Disconnected"
-  const statusDotClass = connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500"
+  const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready)
   const showUpdateButton = updateSnapshot?.updateAvailable === true
   const showDevBadge = updateSnapshot
     ? updateSnapshot.latestVersion === `${updateSnapshot.currentVersion}-dev`
@@ -404,7 +429,7 @@ function KannaSidebarImpl({
         )}
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
-        <div className="px-[5px] h-[47px] md:h-auto md:py-1 border-b grid grid-cols-[40px_minmax(0,1fr)_40px] items-center md:pl-3 md:pr-1 md:flex md:justify-between">
+        <div className="px-[5px] h-[47px] md:h-auto md:min-h-[46px] md:py-1 border-b grid grid-cols-[40px_minmax(0,1fr)_40px] items-center md:pl-3 md:pr-1 md:flex md:justify-between">
           <div className="md:hidden">
             <Button
               variant="ghost"
@@ -427,7 +452,7 @@ function KannaSidebarImpl({
               <PanelLeft className="absolute inset-0 h-4 w-4 sm:h-6 sm:w-6 text-slate-500 dark:text-slate-400 transition-all duration-200 ease-out opacity-0 scale-0 group-hover/sidebar-collapse:opacity-100 group-hover/sidebar-collapse:scale-80 hover:opacity-50" />
             </button>
             <BrandMark className="h-5 w-5 rounded-md object-contain sm:h-6 sm:w-6 md:hidden" />
-            <SidebarWordmark />
+            <SidebarIdentity machineName={machineName} />
           </div>
           <div className="flex items-center justify-self-end md:justify-self-auto">
             <Button
@@ -557,13 +582,9 @@ function KannaSidebarImpl({
                 <Settings className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">Settings</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{statusLabel}</span>
-                {isConnecting ? (
-                  <Loader2 className="h-2 w-2 animate-spin" />
-                ) : (
-                  <span className={cn("h-2 w-2 rounded-full", statusDotClass)} />
-                )}
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground" title={connectionPresentation.description}>
+                <span>{connectionPresentation.label}</span>
+                <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", connectionPresentation.dotClassName)} />
               </div>
             </div>
           </button>
