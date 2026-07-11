@@ -208,6 +208,33 @@ describe("uploads", () => {
     }
   })
 
+  test("rejects batches whose combined size exceeds the upload limit", async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-batch-oversize-"))
+    tempDirs.push(projectDir)
+
+    const server = await startIsolatedServer({ port: 4315 })
+
+    try {
+      const project = await server.store.openProject(projectDir, "Project")
+      const formData = new FormData()
+      const halfLimitPlusOne = new Uint8Array(50 * 1024 * 1024 + 1)
+      formData.append("files", new File([halfLimitPlusOne], "first.bin", { type: "application/octet-stream" }))
+      formData.append("files", new File([halfLimitPlusOne], "second.bin", { type: "application/octet-stream" }))
+
+      const response = await fetch(`http://localhost:${server.port}/api/projects/${project.id}/uploads`, {
+        method: "POST",
+        body: formData,
+      })
+
+      expect(response.status).toBe(413)
+      expect(await response.json()).toEqual({
+        error: "Combined uploads exceed the 100 MB limit.",
+      })
+    } finally {
+      await server.stop()
+    }
+  })
+
   test("cleans up already-persisted files when a later file in the batch fails", async () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-cleanup-"))
     tempDirs.push(projectDir)

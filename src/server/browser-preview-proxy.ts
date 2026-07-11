@@ -80,10 +80,27 @@ function shouldRewriteResponse(headers: Headers) {
   return REWRITABLE_CONTENT_TYPES.some((candidate) => contentType.includes(candidate))
 }
 
-function buildForwardHeaders(req: Request) {
+function buildForwardHeaders(req: Request, port: number) {
   const headers = new Headers(req.headers)
   for (const header of HOP_BY_HOP_HEADERS) {
     headers.delete(header)
+  }
+  for (const header of [...headers.keys()]) {
+    const lower = header.toLowerCase()
+    if (
+      lower === "authorization"
+      || lower === "cookie"
+      || lower === "referer"
+      || lower === "x-real-ip"
+      || lower.startsWith("cf-")
+      || lower.startsWith("x-forwarded-")
+      || lower.startsWith("sec-fetch-")
+    ) {
+      headers.delete(header)
+    }
+  }
+  if (headers.has("origin")) {
+    headers.set("origin", `http://127.0.0.1:${port}`)
   }
   return headers
 }
@@ -97,6 +114,8 @@ function buildResponseHeaders(upstreamHeaders: Headers, port: number) {
   headers.delete("content-security-policy-report-only")
   headers.delete("cross-origin-opener-policy")
   headers.delete("cross-origin-embedder-policy")
+  headers.delete("set-cookie")
+  headers.delete("set-cookie2")
 
   const location = headers.get("location")
   if (location) {
@@ -137,7 +156,7 @@ export async function handleBrowserPreviewProxy(
   const upstreamUrl = `http://127.0.0.1:${target.port}${target.path}${url.search}`
   const upstreamResponse = await fetchImpl(upstreamUrl, {
     method: req.method,
-    headers: buildForwardHeaders(req),
+    headers: buildForwardHeaders(req, target.port),
     body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
     redirect: "manual",
   })

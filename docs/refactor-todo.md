@@ -47,7 +47,7 @@ Use `[x]` when an item is complete. Add any follow-up notes directly under the i
 - [ ] Shared profiling/logging helper extraction
   Scope: `src/server/event-store.ts`, `src/server/ws-router.ts`
   Goals:
-  - Move duplicated `KANNA_PROFILE_SEND_TO_STARTING` env-var checks and logging formatting into a shared profiling module.
+  - Move duplicated send-to-starting profiling env-var checks and logging formatting into a shared profiling module.
   - Let call sites pass per-event details such as `traceId` and `startedAt`.
   Expected impact: one profiling format and one implementation path.
 

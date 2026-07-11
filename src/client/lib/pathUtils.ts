@@ -232,7 +232,7 @@ export function shouldOpenLocalFileLinkInEditor(filePath: string) {
 /**
  * Strip workspace prefix for display.
  * e.g., "/home/user/workspace/src/foo.ts" → "src/foo.ts"
- * e.g., "/Users/jake/Projects/my-app/src/foo.ts" → "src/foo.ts" (when localPath is set)
+ * e.g., "/Users/example/Projects/sample-app/src/foo.ts" → "src/foo.ts" (when localPath is set)
  */
 export function stripWorkspacePath(path: string | undefined, localPath: string | undefined | null): string {
   if (!path) return ""

@@ -33,8 +33,8 @@ describe("formatBashCommandTitle", () => {
 
 describe("getPathBasename", () => {
   test("returns the final segment for POSIX and Windows paths", () => {
-    expect(getPathBasename("/Users/jake/Projects/kanna")).toBe("kanna")
-    expect(getPathBasename("C:\\Users\\iamppr\\Documents\\Business plan")).toBe("Business plan")
+    expect(getPathBasename("/Users/example/Projects/stillon")).toBe("stillon")
+    expect(getPathBasename("C:\\Users\\example\\Documents\\Business plan")).toBe("Business plan")
   })
 })
 

@@ -40,7 +40,8 @@ const DEFAULT_CHAT_RECENT_LIMIT = 200
 const SKILL_AGENT_ALIASES = ["universal", "claude-code"] as const
 
 function isSendToStartingProfilingEnabled() {
-  return process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
+  return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
+    || process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
 }
 
 function logSendToStartingProfile(

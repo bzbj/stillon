@@ -53,11 +53,11 @@ describe("markdownComponents", () => {
         remarkPlugins={[remarkGfm]}
         components={createMarkdownComponents({ onOpenLocalLink: () => {} })}
       >
-        {"[app.ts](/Users/jake/Projects/kanna/src/client/app/App.tsx#L1)"}
+        {"[app.ts](/Users/example/Projects/stillon/src/client/app/App.tsx#L1)"}
       </Markdown>
     )
 
-    expect(html).toContain("/Users/jake/Projects/kanna/src/client/app/App.tsx#L1")
+    expect(html).toContain("/Users/example/Projects/stillon/src/client/app/App.tsx#L1")
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -68,12 +68,12 @@ describe("markdownComponents", () => {
           remarkPlugins={[remarkGfm]}
           components={createMarkdownComponents()}
         >
-          {"[app.ts](/Users/jake/Projects/kanna/src/client/app/App.tsx#L1)"}
+          {"[app.ts](/Users/example/Projects/stillon/src/client/app/App.tsx#L1)"}
         </Markdown>
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain("/Users/jake/Projects/kanna/src/client/app/App.tsx#L1")
+    expect(html).toContain("/Users/example/Projects/stillon/src/client/app/App.tsx#L1")
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -82,7 +82,7 @@ describe("markdownComponents", () => {
       <OpenLocalLinkProvider
         onOpenLocalLink={() => {}}
         resolveLocalLink={(href) => href === "output/index.html"
-          ? { path: "/Users/jake/Projects/kanna/output/index.html" }
+          ? { path: "/Users/example/Projects/stillon/output/index.html" }
           : null}
       >
         <Markdown

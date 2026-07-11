@@ -234,7 +234,8 @@ function escapeXmlAttribute(value: string) {
 }
 
 function isSendToStartingProfilingEnabled() {
-  return process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
+  return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
+    || process.env.KANNA_PROFILE_SEND_TO_STARTING === "1"
 }
 
 function elapsedProfileMs(startedAt: number) {

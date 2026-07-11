@@ -91,10 +91,10 @@ Reload after setting it. Logs appear in the browser console with the prefix:
 - `ws.snapshot_sent`
 - `ws.chat_send_ack`
 
-Enable server profiling before starting Kanna:
+Enable server profiling before starting StillOn:
 
 ```bash
-KANNA_PROFILE_SEND_TO_STARTING=1 bun run ./src/server/cli.ts
+STILLON_PROFILE_SEND_TO_STARTING=1 bun run ./src/server/cli.ts
 ```
 
 Server logs appear with the prefix:

@@ -43,14 +43,14 @@ other   12347 jake   23u  IPv4 123458      0t0  TCP 127.0.0.1:8080 (LISTEN)
   test("filters internal responders without collapsing duplicate page titles", () => {
     expect(filterLocalHttpServers([
       { title: "localhost:3211", address: "http://localhost:3211", port: 3211, status: 404, ownerPath: "/tmp/app", processName: "bun", sameProject: true },
-      { title: "Superwall Agents", address: "http://localhost:5174", port: 5174, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
-      { title: "Superwall Agents", address: "http://localhost:5175", port: 5175, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
-      { title: "Superwall Agents", address: "http://localhost:8787", port: 8787, status: 200, ownerPath: "/tmp/app", processName: "workerd", sameProject: true },
+      { title: "Sample App", address: "http://localhost:5174", port: 5174, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
+      { title: "Sample App", address: "http://localhost:5175", port: 5175, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
+      { title: "Sample App", address: "http://localhost:8787", port: 8787, status: 200, ownerPath: "/tmp/app", processName: "workerd", sameProject: true },
       { title: "Welcome to nginx!", address: "http://localhost:8080", port: 8080, status: 200, ownerPath: "/opt/homebrew", processName: "nginx", sameProject: false },
       { title: "wterm-demo", address: "http://localhost:5003", port: 5003, status: 200, ownerPath: "/tmp/wterm", processName: "node", sameProject: false },
     ])).toEqual([
-      { title: "Superwall Agents", address: "http://localhost:5174", port: 5174, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
-      { title: "Superwall Agents", address: "http://localhost:5175", port: 5175, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
+      { title: "Sample App", address: "http://localhost:5174", port: 5174, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
+      { title: "Sample App", address: "http://localhost:5175", port: 5175, status: 200, ownerPath: "/tmp/app", processName: "node", sameProject: true },
       { title: "wterm-demo", address: "http://localhost:5003", port: 5003, status: 200, ownerPath: "/tmp/wterm", processName: "node", sameProject: false },
     ])
   })

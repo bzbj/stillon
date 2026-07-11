@@ -90,7 +90,7 @@ Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
   --host <host>        Bind to a specific host or IP
   --remote             Shortcut for --host 0.0.0.0
-  --share              Create a public Cloudflare quick tunnel with terminal QR
+  --share              Create a password-protected Cloudflare quick tunnel
   --cloudflared <token>
                        Run a named Cloudflare tunnel from a token
   --password <secret>  Require a password before loading the app
@@ -269,6 +269,15 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     return { kind: "exited", code: 1 }
   }
 
+  if (parsedArgs.options.share === "quick" && !parsedArgs.options.password) {
+    deps.warn(`${LOG_PREFIX} --share exposes this computer to the public internet and requires --password`)
+    return { kind: "exited", code: 1 }
+  }
+
+  if (isTokenShareMode(parsedArgs.options.share) && !parsedArgs.options.password) {
+    deps.warn(`${LOG_PREFIX} named tunnel has no StillOn password; protect its hostname with Cloudflare Access`)
+  }
+
   const shouldRestart = await maybeSelfUpdate(argv, deps)
   if (shouldRestart !== null) {
     return { kind: "restarting", reason: shouldRestart }
@@ -276,7 +285,9 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
 
   const { port, stop } = await deps.startServer({
     ...parsedArgs.options,
-    trustProxy: isShareEnabled(parsedArgs.options.share) || process.env.KANNAGW_TRUST_PROXY === "1",
+    trustProxy: isShareEnabled(parsedArgs.options.share)
+      || process.env.STILLON_TRUST_PROXY === "1"
+      || process.env.KANNAGW_TRUST_PROXY === "1",
     onMigrationProgress: deps.log,
     update: deps.selfUpdateEnabled === false ? undefined : {
       version: deps.version,

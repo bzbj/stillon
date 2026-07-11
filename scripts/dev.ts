@@ -13,6 +13,11 @@ const localHostname = getHostname()
 const devArgs = parseDevArgs(forwardedArgs, localHostname)
 const { clientPort, serverPort, serverArgs, share } = devArgs
 
+if (share === "quick" && !serverArgs.includes("--password")) {
+  console.error(`${LOG_PREFIX} --share exposes this computer to the public internet and requires --password`)
+  process.exit(1)
+}
+
 const clientEnv = {
   ...process.env,
   STILLON_DEV_ALLOWED_HOSTS: typeof devArgs.allowedHosts === "boolean"

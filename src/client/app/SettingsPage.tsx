@@ -1438,8 +1438,11 @@ export function SettingsPage() {
       })
   }
 
+  const customEditorPreviewPath = state.localProjects?.machine.platform === "win32"
+    ? "C:\\Users\\example\\Projects\\sample-app\\src\\App.tsx"
+    : "~/Projects/example/src/App.tsx"
   const customEditorPreview = editorCommandDraft
-    .replaceAll("{path}", "/Users/jake/Projects/kanna/src/client/app/App.tsx")
+    .replaceAll("{path}", customEditorPreviewPath)
     .replaceAll("{line}", "12")
     .replaceAll("{column}", "1")
   const analyticsDisclosureEvents = ANALYTICS_STATIC_EVENT_NAMES

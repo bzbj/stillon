@@ -4,6 +4,7 @@ import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 
 const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const originalSuppressOpen = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
+const originalStillOnTrustProxy = process.env.STILLON_TRUST_PROXY
 const originalGatewayTrustProxy = process.env.KANNAGW_TRUST_PROXY
 const originalStillOnDisableSelfUpdate = process.env.STILLON_DISABLE_SELF_UPDATE
 const originalHuskyDisableSelfUpdate = process.env.HUSKY_DISABLE_SELF_UPDATE
@@ -13,6 +14,7 @@ beforeEach(() => {
   delete process.env.STILLON_DISABLE_SELF_UPDATE
   delete process.env.HUSKY_DISABLE_SELF_UPDATE
   delete process.env.KANNA_DISABLE_SELF_UPDATE
+  delete process.env.STILLON_TRUST_PROXY
   delete process.env.KANNAGW_TRUST_PROXY
 })
 
@@ -31,6 +33,11 @@ afterEach(() => {
     delete process.env.KANNAGW_TRUST_PROXY
   } else {
     process.env.KANNAGW_TRUST_PROXY = originalGatewayTrustProxy
+  }
+  if (originalStillOnTrustProxy === undefined) {
+    delete process.env.STILLON_TRUST_PROXY
+  } else {
+    process.env.STILLON_TRUST_PROXY = originalStillOnTrustProxy
   }
   if (originalStillOnDisableSelfUpdate === undefined) {
     delete process.env.STILLON_DISABLE_SELF_UPDATE
@@ -342,8 +349,8 @@ describe("runCli", () => {
     expect(calls.log).toContain("[stillon] data dir: ~/.stillon-dev/data")
   })
 
-  test("honors KANNAGW_TRUST_PROXY for externally managed reverse proxies", async () => {
-    process.env.KANNAGW_TRUST_PROXY = "1"
+  test("honors STILLON_TRUST_PROXY for externally managed reverse proxies", async () => {
+    process.env.STILLON_TRUST_PROXY = "1"
     const { calls, deps } = createDeps()
 
     await runCli(["--port", "4000", "--no-open"], deps)
@@ -394,7 +401,7 @@ describe("runCli", () => {
     delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
     const { calls, deps } = createDeps()
 
-    const result = await runCli(["--share", "--port", "4000"], deps)
+    const result = await runCli(["--share", "--password", "secret", "--port", "4000"], deps)
 
     expect(result.kind).toBe("started")
     expect(calls.openUrl).toEqual([])
@@ -431,7 +438,7 @@ describe("runCli", () => {
       }
     }
 
-    await runCli(["--share"], deps)
+    await runCli(["--share", "--password", "secret"], deps)
 
     expect(installLogged).toBe(true)
     expect(calls.log).toContain("[stillon] installing cloudflared binary")
@@ -448,7 +455,7 @@ describe("runCli", () => {
       },
     })
 
-    const result = await runCli(["--share", "--port", "4000"], deps)
+    const result = await runCli(["--share", "--password", "secret", "--port", "4000"], deps)
 
     expect(result.kind).toBe("started")
     expect(calls.shareTunnel).toEqual([{ localUrl: "http://localhost:4001", shareMode: "quick" }])
@@ -471,12 +478,25 @@ describe("runCli", () => {
       },
     })
 
-    const result = await runCli(["--share"], deps)
+    const result = await runCli(["--share", "--password", "secret"], deps)
 
     expect(result).toEqual({ kind: "exited", code: 1 })
     expect(serverStopped).toBe(true)
     expect(calls.warn).toContain("[stillon] failed to start Cloudflare share tunnel")
     expect(calls.warn).toContain("[stillon] cloudflared unavailable")
+  })
+
+  test("refuses a public quick tunnel without a password", async () => {
+    const { calls, deps } = createDeps()
+
+    const result = await runCli(["--share"], deps)
+
+    expect(result).toEqual({ kind: "exited", code: 1 })
+    expect(calls.startServer).toEqual([])
+    expect(calls.shareTunnel).toEqual([])
+    expect(calls.warn).toContain(
+      "[stillon] --share exposes this computer to the public internet and requires --password"
+    )
   })
 
   test("keeps running when a named tunnel starts without a detected hostname", async () => {

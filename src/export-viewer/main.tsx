@@ -186,7 +186,7 @@ function StandaloneTranscriptApp() {
               <div className="mx-2 flex items-center gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur-lg md:mx-0">
                 <img src="/stillon-mark.svg" alt="" className="h-6 w-6 flex-shrink-0 rounded-md object-contain" />
                 <p className="flex-1 text-sm text-foreground sm:text-base">
-                  {APP_NAME} is a local open-source workspace for coding agents
+                  {APP_NAME} is a local source-available workspace for coding agents
                 </p>
                 <a
                   className="ml-4 flex flex-shrink-0 flex-row items-center gap-1 rounded-lg bg-logo px-3 py-1.5 pr-2 text-sm font-bold text-white transition-colors hover:bg-logo/90"

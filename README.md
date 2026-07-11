@@ -31,6 +31,18 @@ Your projects, credentials, processes, and chat history stay on your computer. S
 
 > 电脑留在办公室，Agent 跟你走。
 
+## Release status
+
+StillOn is currently a **source-available public beta**. The supported launch scope is intentionally narrower than the long-term product:
+
+| Platform | Status | Notes |
+| --- | --- | --- |
+| macOS 13+ | Primary | Main development and validation target |
+| Linux | Beta | Core server works; desktop integrations vary by distribution |
+| Windows | Planned | Not yet supported; terminal, process discovery, and path handling still need Windows validation |
+
+The repository does not yet ship signed desktop installers. Install from source and review the [public-release readiness notes](docs/public-release-readiness.md) before exposing a machine outside your own network.
+
 ## Quickstart
 
 Install [Bun](https://bun.sh) v1.3.5 or newer, then:
@@ -66,7 +78,7 @@ The legacy `husky` and `kanna` commands remain as compatibility aliases.
 
 ## Remote access
 
-Always set a password when exposing StillOn beyond localhost.
+StillOn gives an authenticated remote user access to local projects, agent processes, file previews, Git operations, and terminals. Treat access as equivalent to granting control of your development account.
 
 ```bash
 # Temporary public URL and terminal QR code
@@ -79,7 +91,7 @@ stillon --cloudflared '<tunnel-token>' --password '<strong-password>'
 stillon --remote --password '<strong-password>'
 ```
 
-You can also choose a custom port with `--port 4000`. `--share` and `--cloudflared` cannot be combined with `--host` or `--remote`.
+`--share` refuses to start without `--password`. For named tunnels, use both a StillOn password and Cloudflare Access. You can also choose a custom port with `--port 4000`. `--share` and `--cloudflared` cannot be combined with `--host` or `--remote`.
 
 For a named Cloudflare Tunnel, route the public hostname to `http://localhost:3210` and leave WebSockets enabled. StillOn accepts attachments up to 100 MB; make sure Cloudflare's request-size limit for your plan is not lower than the file you upload.
 
@@ -116,6 +128,8 @@ On first launch, StillOn automatically renames an existing `~/.kanna/` data root
 
 The old `HUSKY_*` and `KANNA_*` environment variables continue to work where they had public equivalents. New configuration should use `STILLON_*`.
 
+Set `STILLON_MACHINE_NAME` to choose the non-sensitive machine label shown in the UI—for example, `STILLON_MACHINE_NAME="Office Mac"`.
+
 ## Release editions
 
 StillOn is the product name. Working-dog names are release editions, similar to capability tiers. The current release is **Husky**; the planned sequence is documented in the code and may evolve.
@@ -124,8 +138,10 @@ StillOn is the product name. Working-dog names are release editions, similar to 
 
 StillOn is independently maintained at [bzbj/stillon](https://github.com/bzbj/stillon) and is not part of GitHub's Kanna fork network. It contains code derived from [Kanna](https://github.com/jakemor/kanna).
 
-The original copyright and license terms—including the named exception in the upstream license—remain in [LICENSE](LICENSE). See [the brand guide](docs/brand.md) for StillOn naming and visual usage.
+The original copyright and license terms—including the named exception in the upstream license—remain in [LICENSE](LICENSE). Because that exception excludes named parties, this project describes itself as **source-available**, not OSI-approved open source. Obtain legal advice before commercial redistribution.
+
+See the [brand guide](docs/brand.md), [security policy](SECURITY.md), and [public-release readiness notes](docs/public-release-readiness.md).
 
 ## Contributing
 
-Issues and pull requests are welcome at [bzbj/stillon](https://github.com/bzbj/stillon).
+Issues and pull requests are welcome at [bzbj/stillon](https://github.com/bzbj/stillon). Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.

@@ -43,19 +43,31 @@ describe("browser preview proxy", () => {
 
   test("proxies allowed preview ports and relaxes frame-blocking headers", async () => {
     let requestedUrl = ""
+    let forwardedHeaders = new Headers()
     const response = await handleBrowserPreviewProxy(
-      new Request("https://macbook.linjunkai.com/api/browser-proxy/5173/"),
-      new URL("https://macbook.linjunkai.com/api/browser-proxy/5173/"),
+      new Request("https://stillon.example.com/api/browser-proxy/5173/", {
+        headers: {
+          Authorization: "Bearer private",
+          Cookie: "stillon_session=private",
+          Origin: "https://stillon.example.com",
+          Referer: "https://stillon.example.com/chat/demo",
+          "CF-Connecting-IP": "203.0.113.10",
+          "X-Forwarded-For": "203.0.113.10",
+        },
+      }),
+      new URL("https://stillon.example.com/api/browser-proxy/5173/"),
       {
         isAllowedPort: async (port) => port === 5173,
-        fetchImpl: (async (url: Parameters<typeof fetch>[0]) => {
+        fetchImpl: (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
           requestedUrl = String(url)
+          forwardedHeaders = new Headers(init?.headers)
           return new Response('<script src="/src/main.ts"></script>', {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
               "Content-Length": "39",
               "X-Frame-Options": "DENY",
               "Content-Security-Policy": "frame-ancestors 'none'",
+              "Set-Cookie": "preview_token=private",
             },
           })
         }) as unknown as typeof fetch,
@@ -64,17 +76,24 @@ describe("browser preview proxy", () => {
 
     expect(response).not.toBeNull()
     expect(requestedUrl).toBe("http://127.0.0.1:5173/")
+    expect(forwardedHeaders.get("authorization")).toBeNull()
+    expect(forwardedHeaders.get("cookie")).toBeNull()
+    expect(forwardedHeaders.get("referer")).toBeNull()
+    expect(forwardedHeaders.get("cf-connecting-ip")).toBeNull()
+    expect(forwardedHeaders.get("x-forwarded-for")).toBeNull()
+    expect(forwardedHeaders.get("origin")).toBe("http://127.0.0.1:5173")
     expect(response!.headers.get("x-frame-options")).toBeNull()
     expect(response!.headers.get("content-security-policy")).toBeNull()
     expect(response!.headers.get("content-length")).toBeNull()
+    expect(response!.headers.get("set-cookie")).toBeNull()
     expect(await response!.text()).toBe('<script src="/api/browser-proxy/5173/src/main.ts"></script>')
   })
 
   test("rejects unavailable preview ports before proxying", async () => {
     let didFetch = false
     const response = await handleBrowserPreviewProxy(
-      new Request("https://macbook.linjunkai.com/api/browser-proxy/9999/"),
-      new URL("https://macbook.linjunkai.com/api/browser-proxy/9999/"),
+      new Request("https://stillon.example.com/api/browser-proxy/9999/"),
+      new URL("https://stillon.example.com/api/browser-proxy/9999/"),
       {
         isAllowedPort: async () => false,
         fetchImpl: (async () => {

@@ -27,14 +27,14 @@ describe("processTranscriptMessages", () => {
       entry({
         kind: "tool_result",
         toolId: "tool-1",
-        content: "/Users/jake/Projects/kanna\n",
+        content: "/Users/example/Projects/stillon\n",
       }),
     ])
 
     expect(messages).toHaveLength(1)
     expect(messages[0]?.kind).toBe("tool")
     if (messages[0]?.kind !== "tool") throw new Error("unexpected message")
-    expect(messages[0].result).toBe("/Users/jake/Projects/kanna\n")
+    expect(messages[0].result).toBe("/Users/example/Projects/stillon\n")
   })
 
   test("hydrates ask-user-question results with typed answers", () => {

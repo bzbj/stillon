@@ -96,7 +96,7 @@ describe("password auth", () => {
       })
 
       expect(response.status).toBe(200)
-      expect(extractCookie(response)).toContain("kanna_session=")
+      expect(extractCookie(response)).toContain("stillon_session=")
     } finally {
       await server.stop()
     }
@@ -117,6 +117,37 @@ describe("password auth", () => {
 
       expect(response.status).toBe(401)
       expect(response.headers.get("set-cookie")).toBeNull()
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test("rate limits repeated invalid passwords", async () => {
+    const { server } = await startPasswordServer()
+
+    try {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const response = await fetch(`http://localhost:${server.port}/auth/login`, {
+          method: "POST",
+          body: JSON.stringify({ password: "wrong" }),
+          headers: {
+            "Content-Type": "application/json",
+            Origin: `http://localhost:${server.port}`,
+          },
+        })
+        expect(response.status).toBe(401)
+      }
+
+      const limitedResponse = await fetch(`http://localhost:${server.port}/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ password: "wrong" }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: `http://localhost:${server.port}`,
+        },
+      })
+      expect(limitedResponse.status).toBe(429)
+      expect(Number(limitedResponse.headers.get("retry-after"))).toBeGreaterThan(0)
     } finally {
       await server.stop()
     }

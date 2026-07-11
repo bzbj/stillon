@@ -25,6 +25,7 @@ import { migrateLegacyBrandDataRoot } from "./brand-migration"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
+const MAX_REQUEST_BODY_SIZE_BYTES = 110 * 1024 * 1024
 const STALE_EMPTY_CHAT_PRUNE_INTERVAL_MS = 60 * 1000
 
 export async function persistUploadedFiles(args: {
@@ -180,6 +181,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
       server = Bun.serve<ClientState>({
         port: actualPort,
         hostname,
+        maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
         // cloudflared keeps idle origin connections for 90 seconds by default.
         // Bun's 10-second default can otherwise leave cloudflared reusing a closed socket.
         idleTimeout: 120,
@@ -368,6 +370,14 @@ async function handleProjectUpload(req: Request, url: URL, store: EventStore) {
         { status: 413 }
       )
     }
+  }
+
+  const totalUploadSize = files.reduce((total, file) => total + file.size, 0)
+  if (totalUploadSize > MAX_UPLOAD_SIZE_BYTES) {
+    return Response.json(
+      { error: `Combined uploads exceed the ${Math.floor(MAX_UPLOAD_SIZE_BYTES / (1024 * 1024))} MB limit.` },
+      { status: 413 },
+    )
   }
 
   try {
