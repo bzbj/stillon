@@ -46,7 +46,7 @@ function BrandMark({ className }: { className?: string }) {
 
 function SidebarIdentity({ machineName }: { machineName: string }) {
   return (
-    <span className="font-machine-identity block min-w-0 max-w-[190px] shrink truncate text-sm text-foreground" title={machineName}>
+    <span className="font-machine-identity block min-w-0 max-w-[190px] shrink truncate text-[15px] leading-5 text-foreground" title={machineName}>
       {machineName}
     </span>
   )
@@ -583,7 +583,7 @@ function KannaSidebarImpl({
                 <span className="text-sm">Settings</span>
               </div>
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground" title={connectionPresentation.description}>
-                <span>{connectionPresentation.label}</span>
+                <span className="font-logo font-semibold tracking-[0.01em]">{connectionPresentation.label}</span>
                 <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", connectionPresentation.dotClassName)} />
               </div>
             </div>
