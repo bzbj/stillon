@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -343,6 +343,75 @@ describe("EventStore", () => {
     await store.initialize()
 
     expect(store.getChat("chat-1")?.unread).toBe(false)
+  })
+
+  test("isolates a corrupt snapshot and recovers chat history from event logs", async () => {
+    const dataDir = await createTempDataDir()
+    const projectId = "project-1"
+    const chatId = "chat-1"
+    const projectsLogPath = join(dataDir, "projects.jsonl")
+    const chatsLogPath = join(dataDir, "chats.jsonl")
+
+    await writeFile(join(dataDir, "snapshot.json"), "{not-json", "utf8")
+    await writeFile(projectsLogPath, `${JSON.stringify({
+      v: 2,
+      type: "project_opened",
+      timestamp: 1,
+      projectId,
+      localPath: "/tmp/project",
+      title: "Project",
+    })}\n`, "utf8")
+    await writeFile(chatsLogPath, `${JSON.stringify({
+      v: 2,
+      type: "chat_created",
+      timestamp: 2,
+      chatId,
+      projectId,
+      title: "Recovered chat",
+    })}\n`, "utf8")
+
+    const originalWarn = console.warn
+    console.warn = () => {}
+    try {
+      const store = new EventStore(dataDir)
+      await store.initialize()
+
+      expect(store.getProject(projectId)?.title).toBe("Project")
+      expect(store.getChat(chatId)?.title).toBe("Recovered chat")
+      expect(await readFile(projectsLogPath, "utf8")).toContain("project_opened")
+      expect(await readFile(chatsLogPath, "utf8")).toContain("chat_created")
+      expect((await readdir(dataDir)).some((name) => name.startsWith("snapshot.json.corrupt-"))).toBe(true)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  test("recovers a corrupt current snapshot from its retained predecessor and archived logs", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    await store.compact()
+
+    await store.renameChat(chat.id, "Renamed after first snapshot")
+    await store.compact()
+
+    expect(existsSync(join(dataDir, "snapshot.json.bak"))).toBe(true)
+    expect(await readFile(join(dataDir, "chats.jsonl.bak"), "utf8")).toContain("chat_renamed")
+    await writeFile(join(dataDir, "snapshot.json"), "{not-json", "utf8")
+
+    const originalWarn = console.warn
+    console.warn = () => {}
+    try {
+      const recovered = new EventStore(dataDir)
+      await recovered.initialize()
+
+      expect(recovered.getChat(chat.id)?.title).toBe("Renamed after first snapshot")
+    } finally {
+      console.warn = originalWarn
+    }
   })
 
   test("persists sidebar project order across restart and compaction", async () => {
