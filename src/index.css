@@ -2,84 +2,19 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Maple Mono NL CN v7.9, subset for the machine identity label.
- * Source: https://github.com/subframe7536/maple-font
- * License: SIL Open Font License 1.1 (public/fonts/LICENSE-Maple-Mono.txt)
+ * Smiley Sans (得意黑), used exclusively for the user-selected machine name.
+ * Source: https://github.com/atelier-anchor/smiley-sans
+ * License: SIL Open Font License 1.1 (public/fonts/LICENSE-Smiley-Sans.txt)
  *
- * The CJK blocks are split so a browser fetches only the glyph range used by
- * the current machine name instead of one large CJK font file.
+ * Its intentional slant is part of the released glyph design. Registering it
+ * as a normal CSS face prevents browsers from adding a second synthetic slant.
  */
 @font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-core.woff2") format("woff2");
-  font-weight: 500;
+  font-family: "Smiley Sans";
+  src: url("/fonts/smiley-sans-oblique.woff2") format("woff2");
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
-  unicode-range: U+0020-00FF, U+2000-206F, U+3000-303F, U+3040-30FF, U+31F0-31FF, U+FF00-FFEF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-4e00-57ff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+4E00-57FF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-5800-61ff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+5800-61FF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-6200-6bff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+6200-6BFF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-6c00-75ff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+6C00-75FF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-7600-7fff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+7600-7FFF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-8000-89ff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+8000-89FF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-8a00-93ff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+8A00-93FF;
-}
-@font-face {
-  font-family: "Maple Mono NL CN";
-  src: url("/fonts/maple-mono-cn-500-9400-9fff.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  unicode-range: U+9400-9FFF;
 }
 
 @font-face {
@@ -235,13 +170,11 @@
   }
 
   .font-machine-identity {
-    font-family: "Maple Mono NL CN", ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
-    font-feature-settings: "calt" 0, "liga" 0;
+    font-family: "Smiley Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     font-synthesis: none;
-    font-variant-ligatures: none;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: normal;
-    line-height: 1.25;
+    line-height: 1.3;
   }
 
   /* Prevent iOS zoom on input focus */
