@@ -39,7 +39,27 @@ function parseContent(content: string): ParsedLine[] {
 
 // Strip XML-like tags from content
 function stripXmlTags(text: string): string {
-  return text.replace(/<[^>]+>/g, "")
+  let result = ""
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const tagStart = text.indexOf("<", cursor)
+    if (tagStart === -1) {
+      result += text.slice(cursor)
+      break
+    }
+
+    const tagEnd = text.indexOf(">", tagStart + 1)
+    if (tagEnd === -1) {
+      result += text.slice(cursor)
+      break
+    }
+
+    result += text.slice(cursor, tagStart)
+    cursor = tagEnd + 1
+  }
+
+  return result
 }
 
 // Compute unified diff (same logic as EditDiffView)

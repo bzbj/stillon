@@ -125,7 +125,7 @@ export function getClipboardImageFiles(items: Iterable<ClipboardFileItem>, times
 }
 
 export function trimTrailingPastedNewlines(text: string) {
-  return text.replace(/(?:\r\n|\r|\n)+$/, "")
+  return text.replace(/[\r\n]+$/, "")
 }
 
 export function isDesktopLikeInputDevice(capabilities?: {

@@ -34,11 +34,34 @@ export interface ListeningPortEntry {
   owners: ListeningPortOwner[]
 }
 
+function stripHtmlTags(text: string) {
+  let result = ""
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const tagStart = text.indexOf("<", cursor)
+    if (tagStart === -1) {
+      result += text.slice(cursor)
+      break
+    }
+
+    const tagEnd = text.indexOf(">", tagStart + 1)
+    if (tagEnd === -1) {
+      result += text.slice(cursor)
+      break
+    }
+
+    result += text.slice(cursor, tagStart)
+    cursor = tagEnd + 1
+  }
+
+  return result
+}
+
 export function extractHtmlTitle(html: string) {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
   if (!match) return ""
-  return match[1]
-    .replace(/<[^>]+>/g, "")
+  return stripHtmlTags(match[1])
     .replace(/\s+/g, " ")
     .trim()
 }

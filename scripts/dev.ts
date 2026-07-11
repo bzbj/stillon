@@ -35,7 +35,7 @@ function spawnLabeledProcess(label: string, args: string[]) {
   })
 
   child.on("spawn", () => {
-    console.log(`${LOG_PREFIX.replace("]", `:${label}]`)} started`)
+    console.log(`${LOG_PREFIX.replaceAll("]", `:${label}]`)} started`)
   })
 
   return child
@@ -49,7 +49,7 @@ const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--
 })
 
 server.on("spawn", () => {
-  console.log(`${LOG_PREFIX.replace("]", ":server]")} started`)
+  console.log(`${LOG_PREFIX.replaceAll("]", ":server]")} started`)
 })
 
 const children = [client, server]
@@ -84,7 +84,7 @@ function shutdown(exitCode = 0) {
 function onChildExit(label: string, code: number | null, signal: NodeJS.Signals | null) {
   if (shuttingDown) return
   const exitCode = code ?? (signal ? 1 : 0)
-  console.error(`${LOG_PREFIX.replace("]", `:${label}]`)} exited${signal ? ` via ${signal}` : ` with code ${String(exitCode)}`}`)
+  console.error(`${LOG_PREFIX.replaceAll("]", `:${label}]`)} exited${signal ? ` via ${signal}` : ` with code ${String(exitCode)}`}`)
   shutdown(exitCode)
 }
 
