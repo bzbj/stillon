@@ -755,7 +755,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </ScrollArea>
           ) : null}
 
-          <div className="flex items-end max-w-[840px] mx-auto border dark:bg-card/40 backdrop-blur-lg border-border rounded-[29px] pr-1.5">
+          <div className="flex items-end max-w-[840px] mx-auto border bg-background border-border rounded-[29px] pr-1.5">
             <label
               aria-label="Add attachment"
               className={cn(

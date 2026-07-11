@@ -202,6 +202,20 @@ describe("isDesktopLikeInputDevice", () => {
 })
 
 describe("ChatInput", () => {
+  test("renders the composer on an opaque surface", () => {
+    const html = renderToStaticMarkup(createElement(ChatInput, {
+      onSubmit: async () => undefined,
+      disabled: false,
+      canCancel: false,
+      activeProvider: null,
+      availableProviders: PROVIDERS,
+    }))
+
+    expect(html).toContain("bg-background")
+    expect(html).not.toContain("dark:bg-card/40")
+    expect(html).not.toContain("backdrop-blur-lg")
+  })
+
   test("renders the attachment trigger as a native file input target", () => {
     const html = renderToStaticMarkup(createElement(ChatInput, {
       onSubmit: async () => undefined,
