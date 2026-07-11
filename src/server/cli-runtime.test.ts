@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { compareVersions, classifyInstallVersionFailure, parseArgs, runCli } from "./cli-runtime"
 import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 
-const originalRuntimeProfile = process.env.KANNA_RUNTIME_PROFILE
+const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const originalSuppressOpen = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
 const originalGatewayTrustProxy = process.env.KANNAGW_TRUST_PROXY
+const originalStillOnDisableSelfUpdate = process.env.STILLON_DISABLE_SELF_UPDATE
 const originalHuskyDisableSelfUpdate = process.env.HUSKY_DISABLE_SELF_UPDATE
 const originalKannaDisableSelfUpdate = process.env.KANNA_DISABLE_SELF_UPDATE
 
 beforeEach(() => {
+  delete process.env.STILLON_DISABLE_SELF_UPDATE
   delete process.env.HUSKY_DISABLE_SELF_UPDATE
   delete process.env.KANNA_DISABLE_SELF_UPDATE
   delete process.env.KANNAGW_TRUST_PROXY
@@ -16,9 +18,9 @@ beforeEach(() => {
 
 afterEach(() => {
   if (originalRuntimeProfile === undefined) {
-    delete process.env.KANNA_RUNTIME_PROFILE
+    delete process.env.STILLON_RUNTIME_PROFILE
   } else {
-    process.env.KANNA_RUNTIME_PROFILE = originalRuntimeProfile
+    process.env.STILLON_RUNTIME_PROFILE = originalRuntimeProfile
   }
   if (originalSuppressOpen === undefined) {
     delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
@@ -29,6 +31,11 @@ afterEach(() => {
     delete process.env.KANNAGW_TRUST_PROXY
   } else {
     process.env.KANNAGW_TRUST_PROXY = originalGatewayTrustProxy
+  }
+  if (originalStillOnDisableSelfUpdate === undefined) {
+    delete process.env.STILLON_DISABLE_SELF_UPDATE
+  } else {
+    process.env.STILLON_DISABLE_SELF_UPDATE = originalStillOnDisableSelfUpdate
   }
   if (originalHuskyDisableSelfUpdate === undefined) {
     delete process.env.HUSKY_DISABLE_SELF_UPDATE
@@ -107,7 +114,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
     startShareTunnel: async (localUrl, shareMode) => {
       calls.shareTunnel.push({ localUrl, shareMode })
       return {
-        publicUrl: "https://kanna.trycloudflare.com",
+        publicUrl: "https://stillon.trycloudflare.com",
         stop: () => {
           calls.shareTunnelStops += 1
         },
@@ -277,7 +284,7 @@ describe("compareVersions", () => {
 
 describe("classifyInstallVersionFailure", () => {
   test("maps version propagation failures to a user-facing retry message", () => {
-    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "@bzbj/husky"')).toEqual({
+    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "@bzbj/stillon"')).toEqual({
       ok: false,
       errorCode: "version_not_live_yet",
       userTitle: "Update not live yet",
@@ -300,12 +307,12 @@ describe("runCli", () => {
 
   test("starts normally when no newer version exists", async () => {
     const { calls, deps } = createDeps()
-    process.env.KANNA_RUNTIME_PROFILE = "prod"
+    process.env.STILLON_RUNTIME_PROFILE = "prod"
 
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    expect(calls.fetchLatestVersion).toEqual(["@bzbj/husky"])
+    expect(calls.fetchLatestVersion).toEqual(["@bzbj/stillon"])
     expect(calls.installVersion).toEqual([])
     expect(calls.startServer).toHaveLength(1)
     expect(calls.startServer[0]).toMatchObject({
@@ -319,20 +326,20 @@ describe("runCli", () => {
       update: {
         version: "0.3.0",
         argv: ["--port", "4000", "--no-open"],
-        command: "husky",
+        command: "stillon",
       },
     })
     expect(calls.openUrl).toEqual([])
-    expect(calls.log).toContain("[husky] data dir: ~/.kanna/data")
+    expect(calls.log).toContain("[stillon] data dir: ~/.stillon/data")
   })
 
   test("logs the dev data dir when the dev runtime profile is active", async () => {
-    process.env.KANNA_RUNTIME_PROFILE = "dev"
+    process.env.STILLON_RUNTIME_PROFILE = "dev"
     const { calls, deps } = createDeps()
 
     await runCli(["--port", "4000", "--no-open"], deps)
 
-    expect(calls.log).toContain("[husky] data dir: ~/.kanna-dev/data")
+    expect(calls.log).toContain("[stillon] data dir: ~/.stillon-dev/data")
   })
 
   test("honors KANNAGW_TRUST_PROXY for externally managed reverse proxies", async () => {
@@ -353,7 +360,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({ kind: "exited", code: 1 })
     expect(calls.startServer).toEqual([])
-    expect(calls.warn).toContain("[husky] Bun 1.3.5+ is required for the embedded terminal. Current Bun: 1.3.1")
+    expect(calls.warn).toContain("[stillon] Bun 1.3.5+ is required for the embedded terminal. Current Bun: 1.3.1")
   })
 
   test("opens the root route in the browser", async () => {
@@ -393,11 +400,11 @@ describe("runCli", () => {
     expect(calls.openUrl).toEqual([])
     expect(calls.startServer[0]?.trustProxy).toBe(true)
     expect(calls.shareTunnel).toEqual([{ localUrl: "http://localhost:4000", shareMode: "quick" }])
-    expect(calls.renderShareQr).toEqual(["https://kanna.trycloudflare.com"])
+    expect(calls.renderShareQr).toEqual(["https://stillon.trycloudflare.com"])
     expect(calls.log).toContain("QR Code:")
-    expect(calls.log).toContain("[qr:https://kanna.trycloudflare.com]")
+    expect(calls.log).toContain("[qr:https://stillon.trycloudflare.com]")
     expect(calls.log).toContain("Public URL:")
-    expect(calls.log).toContain("https://kanna.trycloudflare.com")
+    expect(calls.log).toContain("https://stillon.trycloudflare.com")
     expect(calls.log).toContain("Local URL:")
     expect(calls.log).toContain("http://localhost:4000")
 
@@ -416,10 +423,10 @@ describe("runCli", () => {
 
     let installLogged = false
     deps.startShareTunnel = async (_localUrl) => {
-      deps.log("[husky] installing cloudflared binary")
+      deps.log("[stillon] installing cloudflared binary")
       installLogged = true
       return {
-        publicUrl: "https://kanna.trycloudflare.com",
+        publicUrl: "https://stillon.trycloudflare.com",
         stop: () => {},
       }
     }
@@ -427,7 +434,7 @@ describe("runCli", () => {
     await runCli(["--share"], deps)
 
     expect(installLogged).toBe(true)
-    expect(calls.log).toContain("[husky] installing cloudflared binary")
+    expect(calls.log).toContain("[stillon] installing cloudflared binary")
   })
 
   test("uses the actual bound port for --share", async () => {
@@ -468,8 +475,8 @@ describe("runCli", () => {
 
     expect(result).toEqual({ kind: "exited", code: 1 })
     expect(serverStopped).toBe(true)
-    expect(calls.warn).toContain("[husky] failed to start Cloudflare share tunnel")
-    expect(calls.warn).toContain("[husky] cloudflared unavailable")
+    expect(calls.warn).toContain("[stillon] failed to start Cloudflare share tunnel")
+    expect(calls.warn).toContain("[stillon] cloudflared unavailable")
   })
 
   test("keeps running when a named tunnel starts without a detected hostname", async () => {
@@ -493,8 +500,8 @@ describe("runCli", () => {
       localUrl: "http://localhost:3210",
       shareMode: { kind: "token", token: "secret-token" },
     }])
-    expect(calls.warn).toContain("[husky] named tunnel started but no public hostname was detected")
-    expect(calls.warn).toContain("[husky] use the hostname configured for the provided Cloudflare tunnel token")
+    expect(calls.warn).toContain("[stillon] named tunnel started but no public hostname was detected")
+    expect(calls.warn).toContain("[stillon] use the hostname configured for the provided Cloudflare tunnel token")
     expect(calls.log).toContain("Local URL:")
     expect(calls.log).toContain("http://localhost:3210")
     expect(calls.renderShareQr).toEqual([])
@@ -511,7 +518,7 @@ describe("runCli", () => {
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result).toEqual({ kind: "restarting", reason: "startup_update" })
-    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/husky", version: "0.4.0" }])
+    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/stillon", version: "0.4.0" }])
     expect(calls.startServer).toEqual([])
   })
 
@@ -527,7 +534,7 @@ describe("runCli", () => {
           ok: false,
           errorCode: "install_failed",
           userTitle: "Update failed",
-          userMessage: "Kanna could not install the update. Try again later.",
+          userMessage: "StillOn could not install the update. Try again later.",
         }
       },
     })
@@ -535,8 +542,8 @@ describe("runCli", () => {
     const result = await runCli(["--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/husky", version: "0.4.0" }])
-    expect(calls.warn).toContain("[husky] update failed, continuing current version")
+    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/stillon", version: "0.4.0" }])
+    expect(calls.warn).toContain("[stillon] update failed, continuing current version")
   })
 
   test("falls back to current version when the registry check fails", async () => {
@@ -551,6 +558,6 @@ describe("runCli", () => {
 
     expect(result.kind).toBe("started")
     expect(calls.installVersion).toEqual([])
-    expect(calls.warn).toContain("[husky] update check failed, continuing current version")
+    expect(calls.warn).toContain("[stillon] update check failed, continuing current version")
   })
 })

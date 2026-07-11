@@ -150,7 +150,7 @@ const QUICK_RESPONSE_PROVIDER_OPTIONS: Array<{ value: LlmProviderKind; label: st
   { value: "custom", label: "Custom" },
 ]
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/bzbj/husky/releases"
+const GITHUB_RELEASES_URL = "https://api.github.com/repos/bzbj/stillon/releases"
 const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000
 
 type GithubRelease = {
@@ -1847,7 +1847,7 @@ export function SettingsPage() {
                               Help improve {APP_NAME} with anonymous product analytics. {APP_NAME} sends tracked event names plus a small set of event properties like current version, environment, update version info, and launch flags. No message content, prompts, file paths, or provider credentials are sent.
                             </span>
                             <span className="mt-1 block">
-                              Stored in {appSettings?.filePathDisplay ?? "~/.kanna/data/settings.json"}.
+                              Stored in {appSettings?.filePathDisplay ?? "~/.stillon/data/settings.json"}.
                               {" "}
                               <button
                                 type="button"

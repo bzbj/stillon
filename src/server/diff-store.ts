@@ -1221,7 +1221,7 @@ export class DiffStore {
       return {
         ok: false,
         title: "GitHub CLI not installed",
-        message: "Install GitHub CLI (`gh`) to publish from Kanna.",
+        message: "Install GitHub CLI (`gh`) to publish from StillOn.",
         snapshotChanged: false,
       }
     }

@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import type { ProjectQuickAction } from "../shared/protocol"
-import { resolveLocalPath } from "./paths"
+import { LEGACY_PROJECT_DATA_DIR_NAME, PROJECT_DATA_DIR_NAME, resolveLocalPath } from "./paths"
 
 const QUICK_ACTIONS_FILE_NAME = "quick-actions.json"
 const MAX_QUICK_ACTIONS = 50
@@ -9,7 +9,11 @@ const MAX_LABEL_LENGTH = 80
 const MAX_COMMAND_LENGTH = 2_000
 
 function getProjectQuickActionsPath(projectPath: string) {
-  return path.join(resolveLocalPath(projectPath), ".kanna", QUICK_ACTIONS_FILE_NAME)
+  return path.join(resolveLocalPath(projectPath), PROJECT_DATA_DIR_NAME, QUICK_ACTIONS_FILE_NAME)
+}
+
+function getLegacyProjectQuickActionsPath(projectPath: string) {
+  return path.join(resolveLocalPath(projectPath), LEGACY_PROJECT_DATA_DIR_NAME, QUICK_ACTIONS_FILE_NAME)
 }
 
 function normalizeQuickAction(value: unknown): ProjectQuickAction | null {
@@ -48,7 +52,10 @@ export function normalizeQuickActions(value: unknown): ProjectQuickAction[] {
 }
 
 export async function readProjectQuickActions(projectPath: string): Promise<ProjectQuickAction[]> {
-  const file = Bun.file(getProjectQuickActionsPath(projectPath))
+  const currentFile = Bun.file(getProjectQuickActionsPath(projectPath))
+  const file = await currentFile.exists()
+    ? currentFile
+    : Bun.file(getLegacyProjectQuickActionsPath(projectPath))
   if (!(await file.exists())) return []
 
   try {

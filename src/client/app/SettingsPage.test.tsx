@@ -77,7 +77,7 @@ describe("fetchGithubReleases", () => {
       })
     })
 
-    expect(requestedUrl).toBe("https://api.github.com/repos/bzbj/husky/releases")
+    expect(requestedUrl).toBe("https://api.github.com/repos/bzbj/stillon/releases")
     expect(requestedAcceptHeader).toBe("application/vnd.github+json")
     expect(releases).toEqual([SAMPLE_RELEASES[0]])
   })

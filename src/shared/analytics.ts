@@ -1,5 +1,5 @@
-// Husky does not send telemetry to an upstream-operated service. A deployment
-// can opt in by configuring HUSKY_ANALYTICS_ENDPOINT on the server.
+// StillOn does not send telemetry to an upstream-operated service. A deployment
+// can opt in by configuring STILLON_ANALYTICS_ENDPOINT on the server.
 export const ANALYTICS_ENDPOINT = ""
 
 export const ANALYTICS_STATIC_EVENT_NAMES = [

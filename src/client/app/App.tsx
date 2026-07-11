@@ -70,7 +70,7 @@ function PasswordScreen({
       <Card className="w-full max-w-md rounded-3xl border border-border bg-card shadow-sm">
         <CardHeader className="flex flex-col p-2 space-y-3 px-6 pt-6 pb-5 pl-[28px]">
           <div className="flex items-center gap-3">
-            <img src="/husky-mark.svg" alt="" className="h-8 w-8 rounded-lg object-contain" />
+            <img src="/stillon-mark.svg" alt="" className="h-8 w-8 rounded-lg object-contain" />
             <div>
               <CardTitle className="font-logo text-xl text-slate-600 dark:text-slate-100">{APP_NAME}</CardTitle>
             </div>

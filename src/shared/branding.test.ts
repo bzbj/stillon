@@ -5,39 +5,44 @@ import {
   getDataRootName,
   getKeybindingsFilePath,
   getKeybindingsFilePathDisplay,
-  getLinjunkaiEditionTooltip,
+  getReleaseEditionTooltip,
   getRuntimeProfile,
-  LINJUNKAI_EDITION,
-  LINJUNKAI_EDITION_DESCRIPTIONS,
-  LINJUNKAI_EDITION_SEQUENCE,
+  RELEASE_EDITION,
+  RELEASE_EDITION_DESCRIPTIONS,
+  RELEASE_EDITION_SEQUENCE,
 } from "./branding"
 
 describe("runtime profile helpers", () => {
-  test("defaults to the prod profile when unset", () => {
+  test("defaults to the StillOn production paths", () => {
     expect(getRuntimeProfile({})).toBe("prod")
-    expect(getDataRootName({})).toBe(".kanna")
-    expect(getDataDir("/tmp/home", {})).toBe("/tmp/home/.kanna/data")
-    expect(getDataDirDisplay({})).toBe("~/.kanna/data")
-    expect(getKeybindingsFilePath("/tmp/home", {})).toBe("/tmp/home/.kanna/keybindings.json")
-    expect(getKeybindingsFilePathDisplay({})).toBe("~/.kanna/keybindings.json")
+    expect(getDataRootName({})).toBe(".stillon")
+    expect(getDataDir("/tmp/home", {})).toBe("/tmp/home/.stillon/data")
+    expect(getDataDirDisplay({})).toBe("~/.stillon/data")
+    expect(getKeybindingsFilePath("/tmp/home", {})).toBe("/tmp/home/.stillon/keybindings.json")
+    expect(getKeybindingsFilePathDisplay({})).toBe("~/.stillon/keybindings.json")
   })
 
-  test("switches to dev paths for the dev profile", () => {
-    const env = { KANNA_RUNTIME_PROFILE: "dev" }
+  test("switches to StillOn development paths", () => {
+    const env = { STILLON_RUNTIME_PROFILE: "dev" }
 
     expect(getRuntimeProfile(env)).toBe("dev")
-    expect(getDataRootName(env)).toBe(".kanna-dev")
-    expect(getDataDir("/tmp/home", env)).toBe("/tmp/home/.kanna-dev/data")
-    expect(getDataDirDisplay(env)).toBe("~/.kanna-dev/data")
-    expect(getKeybindingsFilePath("/tmp/home", env)).toBe("/tmp/home/.kanna-dev/keybindings.json")
-    expect(getKeybindingsFilePathDisplay(env)).toBe("~/.kanna-dev/keybindings.json")
+    expect(getDataRootName(env)).toBe(".stillon-dev")
+    expect(getDataDir("/tmp/home", env)).toBe("/tmp/home/.stillon-dev/data")
+    expect(getDataDirDisplay(env)).toBe("~/.stillon-dev/data")
+    expect(getKeybindingsFilePath("/tmp/home", env)).toBe("/tmp/home/.stillon-dev/keybindings.json")
+    expect(getKeybindingsFilePathDisplay(env)).toBe("~/.stillon-dev/keybindings.json")
+  })
+
+  test("accepts the previous runtime-profile variables", () => {
+    expect(getRuntimeProfile({ HUSKY_RUNTIME_PROFILE: "dev" })).toBe("dev")
+    expect(getRuntimeProfile({ KANNA_RUNTIME_PROFILE: "dev" })).toBe("dev")
   })
 })
 
-describe("linjunkAI edition helpers", () => {
-  test("keeps the local edition sequence and current edition", () => {
-    expect(LINJUNKAI_EDITION).toBe("Husky")
-    expect(LINJUNKAI_EDITION_SEQUENCE).toEqual([
+describe("StillOn release helpers", () => {
+  test("keeps the working-dog release sequence and current edition", () => {
+    expect(RELEASE_EDITION).toBe("Husky")
+    expect(RELEASE_EDITION_SEQUENCE).toEqual([
       "Pup",
       "Husky",
       "Corgi",
@@ -51,22 +56,10 @@ describe("linjunkAI edition helpers", () => {
     ])
   })
 
-  test("defines tooltip descriptions for every local edition", () => {
-    expect(Object.keys(LINJUNKAI_EDITION_DESCRIPTIONS)).toEqual([...LINJUNKAI_EDITION_SEQUENCE])
-    for (const edition of LINJUNKAI_EDITION_SEQUENCE) {
-      expect(getLinjunkaiEditionTooltip(edition)).toBe(`Software Edition: ${edition}.\n${LINJUNKAI_EDITION_DESCRIPTIONS[edition]}`)
+  test("defines tooltip descriptions for every release", () => {
+    expect(Object.keys(RELEASE_EDITION_DESCRIPTIONS)).toEqual([...RELEASE_EDITION_SEQUENCE])
+    for (const edition of RELEASE_EDITION_SEQUENCE) {
+      expect(getReleaseEditionTooltip(edition)).toBe(`StillOn release: ${edition}.\n${RELEASE_EDITION_DESCRIPTIONS[edition]}`)
     }
-  })
-
-  test("keeps the Pup tooltip anchored to the newborn puppy meaning", () => {
-    expect(getLinjunkaiEditionTooltip("Pup")).toBe(
-      "Software Edition: Pup.\nA newborn puppy: small, fresh, and just starting out."
-    )
-  })
-
-  test("keeps the Husky tooltip anchored to the young sled dog meaning", () => {
-    expect(getLinjunkaiEditionTooltip("Husky")).toBe(
-      "Software Edition: Husky.\nA loud young sled dog: energetic, curious, and not fully disciplined yet."
-    )
   })
 })

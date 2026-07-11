@@ -98,7 +98,7 @@ function StandaloneTranscriptApp() {
   }, [])
 
   const handleOpenMarketingSite = useCallback(() => {
-    window.open("https://github.com/bzbj/husky", "_blank", "noopener,noreferrer")
+    window.open("https://github.com/bzbj/stillon", "_blank", "noopener,noreferrer")
   }, [])
 
   if (state.status === "loading") {
@@ -134,11 +134,11 @@ function StandaloneTranscriptApp() {
               <div className="flex items-center gap-2 min-w-0">
                 <a
                   className="flex flex-shrink-0 items-center gap-2"
-                  href="https://github.com/bzbj/husky"
+                  href="https://github.com/bzbj/stillon"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <img src="/husky-mark.svg" alt="" className="h-5 w-5 rounded-md object-contain sm:h-6 sm:w-6" />
+                  <img src="/stillon-mark.svg" alt="" className="h-5 w-5 rounded-md object-contain sm:h-6 sm:w-6" />
                   <span className="font-logo text-base sm:text-lg text-slate-600 dark:text-slate-100">
                     {APP_NAME}
                   </span>
@@ -184,13 +184,13 @@ function StandaloneTranscriptApp() {
 
             <div className="absolute bottom-4 left-1/2 z-20 w-full -translate-x-1/2 md:w-auto">
               <div className="mx-2 flex items-center gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur-lg md:mx-0">
-                <img src="/husky-mark.svg" alt="" className="h-6 w-6 flex-shrink-0 rounded-md object-contain" />
+                <img src="/stillon-mark.svg" alt="" className="h-6 w-6 flex-shrink-0 rounded-md object-contain" />
                 <p className="flex-1 text-sm text-foreground sm:text-base">
                   {APP_NAME} is a local open-source workspace for coding agents
                 </p>
                 <a
                   className="ml-4 flex flex-shrink-0 flex-row items-center gap-1 rounded-lg bg-logo px-3 py-1.5 pr-2 text-sm font-bold text-white transition-colors hover:bg-logo/90"
-                  href="https://github.com/bzbj/husky"
+                  href="https://github.com/bzbj/stillon"
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(event) => {

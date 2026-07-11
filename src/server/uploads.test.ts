@@ -26,7 +26,7 @@ async function startIsolatedServer(options: { port: number; strictPort?: boolean
 }
 
 describe("uploads", () => {
-  test("stores uploads in .kanna/uploads and keeps duplicate filenames", async () => {
+  test("stores uploads in .stillon/uploads and keeps duplicate filenames", async () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-upload-test-"))
     tempDirs.push(projectDir)
 
@@ -45,14 +45,14 @@ describe("uploads", () => {
       fallbackMimeType: "text/plain",
     })
 
-    expect(first.absolutePath).toBe(path.join(projectDir, ".kanna/uploads/notes.txt"))
-    expect(first.relativePath).toBe("./.kanna/uploads/notes.txt")
+    expect(first.absolutePath).toBe(path.join(projectDir, ".stillon/uploads/notes.txt"))
+    expect(first.relativePath).toBe("./.stillon/uploads/notes.txt")
     expect(first.contentUrl).toBe("/api/projects/project-1/uploads/notes.txt/content")
-    expect(second.absolutePath).toBe(path.join(projectDir, ".kanna/uploads/notes-1.txt"))
-    expect(second.relativePath).toBe("./.kanna/uploads/notes-1.txt")
+    expect(second.absolutePath).toBe(path.join(projectDir, ".stillon/uploads/notes-1.txt"))
+    expect(second.relativePath).toBe("./.stillon/uploads/notes-1.txt")
     expect(second.contentUrl).toBe("/api/projects/project-1/uploads/notes-1.txt/content")
-    expect(await Bun.file(path.join(projectDir, ".kanna/uploads/notes.txt")).text()).toBe("hello")
-    expect(await Bun.file(path.join(projectDir, ".kanna/uploads/notes-1.txt")).text()).toBe("world")
+    expect(await Bun.file(path.join(projectDir, ".stillon/uploads/notes.txt")).text()).toBe("hello")
+    expect(await Bun.file(path.join(projectDir, ".stillon/uploads/notes-1.txt")).text()).toBe("world")
   })
 
   test("stores concurrent same-name uploads without overwriting existing content", async () => {
@@ -103,9 +103,9 @@ describe("uploads", () => {
 
     expect(attachment.kind).toBe("image")
     expect(attachment.mimeType).toBe("image/png")
-    expect(getProjectUploadDir(projectDir)).toBe(path.join(projectDir, ".kanna", "uploads"))
-    expect(attachment.absolutePath).toBe(path.join(projectDir, ".kanna/uploads/pixel.png"))
-    expect(attachment.relativePath).toBe("./.kanna/uploads/pixel.png")
+    expect(getProjectUploadDir(projectDir)).toBe(path.join(projectDir, ".stillon", "uploads"))
+    expect(attachment.absolutePath).toBe(path.join(projectDir, ".stillon/uploads/pixel.png"))
+    expect(attachment.relativePath).toBe("./.stillon/uploads/pixel.png")
     expect(attachment.contentUrl).toBe("/api/projects/project-2/uploads/pixel.png/content")
   })
 
@@ -232,8 +232,8 @@ describe("uploads", () => {
       })
     ).rejects.toThrow("disk full")
 
-    expect(await Bun.file(path.join(projectDir, ".kanna/uploads/first.txt")).exists()).toBe(false)
-    expect(await Bun.file(path.join(projectDir, ".kanna/uploads/second.txt")).exists()).toBe(false)
+    expect(await Bun.file(path.join(projectDir, ".stillon/uploads/first.txt")).exists()).toBe(false)
+    expect(await Bun.file(path.join(projectDir, ".stillon/uploads/second.txt")).exists()).toBe(false)
   })
 
   test("deletes uploaded attachments from the project uploads directory", async () => {

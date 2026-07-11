@@ -41,7 +41,7 @@ function persistSidebarWidth(width: number) {
 }
 
 function BrandMark({ className }: { className?: string }) {
-  return <img src="/husky-mark.svg" alt="" aria-hidden="true" draggable={false} className={className} />
+  return <img src="/stillon-mark.svg" alt="" aria-hidden="true" draggable={false} className={className} />
 }
 
 function SidebarWordmark() {

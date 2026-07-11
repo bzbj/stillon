@@ -214,7 +214,10 @@ function normalizeVersion(version: string) {
 }
 
 async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
-  if (deps.selfUpdateEnabled === false || process.env.HUSKY_DISABLE_SELF_UPDATE === "1" || process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
+  if (deps.selfUpdateEnabled === false
+    || process.env.STILLON_DISABLE_SELF_UPDATE === "1"
+    || process.env.HUSKY_DISABLE_SELF_UPDATE === "1"
+    || process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
     return null
   }
 

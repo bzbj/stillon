@@ -24,7 +24,9 @@ type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<
 type AnalyticsEnvironment = "dev" | "prod"
 
 function isAnalyticsLoggingEnabled() {
-  return process.env.HUSKY_LOG_ANALYTICS === "1" || process.env.KANNA_LOG_ANALYTICS === "1"
+  return process.env.STILLON_LOG_ANALYTICS === "1"
+    || process.env.HUSKY_LOG_ANALYTICS === "1"
+    || process.env.KANNA_LOG_ANALYTICS === "1"
 }
 
 export interface AnalyticsReporter {
@@ -57,7 +59,10 @@ export class KannaAnalyticsReporter implements AnalyticsReporter {
     this.settings = args.settings
     this.currentVersion = args.currentVersion
     this.environment = args.environment
-    this.endpoint = args.endpoint ?? process.env.HUSKY_ANALYTICS_ENDPOINT?.trim() ?? ANALYTICS_ENDPOINT
+    this.endpoint = args.endpoint
+      ?? process.env.STILLON_ANALYTICS_ENDPOINT?.trim()
+      ?? process.env.HUSKY_ANALYTICS_ENDPOINT?.trim()
+      ?? ANALYTICS_ENDPOINT
     this.fetchImpl = args.fetchImpl ?? fetch
   }
 
@@ -89,12 +94,12 @@ export class KannaAnalyticsReporter implements AnalyticsReporter {
           throw new Error(`Analytics request failed with status ${response.status}`)
         }
         if (isAnalyticsLoggingEnabled()) {
-          console.log("[husky/analytics] Sent analytics event:", eventName, response.status)
+          console.log("[stillon/analytics] Sent analytics event:", eventName, response.status)
         }
       })
       .catch((error) => {
         if (isAnalyticsLoggingEnabled()) {
-          console.warn("[husky/analytics] Failed to send analytics event:", eventName, error)
+          console.warn("[stillon/analytics] Failed to send analytics event:", eventName, error)
         }
       })
   }

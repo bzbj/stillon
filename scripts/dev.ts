@@ -15,11 +15,11 @@ const { clientPort, serverPort, serverArgs, share } = devArgs
 
 const clientEnv = {
   ...process.env,
-  HUSKY_DEV_ALLOWED_HOSTS: typeof devArgs.allowedHosts === "boolean"
+  STILLON_DEV_ALLOWED_HOSTS: typeof devArgs.allowedHosts === "boolean"
     ? String(devArgs.allowedHosts)
     : JSON.stringify(devArgs.allowedHosts),
-  HUSKY_DEV_BACKEND_TARGET_HOST: devArgs.backendTargetHost,
-  HUSKY_DEV_BACKEND_PORT: String(serverPort),
+  STILLON_DEV_BACKEND_TARGET_HOST: devArgs.backendTargetHost,
+  STILLON_DEV_BACKEND_PORT: String(serverPort),
 }
 
 function spawnLabeledProcess(label: string, args: string[]) {

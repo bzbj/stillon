@@ -562,8 +562,8 @@ async function readCodexAppServerSnapshot(
   try {
     await send("initialize", {
       clientInfo: {
-        name: "kanna",
-        title: "Kanna",
+        name: "stillon",
+        title: "StillOn",
         version: "0.0.0",
       },
       capabilities: {},

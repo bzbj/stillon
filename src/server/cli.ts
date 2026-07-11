@@ -33,7 +33,8 @@ const result = await runCli(argv, {
   },
   fetchLatestVersion: fetchLatestPackageVersion,
   installVersion: installPackageVersion,
-  selfUpdateEnabled: process.env.HUSKY_ENABLE_SELF_UPDATE === "1",
+  selfUpdateEnabled: process.env.STILLON_ENABLE_SELF_UPDATE === "1"
+    || process.env.HUSKY_ENABLE_SELF_UPDATE === "1",
   openUrl,
   log: console.log,
   warn: console.warn,

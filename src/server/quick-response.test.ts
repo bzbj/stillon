@@ -159,7 +159,7 @@ describe("QuickResponseAdapter", () => {
     expect(result).toBe("Codex title")
   })
 
-  test("uses the Kanna app data root as the quick-response workspace", async () => {
+  test("uses the StillOn app data root as the quick-response workspace", async () => {
     const previousProfile = process.env.KANNA_RUNTIME_PROFILE
     process.env.KANNA_RUNTIME_PROFILE = "dev"
 
@@ -201,7 +201,7 @@ describe("QuickResponseAdapter", () => {
       })
 
       expect(claudeCwd).toBe(getQuickResponseWorkspace(process.env))
-      expect(claudeCwd.endsWith("/.kanna-dev")).toBe(true)
+      expect(claudeCwd.endsWith("/.stillon-dev")).toBe(true)
     } finally {
       if (previousProfile === undefined) {
         delete process.env.KANNA_RUNTIME_PROFILE

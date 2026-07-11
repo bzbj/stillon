@@ -177,7 +177,7 @@ export function ChatNavbar({
           {sidebarCollapsed && (
             <>
               <div className="hidden md:flex items-center justify-center w-[36px] h-[36px]">
-                <img src="/husky-mark.svg" alt="" className="ml-1 hidden h-4 w-4 rounded-md object-contain sm:h-5 sm:w-5 md:block" />
+                <img src="/stillon-mark.svg" alt="" className="ml-1 hidden h-4 w-4 rounded-md object-contain sm:h-5 sm:w-5 md:block" />
               </div>
               <Button
                 variant="ghost"

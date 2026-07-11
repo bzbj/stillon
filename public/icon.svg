@@ -1,4 +1,17 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" fill="white"/>
-  <image href="/favicon.png" x="64" y="64" width="384" height="384" preserveAspectRatio="xMidYMid meet"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="StillOn">
+  <defs>
+    <linearGradient id="bg" x1="28" y1="20" x2="228" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14233D"/>
+      <stop offset="1" stop-color="#08111F"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="66" y1="54" x2="190" y2="208" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8F5FF"/>
+      <stop offset=".5" stop-color="#8DD8FF"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#bg)"/>
+  <path d="M178 74c-16-20-40-28-65-22-29 7-48 28-43 50 4 20 23 30 48 34l24 4c27 4 44 15 45 34 1 22-21 39-50 40-26 1-49-10-63-29" fill="none" stroke="url(#signal)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="178" cy="74" r="8" fill="#C9F3FF"/>
+  <circle cx="178" cy="74" r="3" fill="#FFFFFF"/>
 </svg>

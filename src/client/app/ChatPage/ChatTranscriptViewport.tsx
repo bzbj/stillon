@@ -331,7 +331,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
           <div className="mx-auto flex h-full max-w-[800px] items-center justify-center">
             <div className="flex flex-col items-center justify-center gap-4 text-muted-foreground opacity-70">
               <img
-                src="/husky-mark.svg"
+                src="/stillon-mark.svg"
                 alt=""
                 className="kanna-empty-state-flower size-8 rounded-lg object-contain opacity-80"
                 draggable={false}

@@ -49,7 +49,7 @@ describe("KannaAnalyticsReporter", () => {
             analyticsEnabled: true,
             analyticsUserId: "anon_123",
             warning: null,
-            filePathDisplay: "~/.kanna/data/settings.json",
+            filePathDisplay: "~/.stillon/data/settings.json",
           }),
         },
         fetchImpl: async (url, init) => {
@@ -94,7 +94,7 @@ describe("KannaAnalyticsReporter", () => {
           analyticsEnabled: true,
           analyticsUserId: "anon_123",
           warning: null,
-          filePathDisplay: "~/.kanna/data/settings.json",
+          filePathDisplay: "~/.stillon/data/settings.json",
         }),
       },
       fetchImpl: async (url, init) => {
@@ -144,7 +144,7 @@ describe("KannaAnalyticsReporter", () => {
           analyticsEnabled: false,
           analyticsUserId: "anon_123",
           warning: null,
-          filePathDisplay: "~/.kanna/data/settings.json",
+          filePathDisplay: "~/.stillon/data/settings.json",
         }),
       },
       fetchImpl: async () => {
@@ -177,7 +177,7 @@ describe("KannaAnalyticsReporter", () => {
             analyticsEnabled: true,
             analyticsUserId: "anon_123",
             warning: null,
-            filePathDisplay: "~/.kanna/data/settings.json",
+            filePathDisplay: "~/.stillon/data/settings.json",
           }),
         },
         fetchImpl: async () => new Response(JSON.stringify({ error: "bad request" }), { status: 400 }),
@@ -211,7 +211,7 @@ describe("KannaAnalyticsReporter", () => {
             analyticsEnabled: true,
             analyticsUserId: "anon_123",
             warning: null,
-            filePathDisplay: "~/.kanna/data/settings.json",
+            filePathDisplay: "~/.stillon/data/settings.json",
           }),
         },
         fetchImpl: async () => new Response(JSON.stringify({ error: "bad request" }), { status: 400 }),
@@ -221,7 +221,7 @@ describe("KannaAnalyticsReporter", () => {
       await (reporter as any).queue
 
       expect(warnings).toHaveLength(1)
-      expect(warnings[0]?.[0]).toBe("[husky/analytics] Failed to send analytics event:")
+      expect(warnings[0]?.[0]).toBe("[stillon/analytics] Failed to send analytics event:")
       expect(warnings[0]?.[1]).toBe("message_sent")
       expect(warnings[0]?.[2]).toBeInstanceOf(Error)
     } finally {
@@ -248,7 +248,7 @@ describe("KannaAnalyticsReporter", () => {
             analyticsEnabled: true,
             analyticsUserId: "anon_123",
             warning: null,
-            filePathDisplay: "~/.kanna/data/settings.json",
+            filePathDisplay: "~/.stillon/data/settings.json",
           }),
         },
         fetchImpl: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
@@ -259,7 +259,7 @@ describe("KannaAnalyticsReporter", () => {
 
       expect(logs).toHaveLength(1)
       expect(logs[0]).toEqual([
-        "[husky/analytics] Sent analytics event:",
+        "[stillon/analytics] Sent analytics event:",
         "message_sent",
         200,
       ])
@@ -287,7 +287,7 @@ describe("KannaAnalyticsReporter", () => {
             analyticsEnabled: true,
             analyticsUserId: "anon_123",
             warning: null,
-            filePathDisplay: "~/.kanna/data/settings.json",
+            filePathDisplay: "~/.stillon/data/settings.json",
           }),
         },
         fetchImpl: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),

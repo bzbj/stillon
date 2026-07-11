@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
+import { APP_VERSION } from "../shared/branding"
 import type { AgentCoordinator } from "./agent"
 import type { AnalyticsReporter } from "./analytics"
 import { NoopAnalyticsReporter } from "./analytics"
@@ -426,7 +427,7 @@ export function createWsRouter({
       resolvedBaseUrl: "https://api.openai.com/v1",
       enabled: false,
       warning: null,
-      filePathDisplay: "~/.kanna/llm-provider.json",
+      filePathDisplay: "~/.stillon/llm-provider.json",
     }),
     write: async ({ provider, apiKey, model, baseUrl }: {
       provider: "openai" | "openrouter" | "custom"
@@ -445,7 +446,7 @@ export function createWsRouter({
           : "https://api.openai.com/v1",
       enabled: false,
       warning: null,
-      filePathDisplay: "~/.kanna/llm-provider.json",
+      filePathDisplay: "~/.stillon/llm-provider.json",
     }),
     validate: async () => ({
       ok: false,
@@ -494,7 +495,7 @@ export function createWsRouter({
       },
     },
     warning: null,
-    filePathDisplay: "~/.kanna/data/settings.json",
+    filePathDisplay: "~/.stillon/data/settings.json",
   }
   const mergeAppSettingsPatch = (snapshot: AppSettingsSnapshot, patch: AppSettingsPatch): AppSettingsSnapshot => ({
     ...snapshot,
@@ -732,7 +733,7 @@ export function createWsRouter({
         snapshot: {
           type: "update",
           data: updateManager?.getSnapshot() ?? {
-            currentVersion: "unknown",
+            currentVersion: APP_VERSION,
             latestVersion: null,
             status: "idle",
             updateAvailable: false,
@@ -1098,7 +1099,7 @@ export function createWsRouter({
           const snapshot = updateManager
             ? await updateManager.checkForUpdates({ force: command.force })
             : {
-                currentVersion: "unknown",
+                currentVersion: APP_VERSION,
                 latestVersion: null,
                 status: "error",
                 updateAvailable: false,

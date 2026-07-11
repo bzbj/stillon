@@ -1,9 +1,9 @@
 {
-  "name": "@bzbj/husky",
+  "name": "@bzbj/stillon",
   "type": "module",
   "version": "0.1.0",
   "private": true,
-  "description": "Husky — a local web workspace for Claude Code and Codex",
+  "description": "StillOn — leave your Mac, keep your coding agents",
   "license": "MIT",
   "keywords": [
     "claude",
@@ -13,15 +13,19 @@
     "ui",
     "agent",
     "anthropic",
+    "remote-access",
+    "always-on",
     "bun",
     "react"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bzbj/husky.git"
+    "url": "git+https://github.com/bzbj/stillon.git"
   },
   "bin": {
-    "husky": "./bin/husky"
+    "stillon": "./bin/stillon",
+    "husky": "./bin/stillon",
+    "kanna": "./bin/stillon"
   },
   "packageManager": "bun@1.3.5",
   "files": [

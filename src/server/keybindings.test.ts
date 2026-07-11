@@ -133,7 +133,7 @@ describe("KeybindingsManager", () => {
 
     const manager = new KeybindingsManager()
 
-    expect(manager.filePath).toEndWith("/.kanna-dev/keybindings.json")
+    expect(manager.filePath).toEndWith("/.stillon-dev/keybindings.json")
 
     if (previous === undefined) {
       delete process.env.KANNA_RUNTIME_PROFILE

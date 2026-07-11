@@ -19,7 +19,7 @@ describe("project quick actions", () => {
     ])
   })
 
-  test("writes quick actions to the project .kanna directory", async () => {
+  test("writes quick actions to the project .stillon directory", async () => {
     const projectPath = await mkdtemp(path.join(tmpdir(), "kanna-project-quick-actions-"))
 
     const written = await writeProjectQuickActions(projectPath, [
@@ -30,6 +30,6 @@ describe("project quick actions", () => {
       { id: "dev", label: "Dev", command: "bun run dev" },
     ])
     await expect(readProjectQuickActions(projectPath)).resolves.toEqual(written)
-    await expect(Bun.file(path.join(projectPath, ".kanna", "quick-actions.json")).exists()).resolves.toBe(true)
+    await expect(Bun.file(path.join(projectPath, ".stillon", "quick-actions.json")).exists()).resolves.toBe(true)
   })
 })

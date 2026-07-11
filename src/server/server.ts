@@ -1,6 +1,6 @@
 import path from "node:path"
 import { stat } from "node:fs/promises"
-import { APP_NAME, getRuntimeProfile } from "../shared/branding"
+import { APP_NAME, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import type { ShareMode } from "../shared/share"
@@ -20,7 +20,8 @@ import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { createWsRouter, type ClientState } from "./ws-router"
 import { handleBrowserPreviewProxy } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
-import { getProjectUploadDir } from "./paths"
+import { resolveProjectUploadFilePath } from "./paths"
+import { migrateLegacyBrandDataRoot } from "./brand-migration"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -89,6 +90,12 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const strictPort = options.strictPort ?? false
   const runtimeProfile = getRuntimeProfile()
   const auth = options.password ? createAuthManager(options.password, { trustProxy: options.trustProxy ?? false }) : null
+  if (!options.dataDir) {
+    const migration = await migrateLegacyBrandDataRoot()
+    if (migration.status === "migrated") {
+      console.log(`${LOG_PREFIX} moved existing data from ${migration.from} to ${migration.to}`)
+    }
+  }
   const store = new EventStore(options.dataDir)
   const diffStore = new DiffStore(store.dataDir)
   const machineDisplayName = getMachineDisplayName()
@@ -401,7 +408,10 @@ async function handleAttachmentContent(req: Request, url: URL, store: EventStore
     return Response.json({ error: "Invalid attachment path" }, { status: 400 })
   }
 
-  const filePath = path.join(getProjectUploadDir(project.localPath), storedName)
+  const filePath = await resolveProjectUploadFilePath(project.localPath, storedName)
+  if (!filePath) {
+    return Response.json({ error: "Attachment not found" }, { status: 404 })
+  }
   const file = Bun.file(filePath)
   try {
     const info = await stat(filePath)

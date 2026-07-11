@@ -13,8 +13,12 @@ import { APP_VERSION } from "../shared/branding"
 import { getProjectExportDir } from "./paths"
 
 const STANDALONE_TRANSCRIPT_BUNDLE_VERSION = 1 as const
-const STANDALONE_SHARE_UPLOAD_BASE_URL = process.env.HUSKY_SHARE_UPLOAD_BASE_URL?.trim() ?? ""
-const STANDALONE_SHARE_PUBLIC_BASE_URL = process.env.HUSKY_SHARE_PUBLIC_BASE_URL?.trim() ?? ""
+const STANDALONE_SHARE_UPLOAD_BASE_URL = process.env.STILLON_SHARE_UPLOAD_BASE_URL?.trim()
+  ?? process.env.HUSKY_SHARE_UPLOAD_BASE_URL?.trim()
+  ?? ""
+const STANDALONE_SHARE_PUBLIC_BASE_URL = process.env.STILLON_SHARE_PUBLIC_BASE_URL?.trim()
+  ?? process.env.HUSKY_SHARE_PUBLIC_BASE_URL?.trim()
+  ?? ""
 const STANDALONE_SHARE_WORKSPACE_PATH = "/workspace"
 const STANDALONE_SHARE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 const CONTENT_TYPES_BY_EXTENSION: Record<string, string> = {
@@ -133,7 +137,7 @@ export async function writeStandaloneTranscriptExport(
   if (!shareUploadBaseUrl || !sharePublicBaseUrl) {
     return {
       ok: false,
-      error: "Public Husky transcript sharing is not configured. A local transcript export was created.",
+      error: "Public StillOn transcript sharing is not configured. A local transcript export was created.",
       outputDir,
       transcriptJsonPath,
       transcriptFileName: `${path.basename(outputDir)}-transcript.json`,

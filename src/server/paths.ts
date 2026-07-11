@@ -2,6 +2,9 @@ import { mkdir, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 
+export const PROJECT_DATA_DIR_NAME = ".stillon"
+export const LEGACY_PROJECT_DATA_DIR_NAME = ".kanna"
+
 export function resolveLocalPath(localPath: string) {
   const trimmed = localPath.trim()
   if (!trimmed) {
@@ -27,9 +30,31 @@ export async function ensureProjectDirectory(localPath: string) {
 }
 
 export function getProjectUploadDir(localPath: string) {
-  return path.join(resolveLocalPath(localPath), ".kanna", "uploads")
+  return path.join(resolveLocalPath(localPath), PROJECT_DATA_DIR_NAME, "uploads")
+}
+
+export function getLegacyProjectUploadDir(localPath: string) {
+  return path.join(resolveLocalPath(localPath), LEGACY_PROJECT_DATA_DIR_NAME, "uploads")
+}
+
+export async function resolveProjectUploadFilePath(localPath: string, storedName: string) {
+  const candidates = [
+    path.join(getProjectUploadDir(localPath), storedName),
+    path.join(getLegacyProjectUploadDir(localPath), storedName),
+  ]
+
+  for (const candidate of candidates) {
+    try {
+      const info = await stat(candidate)
+      if (info.isFile()) return candidate
+    } catch {
+      // Try the legacy project directory before reporting a missing upload.
+    }
+  }
+
+  return null
 }
 
 export function getProjectExportDir(localPath: string) {
-  return path.join(resolveLocalPath(localPath), ".kanna", "exports")
+  return path.join(resolveLocalPath(localPath), PROJECT_DATA_DIR_NAME, "exports")
 }

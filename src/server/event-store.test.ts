@@ -40,7 +40,7 @@ describe("EventStore", () => {
 
     const store = new EventStore()
 
-    expect(store.dataDir).toEndWith("/.kanna-dev/data")
+    expect(store.dataDir).toEndWith("/.stillon-dev/data")
   })
 
   test("migrates legacy snapshot and messages log transcripts into per-chat files", async () => {

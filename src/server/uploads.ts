@@ -3,7 +3,7 @@ import { mkdir, open, rm } from "node:fs/promises"
 import path from "node:path"
 import { fileTypeFromBuffer } from "file-type"
 import type { ChatAttachment } from "../shared/types"
-import { getProjectUploadDir } from "./paths"
+import { getLegacyProjectUploadDir, getProjectUploadDir } from "./paths"
 
 const DEFAULT_BINARY_MIME_TYPE = "application/octet-stream"
 const IMAGE_MIME_PREFIX = "image/"
@@ -87,7 +87,7 @@ export async function persistProjectUpload(args: {
     kind: mimeType.startsWith(IMAGE_MIME_PREFIX) ? "image" : "file",
     displayName: args.fileName,
     absolutePath,
-    relativePath: `./.kanna/uploads/${storedName}`,
+    relativePath: `./.stillon/uploads/${storedName}`,
     contentUrl: `/api/projects/${args.projectId}/uploads/${encodeURIComponent(storedName)}/content`,
     mimeType,
     size: args.bytes.byteLength,
@@ -121,11 +121,18 @@ export async function deleteProjectUpload(args: {
     return false
   }
 
-  const absolutePath = path.join(getProjectUploadDir(args.localPath), storedName)
-  try {
-    await rm(absolutePath, { force: true })
-    return true
-  } catch {
-    return false
+  const candidates = [
+    path.join(getProjectUploadDir(args.localPath), storedName),
+    path.join(getLegacyProjectUploadDir(args.localPath), storedName),
+  ]
+  let removed = false
+  for (const absolutePath of candidates) {
+    try {
+      await rm(absolutePath, { force: true })
+      removed = true
+    } catch {
+      // Continue so legacy uploads remain removable after the brand migration.
+    }
   }
+  return removed
 }
