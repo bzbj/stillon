@@ -20,7 +20,7 @@ export function spawnDetached(command: string, args: string[]) {
   return new Promise<void>((resolve, reject) => {
     let child
     try {
-      child = spawn(command, args, { stdio: "ignore", detached: true })
+      child = spawn(command, args, { stdio: "ignore", detached: true, shell: false })
     } catch (error) {
       reject(formatSpawnError(command, error))
       return
