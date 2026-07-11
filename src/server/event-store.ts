@@ -1,4 +1,4 @@
-import { appendFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
+import { appendFile, copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
 import { existsSync, readFileSync as readFileSyncImmediate } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -146,8 +146,8 @@ export class EventStore {
   readonly dataDir: string
   readonly state: StoreState = createEmptyState()
   private writeChain = Promise.resolve()
-  private storageReset = false
   private readonly snapshotPath: string
+  private readonly snapshotBackupPath: string
   private readonly projectsLogPath: string
   private readonly chatsLogPath: string
   private readonly messagesLogPath: string
@@ -160,10 +160,12 @@ export class EventStore {
   private sidebarProjectOrder: string[] = []
   private snapshotHasLegacyMessages = false
   private cachedTranscript: { chatId: string; entries: TranscriptEntry[] } | null = null
+  private replayArchivedLogs = false
 
   constructor(dataDir = getDataDir(homedir())) {
     this.dataDir = dataDir
     this.snapshotPath = path.join(this.dataDir, "snapshot.json")
+    this.snapshotBackupPath = `${this.snapshotPath}.bak`
     this.projectsLogPath = path.join(this.dataDir, "projects.jsonl")
     this.chatsLogPath = path.join(this.dataDir, "chats.jsonl")
     this.messagesLogPath = path.join(this.dataDir, "messages.jsonl")
@@ -196,33 +198,34 @@ export class EventStore {
     }
   }
 
-  private async clearStorage() {
-    if (this.storageReset) return
-    this.storageReset = true
+  private async loadSnapshot() {
+    const primaryResult = await this.loadSnapshotFile(this.snapshotPath)
+    if (primaryResult !== "invalid") return
+
+    await this.quarantineFile(this.snapshotPath)
     this.resetState()
     this.clearLegacyTranscriptState()
-    await Promise.all([
-      Bun.write(this.snapshotPath, ""),
-      Bun.write(this.projectsLogPath, ""),
-      Bun.write(this.chatsLogPath, ""),
-      Bun.write(this.messagesLogPath, ""),
-      Bun.write(this.queuedMessagesLogPath, ""),
-      Bun.write(this.turnsLogPath, ""),
-    ])
+    this.replayArchivedLogs = true
+
+    const backupResult = await this.loadSnapshotFile(this.snapshotBackupPath)
+    if (backupResult === "invalid") {
+      await this.quarantineFile(this.snapshotBackupPath)
+      this.resetState()
+      this.clearLegacyTranscriptState()
+    }
   }
 
-  private async loadSnapshot() {
-    const file = Bun.file(this.snapshotPath)
-    if (!(await file.exists())) return
+  private async loadSnapshotFile(snapshotPath: string): Promise<"missing" | "loaded" | "invalid"> {
+    const file = Bun.file(snapshotPath)
+    if (!(await file.exists())) return "missing"
 
     try {
       const text = await file.text()
-      if (!text.trim()) return
+      if (!text.trim()) return "missing"
       const parsed = JSON.parse(text) as SnapshotFile
       if (parsed.v !== STORE_VERSION) {
-        console.warn(`${LOG_PREFIX} Resetting local chat history for store version ${STORE_VERSION}`)
-        await this.clearStorage()
-        return
+        console.warn(`${LOG_PREFIX} Ignoring incompatible snapshot ${path.basename(snapshotPath)} for store version ${STORE_VERSION}`)
+        return "invalid"
       }
       for (const project of parsed.projects) {
         this.state.projectsById.set(project.id, { ...project })
@@ -250,9 +253,23 @@ export class EventStore {
           this.legacyMessagesByChatId.set(messageSet.chatId, cloneTranscriptEntries(messageSet.entries))
         }
       }
+      return "loaded"
     } catch (error) {
-      console.warn(`${LOG_PREFIX} Failed to load snapshot, resetting local history:`, error)
-      await this.clearStorage()
+      console.warn(`${LOG_PREFIX} Failed to load snapshot ${path.basename(snapshotPath)}, attempting recovery:`, error)
+      return "invalid"
+    }
+  }
+
+  private async quarantineFile(filePath: string) {
+    const file = Bun.file(filePath)
+    if (!(await file.exists())) return
+
+    const quarantinePath = `${filePath}.corrupt-${Date.now()}-${crypto.randomUUID()}`
+    try {
+      await rename(filePath, quarantinePath)
+      console.warn(`${LOG_PREFIX} Isolated corrupt storage file at ${path.basename(quarantinePath)}`)
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} Failed to isolate corrupt storage file ${path.basename(filePath)}:`, error)
     }
   }
 
@@ -352,15 +369,18 @@ export class EventStore {
   }
 
   private async replayLogs() {
-    if (this.storageReset) return
-    const replayEvents = [
-      ...await this.loadReplayEvents(this.projectsLogPath, 0),
-      ...await this.loadReplayEvents(this.chatsLogPath, 1),
-      ...await this.loadReplayEvents(this.messagesLogPath, 2),
-      ...await this.loadReplayEvents(this.queuedMessagesLogPath, 3),
-      ...await this.loadReplayEvents(this.turnsLogPath, 4),
-    ]
-    if (this.storageReset) return
+    const logPaths = this.getEventLogPaths()
+    const replayEvents: ParsedReplayEvent[] = []
+
+    for (const [filePath, sourceIndex] of logPaths) {
+      const archivePath = this.archivePath(filePath)
+      if (this.replayArchivedLogs) {
+        replayEvents.push(...await this.loadReplayEvents(archivePath, sourceIndex))
+      }
+      if (await this.shouldReplayCurrentLog(filePath, archivePath)) {
+        replayEvents.push(...await this.loadReplayEvents(filePath, sourceIndex + logPaths.length))
+      }
+    }
 
     replayEvents
       .sort((left, right) => (
@@ -396,9 +416,8 @@ export class EventStore {
       try {
         const event = JSON.parse(line) as Partial<StoreEvent>
         if (event.v !== STORE_VERSION) {
-          console.warn(`${LOG_PREFIX} Resetting local history from incompatible event log`)
-          await this.clearStorage()
-          return []
+          console.warn(`${LOG_PREFIX} Ignoring incompatible event in ${path.basename(filePath)}`)
+          continue
         }
         if ((event as { type?: unknown }).type === "sidebar_project_order_set") {
           continue
@@ -413,9 +432,7 @@ export class EventStore {
           console.warn(`${LOG_PREFIX} Ignoring corrupt trailing line in ${path.basename(filePath)}`)
           return parsedEvents
         }
-        console.warn(`${LOG_PREFIX} Failed to replay ${path.basename(filePath)}, resetting local history:`, error)
-        await this.clearStorage()
-        return []
+        console.warn(`${LOG_PREFIX} Failed to replay event in ${path.basename(filePath)}, skipping it:`, error)
       }
     }
 
@@ -1228,15 +1245,64 @@ export class EventStore {
   }
 
   async compact() {
-    const snapshot = this.createSnapshot()
-    await Bun.write(this.snapshotPath, JSON.stringify(snapshot, null, 2))
-    await Promise.all([
-      Bun.write(this.projectsLogPath, ""),
-      Bun.write(this.chatsLogPath, ""),
-      Bun.write(this.messagesLogPath, ""),
-      Bun.write(this.queuedMessagesLogPath, ""),
-      Bun.write(this.turnsLogPath, ""),
-    ])
+    this.writeChain = this.writeChain.then(async () => {
+      const snapshot = this.createSnapshot()
+      const logPaths = this.getEventLogPaths()
+
+      // Archive the log delta before publishing the snapshot. If publishing is
+      // interrupted, the current snapshot still uses the live logs; if the new
+      // snapshot later proves corrupt, its predecessor and these archives form
+      // a complete recovery pair.
+      await Promise.all(logPaths.map(([filePath]) => this.copyFileAtomically(filePath, this.archivePath(filePath))))
+      if (await Bun.file(this.snapshotPath).exists()) {
+        await this.copyFileAtomically(this.snapshotPath, this.snapshotBackupPath)
+      }
+      await this.writeFileAtomically(this.snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`)
+      await Promise.all(logPaths.map(([filePath]) => this.writeFileAtomically(filePath, "")))
+    })
+    return this.writeChain
+  }
+
+  private getEventLogPaths(): Array<[string, number]> {
+    return [
+      [this.projectsLogPath, 0],
+      [this.chatsLogPath, 1],
+      [this.messagesLogPath, 2],
+      [this.queuedMessagesLogPath, 3],
+      [this.turnsLogPath, 4],
+    ]
+  }
+
+  private archivePath(filePath: string) {
+    return `${filePath}.bak`
+  }
+
+  private async shouldReplayCurrentLog(filePath: string, archivePath: string) {
+    const [current, archive] = [Bun.file(filePath), Bun.file(archivePath)]
+    if (!(await archive.exists()) || (await current.size) !== (await archive.size)) {
+      return true
+    }
+    return (await current.text()) !== (await archive.text())
+  }
+
+  private async writeFileAtomically(filePath: string, content: string) {
+    const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.tmp-${crypto.randomUUID()}`)
+    try {
+      await writeFile(tempPath, content, "utf8")
+      await rename(tempPath, filePath)
+    } finally {
+      await rm(tempPath, { force: true })
+    }
+  }
+
+  private async copyFileAtomically(sourcePath: string, targetPath: string) {
+    const tempPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.tmp-${crypto.randomUUID()}`)
+    try {
+      await copyFile(sourcePath, tempPath)
+      await rename(tempPath, targetPath)
+    } finally {
+      await rm(tempPath, { force: true })
+    }
   }
 
   async migrateLegacyTranscripts(onProgress?: (message: string) => void) {
