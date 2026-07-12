@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import type { AgentProvider } from "../shared/types"
 import { resolveLocalPath } from "./paths"
@@ -21,6 +21,18 @@ export interface ProjectDiscoveryAdapter {
 
 function resolveEncodedClaudePath(folderName: string) {
   const encodePath = (localPath: string) => localPath.replace(/[^a-zA-Z0-9]/g, "-")
+  const hasEncodedPathPrefix = (localPath: string) => {
+    const encodedPath = encodePath(localPath)
+    return process.platform === "win32"
+      ? folderName.toLowerCase().startsWith(encodedPath.toLowerCase())
+      : folderName.startsWith(encodedPath)
+  }
+  const isEncodedPath = (localPath: string) => {
+    const encodedPath = encodePath(localPath)
+    return process.platform === "win32"
+      ? folderName.toLowerCase() === encodedPath.toLowerCase()
+      : folderName === encodedPath
+  }
   const windowsDrive = /^([a-z])--/i.exec(folderName)?.[1]
   const rootPath = windowsDrive
     ? path.parse(`${windowsDrive}:\\`).root
@@ -29,15 +41,23 @@ function resolveEncodedClaudePath(folderName: string) {
       : null
   if (!rootPath) return null
 
+  const startingPaths = [...new Set([
+    process.cwd(),
+    homedir(),
+    tmpdir(),
+    rootPath,
+  ].map((candidate) => path.resolve(candidate)))]
+    .filter(hasEncodedPathPrefix)
+    .sort((left, right) => encodePath(right).length - encodePath(left).length)
+
   const visited = new Set<string>()
   const visit = (currentPath: string): string | null => {
     const normalizedCurrentPath = path.resolve(currentPath)
     if (visited.has(normalizedCurrentPath)) return null
     visited.add(normalizedCurrentPath)
 
-    const encodedCurrentPath = encodePath(normalizedCurrentPath)
-    if (encodedCurrentPath === folderName) return normalizedCurrentPath
-    if (!folderName.startsWith(encodedCurrentPath)) return null
+    if (isEncodedPath(normalizedCurrentPath)) return normalizedCurrentPath
+    if (!hasEncodedPathPrefix(normalizedCurrentPath)) return null
 
     let entries
     try {
@@ -59,7 +79,11 @@ function resolveEncodedClaudePath(folderName: string) {
     return null
   }
 
-  return visit(rootPath)
+  for (const startingPath of startingPaths) {
+    const resolved = visit(startingPath)
+    if (resolved) return resolved
+  }
+  return null
 }
 
 function normalizeExistingDirectory(localPath: string) {
