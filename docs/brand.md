@@ -2,11 +2,11 @@
 
 ## Brand idea
 
-**StillOn** is the personal agent outpost that stays with your computer. The user can leave the Mac in the office and continue working with local Claude Code and Codex agents from an iPad, phone, or browser.
+**StillOn** is the personal agent outpost that stays with your computer. The user can leave an always-on Mac, Windows PC, or Linux machine behind and continue working with local Claude Code and Codex agents from a tablet, phone, or browser.
 
-- Primary line: **Leave your Mac. Keep your agents.**
+- Primary line: **Leave your computer. Keep your agents.**
 - Supporting line: **You go. Your agents stay on.**
-- Chinese line: **电脑留在办公室，Agent 跟你走。**
+- Chinese line: **离开电脑，Agent 继续干活。**
 - Product category: **Personal agent outpost**
 - Core capability: **Stay Mode**
 

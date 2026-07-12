@@ -29,7 +29,7 @@ StillOn turns an always-on Mac into a personal agent outpost. Leave the computer
 
 Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and secure connection path; it does not move agent execution into a hosted cloud.
 
-> 电脑留在办公室，Agent 跟你走。
+> 离开电脑，Agent 继续干活。
 
 ## Release status
 
