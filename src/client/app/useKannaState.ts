@@ -14,6 +14,7 @@ import type { AskUserQuestionItem } from "../components/messages/types"
 import type { OpenLocalLinkTarget } from "../components/messages/shared"
 import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
+import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
 import { processTranscriptMessages } from "../lib/parseTranscript"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
@@ -670,6 +671,7 @@ export interface KannaState {
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
+  machineName: string | null
   llmProvider: LlmProviderSnapshot | null
   connectionStatus: SocketStatus
   sidebarReady: boolean
@@ -712,7 +714,7 @@ export interface KannaState {
   handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
   handleInstallUpdate: () => Promise<void>
   handleReadAppSettings: () => Promise<void>
-  handleWriteAppSettings: (patch: AppSettingsPatch) => Promise<void>
+  handleWriteAppSettings: (patch: AppSettingsPatch) => Promise<AppSettingsSnapshot>
   handleReadLlmProvider: () => Promise<void>
   handleWriteLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<void>
   handleValidateLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<LlmProviderValidationResult>
@@ -770,6 +772,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [projectDiffSnapshots, setProjectDiffSnapshots] = useState<Record<string, ChatDiffSnapshot | null>>({})
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettingsSnapshot | null>(null)
+  const [machineName, setMachineName] = useState<string | null>(() => (
+    readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
+  ))
   const [llmProvider, setLlmProvider] = useState<LlmProviderSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("connecting")
   const [sidebarReady, setSidebarReady] = useState(false)
@@ -815,6 +820,13 @@ export function useKannaState(activeChatId: string | null): KannaState {
     ),
     [sidebarData, sidebarProjectGroups]
   )
+
+  const applyAppSettingsSnapshot = useCallback((snapshot: AppSettingsSnapshot) => {
+    setAppSettings(snapshot)
+    setMachineName(snapshot.machineName)
+    persistMachineIdentityName(snapshot.machineName, getBrowserMachineIdentityStorage())
+    syncRuntimeStoresFromAppSettings(snapshot)
+  }, [])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
 
@@ -944,24 +956,22 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   useEffect(() => {
     return socket.subscribe<AppSettingsSnapshot>({ type: "app-settings" }, (snapshot) => {
-      setAppSettings(snapshot)
-      syncRuntimeStoresFromAppSettings(snapshot)
+      applyAppSettingsSnapshot(snapshot)
       setCommandError(null)
     })
-  }, [socket])
+  }, [applyAppSettingsSnapshot, socket])
 
   const handleReadAppSettings = useCallback(async () => {
     try {
       useAppSettingsStore.getState().setHydrationStatus("loading")
       const snapshot = await socket.command<AppSettingsSnapshot>({ type: "settings.readAppSettings" })
-      setAppSettings(snapshot)
-      syncRuntimeStoresFromAppSettings(snapshot)
+      applyAppSettingsSnapshot(snapshot)
       setCommandError(null)
     } catch (error) {
       useAppSettingsStore.getState().setHydrationStatus("error")
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [socket])
+  }, [applyAppSettingsSnapshot, socket])
 
   const handleWriteAppSettings = useCallback(async (patch: AppSettingsPatch) => {
     try {
@@ -970,15 +980,15 @@ export function useKannaState(activeChatId: string | null): KannaState {
         type: "settings.writeAppSettingsPatch",
         patch,
       })
-      setAppSettings(snapshot)
-      syncRuntimeStoresFromAppSettings(snapshot)
+      applyAppSettingsSnapshot(snapshot)
       setCommandError(null)
+      return snapshot
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
       await handleReadAppSettings()
       throw error
     }
-  }, [handleReadAppSettings, socket])
+  }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
 
   const handleReadLlmProvider = useCallback(async () => {
     try {
@@ -2059,6 +2069,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     chatDiffSnapshot,
     keybindings,
     appSettings,
+    machineName,
     llmProvider,
     connectionStatus,
     sidebarReady,

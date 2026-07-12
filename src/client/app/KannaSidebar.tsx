@@ -44,7 +44,16 @@ function BrandMark({ className }: { className?: string }) {
   return <img src="/stillon-mark.svg" alt="" aria-hidden="true" draggable={false} className={className} />
 }
 
-function SidebarIdentity({ machineName }: { machineName: string }) {
+function SidebarIdentity({ machineName }: { machineName: string | null }) {
+  if (!machineName) {
+    return (
+      <>
+        <span aria-hidden="true" className="h-5 w-28 animate-pulse rounded bg-muted/70 motion-reduce:animate-none" />
+        <span className="sr-only" role="status">Loading machine name…</span>
+      </>
+    )
+  }
+
   return (
     <span className="font-machine-identity block min-w-0 max-w-[230px] shrink truncate text-[23px] leading-7 text-foreground" title={machineName}>
       {machineName}
@@ -79,7 +88,7 @@ export function getConnectionStatusPresentation(connectionStatus: SocketStatus, 
 interface KannaSidebarProps {
   data: SidebarData
   activeChatId: string | null
-  machineName: string
+  machineName: string | null
   connectionStatus: SocketStatus
   ready: boolean
   open: boolean

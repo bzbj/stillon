@@ -266,7 +266,7 @@ function KannaLayout() {
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
-  const machineName = state.appSettings?.machineName ?? state.localProjects?.machine.displayName ?? null
+  const machineName = state.machineName
   const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
   const previousSidebarDataRef = useRef<ReturnType<typeof useKannaState>["sidebarData"] | null>(null)
   const handleSidebarCreateChat = useCallback((projectId: string) => {
@@ -315,7 +315,7 @@ function KannaLayout() {
     <KannaSidebar
       data={state.sidebarData}
       activeChatId={state.activeChatId}
-      machineName={machineName ?? "This Machine"}
+      machineName={machineName}
       connectionStatus={state.connectionStatus}
       ready={state.sidebarReady}
       open={state.sidebarOpen}
