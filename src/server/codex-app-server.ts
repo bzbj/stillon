@@ -11,6 +11,7 @@ import type {
   TranscriptEntry,
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
+import { getCodexCliCommand } from "./codex-cli-command"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import {
   type CollabAgentToolCallItem,
@@ -740,7 +741,7 @@ export class CodexAppServerManager {
 
   constructor(args: { spawnProcess?: SpawnCodexAppServer } = {}) {
     this.spawnProcess = args.spawnProcess ?? ((cwd) =>
-      spawn("codex", ["app-server"], {
+      spawn(getCodexCliCommand(), ["app-server"], {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: process.env,

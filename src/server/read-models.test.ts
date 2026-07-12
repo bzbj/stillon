@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import path from "node:path"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import { createEmptyState } from "./events"
 
@@ -158,14 +159,15 @@ describe("read models", () => {
 
   test("prefers saved project metadata over discovered entries for the same path", () => {
     const state = createEmptyState()
+    const projectPath = path.resolve("/tmp/project")
     state.projectsById.set("project-1", {
       id: "project-1",
-      localPath: "/tmp/project",
+      localPath: projectPath,
       title: "Saved Project",
       createdAt: 1,
       updatedAt: 50,
     })
-    state.projectIdsByPath.set("/tmp/project", "project-1")
+    state.projectIdsByPath.set(projectPath, "project-1")
     state.chatsById.set("chat-1", {
       id: "chat-1",
       projectId: "project-1",
@@ -182,7 +184,7 @@ describe("read models", () => {
 
     const snapshot = deriveLocalProjectsSnapshot(state, [
       {
-        localPath: "/tmp/project",
+        localPath: projectPath,
         title: "Discovered Project",
         modifiedAt: 10,
       },
@@ -190,7 +192,7 @@ describe("read models", () => {
 
     expect(snapshot.projects).toEqual([
       {
-        localPath: "/tmp/project",
+        localPath: projectPath,
         title: "Saved Project",
         source: "saved",
         lastOpenedAt: 100,

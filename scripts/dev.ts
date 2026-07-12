@@ -41,7 +41,7 @@ function spawnLabeledProcess(label: string, args: string[]) {
   return child
 }
 
-const client = spawnLabeledProcess("client", ["x", "vite", "--host", "0.0.0.0", "--port", String(clientPort), "--strictPort"])
+const client = spawnLabeledProcess("client", ["./node_modules/vite/bin/vite.js", "--host", "0.0.0.0", "--port", String(clientPort), "--strictPort"])
 const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--port", String(serverPort), "--strict-port", ...serverArgs], {
   cwd,
   stdio: "inherit",

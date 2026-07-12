@@ -20,33 +20,46 @@ export interface ProjectDiscoveryAdapter {
 }
 
 function resolveEncodedClaudePath(folderName: string) {
-  const segments = folderName.replace(/^-/, "").split("-").filter(Boolean)
-  let currentPath = ""
-  let remainingSegments = [...segments]
+  const encodePath = (localPath: string) => localPath.replace(/[^a-zA-Z0-9]/g, "-")
+  const windowsDrive = /^([a-z])--/i.exec(folderName)?.[1]
+  const rootPath = windowsDrive
+    ? path.parse(`${windowsDrive}:\\`).root
+    : folderName.startsWith("-")
+      ? path.parse("/").root
+      : null
+  if (!rootPath) return null
 
-  while (remainingSegments.length > 0) {
-    let found = false
+  const visited = new Set<string>()
+  const visit = (currentPath: string): string | null => {
+    const normalizedCurrentPath = path.resolve(currentPath)
+    if (visited.has(normalizedCurrentPath)) return null
+    visited.add(normalizedCurrentPath)
 
-    for (let index = remainingSegments.length; index >= 1; index -= 1) {
-      const segment = remainingSegments.slice(0, index).join("-")
-      const candidate = `${currentPath}/${segment}`
+    const encodedCurrentPath = encodePath(normalizedCurrentPath)
+    if (encodedCurrentPath === folderName) return normalizedCurrentPath
+    if (!folderName.startsWith(encodedCurrentPath)) return null
 
-      if (existsSync(candidate)) {
-        currentPath = candidate
-        remainingSegments = remainingSegments.slice(index)
-        found = true
-        break
-      }
+    let entries
+    try {
+      entries = readdirSync(normalizedCurrentPath, { withFileTypes: true })
+    } catch {
+      return null
     }
 
-    if (!found) {
-      const [head, ...tail] = remainingSegments
-      currentPath = `${currentPath}/${head}`
-      remainingSegments = tail
+    const candidates = entries
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => path.join(normalizedCurrentPath, entry.name))
+      .filter((candidate) => folderName.startsWith(encodePath(candidate)))
+      .sort((left, right) => right.length - left.length)
+
+    for (const candidate of candidates) {
+      const resolved = visit(candidate)
+      if (resolved) return resolved
     }
+    return null
   }
 
-  return currentPath || "/"
+  return visit(rootPath)
 }
 
 function normalizeExistingDirectory(localPath: string) {
@@ -99,6 +112,7 @@ export class ClaudeProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
       if (!entry.isDirectory()) continue
 
       const resolvedPath = resolveEncodedClaudePath(entry.name)
+      if (!resolvedPath) continue
       const normalizedPath = normalizeExistingDirectory(resolvedPath)
       if (!normalizedPath) {
         continue

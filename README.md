@@ -39,7 +39,7 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 | --- | --- | --- |
 | macOS 13+ | Primary | Main development and validation target |
 | Linux | Beta | Core server works; desktop integrations vary by distribution |
-| Windows | Planned | Not yet supported; terminal, process discovery, and path handling still need Windows validation |
+| Windows 10/11 | Beta | Validated with PowerShell, Git, x64/ARM64 Bun, and Task Scheduler services |
 
 The repository does not yet ship signed desktop installers. Install from source and review the [public-release readiness notes](docs/public-release-readiness.md) before exposing a machine outside your own network.
 
@@ -67,6 +67,29 @@ stillon
 The supported command is `stillon`. Existing `kanna` launchers should be
 replaced rather than kept as aliases; this avoids accidentally starting a
 previous application after a migration.
+
+## Windows
+
+StillOn supports Windows 10/11 with Bun 1.3.5 or newer, Git, and PowerShell.
+Install and validate from PowerShell:
+
+```powershell
+git clone https://github.com/bzbj/stillon.git
+cd stillon
+bun install --frozen-lockfile
+bun run check
+bun run test
+bun run start -- --no-open
+```
+
+The server listens on `http://127.0.0.1:3210` by default. Codex and Claude
+Code should be installed for the current Windows user and available on `PATH`;
+StillOn resolves their `.cmd` shims on Windows. The optional background service
+uses Task Scheduler and starts at sign-in.
+
+Windows terminal sessions use the configured local shell. Unix-specific PTY
+signals do not have direct Windows equivalents, so advanced terminal signal
+handling has narrower automated coverage than macOS and Linux.
 
 ## Background service
 

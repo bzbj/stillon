@@ -217,7 +217,7 @@ describe("writeStandaloneTranscriptExport", () => {
     expect(result.error).toContain("No release viewer assets were found")
     expect(result.shareUrl).toBe("https://share.example.com/release-review-failed123")
     expect(result.transcriptFileName).toBe("Release-Review-2026-04-23T12-34-56Z-transcript.json")
-    expect(result.transcriptJsonPath).toEndWith("/transcript.json")
+    expect(path.basename(result.transcriptJsonPath)).toBe("transcript.json")
     expect(JSON.parse(result.transcriptJson).title).toBe("Release Review")
     expect(JSON.stringify(JSON.parse(result.transcriptJson))).not.toContain(projectDir)
   })

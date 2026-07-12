@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { getDataRootDir } from "../shared/branding"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
 
 const tempDirs: string[] = []
@@ -23,7 +24,7 @@ describe("brand data migration", () => {
     expect(result).toEqual({
       status: "migrated",
       from: path.join(homeDir, ".kanna"),
-      to: path.join(homeDir, ".stillon"),
+      to: getDataRootDir(homeDir, { STILLON_RUNTIME_PROFILE: "prod" }),
     })
     await expect(stat(path.join(homeDir, ".stillon", "data", "settings.json"))).resolves.toBeTruthy()
     await expect(stat(path.join(homeDir, ".kanna"))).rejects.toThrow()

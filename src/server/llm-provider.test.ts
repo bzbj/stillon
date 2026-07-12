@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { DEFAULT_OPENAI_SDK_MODEL, DEFAULT_OPENROUTER_SDK_MODEL } from "../shared/types"
 import {
@@ -24,6 +24,11 @@ async function createTempFilePath() {
   const dir = await mkdtemp(path.join(tmpdir(), "kanna-llm-provider-"))
   tempDirs.push(dir)
   return path.join(dir, "llm-provider.json")
+}
+
+function expectedDisplayPath(filePath: string) {
+  const homePath = homedir()
+  return filePath.startsWith(`${homePath}${path.sep}`) ? `~${filePath.slice(homePath.length)}` : filePath
 }
 
 describe("resolveLlmProviderBaseUrl", () => {
@@ -77,7 +82,7 @@ describe("readLlmProviderSnapshot", () => {
       resolvedBaseUrl: OPENAI_BASE_URL,
       enabled: false,
       warning: null,
-      filePathDisplay: filePath,
+      filePathDisplay: expectedDisplayPath(filePath),
     })
   })
 
@@ -122,7 +127,7 @@ describe("writeLlmProviderSnapshot", () => {
       resolvedBaseUrl: OPENROUTER_BASE_URL,
       enabled: true,
       warning: null,
-      filePathDisplay: filePath,
+      filePathDisplay: expectedDisplayPath(filePath),
     })
     expect(await Bun.file(filePath).json()).toEqual({
       provider: "openrouter",

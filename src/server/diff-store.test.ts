@@ -28,6 +28,7 @@ async function createRepo() {
   await run(["git", "init", "--initial-branch=main"], root)
   await run(["git", "config", "user.email", "stillon@example.com"], root)
   await run(["git", "config", "user.name", "StillOn"], root)
+  await run(["git", "config", "core.autocrlf", "false"], root)
   return root
 }
 

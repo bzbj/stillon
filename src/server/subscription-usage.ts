@@ -8,6 +8,7 @@ import type {
   SubscriptionUsageWindow,
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
+import { getCodexCliCommand } from "./codex-cli-command"
 
 const CODEX_APP_SERVER_TIMEOUT_MS = 20_000
 const COMMAND_TIMEOUT_MS = 10_000
@@ -36,6 +37,10 @@ export interface ReadSubscriptionUsageOptions {
   readCodexAppServer?: CodexAppServerReader
   readClaudeSdkUsage?: ClaudeSdkUsageReader
   codexAppServerTimeoutMs?: number
+}
+
+export function getClaudeCliCommand(platform: NodeJS.Platform = process.platform) {
+  return platform === "win32" ? "claude.cmd" : "claude"
 }
 
 interface CodexAppServerSnapshot {
@@ -145,11 +150,12 @@ async function readClaudeUsageProviderFromCli(
   now: number
 ): Promise<SubscriptionUsageProviderSnapshot> {
   const runCommand = options.runCommand ?? runCliCommand
+  const claudeCommand = getClaudeCliCommand()
   let planType: string | null = null
   let accountEmail: string | null = null
 
   try {
-    const auth = await runCommand("claude", ["auth", "status"], { timeoutMs: COMMAND_TIMEOUT_MS })
+    const auth = await runCommand(claudeCommand, ["auth", "status"], { timeoutMs: COMMAND_TIMEOUT_MS })
     const authSnapshot = parseClaudeAuthStatus(auth.stdout)
     planType = authSnapshot.planType
     accountEmail = authSnapshot.accountEmail
@@ -159,7 +165,7 @@ async function readClaudeUsageProviderFromCli(
   }
 
   try {
-    const usage = await runCommand("claude", ["-p", "/usage", "--output-format", "json", "--model", "sonnet"], {
+    const usage = await runCommand(claudeCommand, ["-p", "/usage", "--output-format", "json", "--model", "sonnet"], {
       timeoutMs: COMMAND_TIMEOUT_MS,
     })
     const resultText = parseClaudeUsageCommandResult(usage.stdout)
@@ -407,7 +413,7 @@ export function parseCodexAppServerSnapshot(
     provider: "codex",
     label: "Codex",
     status: hasUsage ? "available" : "unavailable",
-    planType: asOptionalString(firstDefined(codexBucket, ["planType", "plan_type"])) ?? accountPlanType,
+    planType: accountPlanType ?? asOptionalString(firstDefined(codexBucket, ["planType", "plan_type"])),
     accountEmail,
     source: CODEX_APP_SERVER_SOURCE,
     updatedAt: now,
@@ -476,7 +482,7 @@ function codexWindowFromAppServerLimit(
 async function readCodexAppServerSnapshot(
   options: { timeoutMs: number }
 ): Promise<CodexAppServerSnapshot> {
-  const child = spawn("codex", ["app-server"], {
+  const child = spawn(getCodexCliCommand(), ["app-server"], {
     cwd: os.homedir(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {

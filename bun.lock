@@ -54,6 +54,10 @@
         "vite": "^8.1.4",
         "zustand": "^5.0.10",
       },
+      "optionalDependencies": {
+        "@typescript/typescript-win32-arm64": "7.0.2",
+        "@typescript/typescript-win32-x64": "7.0.2",
+      },
     },
   },
   "overrides": {

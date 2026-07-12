@@ -9,6 +9,7 @@ import type {
   ServiceTier,
   TranscriptEntry,
 } from "../shared/types"
+import { getCodexCliCommand } from "./codex-cli-command"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 
 export interface StartCodexExecSessionArgs {
@@ -259,7 +260,7 @@ export class CodexExecManager {
 
   constructor(args: { spawnProcess?: SpawnCodexExec } = {}) {
     this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd) =>
-      spawn("codex", commandArgs, {
+      spawn(getCodexCliCommand(), commandArgs, {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: process.env,

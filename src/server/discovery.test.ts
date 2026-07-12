@@ -18,7 +18,7 @@ function makeTempDir() {
 }
 
 function encodeClaudeProjectPath(localPath: string) {
-  return `-${localPath.replace(/\//g, "-")}`
+  return localPath.replace(/[^a-zA-Z0-9]/g, "-")
 }
 
 afterEach(() => {

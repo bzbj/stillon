@@ -39,6 +39,14 @@ describe("parseLocalFileLink", () => {
     })
   })
 
+  test("parses Windows file paths with line and column suffixes", () => {
+    expect(parseLocalFileLink("C:\\Users\\iamppr\\stillon\\src\\app.ts:12:3")).toEqual({
+      path: "C:/Users/iamppr/stillon/src/app.ts",
+      line: 12,
+      column: 3,
+    })
+  })
+
   test("parses same-origin absolute file urls with a line suffix", () => {
     const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window")
     Object.defineProperty(globalThis, "window", {
@@ -91,6 +99,7 @@ describe("getProjectHtmlPreviewPath", () => {
   test("returns the relative html path for project-local files", () => {
     expect(getProjectHtmlPreviewPath("/Users/example/Projects/stillon/output/index.html", "/Users/example/Projects/stillon")).toBe("output/index.html")
     expect(getProjectHtmlPreviewPath("/Users/example/Projects/stillon/output/preview.HTM", "/Users/example/Projects/stillon/")).toBe("output/preview.HTM")
+    expect(getProjectHtmlPreviewPath("C:\\Users\\iamppr\\stillon\\output\\index.html", "C:\\Users\\iamppr\\stillon")).toBe("output/index.html")
   })
 
   test("rejects non-html and out-of-project files", () => {

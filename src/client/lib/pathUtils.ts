@@ -43,6 +43,8 @@ interface ParsedFileTarget {
   column?: number
 }
 
+const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/i
+
 function toPositiveInteger(value: string | undefined) {
   if (!value) return undefined
   const parsed = Number.parseInt(value, 10)
@@ -79,6 +81,11 @@ function getRenderablePreviewKind(path: string): ProjectRenderablePreviewPath["k
   if (isHtmlFilePath(path)) return "html"
   if (isMarkdownFilePath(path)) return "markdown"
   return null
+}
+
+function isSameOriginAppRoutePath(pathname: string) {
+  return pathname === "/"
+    || /^\/(?:api|assets|auth|browser-proxy|chat|settings)(?:\/|$)/.test(pathname)
 }
 
 function normalizeProjectRelativePath(path: string) {
@@ -119,6 +126,31 @@ function parseAbsoluteFileTarget(target: string): ParsedFileTarget | null {
   }
 
   return null
+}
+
+function parseWindowsAbsoluteFileTarget(target: string): ParsedFileTarget | null {
+  if (!WINDOWS_ABSOLUTE_PATH_PATTERN.test(target)) return null
+
+  const normalizedTarget = target.replace(/\\/g, "/")
+  const hashMatch = /^(?<path>[a-z]:\/.+?)#L(?<line>\d+)(?:C(?<column>\d+))?$/i.exec(normalizedTarget)
+  if (hashMatch?.groups?.path) {
+    return {
+      path: hashMatch.groups.path,
+      line: toPositiveInteger(hashMatch.groups.line),
+      column: toPositiveInteger(hashMatch.groups.column),
+    }
+  }
+
+  const suffixMatch = /^(?<path>[a-z]:\/.+?):(?<line>\d+)(?::(?<column>\d+))?$/i.exec(normalizedTarget)
+  if (suffixMatch?.groups?.path) {
+    return {
+      path: suffixMatch.groups.path,
+      line: toPositiveInteger(suffixMatch.groups.line),
+      column: toPositiveInteger(suffixMatch.groups.column),
+    }
+  }
+
+  return { path: normalizedTarget }
 }
 
 function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
@@ -168,7 +200,7 @@ export function parseLocalFileLink(target: string | undefined | null): ParsedLoc
     }
     try {
       const url = new URL(trimmed)
-      if (url.origin !== window.location.origin || !url.pathname.startsWith("/")) {
+      if (url.origin !== window.location.origin || !url.pathname.startsWith("/") || isSameOriginAppRoutePath(url.pathname)) {
         return null
       }
       return parseAbsoluteFileTarget(`${url.pathname}${url.hash}`)
@@ -177,7 +209,7 @@ export function parseLocalFileLink(target: string | undefined | null): ParsedLoc
     }
   }
 
-  return parseAbsoluteFileTarget(trimmed)
+  return parseWindowsAbsoluteFileTarget(trimmed) ?? parseAbsoluteFileTarget(trimmed)
 }
 
 export function getProjectRenderablePreviewPath(filePath: string | undefined | null, localPath: string | undefined | null): ProjectRenderablePreviewPath | null {

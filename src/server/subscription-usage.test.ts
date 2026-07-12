@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  getClaudeCliCommand,
   parseClaudeResetAtText,
   parseClaudeUsageResult,
   parseCodexAppServerSnapshot,
@@ -60,7 +61,7 @@ describe("subscription usage", () => {
     expect(provider).toMatchObject({
       provider: "codex",
       status: "available",
-      planType: "pro",
+      planType: "plus",
       accountEmail: "codex@example.com",
       source: "codex app-server account/rateLimits/read",
       updatedAt: now,
@@ -159,7 +160,7 @@ describe("subscription usage", () => {
     expect(snapshot.providers[0]).toMatchObject({
       provider: "codex",
       status: "available",
-      planType: "pro",
+      planType: "plus",
       accountEmail: "codex@example.com",
       windows: [
         { id: "five_hour", usedPercent: 18 },
@@ -216,5 +217,10 @@ describe("subscription usage", () => {
         { id: "weekly", usedPercent: 11 },
       ],
     })
+  })
+
+  test("uses the Windows command shim for Claude Code", () => {
+    expect(getClaudeCliCommand("win32")).toBe("claude.cmd")
+    expect(getClaudeCliCommand("darwin")).toBe("claude")
   })
 })

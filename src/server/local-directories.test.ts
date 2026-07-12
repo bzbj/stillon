@@ -13,7 +13,11 @@ describe("listLocalDirectories", () => {
       await mkdir(path.join(root, "alpha"), { recursive: true })
       await mkdir(path.join(root, ".hidden"), { recursive: true })
       await writeFile(path.join(root, "file.txt"), "not a directory", "utf8")
-      await symlink(linkedTarget, path.join(root, "linked"))
+      await symlink(
+        linkedTarget,
+        path.join(root, "linked"),
+        process.platform === "win32" ? "junction" : undefined,
+      )
 
       const result = await listLocalDirectories(root)
 

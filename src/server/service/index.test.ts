@@ -5,6 +5,7 @@ import type { ServiceAction, ServiceBackend, ServiceBackendContext } from "./typ
 describe("createServiceLaunchSpec", () => {
   test("builds a fixed-port non-interactive service invocation", () => {
     expect(createServiceLaunchSpec({
+      platform: "linux",
       executable: "/opt/bun/bin/bun",
       entrypoint: "/opt/stillon/bin/stillon",
       workingDirectory: "/srv/stillon",
@@ -30,6 +31,7 @@ describe("createServiceLaunchSpec", () => {
 
   test("uses the runtime root as the durable default working directory", () => {
     const launch = createServiceLaunchSpec({
+      platform: "linux",
       executable: "/opt/bun/bin/bun",
       entrypoint: "/opt/stillon/bin/stillon",
       homeDirectory: "/home/alice",
