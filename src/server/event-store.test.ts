@@ -440,27 +440,28 @@ describe("EventStore", () => {
     const dataDir = await createTempDataDir()
     const store = new EventStore(dataDir)
     await store.initialize()
+    const projectPath = join(dataDir, "project")
 
-    const project = await store.openProject("/tmp/project")
+    const project = await store.openProject(projectPath)
     await store.renameProjectSidebarTitle(project.id, "Sidebar Name")
 
     expect(store.getProject(project.id)?.title).toBe("project")
     expect(store.getProject(project.id)?.sidebarTitle).toBe("Sidebar Name")
-    expect(store.getProject(project.id)?.localPath).toBe("/tmp/project")
-    expect(store.state.projectIdsByPath.get("/tmp/project")).toBe(project.id)
+    expect(store.getProject(project.id)?.localPath).toBe(projectPath)
+    expect(store.state.projectIdsByPath.get(projectPath)).toBe(project.id)
 
     const reloaded = new EventStore(dataDir)
     await reloaded.initialize()
 
     expect(reloaded.getProject(project.id)?.title).toBe("project")
     expect(reloaded.getProject(project.id)?.sidebarTitle).toBe("Sidebar Name")
-    expect(reloaded.getProject(project.id)?.localPath).toBe("/tmp/project")
-    expect(reloaded.state.projectIdsByPath.get("/tmp/project")).toBe(project.id)
+    expect(reloaded.getProject(project.id)?.localPath).toBe(projectPath)
+    expect(reloaded.state.projectIdsByPath.get(projectPath)).toBe(project.id)
 
     await reloaded.renameProjectSidebarTitle(project.id, "")
     expect(reloaded.getProject(project.id)?.title).toBe("project")
     expect(reloaded.getProject(project.id)?.sidebarTitle).toBeUndefined()
-    expect(reloaded.getProject(project.id)?.localPath).toBe("/tmp/project")
+    expect(reloaded.getProject(project.id)?.localPath).toBe(projectPath)
   })
 
   test("migrates legacy sidebar project order from existing snapshots and project logs", async () => {
@@ -511,6 +512,7 @@ describe("EventStore", () => {
 
   test("ignores an invalid sidebar order file without resetting store state", async () => {
     const dataDir = await createTempDataDir()
+    const projectPath = join(dataDir, "project")
     await writeFile(join(dataDir, "sidebar-order.json"), "{not-json", "utf8")
 
     const originalWarn = console.warn
@@ -519,12 +521,12 @@ describe("EventStore", () => {
       const store = new EventStore(dataDir)
       await store.initialize()
 
-      const project = await store.openProject("/tmp/project")
+      const project = await store.openProject(projectPath)
 
       const reloaded = new EventStore(dataDir)
       await reloaded.initialize()
 
-      expect(reloaded.getProject(project.id)?.localPath).toBe("/tmp/project")
+      expect(reloaded.getProject(project.id)?.localPath).toBe(projectPath)
       expect(reloaded.getSidebarProjectOrder()).toEqual([])
     } finally {
       console.warn = originalWarn

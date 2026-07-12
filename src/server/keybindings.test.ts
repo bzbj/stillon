@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { DEFAULT_KEYBINDINGS } from "../shared/types"
 import { KeybindingsManager, normalizeKeybindings, readKeybindingsSnapshot } from "./keybindings"
@@ -17,6 +17,11 @@ async function createTempFilePath() {
   const dir = await mkdtemp(path.join(tmpdir(), "kanna-keybindings-"))
   tempDirs.push(dir)
   return path.join(dir, "keybindings.json")
+}
+
+function expectedDisplayPath(filePath: string) {
+  const homePath = homedir()
+  return filePath.startsWith(`${homePath}${path.sep}`) ? `~${filePath.slice(homePath.length)}` : filePath
 }
 
 describe("normalizeKeybindings", () => {
@@ -67,7 +72,7 @@ describe("readKeybindingsSnapshot", () => {
     expect(snapshot).toEqual({
       bindings: DEFAULT_KEYBINDINGS,
       warning: null,
-      filePathDisplay: filePath,
+      filePathDisplay: expectedDisplayPath(filePath),
     })
   })
 
@@ -120,7 +125,7 @@ describe("KeybindingsManager", () => {
         openAddProject: ["cmd+alt+o"],
       },
       warning: null,
-      filePathDisplay: filePath,
+      filePathDisplay: expectedDisplayPath(filePath),
     })
     expect(JSON.parse(await Bun.file(filePath).text())).toEqual(snapshot.bindings)
 

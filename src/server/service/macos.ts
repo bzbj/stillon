@@ -29,15 +29,15 @@ export interface MacosServiceBackendOptions {
 }
 
 export function getMacosServicePaths(homeDirectory: string): MacosServicePaths {
-  const launchAgentsDirectory = path.join(homeDirectory, "Library", "LaunchAgents")
-  const logDirectory = path.join(homeDirectory, "Library", "Logs", "StillOn")
+  const launchAgentsDirectory = path.posix.join(homeDirectory, "Library", "LaunchAgents")
+  const logDirectory = path.posix.join(homeDirectory, "Library", "Logs", "StillOn")
 
   return {
     launchAgentsDirectory,
-    plistPath: path.join(launchAgentsDirectory, `${LAUNCH_AGENT_LABEL}.plist`),
+    plistPath: path.posix.join(launchAgentsDirectory, `${LAUNCH_AGENT_LABEL}.plist`),
     logDirectory,
-    stdoutLogPath: path.join(logDirectory, "stillon.out.log"),
-    stderrLogPath: path.join(logDirectory, "stillon.err.log"),
+    stdoutLogPath: path.posix.join(logDirectory, "stillon.out.log"),
+    stderrLogPath: path.posix.join(logDirectory, "stillon.err.log"),
   }
 }
 

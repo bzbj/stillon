@@ -69,7 +69,8 @@ export function isLocalMarkdownPreviewPath(filePath: string) {
 }
 
 function isAbsoluteLocalPath(filePath: string) {
-  return filePath.startsWith("/") && !filePath.includes("\0")
+  if (filePath.includes("\0")) return false
+  return filePath.startsWith("/") || /^[a-z]:[\\/]/i.test(filePath)
 }
 
 function getLocalFileExtension(filePath: string) {

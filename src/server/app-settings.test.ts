@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { AppSettingsManager, readAppSettingsSnapshot } from "./app-settings"
 import type { AppSettingsSnapshot } from "../shared/types"
@@ -16,6 +16,11 @@ async function createTempFilePath() {
   const dir = await mkdtemp(path.join(tmpdir(), "kanna-settings-"))
   tempDirs.push(dir)
   return path.join(dir, "settings.json")
+}
+
+function expectedDisplayPath(filePath: string) {
+  const homePath = homedir()
+  return filePath.startsWith(`${homePath}${path.sep}`) ? `~${filePath.slice(homePath.length)}` : filePath
 }
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
@@ -56,7 +61,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
       },
     },
     warning: null,
-    filePathDisplay: filePath,
+    filePathDisplay: expectedDisplayPath(filePath),
     ...overrides,
   }
 }

@@ -22,9 +22,11 @@ type MarkdownPreviewState =
   | { status: "error"; message: string }
   | { status: "ready"; content: string; truncated: boolean }
 
-type MarkdownPreviewSource =
+export type MarkdownPreviewSource =
   | { kind: "project"; projectId: string; filePath: string }
   | { kind: "local"; filePath: string }
+
+const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/i
 
 interface MarkdownPreviewPanelProps {
   source: MarkdownPreviewSource
@@ -205,15 +207,16 @@ function getFileExtension(filePath: string) {
   return extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : ""
 }
 
-function resolveMarkdownResourcePath(source: MarkdownPreviewSource, target: string | undefined | null) {
+export function resolveMarkdownResourcePath(source: MarkdownPreviewSource, target: string | undefined | null) {
   if (!target) return null
   const trimmed = target.trim()
+  const isWindowsAbsolutePath = WINDOWS_ABSOLUTE_PATH_PATTERN.test(trimmed)
   if (
     !trimmed
     || trimmed.startsWith("#")
     || trimmed.startsWith("?")
     || trimmed.startsWith("//")
-    || /^[a-z][a-z\d+.-]*:/i.test(trimmed)
+    || (!isWindowsAbsolutePath && /^[a-z][a-z\d+.-]*:/i.test(trimmed))
   ) {
     return null
   }
@@ -224,7 +227,7 @@ function resolveMarkdownResourcePath(source: MarkdownPreviewSource, target: stri
   const decodedPath = safeDecodePath(rawPath).replace(/\\/g, "/")
   const baseDir = getFileDirectory(source.filePath)
   if (source.kind === "local") {
-    const candidatePath = decodedPath.startsWith("/")
+    const candidatePath = isAbsoluteLocalPath(decodedPath)
       ? decodedPath
       : `${baseDir ? `${baseDir}/` : ""}${decodedPath}`
     return normalizeAbsoluteLocalPath(candidatePath)
@@ -258,9 +261,18 @@ function normalizeRelativePath(filePath: string) {
 
 function normalizeAbsoluteLocalPath(filePath: string) {
   const normalized = filePath.replace(/\\/g, "/")
+  if (/^[a-z]:\//i.test(normalized)) {
+    const drive = normalized.slice(0, 2)
+    const relativePath = normalizeRelativePath(normalized.slice(3))
+    return relativePath ? `${drive}/${relativePath}` : `${drive}/`
+  }
   if (!normalized.startsWith("/")) return null
   const relativePath = normalizeRelativePath(normalized.slice(1))
   return relativePath ? `/${relativePath}` : null
+}
+
+function isAbsoluteLocalPath(filePath: string) {
+  return filePath.startsWith("/") || /^[a-z]:\//i.test(filePath)
 }
 
 function safeDecodePath(filePath: string) {

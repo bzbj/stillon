@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import type { AgentProvider } from "../shared/types"
 import { resolveLocalPath } from "./paths"
@@ -20,33 +20,70 @@ export interface ProjectDiscoveryAdapter {
 }
 
 function resolveEncodedClaudePath(folderName: string) {
-  const segments = folderName.replace(/^-/, "").split("-").filter(Boolean)
-  let currentPath = ""
-  let remainingSegments = [...segments]
+  const encodePath = (localPath: string) => localPath.replace(/[^a-zA-Z0-9]/g, "-")
+  const hasEncodedPathPrefix = (localPath: string) => {
+    const encodedPath = encodePath(localPath)
+    return process.platform === "win32"
+      ? folderName.toLowerCase().startsWith(encodedPath.toLowerCase())
+      : folderName.startsWith(encodedPath)
+  }
+  const isEncodedPath = (localPath: string) => {
+    const encodedPath = encodePath(localPath)
+    return process.platform === "win32"
+      ? folderName.toLowerCase() === encodedPath.toLowerCase()
+      : folderName === encodedPath
+  }
+  const windowsDrive = /^([a-z])--/i.exec(folderName)?.[1]
+  const rootPath = windowsDrive
+    ? path.parse(`${windowsDrive}:\\`).root
+    : folderName.startsWith("-")
+      ? path.parse("/").root
+      : null
+  if (!rootPath) return null
 
-  while (remainingSegments.length > 0) {
-    let found = false
+  const startingPaths = [...new Set([
+    process.cwd(),
+    homedir(),
+    tmpdir(),
+    rootPath,
+  ].map((candidate) => path.resolve(candidate)))]
+    .filter(hasEncodedPathPrefix)
+    .sort((left, right) => encodePath(right).length - encodePath(left).length)
 
-    for (let index = remainingSegments.length; index >= 1; index -= 1) {
-      const segment = remainingSegments.slice(0, index).join("-")
-      const candidate = `${currentPath}/${segment}`
+  const visited = new Set<string>()
+  const visit = (currentPath: string): string | null => {
+    const normalizedCurrentPath = path.resolve(currentPath)
+    if (visited.has(normalizedCurrentPath)) return null
+    visited.add(normalizedCurrentPath)
 
-      if (existsSync(candidate)) {
-        currentPath = candidate
-        remainingSegments = remainingSegments.slice(index)
-        found = true
-        break
-      }
+    if (isEncodedPath(normalizedCurrentPath)) return normalizedCurrentPath
+    if (!hasEncodedPathPrefix(normalizedCurrentPath)) return null
+
+    let entries
+    try {
+      entries = readdirSync(normalizedCurrentPath, { withFileTypes: true })
+    } catch {
+      return null
     }
 
-    if (!found) {
-      const [head, ...tail] = remainingSegments
-      currentPath = `${currentPath}/${head}`
-      remainingSegments = tail
+    const candidates = entries
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => path.join(normalizedCurrentPath, entry.name))
+      .filter((candidate) => folderName.startsWith(encodePath(candidate)))
+      .sort((left, right) => right.length - left.length)
+
+    for (const candidate of candidates) {
+      const resolved = visit(candidate)
+      if (resolved) return resolved
     }
+    return null
   }
 
-  return currentPath || "/"
+  for (const startingPath of startingPaths) {
+    const resolved = visit(startingPath)
+    if (resolved) return resolved
+  }
+  return null
 }
 
 function normalizeExistingDirectory(localPath: string) {
@@ -99,6 +136,7 @@ export class ClaudeProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
       if (!entry.isDirectory()) continue
 
       const resolvedPath = resolveEncodedClaudePath(entry.name)
+      if (!resolvedPath) continue
       const normalizedPath = normalizeExistingDirectory(resolvedPath)
       if (!normalizedPath) {
         continue

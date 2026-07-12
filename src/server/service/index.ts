@@ -81,6 +81,10 @@ export function resolveServiceBackend(platform: NodeJS.Platform): ServiceBackend
   throw new Error(`Background service management is not supported on ${platform}`)
 }
 
+function pathImplementationFor(platform: NodeJS.Platform) {
+  return platform === "win32" ? path.win32 : path.posix
+}
+
 export function createServiceLaunchSpec(options: ManageServiceOptions = {}): ServiceLaunchSpec {
   const executable = options.executable ?? process.execPath
   const entrypoint = options.entrypoint ?? process.argv[1]
@@ -92,13 +96,15 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid service port: ${port}`)
   }
+  const platform = options.platform ?? process.platform
+  const pathImplementation = pathImplementationFor(platform)
   const homeDirectory = options.homeDirectory ?? os.homedir()
-  const entrypointPath = path.resolve(entrypoint)
-  const entrypointDirectory = path.dirname(entrypointPath)
+  const entrypointPath = pathImplementation.resolve(entrypoint)
+  const entrypointDirectory = pathImplementation.dirname(entrypointPath)
   // The normal source/runtime layout is <runtime>/bin/stillon. Keep the
   // managed service rooted at <runtime>, never at the caller's shell cwd.
-  const defaultWorkingDirectory = path.basename(entrypointDirectory) === "bin"
-    ? path.dirname(entrypointDirectory)
+  const defaultWorkingDirectory = pathImplementation.basename(entrypointDirectory) === "bin"
+    ? pathImplementation.dirname(entrypointDirectory)
     : entrypointDirectory
   const environmentFile = options.environmentFile?.trim()
   if (options.environmentFile !== undefined && !environmentFile) {
@@ -108,7 +114,7 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
   return {
     executable,
     args: [
-      ...(environmentFile ? ["--env-file", path.resolve(environmentFile)] : []),
+      ...(environmentFile ? ["--env-file", pathImplementation.resolve(environmentFile)] : []),
       entrypoint,
       "--no-open",
       "--strict-port",
@@ -118,8 +124,9 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
     workingDirectory: options.workingDirectory ?? defaultWorkingDirectory,
     homeDirectory,
     pathEnvironment: options.pathEnvironment ?? process.env.PATH ?? "",
-    environmentFile: environmentFile ? path.resolve(environmentFile) : undefined,
-    localAppDataDirectory: options.localAppDataDirectory ?? process.env.LOCALAPPDATA,
+    environmentFile: environmentFile ? pathImplementation.resolve(environmentFile) : undefined,
+    localAppDataDirectory: options.localAppDataDirectory
+      ?? (platform === "win32" ? process.env.LOCALAPPDATA : undefined),
   }
 }
 

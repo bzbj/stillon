@@ -151,7 +151,9 @@ describe("macOS service backend", () => {
       },
     ])
     expect(await readFile(paths.plistPath, "utf8")).toBe(generateLaunchAgentPlist(launch))
-    expect((await stat(paths.plistPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== "win32") {
+      expect((await stat(paths.plistPath)).mode & 0o777).toBe(0o600)
+    }
     expect((await stat(paths.logDirectory)).isDirectory()).toBe(true)
     expect(logs).toContain(`Installed and started StillOn LaunchAgent: ${paths.plistPath}`)
   })

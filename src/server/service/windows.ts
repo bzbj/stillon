@@ -25,7 +25,7 @@ function pathImplementationFor(basePath: string) {
   const isUncPath = basePath.startsWith("\\\\")
   return hasWindowsDrive || isUncPath || basePath.includes("\\")
     ? path.win32
-    : path
+    : path.posix
 }
 
 export function getWindowsServicePaths(launch: ServiceLaunchSpec): WindowsServicePaths {
