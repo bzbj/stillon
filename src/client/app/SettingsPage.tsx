@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
   CheckCircle2,
@@ -936,7 +936,8 @@ function OnboardingStep({
 
 function WelcomeChecklist({ state }: { state: KannaState }) {
   const navigate = useNavigate()
-  const currentMachineName = state.appSettings?.machineName ?? state.localProjects?.machine.displayName ?? ""
+  const currentMachineName = state.machineName ?? ""
+  const isMachineNameReady = Boolean(state.appSettings)
   const [machineNameDraft, setMachineNameDraft] = useState(currentMachineName)
   const [isSavingName, setIsSavingName] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
@@ -964,6 +965,11 @@ function WelcomeChecklist({ state }: { state: KannaState }) {
   }
 
   async function saveMachineName() {
+    if (!isMachineNameReady) {
+      setNameError("Still loading this machine's saved name.")
+      return
+    }
+
     const nextName = machineNameDraft.trim()
     if (!nextName) {
       setNameError("Enter a name for this machine before continuing.")
@@ -1062,15 +1068,18 @@ function WelcomeChecklist({ state }: { state: KannaState }) {
               value={machineNameDraft}
               onChange={(event) => setMachineNameDraft(event.target.value)}
               maxLength={80}
+              disabled={!isMachineNameReady || isSavingName}
               className="min-h-11 flex-1"
               aria-describedby={nameError ? "onboarding-machine-name-error" : "onboarding-machine-name-help"}
             />
-            <Button type="button" onClick={() => { void saveMachineName() }} disabled={isSavingName} className="min-h-11 shrink-0">
+            <Button type="button" onClick={() => { void saveMachineName() }} disabled={!isMachineNameReady || isSavingName} className="min-h-11 shrink-0">
               {isSavingName ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
               Save name
             </Button>
           </div>
-          <p id="onboarding-machine-name-help" className="mt-2 text-xs leading-5 text-muted-foreground">You can change it later in Settings → General.</p>
+          <p id="onboarding-machine-name-help" className="mt-2 text-xs leading-5 text-muted-foreground">
+            {isMachineNameReady ? "You can change it later in Settings → General." : "Loading this machine's saved name…"}
+          </p>
           {nameError ? <p id="onboarding-machine-name-error" role="alert" className="mt-2 text-sm text-destructive">{nameError}</p> : null}
         </OnboardingStep>
 
@@ -1304,6 +1313,16 @@ function SettingsRow({
   )
 }
 
+export function getMachineNameEditorState(draft: string, confirmedName: string | null) {
+  const normalizedDraft = draft.trim()
+  const hasConfirmedName = Boolean(confirmedName)
+
+  return {
+    canSave: hasConfirmedName && Boolean(normalizedDraft) && normalizedDraft !== confirmedName,
+    hasUnsavedChanges: hasConfirmedName && draft !== confirmedName,
+  }
+}
+
 export function SettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
@@ -1317,7 +1336,8 @@ export function SettingsPage() {
   const selectedPage = resolveSettingsSectionId(sectionId) ?? "general"
   const isConnecting = state.connectionStatus === "connecting" || !state.localProjectsReady
   const appSettings = state.appSettings
-  const machineName = appSettings?.machineName ?? state.localProjects?.machine.displayName ?? "Unavailable"
+  const confirmedMachineName = appSettings?.machineName ?? state.machineName
+  const machineName = confirmedMachineName ?? "Loading saved name…"
   const projectCount = state.localProjects?.projects.length ?? 0
   const appVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const scrollbackLines = useTerminalPreferencesStore((store) => store.scrollbackLines)
@@ -1346,7 +1366,11 @@ export function SettingsPage() {
   const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
   const [minColumnWidthDraft, setMinColumnWidthDraft] = useState(String(minColumnWidth))
   const [editorCommandDraft, setEditorCommandDraft] = useState(editorCommandTemplate)
-  const [machineNameDraft, setMachineNameDraft] = useState(machineName)
+  const [machineNameDraft, setMachineNameDraft] = useState("")
+  const [isSavingMachineName, setIsSavingMachineName] = useState(false)
+  const [machineNameError, setMachineNameError] = useState<string | null>(null)
+  const [machineNameNotice, setMachineNameNotice] = useState<string | null>(null)
+  const lastConfirmedMachineNameRef = useRef<string | null>(null)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null)
@@ -1369,6 +1393,7 @@ export function SettingsPage() {
   const handleReadLlmProvider = state.handleReadLlmProvider
   const handleWriteLlmProvider = state.handleWriteLlmProvider
   const handleValidateLlmProvider = state.handleValidateLlmProvider
+  const machineNameEditor = getMachineNameEditorState(machineNameDraft, appSettings?.machineName ?? null)
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
     : updateSnapshot?.status === "updating"
@@ -1416,8 +1441,15 @@ export function SettingsPage() {
   }, [editorCommandTemplate])
 
   useEffect(() => {
-    setMachineNameDraft(machineName)
-  }, [machineName])
+    if (!confirmedMachineName) return
+
+    setMachineNameDraft((draft) => (
+      !lastConfirmedMachineNameRef.current || draft.trim() === lastConfirmedMachineNameRef.current
+        ? confirmedMachineName
+        : draft
+    ))
+    lastConfirmedMachineNameRef.current = confirmedMachineName
+  }, [confirmedMachineName])
 
   useEffect(() => {
     setKeybindingDrafts(Object.fromEntries(
@@ -1547,16 +1579,59 @@ export function SettingsPage() {
     event.currentTarget.blur()
   }
 
-  function commitMachineName() {
+  function discardMachineNameDraft() {
+    const confirmedName = appSettings?.machineName
+    if (!confirmedName) return
+    setMachineNameDraft(confirmedName)
+    setMachineNameError(null)
+    setMachineNameNotice(null)
+  }
+
+  async function saveMachineName() {
+    const confirmedName = appSettings?.machineName
     const nextMachineName = machineNameDraft.trim()
+    if (!confirmedName || isSavingMachineName) return
+
     if (!nextMachineName) {
-      setMachineNameDraft(machineName)
+      setMachineNameError("Enter a name before saving.")
+      setMachineNameNotice(null)
       return
     }
 
-    void handleWriteAppSettings({ machineName: nextMachineName }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save the machine name.")
-    })
+    if (nextMachineName === confirmedName) {
+      setMachineNameDraft(confirmedName)
+      setMachineNameError(null)
+      setMachineNameNotice("No name change to save.")
+      return
+    }
+
+    setIsSavingMachineName(true)
+    setMachineNameError(null)
+    setMachineNameNotice(null)
+    try {
+      const snapshot = await handleWriteAppSettings({ machineName: nextMachineName })
+      setMachineNameDraft(snapshot.machineName)
+      lastConfirmedMachineNameRef.current = snapshot.machineName
+      setMachineNameNotice(`Saved as ${snapshot.machineName}. The sidebar and browser tab are updated.`)
+    } catch (error) {
+      setMachineNameError(error instanceof Error ? error.message : "Unable to save the machine name.")
+    } finally {
+      setIsSavingMachineName(false)
+    }
+  }
+
+  function handleMachineNameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      discardMachineNameDraft()
+      event.currentTarget.blur()
+      return
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault()
+      void saveMachineName()
+    }
   }
 
   function commitEditorCommand() {
@@ -1994,22 +2069,75 @@ export function SettingsPage() {
 
                       <SettingsRow
                         title="Machine Name"
-                        description="Shown in the sidebar and browser tab so you can tell which computer you are controlling remotely."
+                        description="This is the confirmed identity shown in the sidebar and browser tab when you control this computer remotely."
                       >
-                        <div className="flex w-full min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
-                          <Input
-                            type="text"
-                            value={machineNameDraft}
-                            onChange={(event) => setMachineNameDraft(event.target.value)}
-                            onBlur={commitMachineName}
-                            onKeyDown={(event) => handleTextInputKeyDown(event, commitMachineName)}
-                            maxLength={80}
-                            aria-label="Machine name"
-                            className="min-h-11"
-                          />
-                          <div className="text-xs text-muted-foreground">
-                            Up to 80 characters. Press Enter or click away to save.
+                        <div className="flex w-full min-w-0 max-w-[440px] flex-1 flex-col items-stretch gap-2">
+                          {appSettings ? (
+                            <form
+                              className="flex flex-col gap-2"
+                              onSubmit={(event) => {
+                                event.preventDefault()
+                                void saveMachineName()
+                              }}
+                            >
+                              <label htmlFor="machine-name" className="sr-only">Machine name</label>
+                              <Input
+                                id="machine-name"
+                                type="text"
+                                value={machineNameDraft}
+                                onChange={(event) => {
+                                  setMachineNameDraft(event.target.value)
+                                  setMachineNameError(null)
+                                  setMachineNameNotice(null)
+                                }}
+                                onKeyDown={handleMachineNameKeyDown}
+                                maxLength={80}
+                                disabled={isSavingMachineName}
+                                aria-invalid={Boolean(machineNameError)}
+                                aria-describedby={machineNameError ? "machine-name-error" : machineNameNotice ? "machine-name-status" : "machine-name-help"}
+                                className="min-h-11"
+                              />
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {machineNameEditor.hasUnsavedChanges ? (
+                                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300">Unsaved changes</span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                                    Saved name
+                                  </span>
+                                )}
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={discardMachineNameDraft}
+                                    disabled={!machineNameEditor.hasUnsavedChanges || isSavingMachineName}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button type="submit" size="sm" disabled={!machineNameEditor.canSave || isSavingMachineName}>
+                                    {isSavingMachineName ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+                                    Save name
+                                  </Button>
+                                </div>
+                              </div>
+                            </form>
+                          ) : (
+                            <div className="space-y-2" aria-busy="true">
+                              <div aria-hidden="true" className="h-11 animate-pulse rounded-md bg-muted/70 motion-reduce:animate-none" />
+                              <span className="sr-only" role="status">Loading saved machine name…</span>
+                            </div>
+                          )}
+                          <div id="machine-name-help" className="text-xs leading-5 text-muted-foreground">
+                            Up to 80 characters. The name changes only after you save it. Press Enter to save or Escape to discard edits.
                           </div>
+                          {machineNameError ? (
+                            <p id="machine-name-error" role="alert" className="text-xs leading-5 text-destructive">{machineNameError}</p>
+                          ) : null}
+                          {machineNameNotice ? (
+                            <p id="machine-name-status" role="status" className="text-xs leading-5 text-emerald-700 dark:text-emerald-300">{machineNameNotice}</p>
+                          ) : null}
                         </div>
                       </SettingsRow>
 

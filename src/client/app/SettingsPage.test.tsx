@@ -7,6 +7,7 @@ import {
   formatPublishedDate,
   getCachedChangelog,
   getKeybindingsSubtitle,
+  getMachineNameEditorState,
   loadChangelog,
   resetSettingsPageChangelogCache,
   resolveSettingsSectionId,
@@ -58,6 +59,30 @@ function createUpdateSnapshot(overrides: Partial<UpdateSnapshot> = {}): UpdateSn
     ...overrides,
   }
 }
+
+describe("machine-name editor", () => {
+  test("keeps an edit local until it is meaningfully different from the confirmed name", () => {
+    expect(getMachineNameEditorState("Office Mac", "Office Mac")).toEqual({
+      canSave: false,
+      hasUnsavedChanges: false,
+    })
+    expect(getMachineNameEditorState("Office Mac ", "Office Mac")).toEqual({
+      canSave: false,
+      hasUnsavedChanges: true,
+    })
+    expect(getMachineNameEditorState("Studio Mac", "Office Mac")).toEqual({
+      canSave: true,
+      hasUnsavedChanges: true,
+    })
+  })
+
+  test("does not offer a save before the confirmed server name is ready", () => {
+    expect(getMachineNameEditorState("Studio Mac", null)).toEqual({
+      canSave: false,
+      hasUnsavedChanges: false,
+    })
+  })
+})
 
 describe("fetchGithubReleases", () => {
   test("filters draft releases and sends the GitHub accept header", async () => {
