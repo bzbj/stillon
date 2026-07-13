@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   buildLocalFileContentUrl,
   buildLocalMarkdownPreviewUrl,
+  isLocalHtmlPreviewPath,
   isLocalMarkdownPreviewPath,
   parseLocalFileContentUrl,
   parseLocalMarkdownPreviewUrl,
@@ -35,5 +36,13 @@ describe("local file urls", () => {
     expect(isLocalMarkdownPreviewPath("/Users/example/.agents/skills/lark-apps/SKILL.md")).toBe(true)
     expect(isLocalMarkdownPreviewPath("/Users/example/README.mdown")).toBe(true)
     expect(isLocalMarkdownPreviewPath("/Users/example/index.html")).toBe(false)
+  })
+
+  test("identifies absolute local HTML preview paths", () => {
+    expect(isLocalHtmlPreviewPath("/Users/example/preview/index.html")).toBe(true)
+    expect(isLocalHtmlPreviewPath("C:\\Users\\example\\preview\\index.html")).toBe(true)
+    expect(isLocalHtmlPreviewPath("/Users/example/preview/index.HTM")).toBe(true)
+    expect(isLocalHtmlPreviewPath("relative/index.html")).toBe(false)
+    expect(isLocalHtmlPreviewPath("/Users/example/preview/README.md")).toBe(false)
   })
 })

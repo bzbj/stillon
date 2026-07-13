@@ -10,9 +10,10 @@ import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
+import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { getProjectRenderablePreviewPath } from "../../lib/pathUtils"
 import { cn } from "../../lib/utils"
-import { buildLocalMarkdownPreviewUrl, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
+import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 import { buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
 import {
   DEFAULT_RIGHT_SIDEBAR_SIZE,
@@ -810,9 +811,27 @@ export function ChatPage() {
       return
     }
 
+    if (projectId && target.trigger !== "contextmenu" && isLocalHtmlPreviewPath(target.path)) {
+      try {
+        const previewAddress = await requestLocalHtmlPreviewUrl(target.path)
+        navigateBrowser(projectId, previewAddress)
+        if (activeRightPanel !== "browser") {
+          toggleRightPanel(projectId, "browser")
+        }
+      } catch (error) {
+        await dialog.alert({
+          title: "Preview unavailable",
+          description: error instanceof Error ? error.message : String(error),
+          closeLabel: "OK",
+        })
+      }
+      return
+    }
+
     await state.handleOpenLocalLink(target, action, editor)
   }, [
     activeRightPanel,
+    dialog,
     navigateBrowser,
     projectId,
     state.handleOpenLocalLink,
