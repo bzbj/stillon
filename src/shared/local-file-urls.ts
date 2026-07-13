@@ -1,3 +1,5 @@
+export const LOCAL_HTML_PREVIEW_SESSION_ENDPOINT = "/api/local-html-previews"
+
 export function buildLocalFileContentUrl(filePath: string, options: { download?: boolean } = {}) {
   const url = `/api/local-files/content/${encodeURIComponent(filePath)}`
   return options.download ? `${url}?download=1` : url
@@ -66,6 +68,12 @@ export function parseLocalFileContentUrl(address: string): { filePath: string } 
 export function isLocalMarkdownPreviewPath(filePath: string) {
   const extension = getLocalFileExtension(filePath)
   return extension === ".md" || extension === ".markdown" || extension === ".mdown"
+}
+
+export function isLocalHtmlPreviewPath(filePath: string) {
+  if (!isAbsoluteLocalPath(filePath)) return false
+  const extension = getLocalFileExtension(filePath)
+  return extension === ".html" || extension === ".htm"
 }
 
 function isAbsoluteLocalPath(filePath: string) {

@@ -19,6 +19,7 @@ import { handleBrowserPreviewProxy } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
 import { resolveProjectUploadFilePath } from "./paths"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
+import { createLocalHtmlPreviewManager, isLoopbackBindHost } from "./local-html-preview"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -132,6 +133,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       router.scheduleBroadcast()
     },
   })
+  const localHtmlPreviews = createLocalHtmlPreviewManager()
   router = createWsRouter({
     store,
     diffStore,
@@ -255,6 +257,13 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return projectFileContentResponse
           }
 
+          const localHtmlPreviewResponse = await localHtmlPreviews.handleRequest(req, url, {
+            allowCreate: Boolean(auth) || isLoopbackBindHost(hostname),
+          })
+          if (localHtmlPreviewResponse) {
+            return localHtmlPreviewResponse
+          }
+
           const localFileContentResponse = await handleLocalFileContent(req, url)
           if (localFileContentResponse) {
             return localFileContentResponse
@@ -300,6 +309,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       await agent.cancel(chatId)
     }
     router.dispose()
+    localHtmlPreviews.dispose()
     appSettings.dispose()
     keybindings.dispose()
     terminals.closeAll()
