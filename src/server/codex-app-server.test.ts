@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
+import { APP_VERSION } from "../shared/branding"
 import { CodexAppServerManager } from "./codex-app-server"
 
 class FakeCodexProcess extends EventEmitter {
@@ -82,7 +83,7 @@ describe("CodexAppServerManager", () => {
     expect((process.messages[0] as any).method).toBe("initialize")
     expect((process.messages[0] as any).params.clientInfo).toMatchObject({
       title: "Still On",
-      version: "0.1.0",
+      version: APP_VERSION,
     })
     expect((process.messages[1] as any).method).toBe("initialized")
     expect((process.messages[2] as any).method).toBe("thread/start")

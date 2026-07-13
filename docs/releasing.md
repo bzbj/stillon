@@ -41,7 +41,7 @@ uploading assets.
    bun run release:verify -- v0.1.1
    bun install --frozen-lockfile
    bun run check
-   bun test --timeout 20000
+   bun run test
    bun run audit
    ```
 
