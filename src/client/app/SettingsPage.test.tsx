@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { RefreshCw } from "lucide-react"
+import { MemoryRouter } from "react-router-dom"
 import {
   ChangelogSection,
+  getOnboardingCompletedTaskCount,
+  ONBOARDING_TASK_COUNT,
   buildSourceUpgradePrompt,
   compareReleaseVersions,
   fetchGithubReleases,
@@ -18,6 +21,7 @@ import {
   shouldPreviewChatSoundChange,
   SkillsSection,
   SubscriptionUsageSection,
+  WelcomeChecklist,
 } from "./SettingsPage"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { SubscriptionUsageSnapshot } from "../../shared/types"
@@ -160,6 +164,69 @@ describe("resolveSettingsSectionId", () => {
     expect(resolveSettingsSectionId("page-3")).toBeNull()
     expect(resolveSettingsSectionId("nope")).toBeNull()
     expect(resolveSettingsSectionId(undefined)).toBeNull()
+  })
+})
+
+describe("WelcomeChecklist", () => {
+  test("shows independent Codex and Claude tasks in the six-task setup flow", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <WelcomeChecklist
+          state={{
+            appSettings: {},
+            connectionStatus: "connected",
+            localProjectsReady: true,
+            localProjects: { projects: [] },
+            machineName: "Lenovo",
+            socket: { command: async () => ({ providers: [], generatedAt: 0 }) },
+            handleOpenLocalProject: async () => {},
+            handleWriteAppSettings: async () => ({}),
+            openAddProjectModal: () => {},
+          } as never}
+        />
+      </MemoryRouter>
+    )
+
+    expect(html).toContain("1 of 6 ready")
+    expect(html).toContain("Connect Codex")
+    expect(html).toContain("Connect Claude Code")
+    expect(html).toContain("Send a first Codex message")
+    expect(html).toContain("Send a first Claude message")
+    expect((html.match(/md:grid-cols-2/g) ?? []).length).toBe(2)
+  })
+
+  test("counts all six tasks independently", () => {
+    const emptyProgress = {
+      nameConfirmed: false,
+      codexChecked: false,
+      claudeChecked: false,
+      codexTestConfirmed: false,
+      claudeTestConfirmed: false,
+    }
+    const allCompleteProgress = {
+      nameConfirmed: true,
+      codexChecked: true,
+      claudeChecked: true,
+      codexTestConfirmed: true,
+      claudeTestConfirmed: true,
+    }
+
+    expect(ONBOARDING_TASK_COUNT).toBe(6)
+    expect(getOnboardingCompletedTaskCount(emptyProgress, {
+      localServiceReady: true,
+      codexReady: true,
+      claudeReady: true,
+    })).toBe(1)
+    expect(getOnboardingCompletedTaskCount(allCompleteProgress, {
+      localServiceReady: true,
+      codexReady: true,
+      claudeReady: true,
+    })).toBe(6)
+    expect(getOnboardingCompletedTaskCount(allCompleteProgress, {
+      localServiceReady: true,
+      codexReady: false,
+      claudeReady: true,
+    })).toBe(5)
   })
 })
 
