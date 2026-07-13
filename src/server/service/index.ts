@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process"
+import { constants } from "node:fs"
+import { access, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import process from "node:process"
@@ -138,13 +140,50 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
   }
 }
 
+/**
+ * The managed service stores only the absolute env-file path and asks Bun to
+ * load it at process start. Check the file before replacing an existing
+ * service so a typo cannot silently leave agent processes without their
+ * expected proxy configuration.
+ */
+export async function assertReadableServiceEnvironmentFile(environmentFile: string) {
+  let details
+  try {
+    details = await stat(environmentFile)
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as NodeJS.ErrnoException).code
+      : undefined
+    if (code === "ENOENT") {
+      throw new Error(`Service environment file does not exist: ${environmentFile}`)
+    }
+    throw new Error(`Service environment file is not readable: ${environmentFile}`)
+  }
+  if (!details.isFile()) {
+    throw new Error(`Service environment path is not a file: ${environmentFile}`)
+  }
+  try {
+    await access(environmentFile, constants.R_OK)
+  } catch {
+    throw new Error(`Service environment file is not readable: ${environmentFile}`)
+  }
+}
+
 export async function manageService(action: ServiceAction, options: ManageServiceOptions = {}) {
   const platform = options.platform ?? process.platform
   const backend = options.backend ?? resolveServiceBackend(platform)
+  const launch = createServiceLaunchSpec(options)
+  if (action === "install" && launch.environmentFile) {
+    await assertReadableServiceEnvironmentFile(launch.environmentFile)
+  }
+  const log = options.log ?? console.log
   await backend[action]({
-    launch: createServiceLaunchSpec(options),
+    launch,
     run: options.run ?? runServiceCommand,
-    log: options.log ?? console.log,
+    log,
     warn: options.warn ?? console.warn,
   })
+  if (action === "install" && launch.environmentFile) {
+    log(`Service environment file: ${launch.environmentFile}`)
+  }
 }

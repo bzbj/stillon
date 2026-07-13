@@ -24,7 +24,10 @@ export interface ServiceLaunchSpec {
   workingDirectory: string
   homeDirectory: string
   pathEnvironment: string
-  /** An optional Bun dotenv file loaded before the StillOn CLI starts. */
+  /**
+   * An optional Bun dotenv file loaded before the StillOn CLI starts. The
+   * native service records its path, not the caller's full shell environment.
+   */
   environmentFile?: string
   localAppDataDirectory?: string
 }

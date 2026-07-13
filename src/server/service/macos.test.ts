@@ -128,6 +128,20 @@ describe("generateLaunchAgentPlist", () => {
     expect(plist).not.toContain(spec.executable)
     expect(plist).not.toContain(spec.workingDirectory)
   })
+
+  test("persists the dedicated env-file path in the LaunchAgent invocation", () => {
+    const plist = generateLaunchAgentPlist(createLaunchSpec("/Users/tester", {
+      args: [
+        "--env-file",
+        "/Users/tester/.config/stillon/agent-egress.env",
+        "/Users/tester/stillon/bin/stillon",
+        "--no-open",
+      ],
+    }))
+
+    expect(plist).toContain("<string>--env-file</string>")
+    expect(plist).toContain("<string>/Users/tester/.config/stillon/agent-egress.env</string>")
+  })
 })
 
 describe("macOS service backend", () => {

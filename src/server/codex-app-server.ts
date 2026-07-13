@@ -11,6 +11,7 @@ import type {
   TranscriptEntry,
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
+import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import {
@@ -744,7 +745,7 @@ export class CodexAppServerManager {
       spawn(getCodexCliCommand(), ["app-server"], {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
-        env: process.env,
+        env: inheritAgentEnvironment(),
       }) as unknown as CodexAppServerProcess)
   }
 

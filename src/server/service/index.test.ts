@@ -1,6 +1,29 @@
-import { describe, expect, test } from "bun:test"
-import { createServiceLaunchSpec, manageService, resolveServiceBackend, runServiceCommand } from "."
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
+import {
+  assertReadableServiceEnvironmentFile,
+  createServiceLaunchSpec,
+  manageService,
+  resolveServiceBackend,
+  runServiceCommand,
+} from "."
 import type { ServiceAction, ServiceBackend, ServiceBackendContext } from "./types"
+
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => (
+    rm(directory, { recursive: true, force: true })
+  )))
+})
+
+async function createTemporaryDirectory() {
+  const directory = await mkdtemp(path.join(tmpdir(), "stillon-service-env-"))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 describe("createServiceLaunchSpec", () => {
   test("builds a fixed-port non-interactive service invocation", () => {
@@ -93,6 +116,91 @@ describe("manageService", () => {
     })
 
     expect(calls).toEqual(["status"])
+  })
+
+  test("validates a service environment file before replacing a service", async () => {
+    const directory = await createTemporaryDirectory()
+    let installed = false
+    const backend: ServiceBackend = {
+      install: async () => { installed = true },
+      status: async () => {},
+      logs: async () => {},
+      uninstall: async () => {},
+    }
+
+    await expect(manageService("install", {
+      backend,
+      entrypoint: "/stillon",
+      homeDirectory: directory,
+      environmentFile: path.join(directory, "missing.env"),
+    })).rejects.toThrow("Service environment file does not exist")
+
+    expect(installed).toBe(false)
+  })
+
+  test("accepts an explicit env file and reports its persisted path after installation", async () => {
+    const directory = await createTemporaryDirectory()
+    const environmentFile = path.join(directory, "agent-egress.env")
+    await writeFile(environmentFile, "HTTPS_PROXY=http://127.0.0.1:7890\n", "utf8")
+    const logs: string[] = []
+    let launch: ServiceBackendContext["launch"] | undefined
+    const backend: ServiceBackend = {
+      install: async (context) => { launch = context.launch },
+      status: async () => {},
+      logs: async () => {},
+      uninstall: async () => {},
+    }
+
+    await manageService("install", {
+      backend,
+      entrypoint: "/stillon",
+      homeDirectory: directory,
+      environmentFile,
+      log: (message) => logs.push(message),
+    })
+
+    expect(launch?.args).toContain("--env-file")
+    expect(launch?.args).toContain(environmentFile)
+    expect(logs).toContain(`Service environment file: ${environmentFile}`)
+  })
+
+  test("loads proxy variables through Bun before the service entrypoint starts", async () => {
+    const directory = await createTemporaryDirectory()
+    const environmentFile = path.join(directory, "agent-egress.env")
+    await writeFile(environmentFile, [
+      "HTTP_PROXY=http://127.0.0.1:7890",
+      "HTTPS_PROXY=http://127.0.0.1:7890",
+      "ALL_PROXY=socks5://127.0.0.1:1080",
+      "NO_PROXY=localhost,127.0.0.1,::1",
+      "",
+    ].join("\n"), "utf8")
+
+    const result = await runServiceCommand(process.execPath, [
+      "--env-file",
+      environmentFile,
+      "--eval",
+      "console.log(JSON.stringify({ HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, ALL_PROXY: process.env.ALL_PROXY, NO_PROXY: process.env.NO_PROXY }))",
+    ], {
+      env: { PATH: process.env.PATH },
+    })
+
+    expect(result).toMatchObject({ code: 0, signal: null, stderr: "" })
+    expect(JSON.parse(result.stdout)).toEqual({
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      ALL_PROXY: "socks5://127.0.0.1:1080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+    })
+  })
+})
+
+describe("assertReadableServiceEnvironmentFile", () => {
+  test("rejects a directory instead of letting Bun try to load it", async () => {
+    const directory = await createTemporaryDirectory()
+
+    await expect(assertReadableServiceEnvironmentFile(directory)).rejects.toThrow(
+      `Service environment path is not a file: ${directory}`,
+    )
   })
 })
 

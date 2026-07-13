@@ -114,7 +114,7 @@ Service install options:
   --host <host>        Persist a specific listener address
   --remote             Persist the 0.0.0.0 listener shortcut
   --trust-proxy        Persist trusted-proxy mode (no secret is stored)
-  --env-file <path>    Load service-only environment variables from this file
+  --env-file <path>    Load service-only environment variables (for example, proxy settings)
 
 External ingress:
   StillOn starts on 127.0.0.1 by default. Use --host/--remote for a direct

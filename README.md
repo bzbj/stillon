@@ -106,7 +106,10 @@ stillon service uninstall
 
 Use `stillon service install --port 4000` to choose a fixed port. Pass
 `--env-file /absolute/path/to/stillon.env` to load a dedicated service-only
-environment file. Managed
+environment file. This is the supported way to persist a local proxy
+configuration for Codex and Claude Code without copying the caller's whole
+shell environment; see [agent egress](docs/production-runtime.md#agent-egress-system-vpn-and-local-proxy).
+Managed
 services always start with `--no-open` and `--strict-port`, so a port conflict
 is reported instead of silently moving StillOn to a different address.
 
