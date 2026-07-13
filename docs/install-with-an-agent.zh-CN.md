@@ -25,13 +25,14 @@ https://github.com/bzbj/stillon
 
 安全约束：
 - 默认保持 StillOn 仅绑定 localhost。
-- 除非我在后续指令中明确要求远程访问，否则不要使用 --remote、--share、--cloudflared，不要修改防火墙、DNS、Tailscale 或创建任何公网隧道。
+- 本次安装任务只完成本地 origin。除非我另外、明确地提出“配置外部入口”，否则不要配置反向代理、Cloudflare Tunnel、VPN、Tailscale、防火墙、DNS、公网 URL、`--host`、`--remote` 或 `--trust-proxy`。
+- `--share` 与 `--cloudflared` 不是 StillOn 功能。若我之后要求从其他设备访问，请先说明本地 [外部入口约定](external-ingress.zh-CN.md)，让我选择由操作者管理的代理、隧道或直连监听方式；不要替我选择或管理它。
 - 不要在 Shell 历史、日志、源代码或聊天输出中泄露密钥。
 - 在执行任何需要高权限、具有破坏性，或会修改已有服务的操作前，先说明影响并请求确认。
 - 把 provider 测试提示词视为可能消耗额度或计费的操作；只有在我明确同意后才能执行。
 <!-- prompt:end -->
 
-远程访问应当单独设置。确认本地安装和 Claude Code 首次可用性检查均通过后，再从项目文档中选择私有网络或 Cloudflare Tunnel 方案。
+外部入口应当单独设置。确认本地安装和 Claude Code 首次可用性检查均通过后，操作者可以根据[外部入口约定](external-ingress.zh-CN.md)连接独立管理的代理、隧道或直连监听器。
 
 ## 这个 Prompt 对“完成”的定义
 

@@ -4,7 +4,6 @@ import {
   getDefaultDevServerPort,
   parseDevArgs,
   resolveDevPorts,
-  stripShareArg,
   stripPortArg,
 } from "./dev-ports"
 
@@ -30,6 +29,13 @@ describe("resolveDevPorts", () => {
     })
   })
 
+  test("supports an inline client port", () => {
+    expect(resolveDevPorts(["--port=4000"])).toEqual({
+      clientPort: 4000,
+      serverPort: 4001,
+    })
+  })
+
   test("uses the last provided --port value", () => {
     expect(resolveDevPorts(["--port", "4000", "--port", "4100"])).toEqual({
       clientPort: 4100,
@@ -44,70 +50,80 @@ describe("resolveDevPorts", () => {
 })
 
 describe("stripPortArg", () => {
-  test("removes --port and its value while preserving other args", () => {
+  test("removes --port and its value while preserving server arguments", () => {
     expect(stripPortArg(["--remote", "--port", "4000", "--host", "dev-box"])).toEqual([
       "--remote",
       "--host",
       "dev-box",
     ])
   })
-})
 
-describe("stripShareArg", () => {
-  test("removes --share and --cloudflared arguments while preserving other args", () => {
-    expect(stripShareArg(["--remote", "--share", "--cloudflared", "secret-token", "--host", "dev-box"])).toEqual([
+  test("removes an inline --port while preserving server arguments", () => {
+    expect(stripPortArg(["--remote", "--port=4000", "--host=dev-box"])).toEqual([
       "--remote",
-      "--host",
-      "dev-box",
+      "--host=dev-box",
     ])
   })
 })
 
 describe("parseDevArgs", () => {
-  test("derives dev share options from the client port", () => {
-    expect(parseDevArgs(["--share", "--port", "3333"], "dev-machine")).toEqual({
+  test("uses loopback interfaces by default", () => {
+    expect(parseDevArgs(["--port", "3333"], "dev-machine")).toEqual({
       clientPort: 3333,
       serverPort: 3334,
-      share: "quick",
+      clientHost: "127.0.0.1",
       backendTargetHost: "127.0.0.1",
-      allowedHosts: true,
+      allowedHosts: ["localhost", "127.0.0.1", "dev-machine"],
       serverArgs: [],
     })
   })
 
-  test("accepts a token-bearing cloudflared dev mode", () => {
-    expect(parseDevArgs(["--cloudflared", "secret-token", "--port", "3333"], "dev-machine")).toEqual({
-      clientPort: 3333,
-      serverPort: 3334,
-      share: { kind: "token", token: "secret-token" },
-      backendTargetHost: "127.0.0.1",
-      allowedHosts: true,
-      serverArgs: [],
-    })
-  })
-
-  test("rejects combining --share with --host or --remote", () => {
-    expect(() => parseDevArgs(["--share", "--host", "dev-box"], "dev-machine")).toThrow("--share cannot be used with --host")
-    expect(() => parseDevArgs(["--host", "dev-box", "--share"], "dev-machine")).toThrow("--share cannot be used with --host")
-    expect(() => parseDevArgs(["--share", "--remote"], "dev-machine")).toThrow("--share cannot be used with --remote")
-    expect(() => parseDevArgs(["--remote", "--share"], "dev-machine")).toThrow("--share cannot be used with --remote")
-  })
-
-  test("rejects combining --cloudflared with --host or --remote", () => {
-    expect(() => parseDevArgs(["--cloudflared", "secret-token", "--host", "dev-box"], "dev-machine")).toThrow("--cloudflared cannot be used with --host")
-    expect(() => parseDevArgs(["--host", "dev-box", "--cloudflared", "secret-token"], "dev-machine")).toThrow("--cloudflared cannot be used with --host")
-    expect(() => parseDevArgs(["--cloudflared", "secret-token", "--remote"], "dev-machine")).toThrow("--cloudflared cannot be used with --remote")
-    expect(() => parseDevArgs(["--remote", "--cloudflared", "secret-token"], "dev-machine")).toThrow("--cloudflared cannot be used with --remote")
-  })
-
-  test("preserves existing remote host behavior when share is off", () => {
+  test("keeps direct remote listening available when explicitly requested", () => {
     expect(parseDevArgs(["--remote", "--port", "3333"], "dev-machine")).toEqual({
       clientPort: 3333,
       serverPort: 3334,
-      share: false,
+      clientHost: "0.0.0.0",
       backendTargetHost: "127.0.0.1",
       allowedHosts: true,
       serverArgs: ["--remote"],
     })
+  })
+
+  test("keeps development listeners on loopback while allowing an explicit trusted proxy host", () => {
+    expect(parseDevArgs(["--trust-proxy", "--port", "3333"], "dev-machine")).toEqual({
+      clientPort: 3333,
+      serverPort: 3334,
+      clientHost: "127.0.0.1",
+      backendTargetHost: "127.0.0.1",
+      allowedHosts: true,
+      serverArgs: ["--trust-proxy"],
+    })
+  })
+
+  test("uses a specific host for the Vite listener and backend proxy", () => {
+    expect(parseDevArgs(["--host", "dev-box", "--port", "3333"], "dev-machine")).toEqual({
+      clientPort: 3333,
+      serverPort: 3334,
+      clientHost: "dev-box",
+      backendTargetHost: "dev-box",
+      allowedHosts: ["localhost", "127.0.0.1", "dev-machine", "dev-box"],
+      serverArgs: ["--host", "dev-box"],
+    })
+  })
+
+  test("supports an inline host for the Vite listener and backend proxy", () => {
+    expect(parseDevArgs(["--host=dev-box", "--port=3333"], "dev-machine")).toEqual({
+      clientPort: 3333,
+      serverPort: 3334,
+      clientHost: "dev-box",
+      backendTargetHost: "dev-box",
+      allowedHosts: ["localhost", "127.0.0.1", "dev-machine", "dev-box"],
+      serverArgs: ["--host=dev-box"],
+    })
+  })
+
+  test("rejects removed built-in tunnel options", () => {
+    expect(() => parseDevArgs(["--share"], "dev-machine")).toThrow("--share is no longer built in")
+    expect(() => parseDevArgs(["--cloudflared", "token"], "dev-machine")).toThrow("--cloudflared is no longer built in")
   })
 })

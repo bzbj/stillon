@@ -2,19 +2,15 @@ import process from "node:process"
 import { spawnSync } from "node:child_process"
 import { hasCommand, spawnDetached } from "./process-utils"
 import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX, PACKAGE_NAME } from "../shared/branding"
-import type { ShareMode } from "../shared/share"
-import { assertNoHostOverride, getShareCliFlag, isShareEnabled, isTokenShareMode } from "../shared/share"
 import type { UpdateInstallErrorCode } from "../shared/types"
 import { PROD_SERVER_PORT } from "../shared/ports"
 import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 import type { ServiceAction } from "./service/types"
-import { logShareDetails, renderTerminalQr, startShareTunnel, type StartedShareTunnel } from "./share"
 
 export interface CliOptions {
   port: number
   host: string
   openBrowser: boolean
-  share: ShareMode
   password: string | null
   strictPort: boolean
 }
@@ -57,9 +53,12 @@ export interface CliRuntimeDeps {
   openUrl: (url: string) => void
   log: (message: string) => void
   warn: (message: string) => void
-  renderShareQr?: (url: string) => Promise<string>
-  startShareTunnel?: (localUrl: string, shareMode: Exclude<ShareMode, false>) => Promise<StartedShareTunnel>
-  manageService: (action: ServiceAction, options: { port: number; environmentFile?: string }) => Promise<void>
+  manageService: (action: ServiceAction, options: {
+    port: number
+    environmentFile?: string
+    host?: string
+    trustProxy?: boolean
+  }) => Promise<void>
   /** Source checkouts do not have a published package to update from. */
   selfUpdateEnabled?: boolean
 }
@@ -72,19 +71,50 @@ export interface UpdateInstallAttemptResult {
 }
 
 type ParsedArgs =
-  | { kind: "run"; options: CliOptions }
-  | { kind: "service"; action: ServiceAction; options: { port: number; environmentFile?: string } }
+  | { kind: "run"; options: CliOptions; trustProxy?: true }
+  | {
+    kind: "service"
+    action: ServiceAction
+    options: { port: number; environmentFile?: string; host?: string; trustProxy?: boolean }
+  }
   | { kind: "help" }
   | { kind: "version" }
 
 const MINIMUM_BUN_VERSION = "1.3.5"
 
-function throwShareConflict(share: Exclude<ShareMode, false>, hostFlag: "--host" | "--remote"): never {
-  throw new Error(`${getShareCliFlag(share)} cannot be used with ${hostFlag}`)
+function isRemovedTunnelOption(arg: string) {
+  return arg === "--share"
+    || arg.startsWith("--share=")
+    || arg === "--cloudflared"
+    || arg.startsWith("--cloudflared=")
+}
+
+function removedTunnelOptionError(arg: string): Error {
+  const option = arg.startsWith("--cloudflared") ? "--cloudflared" : "--share"
+  return new Error(
+    `${option} is no longer built in. Use a separately managed reverse proxy or tunnel, or --host/--remote for direct listening.`
+  )
+}
+
+function isLoopbackHost(host: string) {
+  const normalized = host.trim().toLowerCase()
+  return normalized === "localhost"
+    || normalized === "127.0.0.1"
+    || normalized === "::1"
+    || normalized === "[::1]"
+}
+
+function warnAboutDirectTrustedProxyListener(
+  host: string,
+  trustProxy: boolean,
+  warn: (message: string) => void,
+) {
+  if (!trustProxy || isLoopbackHost(host)) return
+  warn(`${LOG_PREFIX} --trust-proxy is active on a non-loopback listener. Restrict the port so only the trusted proxy can reach it; direct clients can forge forwarded headers.`)
 }
 
 function printHelp() {
-  console.log(`${APP_NAME} — local-only project chat UI
+  console.log(`${APP_NAME} — local-first project chat UI
 
 Usage:
   ${CLI_COMMAND} [options]
@@ -94,10 +124,8 @@ Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
   --host <host>        Bind to a specific host or IP
   --remote             Shortcut for --host 0.0.0.0
-  --share              Create a password-protected Cloudflare quick tunnel
-  --cloudflared <token>
-                       Run a named Cloudflare tunnel from a token
-  --password <secret>  Require a password before loading the app
+  --trust-proxy        Trust forwarded HTTPS metadata from one trusted proxy
+  --password <secret>  Optional application password; any non-empty value is accepted
   --strict-port        Fail instead of trying another port
   --no-open            Don't open browser automatically
   --version            Print version and exit
@@ -111,7 +139,17 @@ Background service:
 
 Service install options:
   --port <number>      Fixed service port (default: ${PROD_SERVER_PORT})
-  --env-file <path>    Load service-only environment variables from this file`)
+  --host <host>        Persist a specific listener address
+  --remote             Persist the 0.0.0.0 listener shortcut
+  --trust-proxy        Persist trusted-proxy mode (no secret is stored)
+  --env-file <path>    Load service-only environment variables from this file
+
+External ingress:
+  StillOn starts on 127.0.0.1 by default. Use --host/--remote for a direct
+  listener, or point an operator-managed reverse proxy or tunnel at the local
+  listener. Use --trust-proxy (or persist it with service install) only for a
+  trusted proxy that is the sole route to StillOn.
+  StillOn does not provision external access.`)
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -127,104 +165,131 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
     let port = PROD_SERVER_PORT
     let environmentFile: string | undefined
+    let host: string | undefined
+    let trustProxy = false
     const serviceArgs = argv.slice(2)
     if (action === "install") {
       for (let index = 0; index < serviceArgs.length; index += 1) {
         const arg = serviceArgs[index]
-        if (arg !== "--port" && arg !== "--env-file") {
-          throw new Error(`Unexpected argument for service install: ${arg}`)
+        if (isRemovedTunnelOption(arg)) {
+          throw removedTunnelOptionError(arg)
         }
-        const value = serviceArgs[index + 1]
-        if (!value || value.startsWith("-")) throw new Error(`Missing value for ${arg}`)
-        if (arg === "--port") {
+        if (arg === "--remote") {
+          host = "0.0.0.0"
+          continue
+        }
+        if (arg === "--trust-proxy") {
+          trustProxy = true
+          continue
+        }
+        if (arg === "--port" || arg.startsWith("--port=")) {
+          const inlineValue = arg.startsWith("--port=") ? arg.slice("--port=".length) : null
+          const value = inlineValue ?? serviceArgs[index + 1]
+          if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --port")
           port = Number(value)
           if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
             throw new Error(`Invalid service port: ${value}`)
           }
-        } else {
-          environmentFile = value
+          if (inlineValue === null) index += 1
+          continue
         }
-        index += 1
+        if (arg === "--host" || arg.startsWith("--host=")) {
+          const inlineValue = arg.startsWith("--host=") ? arg.slice("--host=".length) : null
+          const value = inlineValue ?? serviceArgs[index + 1]
+          if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --host")
+          host = value
+          if (inlineValue === null) index += 1
+          continue
+        }
+        if (arg === "--env-file" || arg.startsWith("--env-file=")) {
+          const inlineValue = arg.startsWith("--env-file=") ? arg.slice("--env-file=".length) : null
+          const value = inlineValue ?? serviceArgs[index + 1]
+          if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --env-file")
+          environmentFile = value
+          if (inlineValue === null) index += 1
+          continue
+        }
+        throw new Error(`Unexpected argument for service install: ${arg}`)
       }
     } else if (serviceArgs.length > 0) {
       throw new Error(`Unexpected argument for service ${action}: ${serviceArgs[0]}`)
     }
 
-    return { kind: "service", action, options: { port, ...(environmentFile ? { environmentFile } : {}) } }
+    return {
+      kind: "service",
+      action,
+      options: {
+        port,
+        ...(environmentFile ? { environmentFile } : {}),
+        ...(host ? { host } : {}),
+        ...(trustProxy ? { trustProxy: true } : {}),
+      },
+    }
   }
 
   let port = PROD_SERVER_PORT
   let host = "127.0.0.1"
   let openBrowser = true
-  let share: ShareMode = false
   let password: string | null = null
-  let sawHost = false
-  let sawRemote = false
   let strictPort = false
+  let trustProxy = false
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
+    if (isRemovedTunnelOption(arg)) {
+      throw removedTunnelOptionError(arg)
+    }
     if (arg === "--version" || arg === "-v") {
       return { kind: "version" }
     }
     if (arg === "--help" || arg === "-h") {
       return { kind: "help" }
     }
-    if (arg === "--port") {
+    if (arg === "--port" || arg.startsWith("--port=")) {
+      const inlineValue = arg.startsWith("--port=") ? arg.slice("--port=".length) : null
       const next = argv[index + 1]
-      if (!next) throw new Error("Missing value for --port")
-      port = Number(next)
-      index += 1
+      const value = inlineValue ?? next
+      if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --port")
+      port = Number(value)
+      if (inlineValue === null) index += 1
       continue
     }
-    if (arg === "--host") {
+    if (arg === "--host" || arg.startsWith("--host=")) {
+      const inlineValue = arg.startsWith("--host=") ? arg.slice("--host=".length) : null
       const next = argv[index + 1]
-      if (!next || next.startsWith("-")) throw new Error("Missing value for --host")
-      if (isShareEnabled(share)) {
-        throwShareConflict(share, "--host")
-      }
-      host = next
-      sawHost = true
-      index += 1
+      const value = inlineValue ?? next
+      if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --host")
+      host = value
+      if (inlineValue === null) index += 1
       continue
     }
     if (arg === "--remote") {
-      if (isShareEnabled(share)) {
-        throwShareConflict(share, "--remote")
-      }
       host = "0.0.0.0"
-      sawRemote = true
       continue
     }
-    if (arg === "--share") {
-      assertNoHostOverride("--share", sawHost, sawRemote)
-      share = "quick"
-      continue
-    }
-    if (arg === "--cloudflared") {
-      assertNoHostOverride("--cloudflared", sawHost, sawRemote)
-      const next = argv[index + 1]
-      if (!next || next.startsWith("-")) throw new Error("Missing value for --cloudflared")
-      share = { kind: "token", token: next }
-      index += 1
+    if (arg === "--trust-proxy") {
+      trustProxy = true
       continue
     }
     if (arg === "--no-open") {
       openBrowser = false
       continue
     }
-    if (arg === "--password") {
+    if (arg === "--password" || arg.startsWith("--password=")) {
+      const inlineValue = arg.startsWith("--password=") ? arg.slice("--password=".length) : null
       const next = argv[index + 1]
-      if (!next || next.startsWith("-")) throw new Error("Missing value for --password")
-      password = next
-      index += 1
+      const value = inlineValue ?? next
+      if (!value || (inlineValue === null && value.startsWith("-"))) throw new Error("Missing value for --password")
+      password = value
+      if (inlineValue === null) index += 1
       continue
     }
     if (arg === "--strict-port") {
       strictPort = true
       continue
     }
-    if (!arg.startsWith("-")) throw new Error(`Unexpected positional argument: ${arg}`)
+    if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`)
+    throw new Error(`Unexpected positional argument: ${arg}`)
   }
 
   return {
@@ -233,10 +298,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       port,
       host,
       openBrowser,
-      share,
       password,
       strictPort,
     },
+    ...(trustProxy ? { trustProxy: true as const } : {}),
   }
 }
 
@@ -304,8 +369,22 @@ async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
 }
 
 export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliRunResult> {
-  const parsedArgs = parseArgs(argv)
+  let parsedArgs: ParsedArgs
+  try {
+    parsedArgs = parseArgs(argv)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    deps.warn(`${LOG_PREFIX} ${message}`)
+    return { kind: "exited", code: 1 }
+  }
   if (parsedArgs.kind === "service") {
+    if (parsedArgs.action === "install") {
+      warnAboutDirectTrustedProxyListener(
+        parsedArgs.options.host ?? "127.0.0.1",
+        parsedArgs.options.trustProxy === true,
+        deps.warn,
+      )
+    }
     try {
       await deps.manageService(parsedArgs.action, parsedArgs.options)
       return { kind: "exited", code: 0 }
@@ -329,13 +408,11 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     return { kind: "exited", code: 1 }
   }
 
-  if (parsedArgs.options.share === "quick" && !parsedArgs.options.password) {
-    deps.warn(`${LOG_PREFIX} --share exposes this computer to the public internet and requires --password`)
-    return { kind: "exited", code: 1 }
-  }
+  const trustProxy = parsedArgs.trustProxy === true || process.env.STILLON_TRUST_PROXY === "1"
+  warnAboutDirectTrustedProxyListener(parsedArgs.options.host, trustProxy, deps.warn)
 
-  if (isTokenShareMode(parsedArgs.options.share) && !parsedArgs.options.password) {
-    deps.warn(`${LOG_PREFIX} named tunnel has no StillOn password; protect its hostname with Cloudflare Access`)
+  if (!isLoopbackHost(parsedArgs.options.host) && !parsedArgs.options.password) {
+    deps.warn(`${LOG_PREFIX} this listener is not loopback-only and has no application password. Protect it with an appropriate ingress authentication policy.`)
   }
 
   const shouldRestart = await maybeSelfUpdate(argv, deps)
@@ -345,8 +422,7 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
 
   const { port, stop } = await deps.startServer({
     ...parsedArgs.options,
-    trustProxy: isShareEnabled(parsedArgs.options.share)
-      || process.env.STILLON_TRUST_PROXY === "1",
+    trustProxy,
     onMigrationProgress: deps.log,
     update: deps.selfUpdateEnabled === false ? undefined : {
       version: deps.version,
@@ -357,48 +433,20 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     },
   })
   const bindHost = parsedArgs.options.host
-  const displayHost = isShareEnabled(parsedArgs.options.share) || bindHost === "127.0.0.1" || bindHost === "0.0.0.0" ? "localhost" : bindHost
+  const displayHost = bindHost === "127.0.0.1" || bindHost === "0.0.0.0" ? "localhost" : bindHost
   const launchUrl = `http://${displayHost}:${port}`
-  let shareTunnelStop: (() => void) | null = null
 
   deps.log(`${LOG_PREFIX} listening on http://${bindHost}:${port}`)
   deps.log(`${LOG_PREFIX} data dir: ${getDataDirDisplay()}`)
 
   const suppressOpenBrowser = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] === "1"
-  if (isShareEnabled(parsedArgs.options.share)) {
-    try {
-      const shareTunnel = await (deps.startShareTunnel ?? ((localUrl, shareMode) => startShareTunnel(localUrl, shareMode, {
-        log: (message) => deps.log(`${LOG_PREFIX} ${message}`),
-      })))(launchUrl, parsedArgs.options.share)
-      shareTunnelStop = shareTunnel.stop
-      if (shareTunnel.publicUrl) {
-        await logShareDetails(deps.log, shareTunnel.publicUrl, launchUrl, deps.renderShareQr ?? renderTerminalQr)
-      } else {
-        deps.warn(`${LOG_PREFIX} named tunnel started but no public hostname was detected`)
-        if (isTokenShareMode(parsedArgs.options.share)) {
-          deps.warn(`${LOG_PREFIX} use the hostname configured for the provided Cloudflare tunnel token`)
-        }
-        deps.log("Local URL:")
-        deps.log(launchUrl)
-      }
-    } catch (error) {
-      await stop()
-      deps.warn(`${LOG_PREFIX} failed to start Cloudflare share tunnel`)
-      if (error instanceof Error && error.message) {
-        deps.warn(`${LOG_PREFIX} ${error.message}`)
-      }
-      return { kind: "exited", code: 1 }
-    }
-  }
-
-  if (parsedArgs.options.openBrowser && !isShareEnabled(parsedArgs.options.share) && !suppressOpenBrowser) {
+  if (parsedArgs.options.openBrowser && !suppressOpenBrowser) {
     deps.openUrl(launchUrl)
   }
 
   return {
     kind: "started",
     stop: async () => {
-      shareTunnelStop?.()
       await stop()
     },
   }

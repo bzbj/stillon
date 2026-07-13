@@ -34,11 +34,12 @@ Bun itself now provides Windows ConPTY support, so Windows work is primarily Sti
 ## Security gates
 
 - Keep localhost as the default bind address.
-- Require application authentication for temporary public tunnels.
-- Recommend Cloudflare Access plus application authentication for named tunnels.
+- Keep tunnel, DNS, TLS, and edge authentication lifecycle outside the product.
+- For external ingress, document and test the trusted-proxy contract: preserved `Host`, `X-Forwarded-Proto`, WebSocket upgrades, and origin isolation.
+- Treat the optional application password as a convenience barrier; require an appropriate operator-managed authentication policy for Internet-facing access.
 - Rate-limit login attempts and never forward session/auth headers into previewed local services.
 - Document that authenticated users receive development-account-level authority.
-- Add prompt/file-based password and tunnel-token input so secrets do not need to appear in process arguments.
+- Add prompt/file-based password input so secrets do not need to appear in process arguments.
 - Add aggregate request limits or streaming uploads before accepting untrusted large files.
 - Review local-file and browser-preview capabilities as part of the single-user threat model.
 

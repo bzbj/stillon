@@ -25,6 +25,8 @@ export interface ManageServiceOptions {
   localAppDataDirectory?: string
   port?: number
   environmentFile?: string
+  host?: string
+  trustProxy?: boolean
   run?: ServiceCommandRunner
   log?: (message: string) => void
   warn?: (message: string) => void
@@ -110,6 +112,10 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
   if (options.environmentFile !== undefined && !environmentFile) {
     throw new Error("Service environment file path cannot be empty")
   }
+  const host = options.host?.trim()
+  if (options.host !== undefined && !host) {
+    throw new Error("Service host cannot be empty")
+  }
 
   return {
     executable,
@@ -120,6 +126,8 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
       "--strict-port",
       "--port",
       String(port),
+      ...(host ? ["--host", host] : []),
+      ...(options.trustProxy ? ["--trust-proxy"] : []),
     ],
     workingDirectory: options.workingDirectory ?? defaultWorkingDirectory,
     homeDirectory,

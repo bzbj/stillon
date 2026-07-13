@@ -151,12 +151,10 @@ describe("Windows service configuration", () => {
     expect(Buffer.from(encodeWindowsPowerShell(script), "base64").toString("utf16le")).toBe(script)
   })
 
-  test("refuses to persist password and tunnel-token arguments", () => {
+  test("refuses to persist password arguments", () => {
     for (const args of [
       ["--password", "do-not-store"],
       ["--password=do-not-store"],
-      ["--cloudflared", "do-not-store"],
-      ["--cloudflared=do-not-store"],
     ]) {
       expect(() => buildWindowsServicePowerShell(createLaunch({ args }))).toThrow(
         "cannot be persisted in a Windows scheduled task",

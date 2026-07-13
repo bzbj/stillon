@@ -139,7 +139,7 @@ function PasswordScreen({
             </div>
           </div>
           <CardDescription className="leading-6">
-            Enter your password to continue.
+            Enter your password to continue. This optional application password can be any non-empty value; a simple password only deters casual access, so external deployments need an appropriate ingress policy.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-6 pb-6">

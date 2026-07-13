@@ -20,8 +20,8 @@ bun run build
 
 Create a service environment file outside both the runtime and source
 checkout. It is the appropriate place for configuration such as a trusted
-reverse proxy or a machine label. Do not put passwords or tunnel tokens in a
-native service configuration.
+reverse proxy or a machine label. Do not put passwords in a native service
+configuration.
 
 ```bash
 mkdir -p "$HOME/.config/stillon"
@@ -31,7 +31,6 @@ ${EDITOR:-vi} "$HOME/.config/stillon/production.env"
 For example:
 
 ```dotenv
-STILLON_TRUST_PROXY=1
 STILLON_MACHINE_NAME=Office Mac
 STILLON_DISABLE_SELF_UPDATE=1
 ```
@@ -41,6 +40,7 @@ Install the native service by invoking the entrypoint in this runtime:
 ```bash
 "$RUNTIME_ROOT/bin/stillon" service install \
   --port 3210 \
+  --trust-proxy \
   --env-file "$HOME/.config/stillon/production.env"
 ```
 
@@ -49,6 +49,11 @@ It also loads the given environment file through Bun before StillOn begins, so
 it does not accidentally inherit a `.env` file from an unrelated checkout.
 Ensure the service PATH includes the command-line agents you intend StillOn to
 run (for example `codex`, `claude`, and `opencode`).
+
+Keep the service on loopback when an independently managed proxy or tunnel
+runs on the same machine. See [External ingress](external-ingress.md) for the
+required `Host`, forwarding, and WebSocket contract; StillOn does not create
+or configure the external entrypoint.
 
 ## Verify, update, and roll back
 

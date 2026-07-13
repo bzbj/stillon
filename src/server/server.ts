@@ -3,7 +3,6 @@ import { stat } from "node:fs/promises"
 import { APP_NAME, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
-import type { ShareMode } from "../shared/share"
 import { createAuthManager } from "./auth"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
@@ -66,15 +65,14 @@ export interface StartStillOnServerOptions {
   port?: number
   host?: string
   openBrowser?: boolean
-  share?: ShareMode
   dataDir?: string
   password?: string | null
   strictPort?: boolean
   /**
    * When true, the auth layer trusts X-Forwarded-Proto for CSRF origin
    * checks, redirect URLs, and the Secure cookie flag. The hostname still
-   * comes from the request URL / Host header. Only enable when the server is
-   * reachable solely through a trusted reverse proxy such as cloudflared.
+   * comes from the request URL / Host header. Enable only when the server is
+   * reachable solely through a trusted reverse proxy.
    */
   trustProxy?: boolean
   onMigrationProgress?: (message: string) => void
@@ -184,8 +182,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
         port: actualPort,
         hostname,
         maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
-        // cloudflared keeps idle origin connections for 90 seconds by default.
-        // Bun's 10-second default can otherwise leave cloudflared reusing a closed socket.
+        // Keep local previews and reverse-proxy WebSocket connections alive.
         idleTimeout: 120,
         async fetch(req, serverInstance) {
           const url = new URL(req.url)
@@ -310,7 +307,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     port: actualPort,
     host: hostname,
     openBrowser: options.openBrowser ?? true,
-    share: options.share ?? false,
     password: options.password ?? null,
     strictPort,
   })

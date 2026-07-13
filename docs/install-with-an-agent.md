@@ -25,13 +25,14 @@ Please:
 
 Safety constraints:
 - Keep StillOn bound to localhost by default.
-- Do not use --remote, --share, --cloudflared, firewall changes, DNS changes, Tailscale, or any public tunnel unless I explicitly request remote access separately.
+- This installation task stops at the local origin. Do not configure a reverse proxy, Cloudflare Tunnel, VPN, Tailscale, firewall, DNS, public URL, `--host`, `--remote`, or `--trust-proxy` unless I make a separate, explicit external-ingress request.
+- `--share` and `--cloudflared` are not StillOn features. If I later ask for access from another device, explain the local [external-ingress contract](external-ingress.md) and let me choose the operator-managed proxy, tunnel, or direct-listener approach; do not choose or administer it on my behalf.
 - Do not expose secrets in shell history, logs, source files, or chat output.
 - Before any privileged or destructive action, or any change to an existing service, explain it and ask for confirmation.
 - Treat provider test prompts as billable or quota-consuming work: run them only after I explicitly approve the test.
 <!-- prompt:end -->
 
-Remote access is intentionally a separate step. After local installation and the Claude Code first-use check work, choose a private-network or Cloudflare Tunnel recipe from the project documentation.
+External ingress is intentionally a separate step. After local installation and the Claude Code first-use check work, the operator may connect an independently managed proxy, tunnel, or direct listener using the [external-ingress contract](external-ingress.md).
 
 ## What this prompt considers “done”
 
