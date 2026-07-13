@@ -73,6 +73,44 @@ describe("subscription usage", () => {
     expect(provider.windows[0]?.resetsAt).toBe(1_782_840_892_000)
   })
 
+  test("leaves the five-hour window unavailable when Codex returns only a weekly primary limit", () => {
+    const now = new Date(2026, 6, 13, 12, 0).getTime()
+    const provider = parseCodexAppServerSnapshot(
+      {
+        account: {
+          email: "codex@example.com",
+          planType: "pro",
+        },
+      },
+      {
+        rateLimitsByLimitId: {
+          codex: {
+            limitId: "codex",
+            planType: "pro",
+            primary: {
+              usedPercent: 4,
+              windowDurationMins: 10_080,
+              resetsAt: 1_784_516_803,
+            },
+            secondary: null,
+          },
+        },
+      },
+      now
+    )
+
+    expect(provider).toMatchObject({
+      provider: "codex",
+      status: "available",
+      planType: "pro",
+      windows: [
+        { id: "five_hour", usedPercent: null, windowMinutes: 300, resetsAt: null },
+        { id: "weekly", usedPercent: 4, windowMinutes: 10_080 },
+      ],
+    })
+    expect(provider.windows[1]?.resetsAt).toBe(1_784_516_803_000)
+  })
+
   test("parses Claude usage text into 5-hour and weekly windows", () => {
     const now = new Date(2026, 5, 30, 17, 30).getTime()
     const windows = parseClaudeUsageResult(

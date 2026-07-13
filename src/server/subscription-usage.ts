@@ -446,20 +446,37 @@ function hasRateLimitWindows(bucket: Record<string, unknown>) {
 }
 
 function codexWindowsFromAppServerBucket(bucket: Record<string, unknown>): SubscriptionUsageWindow[] {
+  const primary = asRecord(firstDefined(bucket, ["primary", "primaryWindow", "primary_window"]))
+  const secondary = asRecord(firstDefined(bucket, ["secondary", "secondaryWindow", "secondary_window"]))
+  const limits = [primary, secondary]
+  const fiveHourLimit = limits.find((limit) => codexWindowDurationMinutes(limit) === FIVE_HOUR_MINUTES) ?? null
+  const weeklyLimit = limits.find((limit) => codexWindowDurationMinutes(limit) === WEEKLY_MINUTES) ?? null
+
+  if (fiveHourLimit || weeklyLimit) {
+    return [
+      codexWindowFromAppServerLimit("five_hour", "5-hour window", fiveHourLimit, FIVE_HOUR_MINUTES),
+      codexWindowFromAppServerLimit("weekly", "Weekly window", weeklyLimit, WEEKLY_MINUTES),
+    ]
+  }
+
   return [
     codexWindowFromAppServerLimit(
       "five_hour",
       "5-hour window",
-      asRecord(firstDefined(bucket, ["primary", "primaryWindow", "primary_window"])),
+      primary,
       FIVE_HOUR_MINUTES
     ),
     codexWindowFromAppServerLimit(
       "weekly",
       "Weekly window",
-      asRecord(firstDefined(bucket, ["secondary", "secondaryWindow", "secondary_window"])),
+      secondary,
       WEEKLY_MINUTES
     ),
   ]
+}
+
+function codexWindowDurationMinutes(limit: Record<string, unknown> | null): number | null {
+  return asOptionalNumber(firstDefined(limit, ["windowDurationMins", "window_duration_mins", "windowMinutes", "window_minutes"]))
 }
 
 function codexWindowFromAppServerLimit(
@@ -472,8 +489,7 @@ function codexWindowFromAppServerLimit(
     id,
     label,
     usedPercent: asOptionalNumber(firstDefined(limit, ["usedPercent", "used_percent"])),
-    windowMinutes: asOptionalNumber(firstDefined(limit, ["windowDurationMins", "window_duration_mins", "windowMinutes", "window_minutes"]))
-      ?? fallbackWindowMinutes,
+    windowMinutes: codexWindowDurationMinutes(limit) ?? fallbackWindowMinutes,
     resetsAt: normalizeEpochMs(firstDefined(limit, ["resetsAt", "resets_at", "resetAt", "reset_at"])),
     resetsAtText: null,
   }
