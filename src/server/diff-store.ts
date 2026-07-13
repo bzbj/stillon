@@ -554,9 +554,15 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 type GitHubCliApiLike = (path: string) => Promise<GitHubPullRequestResponseItem[] | null>
 
+type GitHubPullRequestsFetcher = (repoSlug: string) => Promise<GitHubPullRequestResponseItem[]>
+
 interface FetchGitHubPullRequestsDeps {
   fetchImpl?: FetchLike
   ghApiImpl?: GitHubCliApiLike
+}
+
+interface DiffStoreDeps {
+  pullRequestFetcher?: GitHubPullRequestsFetcher
 }
 
 async function fetchGitHubPullRequestsViaGh(path: string): Promise<GitHubPullRequestResponseItem[] | null> {
@@ -1090,8 +1096,11 @@ export function appendGitIgnoreEntry(currentContents: string | null, entry: stri
 
 export class DiffStore {
   private readonly states = new Map<string, StoredChatDiffState>()
+  private readonly pullRequestFetcher: GitHubPullRequestsFetcher
 
-  constructor(_: string) {}
+  constructor(_: string, deps: DiffStoreDeps = {}) {
+    this.pullRequestFetcher = deps.pullRequestFetcher ?? fetchGitHubPullRequests
+  }
 
   async initialize() {}
 
@@ -1470,7 +1479,7 @@ export class DiffStore {
 
     if (repoSlug) {
       try {
-        const prs = await fetchGitHubPullRequests(repoSlug)
+        const prs = await this.pullRequestFetcher(repoSlug)
         pullRequests = prs.flatMap<ChatBranchListEntry>((pr) => {
           const headRefName = pr.head?.ref?.trim()
           if (!headRefName) return []
