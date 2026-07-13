@@ -528,9 +528,8 @@ describe("DiffStore", () => {
     await run(["git", "update-ref", "refs/remotes/origin/feature/pr-branch", "HEAD"], repoRoot)
     await run(["git", "update-ref", "refs/remotes/origin/feature/non-pr", "HEAD"], repoRoot)
 
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = Object.assign(
-      async () => new Response(JSON.stringify([
+    const store = new DiffStore(repoRoot, {
+      pullRequestFetcher: async () => [
         {
           number: 42,
           title: "PR branch",
@@ -546,25 +545,15 @@ describe("DiffStore", () => {
             ref: "main",
           },
         },
-      ]), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-      { preconnect: originalFetch.preconnect.bind(originalFetch) }
-    ) as typeof fetch
+      ],
+    })
+    await store.initialize()
 
-    try {
-      const store = new DiffStore(repoRoot)
-      await store.initialize()
-
-      const result = await store.listBranches({ projectPath: repoRoot })
-      expect(result.pullRequests.some((entry) => entry.prNumber === 42)).toBe(true)
-      expect(result.remote.some((entry) => entry.remoteRef === "github-desktop-jane/feature/pr-branch")).toBe(false)
-      expect(result.remote.some((entry) => entry.remoteRef === "origin/feature/pr-branch")).toBe(false)
-      expect(result.remote.some((entry) => entry.remoteRef === "origin/feature/non-pr")).toBe(true)
-    } finally {
-      globalThis.fetch = originalFetch
-    }
+    const result = await store.listBranches({ projectPath: repoRoot })
+    expect(result.pullRequests.some((entry) => entry.prNumber === 42)).toBe(true)
+    expect(result.remote.some((entry) => entry.remoteRef === "github-desktop-jane/feature/pr-branch")).toBe(false)
+    expect(result.remote.some((entry) => entry.remoteRef === "origin/feature/pr-branch")).toBe(false)
+    expect(result.remote.some((entry) => entry.remoteRef === "origin/feature/non-pr")).toBe(true)
   })
 
   test("checkoutBranch creates a local tracking branch from a remote branch", async () => {
