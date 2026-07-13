@@ -308,9 +308,6 @@ function KannaLayout() {
   const handleSidebarReorderProjectGroups = useCallback((projectIds: string[]) => {
     void state.handleReorderProjectGroups(projectIds)
   }, [state.handleReorderProjectGroups])
-  const handleOpenChangelog = useCallback(() => {
-    navigate("/settings/changelog")
-  }, [navigate])
   const sidebarElement = useMemo(() => (
     <KannaSidebar
       data={state.sidebarData}
@@ -341,11 +338,8 @@ function KannaLayout() {
       onHideProject={handleSidebarHideProject}
       onReorderProjectGroups={handleSidebarReorderProjectGroups}
       editorLabel={state.editorLabel}
-      updateSnapshot={state.updateSnapshot}
-      onOpenChangelog={handleOpenChangelog}
     />
   ), [
-    handleOpenChangelog,
     handleOpenAddProjectModal,
     handleSidebarCopyPath,
     handleSidebarCreateChat,
@@ -374,7 +368,6 @@ function KannaLayout() {
     state.sidebarData,
     state.sidebarOpen,
     state.sidebarReady,
-    state.updateSnapshot,
   ])
 
   useEffect(() => {

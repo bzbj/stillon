@@ -44,8 +44,8 @@ Bun itself now provides Windows ConPTY support, so Windows work is primarily Sti
 
 ## Distribution and operations
 
-- Decide between source-only, npm CLI, standalone binaries, or a desktop wrapper.
-- Keep **private: true** until the npm package name, provenance, and updater are ready.
+- Keep source-only releases private and do not add an in-app updater. Revisit npm,
+  standalone binaries, or a desktop wrapper only if the distribution model changes.
 - For macOS packaging, add code signing, notarization, checksums, and a verified update channel.
 - Add Linux packages only after testing shell, desktop opener, lsof, and the
   CLI-managed systemd user-service integration across target distributions.

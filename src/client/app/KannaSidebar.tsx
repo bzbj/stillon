@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { Loader2, PanelLeft, X, Menu, Plus, Settings } from "lucide-react"
+import { PanelLeft, X, Menu, Plus, Settings } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { APP_NAME } from "../../shared/branding"
 import { Button } from "../components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { formatSidebarAgeLabel } from "../lib/formatters"
@@ -10,7 +9,7 @@ import { cn } from "../lib/utils"
 import { ChatRow } from "../components/chat-ui/sidebar/ChatRow"
 import { LocalProjectsSection } from "../components/chat-ui/sidebar/LocalProjectsSection"
 import { getResolvedKeybindings } from "../lib/keybindings"
-import type { KeybindingsSnapshot, SidebarData, SidebarChatRow, UpdateSnapshot } from "../../shared/types"
+import type { KeybindingsSnapshot, SidebarData, SidebarChatRow } from "../../shared/types"
 import type { SocketStatus } from "./socket"
 import {
   getSidebarJumpTargetIndex,
@@ -114,8 +113,6 @@ interface KannaSidebarProps {
   onHideProject: (projectId: string) => void
   onReorderProjectGroups: (projectIds: string[]) => void
   editorLabel: string
-  updateSnapshot: UpdateSnapshot | null
-  onOpenChangelog: () => void
 }
 
 function KannaSidebarImpl({
@@ -147,8 +144,6 @@ function KannaSidebarImpl({
   onHideProject,
   onReorderProjectGroups,
   editorLabel,
-  updateSnapshot,
-  onOpenChangelog,
 }: KannaSidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -393,11 +388,6 @@ function KannaSidebarImpl({
   const isUtilityPageActive = isLocalProjectsActive || isSettingsActive
   const isConnecting = connectionStatus === "connecting" || !ready
   const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready)
-  const showUpdateButton = updateSnapshot?.updateAvailable === true
-  const showDevBadge = updateSnapshot
-    ? updateSnapshot.latestVersion === `${updateSnapshot.currentVersion}-dev`
-    : false
-  const isUpdating = updateSnapshot?.status === "updating" || updateSnapshot?.status === "restart_pending"
 
   return (
     <>
@@ -476,26 +466,6 @@ function KannaSidebarImpl({
             >
               <Plus className="h-5 w-5" />
             </Button>
-            {showDevBadge ? (
-              <span
-                className="mr-1 hidden md:inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-bold tracking-wider text-muted-foreground"
-                title="Development build"
-              >
-                DEV
-              </span>
-            ) : showUpdateButton ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="hidden md:inline-flex rounded-full !h-auto mr-1 py-0.5 px-2 bg-logo/20 hover:bg-logo text-logo border-logo/20 hover:text-foreground hover:border-logo/20 text-[11px] font-bold tracking-wider"
-                onClick={onOpenChangelog}
-                disabled={isUpdating}
-                title={updateSnapshot?.latestVersion ? `Update to ${updateSnapshot.latestVersion}` : `Update ${APP_NAME}`}
-              >
-                {isUpdating ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
-                UPDATE
-              </Button>
-            ) : null}
             <Button
               variant="ghost"
               size="icon"

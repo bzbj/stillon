@@ -3,8 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { RefreshCw } from "lucide-react"
 import {
   ChangelogSection,
+  buildSourceUpgradePrompt,
+  compareReleaseVersions,
   fetchGithubReleases,
   formatPublishedDate,
+  getAvailableSourceRelease,
   getCachedChangelog,
   getKeybindingsSubtitle,
   getMachineNameEditorState,
@@ -17,7 +20,7 @@ import {
   SubscriptionUsageSection,
 } from "./SettingsPage"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
-import type { SubscriptionUsageSnapshot, UpdateSnapshot } from "../../shared/types"
+import type { SubscriptionUsageSnapshot } from "../../shared/types"
 
 const SAMPLE_RELEASES = [
   {
@@ -45,20 +48,6 @@ const SAMPLE_RELEASES = [
 afterEach(() => {
   resetSettingsPageChangelogCache()
 })
-
-function createUpdateSnapshot(overrides: Partial<UpdateSnapshot> = {}): UpdateSnapshot {
-  return {
-    currentVersion: "1.0.0",
-    latestVersion: "1.1.0",
-    status: "available",
-    updateAvailable: true,
-    lastCheckedAt: 123,
-    error: null,
-    installAction: "restart",
-    reloadRequestedAt: null,
-    ...overrides,
-  }
-}
 
 describe("machine-name editor", () => {
   test("keeps an edit local until it is meaningfully different from the confirmed name", () => {
@@ -268,16 +257,16 @@ describe("SettingsHeaderButton", () => {
   test("renders shared header button content and icon", () => {
     const html = renderToStaticMarkup(
       <SettingsHeaderButton icon={<RefreshCw className="size-3.5" />}>
-        Check for updates
+        Refresh
       </SettingsHeaderButton>
     )
 
-    expect(html).toContain("Check for updates")
+    expect(html).toContain("Refresh")
     expect(html).toContain("lucide-refresh-cw")
     expect(html).toContain("gap-1.5")
   })
 
-  test("supports the default variant for the update action", () => {
+  test("supports the default variant", () => {
     const html = renderToStaticMarkup(
       <SettingsHeaderButton variant="default" >
         Update
@@ -290,24 +279,19 @@ describe("SettingsHeaderButton", () => {
 })
 
 describe("ChangelogSection", () => {
-  test("renders version highlights, release cards, markdown, links, and prerelease badges", () => {
+  test("renders release cards, markdown, links, and prerelease badges", () => {
     const html = renderToStaticMarkup(
       <ChangelogSection
         status="success"
         releases={SAMPLE_RELEASES}
         error={null}
         onRetry={() => {}}
-        updateSnapshot={createUpdateSnapshot({ latestVersion: "0.8.1", currentVersion: "0.8.1" })}
-        currentVersion="1.0.0"
-        onInstallUpdate={() => {}}
-        onCheckForUpdates={() => {}}
+        currentVersion="0.8.1"
       />
     )
 
     expect(html).not.toContain("You are currently running this version of StillOn.")
     expect(html).toContain("Current")
-    expect(html).toContain("Update")
-    expect(html).toContain("Update")
     expect(html).toContain("v0.8.1")
     expect(html).toContain("Better cursor color")
     expect(html).toContain('aria-label="View release on GitHub"')
@@ -325,10 +309,7 @@ describe("ChangelogSection", () => {
         releases={[]}
         error="GitHub said no"
         onRetry={() => {}}
-        updateSnapshot={createUpdateSnapshot({ updateAvailable: false, status: "error", error: "GitHub said no" })}
         currentVersion="1.0.0"
-        onInstallUpdate={() => {}}
-        onCheckForUpdates={() => {}}
       />
     )
 
@@ -337,46 +318,84 @@ describe("ChangelogSection", () => {
     expect(html).toContain("Retry")
   })
 
-  test("renders check-for-updates when no update is available", () => {
+  test("does not render an install action", () => {
     const html = renderToStaticMarkup(
       <ChangelogSection
         status="success"
         releases={SAMPLE_RELEASES}
         error={null}
         onRetry={() => {}}
-        updateSnapshot={createUpdateSnapshot({
-          latestVersion: "1.0.0",
-          status: "up_to_date",
-          updateAvailable: false,
-        })}
         currentVersion="1.0.0"
-        onInstallUpdate={() => {}}
-        onCheckForUpdates={() => {}}
       />
     )
 
-    expect(html).toContain("Check for updates")
     expect(html).not.toContain(">Update<")
   })
 
-  test("disables the update action while updating", () => {
+  test("offers a coding-agent prompt only when a newer stable release exists", () => {
+    const html = renderToStaticMarkup(
+      <ChangelogSection
+        status="success"
+        releases={[
+          ...SAMPLE_RELEASES,
+          {
+            ...SAMPLE_RELEASES[0],
+            id: 3,
+            name: "v0.8.2",
+            tag_name: "v0.8.2",
+            html_url: "https://github.com/bzbj/stillon/releases/tag/v0.8.2",
+          },
+        ]}
+        error={null}
+        onRetry={() => {}}
+        currentVersion="0.8.1"
+      />
+    )
+
+    expect(html).toContain("Upgrade available: v0.8.2")
+    expect(html).toContain("Generate upgrade prompt")
+    expect(html).toContain("StillOn will not install it automatically.")
+    expect(html).not.toContain("npm install")
+  })
+
+  test("does not offer a prompt for a prerelease or current release", () => {
     const html = renderToStaticMarkup(
       <ChangelogSection
         status="success"
         releases={SAMPLE_RELEASES}
         error={null}
         onRetry={() => {}}
-        updateSnapshot={createUpdateSnapshot({
-          latestVersion: "0.8.1",
-          status: "restart_pending",
-        })}
-        currentVersion="1.0.0"
-        onInstallUpdate={() => {}}
-        onCheckForUpdates={() => {}}
+        currentVersion="0.8.1"
       />
     )
 
-    expect(html).toContain("disabled")
-    expect(html).toContain("Updating")
+    expect(html).not.toContain("Generate upgrade prompt")
+  })
+})
+
+describe("source release upgrades", () => {
+  test("compares semantic versions without relying on release feed order", () => {
+    expect(compareReleaseVersions("v0.10.0", "0.9.9")).toBe(1)
+    expect(compareReleaseVersions("1.0.0-rc.1", "1.0.0")).toBe(-1)
+    expect(compareReleaseVersions("not-a-version", "1.0.0")).toBeNull()
+
+    expect(getAvailableSourceRelease([
+      { ...SAMPLE_RELEASES[0], id: 4, tag_name: "v0.9.0", prerelease: false },
+      { ...SAMPLE_RELEASES[0], id: 5, tag_name: "v0.10.0", prerelease: false },
+      { ...SAMPLE_RELEASES[1], id: 6, tag_name: "v0.11.0-beta.1", prerelease: true },
+    ], "0.8.1")?.tag_name).toBe("v0.10.0")
+  })
+
+  test("builds a safe Bun source-upgrade prompt", () => {
+    const prompt = buildSourceUpgradePrompt("0.8.1", {
+      tag_name: "v0.8.2",
+      html_url: "https://github.com/bzbj/stillon/releases/tag/v0.8.2",
+    })
+
+    expect(prompt).toContain("从 v0.8.1 升级到 GitHub Release v0.8.2")
+    expect(prompt).toContain("checkout --detach v0.8.2")
+    expect(prompt).toContain("bun install --frozen-lockfile")
+    expect(prompt).toContain("不要使用 npm、npx")
+    expect(prompt).toContain("bun install -g")
   })
 })

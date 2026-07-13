@@ -42,6 +42,7 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 | Windows 10/11 | Beta | Validated with PowerShell, Git, x64/ARM64 Bun, and Task Scheduler services |
 
 The repository does not yet ship signed desktop installers. Install from source and review the [public-release readiness notes](docs/public-release-readiness.md) before exposing a machine outside your own network.
+Versioned releases are explicit GitHub source releases; see the [release guide](docs/releasing.md).
 
 ## Quickstart
 

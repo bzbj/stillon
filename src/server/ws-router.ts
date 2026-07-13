@@ -5,7 +5,6 @@ import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
-import { APP_VERSION } from "../shared/branding"
 import type { AgentCoordinator } from "./agent"
 import type { AnalyticsReporter } from "./analytics"
 import { NoopAnalyticsReporter } from "./analytics"
@@ -22,7 +21,6 @@ import { readProjectQuickActions, writeProjectQuickActions } from "./project-qui
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { TerminalManager } from "./terminal-manager"
-import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import type {
   AppSettingsPatch,
@@ -66,7 +64,6 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
   let chat = 0
   let projectGit = 0
   let localProjects = 0
-  let update = 0
   let keybindings = 0
   let appSettings = 0
   let terminal = 0
@@ -84,9 +81,6 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
         break
       case "local-projects":
         localProjects += 1
-        break
-      case "update":
-        update += 1
         break
       case "keybindings":
         keybindings += 1
@@ -106,7 +100,6 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
     chat,
     projectGit,
     localProjects,
-    update,
     keybindings,
     appSettings,
     terminal,
@@ -138,13 +131,11 @@ interface CreateWsRouterArgs {
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string | (() => string)
-  updateManager: UpdateManager | null
 }
 
 interface SnapshotBroadcastFilter {
   includeSidebar?: boolean
   includeLocalProjects?: boolean
-  includeUpdate?: boolean
   includeKeybindings?: boolean
   includeAppSettings?: boolean
   chatIds?: Set<string>
@@ -393,7 +384,6 @@ export function createWsRouter({
   refreshDiscovery,
   getDiscoveredProjects,
   machineDisplayName,
-  updateManager,
 }: CreateWsRouterArgs) {
   const getCurrentMachineDisplayName = typeof machineDisplayName === "function"
     ? machineDisplayName
@@ -617,9 +607,6 @@ export function createWsRouter({
     if (topic.type === "local-projects") {
       return Boolean(filter.includeLocalProjects)
     }
-    if (topic.type === "update") {
-      return Boolean(filter.includeUpdate)
-    }
     if (topic.type === "keybindings") {
       return Boolean(filter.includeKeybindings)
     }
@@ -725,27 +712,6 @@ export function createWsRouter({
         snapshot: {
           type: "app-settings",
           data: resolvedAppSettings.getSnapshot(),
-        },
-      }
-    }
-
-    if (topic.type === "update") {
-      return {
-        v: PROTOCOL_VERSION,
-        type: "snapshot",
-        id,
-        snapshot: {
-          type: "update",
-          data: updateManager?.getSnapshot() ?? {
-            currentVersion: APP_VERSION,
-            latestVersion: null,
-            status: "idle",
-            updateAvailable: false,
-            lastCheckedAt: null,
-            error: null,
-            installAction: "restart",
-            reloadRequestedAt: null,
-          },
         },
       }
     }
@@ -1029,21 +995,6 @@ export function createWsRouter({
     }
   })
 
-  const disposeUpdateEvents = updateManager?.onChange(() => {
-    for (const ws of sockets) {
-      const snapshotSignatures = ensureSnapshotSignatures(ws)
-      for (const [id, topic] of ws.data.subscriptions.entries()) {
-        if (topic.type !== "update") continue
-        const envelope = createEnvelope(id, topic)
-        if (envelope.type !== "snapshot") continue
-        const signature = JSON.stringify(envelope.snapshot)
-        if (snapshotSignatures.get(id) === signature) continue
-        snapshotSignatures.set(id, signature)
-        send(ws, envelope)
-      }
-    }
-  }) ?? (() => {})
-
   agent.setBackgroundErrorReporter?.(broadcastError)
 
   function resolveChatProject(chatId: string) {
@@ -1097,35 +1048,6 @@ export function createWsRouter({
           }
           const result = await writeProjectQuickActions(project.localPath, command.quickActions)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "update.check": {
-          const snapshot = updateManager
-            ? await updateManager.checkForUpdates({ force: command.force })
-            : {
-                currentVersion: APP_VERSION,
-                latestVersion: null,
-                status: "error",
-                updateAvailable: false,
-                lastCheckedAt: Date.now(),
-                error: "Update manager unavailable.",
-                installAction: "restart",
-                reloadRequestedAt: null,
-              }
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
-          return
-        }
-        case "update.install": {
-          if (!updateManager) {
-            throw new Error("Update manager unavailable.")
-          }
-          const result = await updateManager.installUpdate()
-          send(ws, {
-            v: PROTOCOL_VERSION,
-            type: "ack",
-            id,
-            result,
-          })
           return
         }
         case "settings.readKeybindings": {
@@ -1672,7 +1594,6 @@ export function createWsRouter({
       disposeTerminalEvents()
       disposeKeybindingEvents()
       disposeAppSettingsEvents()
-      disposeUpdateEvents()
     },
   }
 }

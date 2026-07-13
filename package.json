@@ -45,6 +45,7 @@
     "build:client": "bun ./node_modules/vite/bin/vite.js build",
     "build:export-viewer": "bun ./node_modules/vite/bin/vite.js build --config vite.export-viewer.config.ts",
     "prepare:export-viewer-release-assets": "bun run ./scripts/prepare-export-viewer-release-assets.ts",
+    "release:verify": "bun run ./scripts/assert-release-version.ts",
     "check": "bun ./node_modules/typescript/bin/tsc --noEmit && bun run build:client && bun run build:export-viewer",
     "audit": "bun audit --audit-level=high",
     "dev": "bun run ./scripts/dev.ts",

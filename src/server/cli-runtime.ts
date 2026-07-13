@@ -1,12 +1,9 @@
 import process from "node:process"
-import { spawnSync } from "node:child_process"
-import { hasCommand, spawnDetached } from "./process-utils"
-import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX, PACKAGE_NAME } from "../shared/branding"
+import { spawnDetached } from "./process-utils"
+import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX } from "../shared/branding"
 import type { ShareMode } from "../shared/share"
 import { assertNoHostOverride, getShareCliFlag, isShareEnabled, isTokenShareMode } from "../shared/share"
-import type { UpdateInstallErrorCode } from "../shared/types"
 import { PROD_SERVER_PORT } from "../shared/ports"
-import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 import type { ServiceAction } from "./service/types"
 import { logShareDetails, renderTerminalQr, startShareTunnel, type StartedShareTunnel } from "./share"
 
@@ -19,22 +16,9 @@ export interface CliOptions {
   strictPort: boolean
 }
 
-export interface CliUpdateOptions {
-  version: string
-  fetchLatestVersion: (packageName: string) => Promise<string>
-  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
-  argv: string[]
-  command: string
-}
-
 export interface StartedCli {
   kind: "started"
   stop: () => Promise<void>
-}
-
-export interface RestartingCli {
-  kind: "restarting"
-  reason: "startup_update" | "ui_update"
 }
 
 export interface ExitedCli {
@@ -42,33 +26,21 @@ export interface ExitedCli {
   code: number
 }
 
-export type CliRunResult = StartedCli | RestartingCli | ExitedCli
+export type CliRunResult = StartedCli | ExitedCli
 
 export interface CliRuntimeDeps {
   version: string
   bunVersion: string
   startServer: (options: CliOptions & {
-    update?: CliUpdateOptions
     onMigrationProgress?: (message: string) => void
     trustProxy?: boolean
   }) => Promise<{ port: number; stop: () => Promise<void> }>
-  fetchLatestVersion: (packageName: string) => Promise<string>
-  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
   openUrl: (url: string) => void
   log: (message: string) => void
   warn: (message: string) => void
   renderShareQr?: (url: string) => Promise<string>
   startShareTunnel?: (localUrl: string, shareMode: Exclude<ShareMode, false>) => Promise<StartedShareTunnel>
   manageService: (action: ServiceAction, options: { port: number; environmentFile?: string }) => Promise<void>
-  /** Source checkouts do not have a published package to update from. */
-  selfUpdateEnabled?: boolean
-}
-
-export interface UpdateInstallAttemptResult {
-  ok: boolean
-  errorCode: UpdateInstallErrorCode | null
-  userTitle: string | null
-  userMessage: string | null
 }
 
 type ParsedArgs =
@@ -265,44 +237,6 @@ function normalizeVersion(version: string) {
     .filter((part) => Number.isFinite(part))
 }
 
-async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
-  if (deps.selfUpdateEnabled === false
-    || process.env.STILLON_DISABLE_SELF_UPDATE === "1") {
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} checking for updates`)
-
-  let latestVersion: string
-  try {
-    latestVersion = await deps.fetchLatestVersion(PACKAGE_NAME)
-  }
-  catch (error) {
-    deps.warn(`${LOG_PREFIX} update check failed, continuing current version`)
-    if (error instanceof Error && error.message) {
-      deps.warn(`${LOG_PREFIX} ${error.message}`)
-    }
-    return null
-  }
-
-  if (!latestVersion || compareVersions(deps.version, latestVersion) >= 0) {
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} installing ${PACKAGE_NAME}@${latestVersion}`)
-  const installResult = deps.installVersion(PACKAGE_NAME, latestVersion)
-  if (!installResult.ok) {
-    deps.warn(`${LOG_PREFIX} update failed, continuing current version`)
-    if (installResult.userMessage) {
-      deps.warn(`${LOG_PREFIX} ${installResult.userMessage}`)
-    }
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} restarting into updated version`)
-  return "startup_update"
-}
-
 export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliRunResult> {
   const parsedArgs = parseArgs(argv)
   if (parsedArgs.kind === "service") {
@@ -338,23 +272,11 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     deps.warn(`${LOG_PREFIX} named tunnel has no StillOn password; protect its hostname with Cloudflare Access`)
   }
 
-  const shouldRestart = await maybeSelfUpdate(argv, deps)
-  if (shouldRestart !== null) {
-    return { kind: "restarting", reason: shouldRestart }
-  }
-
   const { port, stop } = await deps.startServer({
     ...parsedArgs.options,
     trustProxy: isShareEnabled(parsedArgs.options.share)
       || process.env.STILLON_TRUST_PROXY === "1",
     onMigrationProgress: deps.log,
-    update: deps.selfUpdateEnabled === false ? undefined : {
-      version: deps.version,
-      fetchLatestVersion: deps.fetchLatestVersion,
-      installVersion: deps.installVersion,
-      argv,
-      command: CLI_COMMAND,
-    },
   })
   const bindHost = parsedArgs.options.host
   const displayHost = isShareEnabled(parsedArgs.options.share) || bindHost === "127.0.0.1" || bindHost === "0.0.0.0" ? "localhost" : bindHost
@@ -364,7 +286,6 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
   deps.log(`${LOG_PREFIX} listening on http://${bindHost}:${port}`)
   deps.log(`${LOG_PREFIX} data dir: ${getDataDirDisplay()}`)
 
-  const suppressOpenBrowser = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] === "1"
   if (isShareEnabled(parsedArgs.options.share)) {
     try {
       const shareTunnel = await (deps.startShareTunnel ?? ((localUrl, shareMode) => startShareTunnel(localUrl, shareMode, {
@@ -391,7 +312,7 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     }
   }
 
-  if (parsedArgs.options.openBrowser && !isShareEnabled(parsedArgs.options.share) && !suppressOpenBrowser) {
+  if (parsedArgs.options.openBrowser && !isShareEnabled(parsedArgs.options.share)) {
     deps.openUrl(launchUrl)
   }
 
@@ -414,67 +335,4 @@ export function openUrl(url: string) {
     void spawnDetached("xdg-open", [url]).catch(() => {})
   }
   console.log(`${LOG_PREFIX} opened in default browser`)
-}
-
-export async function fetchLatestPackageVersion(packageName: string) {
-  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`)
-  if (!response.ok) {
-    throw new Error(`registry returned ${response.status}`)
-  }
-
-  const payload = await response.json() as { version?: unknown }
-  if (typeof payload.version !== "string" || !payload.version.trim()) {
-    throw new Error("registry response did not include a version")
-  }
-
-  return payload.version
-}
-
-export function classifyInstallVersionFailure(output: string): UpdateInstallAttemptResult {
-  const normalizedOutput = output.trim()
-  if (/No version matching .* found|failed to resolve/i.test(normalizedOutput)) {
-    return {
-      ok: false,
-      errorCode: "version_not_live_yet",
-      userTitle: "Update not live yet",
-      userMessage: "This update is still propagating. Try again in a few minutes.",
-    }
-  }
-
-  return {
-    ok: false,
-    errorCode: "install_failed",
-    userTitle: "Update failed",
-    userMessage: `${APP_NAME} could not install the update. Try again later.`,
-  }
-}
-
-export function installPackageVersion(packageName: string, version: string) {
-  if (!hasCommand("bun")) {
-    return {
-      ok: false,
-      errorCode: "command_missing",
-      userTitle: "Bun not found",
-      userMessage: `${APP_NAME} could not find Bun to install the update.`,
-    } satisfies UpdateInstallAttemptResult
-  }
-
-  const result = spawnSync("bun", ["install", "-g", `${packageName}@${version}`], {
-    stdio: ["ignore", "pipe", "pipe"],
-    encoding: "utf8",
-  })
-  const stdout = result.stdout ?? ""
-  const stderr = result.stderr ?? ""
-  if (stdout) process.stdout.write(stdout)
-  if (stderr) process.stderr.write(stderr)
-  if (result.status === 0) {
-    return {
-      ok: true,
-      errorCode: null,
-      userTitle: null,
-      userMessage: null,
-    } satisfies UpdateInstallAttemptResult
-  }
-
-  return classifyInstallVersionFailure(`${stdout}\n${stderr}`)
 }

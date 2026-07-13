@@ -1,6 +1,6 @@
 import path from "node:path"
 import { stat } from "node:fs/promises"
-import { APP_NAME, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
+import { APP_NAME, APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import type { ShareMode } from "../shared/share"
@@ -15,8 +15,6 @@ import { KeybindingsManager } from "./keybindings"
 import { readLlmProviderSnapshot, validateLlmProviderCredentials, writeLlmProviderSnapshot } from "./llm-provider"
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
-import { UpdateManager } from "./update-manager"
-import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { createWsRouter, type ClientState } from "./ws-router"
 import { handleBrowserPreviewProxy } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
@@ -78,11 +76,6 @@ export interface StartStillOnServerOptions {
    */
   trustProxy?: boolean
   onMigrationProgress?: (message: string) => void
-  update?: {
-    version: string
-    fetchLatestVersion: (packageName: string) => Promise<string>
-    installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
-  }
 }
 
 export async function startStillOnServer(options: StartStillOnServerOptions = {}) {
@@ -123,18 +116,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   await keybindings.initialize()
   const analytics = new StillOnAnalyticsReporter({
     settings: appSettings,
-    currentVersion: options.update?.version ?? "unknown",
+    currentVersion: APP_VERSION,
     environment: runtimeProfile === "dev" ? "dev" : "prod",
   })
-  const updateManager = options.update
-    ? new UpdateManager({
-      currentVersion: options.update.version,
-      fetchLatestVersion: options.update.fetchLatestVersion,
-      installVersion: options.update.installVersion,
-      devMode: runtimeProfile === "dev",
-      trackEvent: analytics.track.bind(analytics),
-    })
-    : null
   const agent = new AgentCoordinator({
     store,
     analytics,
@@ -166,7 +150,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName: () => appSettings.getSnapshot().machineName,
-    updateManager,
   })
   const staleEmptyChatPruneInterval = setInterval(() => {
     void router.pruneStaleEmptyChats()
@@ -332,7 +315,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     port: actualPort,
     store,
     diffStore,
-    updateManager,
     stop: shutdown,
   }
 }

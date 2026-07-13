@@ -5,7 +5,8 @@ description: Prepare and publish a source release for StillOn.
 
 # StillOn release
 
-StillOn is currently distributed as a source-available GitHub beta. Do not publish the npm package while package.json remains private.
+StillOn is currently distributed as a source-available GitHub beta. Do not
+publish the npm package and do not add in-app self-update behavior.
 
 ## 1. Verify
 
