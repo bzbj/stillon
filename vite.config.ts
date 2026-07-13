@@ -4,7 +4,7 @@ import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
 
 function getAllowedHosts() {
-  const defaults = ["localhost", "127.0.0.1", "0.0.0.0"]
+  const defaults = ["localhost", "127.0.0.1"]
   const configured = process.env.STILLON_DEV_ALLOWED_HOSTS
   if (!configured) return defaults
   if (configured === "true") return true
@@ -34,7 +34,7 @@ const backendPort = getBackendPort()
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: "0.0.0.0",
+    host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
     strictPort: true,
     proxy: {

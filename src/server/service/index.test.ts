@@ -44,6 +44,33 @@ describe("createServiceLaunchSpec", () => {
     expect(() => createServiceLaunchSpec({ entrypoint: "/stillon", environmentFile: "  " }))
       .toThrow("Service environment file path cannot be empty")
   })
+
+  test("persists explicit external-listener and trusted-proxy options without a password", () => {
+    const launch = createServiceLaunchSpec({
+      executable: "/opt/bun/bin/bun",
+      entrypoint: "/opt/stillon/bin/stillon",
+      homeDirectory: "/home/alice",
+      port: 4000,
+      host: "100.64.0.1",
+      trustProxy: true,
+    })
+
+    expect(launch.args).toEqual([
+      "/opt/stillon/bin/stillon",
+      "--no-open",
+      "--strict-port",
+      "--port",
+      "4000",
+      "--host",
+      "100.64.0.1",
+      "--trust-proxy",
+    ])
+  })
+
+  test("rejects an empty service host", () => {
+    expect(() => createServiceLaunchSpec({ entrypoint: "/stillon", host: "  " }))
+      .toThrow("Service host cannot be empty")
+  })
 })
 
 describe("manageService", () => {

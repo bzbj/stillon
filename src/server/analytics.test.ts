@@ -17,7 +17,6 @@ describe("getLaunchAnalyticsProperties", () => {
       port: 4000,
       host: "0.0.0.0",
       openBrowser: false,
-      share: "quick",
       password: "secret",
       strictPort: true,
     })).toEqual({
@@ -27,8 +26,6 @@ describe("getLaunchAnalyticsProperties", () => {
       strict_port_enabled: true,
       remote_enabled: true,
       host_enabled: false,
-      share_quick_enabled: true,
-      share_token_enabled: false,
     })
   })
 })
@@ -107,7 +104,6 @@ describe("StillOnAnalyticsReporter", () => {
       port: 4000,
       host: "localhost",
       openBrowser: false,
-      share: false,
       password: null,
       strictPort: true,
     })
@@ -127,8 +123,6 @@ describe("StillOnAnalyticsReporter", () => {
           strict_port_enabled: true,
           remote_enabled: false,
           host_enabled: false,
-          share_quick_enabled: false,
-          share_token_enabled: false,
         },
       },
     })

@@ -6,15 +6,14 @@ Use `[x]` when an item is complete. Add any follow-up notes directly under the i
 
 ## Pending
 
-- [x] Tunnel/share flag cleanup
-  Commits: `77e934f`, `d0eef25`
-  Scope: `src/shared/share.ts`, `src/server/cli-runtime.ts`, `src/server/share.ts`
+- [x] Retire product-owned tunnel lifecycle
+  Scope: CLI, development launcher, dependencies, and external-ingress docs
   Goals:
-  - Merge `awaitQuickTunnelUrl` and `awaitNamedTunnelReady` into a single `awaitTunnelReady(...)` helper.
-  - Extract shared host/remote incompatibility checks into one `assertNoHostOverride(...)` guard used by `--share` and `--cloudflared`.
-  - Remove duplicate `isTokenShareMode` branching in `startShareTunnel`.
-  Expected impact: less duplicated tunnel lifecycle and CLI parsing logic; no behavior change intended.
-  Status: completed on 2026-04-21.
+  - Remove built-in quick/named Cloudflare tunnels and their dependencies.
+  - Keep loopback as the default and preserve explicit direct listeners.
+  - Document a generic trusted-proxy contract without provisioning the proxy.
+  Expected impact: a smaller product-owned network surface while preserving
+  operator-managed external access.
 
 - [x] Sidebar project order persistence simplification
   Commit: `1167a18`
