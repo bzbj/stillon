@@ -24,6 +24,7 @@ import { NoopAnalyticsReporter } from "./analytics"
 import { CodexExecManager } from "./codex-exec"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
+import { inheritClaudeAgentEnvironment } from "./agent-environment"
 import {
   applyClaudeSdkModels,
   type ClaudeSdkModelInfo,
@@ -679,7 +680,7 @@ async function startClaudeSession(args: {
       tools: [...CLAUDE_TOOLSET],
       settingSources: ["user", "project", "local"],
       pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
-      env: (() => { const { CLAUDECODE: _, ...env } = process.env; return env })(),
+      env: inheritClaudeAgentEnvironment(),
     },
   })
 

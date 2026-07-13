@@ -107,6 +107,20 @@ WantedBy=default.target
     )
   })
 
+  test("persists the dedicated env-file path in the service invocation", () => {
+    const unit = renderSystemdUnit({
+      ...launchSpec("/home/tester"),
+      args: [
+        "--env-file",
+        "/home/tester/.config/stillon/agent-egress.env",
+        "/home/tester/stillon/bin/stillon",
+        "--no-open",
+      ],
+    })
+
+    expect(unit).toContain('"--env-file" "/home/tester/.config/stillon/agent-egress.env"')
+  })
+
   test("rejects NUL bytes instead of emitting an invalid unit", () => {
     const launch = launchSpec("/home/test")
     expect(() => renderSystemdUnit({ ...launch, args: ["bad\0argument"] })).toThrow(

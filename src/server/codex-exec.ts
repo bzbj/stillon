@@ -9,6 +9,7 @@ import type {
   ServiceTier,
   TranscriptEntry,
 } from "../shared/types"
+import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 
@@ -263,7 +264,7 @@ export class CodexExecManager {
       spawn(getCodexCliCommand(), commandArgs, {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
-        env: process.env,
+        env: inheritAgentEnvironment(),
       }) as unknown as CodexExecProcess)
   }
 

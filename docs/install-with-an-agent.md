@@ -6,12 +6,13 @@ StillOn is designed for people who already work with Codex or Claude Code. Copy 
 Install StillOn from its official source repository and complete first-use setup:
 https://github.com/bzbj/stillon
 
-Act as my installation and first-use guide. Do not treat a running service as “done”: make local use work first, then help me send my first message in StillOn. Treat LAN or Internet access as a separate, explicit external-ingress task rather than part of installation.
+Act as my installation and first-use guide. Do not treat a running service as “done”: make local use work first, then help me send my first message in StillOn. Treat LAN or Internet access as a separate, explicit external-ingress task rather than part of installation. Do not confuse that incoming access with outbound connectivity from the local Codex or Claude Code process to its provider.
 
-Before making changes, ask these three short questions:
+Before making changes, ask these four short questions:
 1. What should this instance’s **Machine Name** be?
 2. Do I want to use Codex, Claude Code, or both first?
 3. After local first use, do I want to keep it on this computer only, or discuss a separate external-ingress plan for LAN or Internet access?
+4. Does this computer need an already configured VPN or local proxy for my chosen provider to reach its service?
 
 If I have not chosen an access path yet, complete local setup first. Interest in external access is not authorization to configure it: explain the external-ingress contract and wait for a separate, explicit request. Do not guess for me or assume that I want network exposure.
 
@@ -26,17 +27,19 @@ Please:
    - For Codex, use `codex login status` to check authentication. If it is not authenticated, explain the interactive `codex login` next step and ask before launching browser login or device authentication.
    - For Claude Code, check authentication using its documented flow. If it is missing or unauthenticated, explain the required interactive login and ask before starting it.
    - Do not block StillOn because the provider I am not using is missing. State the exact missing prerequisite instead. Never ask for, copy, or print credentials, browser codes, session tokens, or API keys.
-7. After local verification, keep the `127.0.0.1` binding, give me the precise URL, and wait for me to confirm that it opens in a browser. Explain that LAN and Internet access are separate operator-managed ingress tasks. If I ask to consider either, first explain the local [external-ingress contract](external-ingress.md) and the security impact. Do not create or administer a proxy, tunnel, firewall, DNS record, Cloudflare resource, VPN, Tailscale setup, public URL, `--host`, `--remote`, or `--trust-proxy` as part of installation. `--share` and `--cloudflared` are not StillOn features. Let me choose the operator-managed proxy, tunnel, or direct-listener approach in a separate explicit request.
+   - If my chosen provider needs a VPN or proxy, distinguish it from external ingress. Do not create, operate, reconnect, or diagnose VPN/proxy software. An already connected system VPN needs no StillOn-specific setting. For an already running local proxy and an explicitly requested background service, explain the dedicated `--env-file` option in [Production runtime installs](production-runtime.md#agent-egress-system-vpn-and-local-proxy), ask before creating or changing that file, and never copy the whole current shell environment into it.
+7. After local verification, keep the `127.0.0.1` binding, give me the precise URL, and wait for me to confirm that it opens in a browser. Explain that LAN and Internet access are separate operator-managed ingress tasks. If I ask to consider either, first explain the local [external-ingress contract](external-ingress.md) and the security impact. Do not create or administer an inbound proxy, tunnel, firewall, DNS record, Cloudflare resource, VPN/Tailscale route, public URL, `--host`, `--remote`, or `--trust-proxy` as part of installation. `--share` and `--cloudflared` are not StillOn features. Let me choose the operator-managed proxy, tunnel, or direct-listener approach in a separate explicit request.
 8. Once the local origin and chosen provider work, guide my first message:
    - Create a new StillOn conversation with my chosen provider. Before sending a provider message, show me the proposed text and ask for confirmation because it may use quota or cost money.
    - If I do not yet have a task, suggest this harmless opener: `Please confirm that I am connected to StillOn. Do not modify files or run commands; in one sentence, tell me how you can help me here.`
    - If you can interact with the browser, send it in StillOn and confirm a reply arrives. If you cannot, give me the exact click path and wait for my result. If there is no reply, state the specific blocker and safe next action; do not claim first-use setup is complete.
 9. If this installation replaces Kanna, keep Kanna and its data untouched until StillOn has passed the local health check and the first-use check for my chosen provider. Only then offer a separately confirmed cutover or shutdown; Kanna must never be StillOn's runtime dependency.
-10. Offer the optional per-user background service only after explaining its effect and receiving confirmation.
+10. Offer the optional per-user background service only after explaining its effect and receiving confirmation. If I confirmed that agent egress needs an already-running local proxy, use only an explicit dedicated service environment file and `stillon service install --env-file <absolute-path>`; do not treat this as permission to configure inbound access or to manage the proxy itself.
 
 Safety constraints:
 - Keep StillOn bound to localhost by default.
-- This installation task stops at the local origin. Do not configure a reverse proxy, Cloudflare Tunnel, VPN, Tailscale, firewall, DNS, public URL, `--host`, `--remote`, or `--trust-proxy` unless I make a separate, explicit external-ingress request.
+- This installation task stops at the local origin. Do not configure a reverse proxy, Cloudflare Tunnel, inbound VPN/Tailscale route, firewall, DNS, public URL, `--host`, `--remote`, or `--trust-proxy` unless I make a separate, explicit external-ingress request.
+- Do not create or operate outbound VPN/proxy software. If I explicitly confirm use of an already-working local proxy for a background service, configure only its dedicated service env file; a system VPN requires no StillOn setting.
 - `--share` and `--cloudflared` are not StillOn features. If I later ask for access from another device, explain the local [external-ingress contract](external-ingress.md) and let me choose the operator-managed proxy, tunnel, or direct-listener approach; do not choose or administer it on my behalf.
 - Do not expose secrets in shell history, logs, source files, or chat output.
 - Treat provider tests and the first message as billable or quota-consuming work. Send them only after I explicitly approve.

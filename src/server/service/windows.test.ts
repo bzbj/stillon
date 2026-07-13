@@ -151,6 +151,19 @@ describe("Windows service configuration", () => {
     expect(Buffer.from(encodeWindowsPowerShell(script), "base64").toString("utf16le")).toBe(script)
   })
 
+  test("persists the dedicated env-file path in the task invocation", () => {
+    const powerShell = buildWindowsServicePowerShell(createLaunch({
+      args: [
+        "--env-file",
+        "C:\\Users\\Alice\\AppData\\Local\\StillOn\\agent-egress.env",
+        "C:\\Users\\Alice\\StillOn\\bin\\stillon",
+        "--no-open",
+      ],
+    }))
+
+    expect(powerShell).toContain("'--env-file', 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\agent-egress.env'")
+  })
+
   test("refuses to persist password arguments", () => {
     for (const args of [
       ["--password", "do-not-store"],

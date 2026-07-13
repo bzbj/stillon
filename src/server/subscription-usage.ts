@@ -8,6 +8,7 @@ import type {
   SubscriptionUsageWindow,
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
+import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
 
 const CODEX_APP_SERVER_TIMEOUT_MS = 20_000
@@ -211,10 +212,7 @@ async function readClaudeSdkUsageSnapshot(
       persistSession: false,
       settingSources: ["user"],
       pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
-      env: (() => {
-        const { CLAUDECODE: _, ...env } = process.env
-        return env
-      })(),
+      env: inheritClaudeAgentEnvironment(),
     },
   })
   let timedOut = false
@@ -486,7 +484,7 @@ async function readCodexAppServerSnapshot(
     cwd: os.homedir(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...inheritAgentEnvironment(),
       DISABLE_TELEMETRY: process.env.DISABLE_TELEMETRY ?? "1",
     },
   })
@@ -690,7 +688,7 @@ async function runCliCommand(
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      ...process.env,
+      ...inheritAgentEnvironment(),
       DISABLE_TELEMETRY: process.env.DISABLE_TELEMETRY ?? "1",
     },
   })

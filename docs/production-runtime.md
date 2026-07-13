@@ -19,9 +19,9 @@ bun run build
 ```
 
 Create a service environment file outside both the runtime and source
-checkout. It is the appropriate place for configuration such as a trusted
-reverse proxy or a machine label. Do not put passwords in a native service
-configuration.
+checkout. It is the appropriate place for explicit StillOn configuration and
+agent egress settings, such as a machine label or local proxy. It is not a
+copy of the shell environment that happened to run `service install`.
 
 ```bash
 mkdir -p "$HOME/.config/stillon"
@@ -53,6 +53,45 @@ Keep the service on loopback when an independently managed proxy or tunnel
 runs on the same machine. See [External ingress](external-ingress.md) for the
 required `Host`, forwarding, and WebSocket contract; StillOn does not create
 or configure the external entrypoint.
+
+## Agent egress: system VPN and local proxy
+
+This section concerns **outbound** connectivity from StillOn's Codex and
+Claude Code processes to their providers. It does not expose StillOn to a
+phone or browser; that remains the separate [external-ingress](external-ingress.md)
+contract.
+
+If an already connected system VPN supplies the required network route, no
+StillOn setting is needed: the background service uses the operating system's
+network stack. StillOn does not start, reconnect, or monitor a VPN.
+
+If the machine instead needs a local HTTP or SOCKS proxy, put the proxy
+variables in the dedicated service environment file. For example, for an HTTP
+CONNECT proxy:
+
+```dotenv
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
+NO_PROXY=localhost,127.0.0.1,::1
+```
+
+For a SOCKS proxy, use `ALL_PROXY` only when the selected CLI and proxy support
+that URI scheme, for example:
+
+```dotenv
+ALL_PROXY=socks5://127.0.0.1:1080
+NO_PROXY=localhost,127.0.0.1,::1
+```
+
+`stillon service install --env-file <absolute-path>` validates that file and
+records its absolute path in the native service invocation. On every service
+start Bun loads it before StillOn begins, and StillOn passes the resulting
+environment to Codex and Claude Code. It deliberately does **not** persist the
+entire environment of the shell that performed the installation.
+
+Use a file readable only by the account that runs the service, especially if a
+proxy URL includes credentials. After editing it, rerun the same `service
+install --env-file …` command to restart the service with the new settings.
 
 ## Verify, update, and roll back
 
