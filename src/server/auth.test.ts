@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { createAuthManager } from "./auth"
 import { persistProjectUpload } from "./uploads"
 import { startStillOnServer } from "./server"
 
@@ -11,7 +12,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-async function startPasswordServer(options: { trustProxy?: boolean; port?: number } = {}) {
+async function startPasswordServer(options: { password?: string; trustProxy?: boolean; port?: number } = {}) {
   const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-auth-test-"))
   const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-auth-data-"))
   tempDirs.push(projectDir)
@@ -20,7 +21,7 @@ async function startPasswordServer(options: { trustProxy?: boolean; port?: numbe
     dataDir,
     port: options.port ?? 4320,
     strictPort: true,
-    password: "secret",
+    password: options.password ?? "secret",
     trustProxy: options.trustProxy ?? false,
   })
   const project = await server.store.openProject(projectDir, "Project")
@@ -33,7 +34,58 @@ function extractCookie(response: Response) {
   return header!.split(";", 1)[0]
 }
 
+async function waitForWebSocketOpen(socket: WebSocket) {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Timed out waiting for WebSocket connection"))
+    }, 2_000)
+
+    socket.addEventListener("open", () => {
+      clearTimeout(timeout)
+      resolve()
+    }, { once: true })
+    socket.addEventListener("error", () => {
+      clearTimeout(timeout)
+      reject(new Error("WebSocket connection failed"))
+    }, { once: true })
+    socket.addEventListener("close", (event) => {
+      clearTimeout(timeout)
+      reject(new Error(`WebSocket closed before opening (${event.code})`))
+    }, { once: true })
+  })
+}
+
+function openWebSocketWithHeaders(url: string, headers: NonNullable<Bun.WebSocketOptions["headers"]>) {
+  // The client app includes DOM types, while Bun supports test-only headers.
+  const BunWebSocket = WebSocket as unknown as {
+    new (url: string, options?: Bun.WebSocketOptions): WebSocket
+  }
+  return new BunWebSocket(url, { headers })
+}
+
 describe("password auth", () => {
+  test("uses X-Forwarded-For for trusted-proxy login rate limits", async () => {
+    const auth = createAuthManager("secret", { trustProxy: true })
+
+    function failedLogin(clientIp: string) {
+      return auth.handleLogin(new Request("https://stillon.example.test/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ password: "wrong" }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://stillon.example.test",
+          "X-Forwarded-For": clientIp,
+        },
+      }), "/")
+    }
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await failedLogin("198.51.100.10")).status).toBe(401)
+    }
+    expect((await failedLogin("198.51.100.10")).status).toBe(429)
+    expect((await failedLogin("198.51.100.11")).status).toBe(401)
+  })
+
   test("serves the app shell to unauthenticated browser requests", async () => {
     const { server } = await startPasswordServer()
 
@@ -89,6 +141,26 @@ describe("password auth", () => {
       const response = await fetch(`http://localhost:${server.port}/auth/login`, {
         method: "POST",
         body: JSON.stringify({ password: "secret", next: "/" }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: `http://localhost:${server.port}`,
+        },
+      })
+
+      expect(response.status).toBe(200)
+      expect(extractCookie(response)).toContain("stillon_session=")
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test("accepts a one-character application password", async () => {
+    const { server } = await startPasswordServer({ password: "x" })
+
+    try {
+      const response = await fetch(`http://localhost:${server.port}/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ password: "x", next: "/" }),
         headers: {
           "Content-Type": "application/json",
           Origin: `http://localhost:${server.port}`,
@@ -288,6 +360,70 @@ describe("password auth", () => {
         },
       })
       expect(evilResponse.status).toBe(200)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test("honors the public Host supplied by a trusted proxy", async () => {
+    const { server } = await startPasswordServer({ port: 54324, trustProxy: true })
+    const publicHost = "stillon.example.test"
+
+    try {
+      const redirect = await fetch(`http://127.0.0.1:${server.port}/auth/login?next=%2Fchat%2Fdemo`, {
+        redirect: "manual",
+        headers: {
+          Host: publicHost,
+          "X-Forwarded-Host": "attacker.example.test",
+          "X-Forwarded-Proto": "https",
+        },
+      })
+      expect(redirect.status).toBe(302)
+      expect(redirect.headers.get("location")).toBe(`https://${publicHost}/chat/demo`)
+
+      const loginResponse = await fetch(`http://127.0.0.1:${server.port}/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ password: "secret", next: "/" }),
+        headers: {
+          "Content-Type": "application/json",
+          Host: publicHost,
+          Origin: `https://${publicHost}`,
+          "X-Forwarded-Host": "attacker.example.test",
+          "X-Forwarded-Proto": "https",
+        },
+      })
+      expect(loginResponse.status).toBe(200)
+      expect(loginResponse.headers.get("set-cookie") ?? "").toContain("Secure")
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test("accepts an authenticated WebSocket through a trusted public host", async () => {
+    const { server } = await startPasswordServer({ port: 54325, trustProxy: true })
+    const publicHost = "stillon.example.test"
+
+    try {
+      const loginResponse = await fetch(`http://127.0.0.1:${server.port}/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ password: "secret", next: "/" }),
+        headers: {
+          "Content-Type": "application/json",
+          Host: publicHost,
+          Origin: `https://${publicHost}`,
+          "X-Forwarded-Proto": "https",
+        },
+      })
+      const cookie = extractCookie(loginResponse)
+
+      const socket = openWebSocketWithHeaders(`ws://127.0.0.1:${server.port}/ws`, {
+        Host: publicHost,
+        Origin: `https://${publicHost}`,
+        Cookie: cookie,
+        "X-Forwarded-Proto": "https",
+      })
+      await waitForWebSocketOpen(socket)
+      socket.close()
     } finally {
       await server.stop()
     }

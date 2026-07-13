@@ -3,20 +3,21 @@ import { hostname as getHostname } from "node:os"
 import { spawn, type ChildProcess } from "node:child_process"
 import { LOG_PREFIX } from "../src/shared/branding"
 import { parseDevArgs } from "../src/shared/dev-ports"
-import { isShareEnabled, isTokenShareMode } from "../src/shared/share"
-import { logShareDetails, startShareTunnel } from "../src/server/share"
 
 const cwd = process.cwd()
 const forwardedArgs = process.argv.slice(2)
 const bunBin = process.execPath
 const localHostname = getHostname()
-const devArgs = parseDevArgs(forwardedArgs, localHostname)
-const { clientPort, serverPort, serverArgs, share } = devArgs
-
-if (share === "quick" && !serverArgs.includes("--password")) {
-  console.error(`${LOG_PREFIX} --share exposes this computer to the public internet and requires --password`)
-  process.exit(1)
-}
+const devArgs = (() => {
+  try {
+    return parseDevArgs(forwardedArgs, localHostname)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`${LOG_PREFIX} ${message}`)
+    process.exit(1)
+  }
+})()
+const { clientPort, serverPort, serverArgs, clientHost } = devArgs
 
 const clientEnv = {
   ...process.env,
@@ -41,7 +42,7 @@ function spawnLabeledProcess(label: string, args: string[]) {
   return child
 }
 
-const client = spawnLabeledProcess("client", ["./node_modules/vite/bin/vite.js", "--host", "0.0.0.0", "--port", String(clientPort), "--strictPort"])
+const client = spawnLabeledProcess("client", ["./node_modules/vite/bin/vite.js", "--host", clientHost, "--port", String(clientPort), "--strictPort"])
 const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--port", String(serverPort), "--strict-port", ...serverArgs], {
   cwd,
   stdio: "inherit",
@@ -54,7 +55,6 @@ server.on("spawn", () => {
 
 const children = [client, server]
 let shuttingDown = false
-let shareTunnelStop: (() => void) | null = null
 
 function stopChild(child: ChildProcess) {
   if (child.killed || child.exitCode !== null) return
@@ -64,7 +64,6 @@ function stopChild(child: ChildProcess) {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  shareTunnelStop?.()
 
   for (const child of children) {
     stopChild(child)
@@ -104,50 +103,5 @@ process.on("SIGTERM", () => {
   shutdown(0)
 })
 
-console.log(`${LOG_PREFIX} dev client: http://localhost:${clientPort}`)
-console.log(`${LOG_PREFIX} dev server: http://localhost:${serverPort}`)
-
-async function waitForLocalUrl(url: string, timeoutMs = 30_000) {
-  const deadline = Date.now() + timeoutMs
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) {
-        return
-      }
-    } catch {
-      // Keep polling until Vite is ready or the timeout expires.
-    }
-
-    await Bun.sleep(250)
-  }
-
-  throw new Error(`Timed out waiting for ${url}`)
-}
-
-if (isShareEnabled(share)) {
-  const localUrl = `http://localhost:${clientPort}`
-
-  try {
-    await waitForLocalUrl(localUrl)
-    const shareTunnel = await startShareTunnel(localUrl, share)
-    shareTunnelStop = shareTunnel.stop
-    if (shareTunnel.publicUrl) {
-      await logShareDetails(console.log, shareTunnel.publicUrl, localUrl)
-    } else {
-      console.warn(`${LOG_PREFIX} named tunnel started but no public hostname was detected`)
-      if (isTokenShareMode(share)) {
-        console.warn(`${LOG_PREFIX} use the hostname configured for the provided Cloudflare tunnel token`)
-      }
-      console.log("Local URL:")
-      console.log(localUrl)
-    }
-  } catch (error) {
-    console.error(`${LOG_PREFIX} failed to start dev share tunnel`)
-    if (error instanceof Error && error.message) {
-      console.error(`${LOG_PREFIX} ${error.message}`)
-    }
-    shutdown(1)
-  }
-}
+console.log(`${LOG_PREFIX} dev client: http://${clientHost === "0.0.0.0" ? "localhost" : clientHost}:${clientPort}`)
+console.log(`${LOG_PREFIX} dev server: http://${devArgs.backendTargetHost}:${serverPort}`)

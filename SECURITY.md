@@ -13,15 +13,16 @@ Do not open a public issue for a suspected vulnerability. Use [GitHub's private 
 
 ## Safe deployment
 
-- Keep the default **127.0.0.1** binding unless remote access is intentional.
-- The **--share** option requires **--password**; use a unique, high-entropy password.
-- For a named Cloudflare Tunnel, combine a StillOn password with Cloudflare Access.
-- Do not expose the origin port directly to the public internet.
+- Keep the default **127.0.0.1** binding unless an external entrypoint is intentional.
+- StillOn does not provision tunnels or public URLs. Run Cloudflare, another tunnel, or a reverse proxy independently and follow the [external-ingress contract](docs/external-ingress.md).
+- Enable **--trust-proxy** only when the proxy is the sole route to StillOn. Keep a trusted-proxy origin on loopback, or restrict a non-loopback port so clients cannot forge forwarded headers.
+- **--password** is optional and permits any non-empty value. It is not a complete Internet-facing authentication boundary; enforce appropriate ingress authentication and authorization for external access.
+- Do not expose the origin port directly to the public internet unless its network policy is deliberate and reviewed.
 - Treat every authenticated browser as having the same authority as the local development user.
 - Review transcript exports before sharing; they can contain prompts, code, tool output, and file metadata.
-- Keep Bun, Claude Code, Codex, cloudflared, and project dependencies patched.
+- Keep Bun, Claude Code, Codex, the chosen ingress software, and project dependencies patched.
 
-Passwords and tunnel tokens passed as command-line arguments can appear in shell history or local process inspection. A prompt/file-based secret input is tracked as a release-hardening item; until then, avoid shared machines and clear sensitive command history.
+Passwords passed as command-line arguments can appear in shell history or local process inspection. A prompt/file-based secret input is tracked as a release-hardening item; until then, avoid shared machines and clear sensitive command history.
 
 ## Security design
 

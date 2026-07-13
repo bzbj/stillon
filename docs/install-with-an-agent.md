@@ -1,19 +1,19 @@
 # Install and configure StillOn with your coding agent
 
-StillOn is designed for people who already work with Codex or Claude Code. Copy the prompt below into your coding agent. It will install StillOn from its official source repository, then guide the access setup that fits your situation and your first message.
+StillOn is designed for people who already work with Codex or Claude Code. Copy the prompt below into your coding agent. It will install StillOn from its official source repository, then guide local first use and your first message. External access is a separate operator-managed step.
 
 <!-- prompt:start -->
 Install StillOn from its official source repository and complete first-use setup:
 https://github.com/bzbj/stillon
 
-Act as my installation and first-use guide. Do not treat a running service as “done”: make local use work first, configure the access path that fits my situation, then help me send my first message in StillOn.
+Act as my installation and first-use guide. Do not treat a running service as “done”: make local use work first, then help me send my first message in StillOn. Treat LAN or Internet access as a separate, explicit external-ingress task rather than part of installation.
 
 Before making changes, ask these three short questions:
 1. What should this instance’s **Machine Name** be?
 2. Do I want to use Codex, Claude Code, or both first?
-3. After installation, how do I want to access it: A. only on this computer; B. on the same LAN; or C. over the internet?
+3. After local first use, do I want to keep it on this computer only, or discuss a separate external-ingress plan for LAN or Internet access?
 
-If I have not chosen an access path yet, complete A first, then explicitly ask whether I want to continue with B or C. Do not guess for me or assume that I want network exposure.
+If I have not chosen an access path yet, complete local setup first. Interest in external access is not authorization to configure it: explain the external-ingress contract and wait for a separate, explicit request. Do not guess for me or assume that I want network exposure.
 
 Please:
 1. Read the repository README, SECURITY.md, and the platform-specific installation documentation before making changes.
@@ -26,13 +26,8 @@ Please:
    - For Codex, use `codex login status` to check authentication. If it is not authenticated, explain the interactive `codex login` next step and ask before launching browser login or device authentication.
    - For Claude Code, check authentication using its documented flow. If it is missing or unauthenticated, explain the required interactive login and ask before starting it.
    - Do not block StillOn because the provider I am not using is missing. State the exact missing prerequisite instead. Never ask for, copy, or print credentials, browser codes, session tokens, or API keys.
-7. After local verification, guide me through the access path I chose:
-   - **A. This computer only:** Keep the `127.0.0.1` binding, give me the precise URL, and wait for me to confirm that it opens in a browser.
-   - **B. Same LAN:** First explain that devices on the same network may reach this computer's projects, terminal, and agents. After explicit consent, use the documented `--remote` plus strong-password launch method, find this computer's LAN IPv4 address, and give me the exact `http://LAN-IP:port` URL. Verify the listener locally, then ask me to open it from another device. Do not change a firewall, router, or Tailscale without confirmation; if one blocks access, explain why and the safe next step.
-   - **C. Internet access:** Continue only after I explicitly choose it. Explain that this gives a remote browser control over local projects, terminals, and agents, and requires both a StillOn password and Cloudflare Access. Guide me to register or sign in to my own Cloudflare account, prepare a domain that is active in Cloudflare, then create a remotely managed Tunnel and public hostname in the Cloudflare Dashboard that routes to `http://localhost:3210`. Next create a Cloudflare Access self-hosted application and an allow policy only for me. Do not use `--remote`, expose the origin port, or automatically use a temporary `--share` tunnel unless I explicitly ask for a temporary public URL.
-   - For C, only after I have entered a Tunnel token safely on the local computer, use the repository's documented `--cloudflared <token>` plus StillOn-password launch path. Do not ask me to paste passwords, Tunnel tokens, Cloudflare credentials, or verification codes into chat, and do not put them in shell history, logs, source files, or configuration files. If this tool cannot receive a secret without exposing it, stop at that point and tell me how to enter it safely on the computer.
-   - After external setup, verify the public hostname and Cloudflare Access from a separate browser or device. A running local process alone is not a successful external setup.
-8. Once the selected access path works, guide my first message:
+7. After local verification, keep the `127.0.0.1` binding, give me the precise URL, and wait for me to confirm that it opens in a browser. Explain that LAN and Internet access are separate operator-managed ingress tasks. If I ask to consider either, first explain the local [external-ingress contract](external-ingress.md) and the security impact. Do not create or administer a proxy, tunnel, firewall, DNS record, Cloudflare resource, VPN, Tailscale setup, public URL, `--host`, `--remote`, or `--trust-proxy` as part of installation. `--share` and `--cloudflared` are not StillOn features. Let me choose the operator-managed proxy, tunnel, or direct-listener approach in a separate explicit request.
+8. Once the local origin and chosen provider work, guide my first message:
    - Create a new StillOn conversation with my chosen provider. Before sending a provider message, show me the proposed text and ask for confirmation because it may use quota or cost money.
    - If I do not yet have a task, suggest this harmless opener: `Please confirm that I am connected to StillOn. Do not modify files or run commands; in one sentence, tell me how you can help me here.`
    - If you can interact with the browser, send it in StillOn and confirm a reply arrives. If you cannot, give me the exact click path and wait for my result. If there is no reply, state the specific blocker and safe next action; do not claim first-use setup is complete.
@@ -40,15 +35,17 @@ Please:
 10. Offer the optional per-user background service only after explaining its effect and receiving confirmation.
 
 Safety constraints:
-- Keep StillOn bound to `127.0.0.1` by default. Any network exposure must be selected and confirmed by me step by step.
-- Before any privileged or destructive action, firewall/DNS/existing-service change, or Cloudflare resource creation, explain the impact and ask for confirmation.
-- Do not rely on a single layer for internet access: a named Cloudflare Tunnel needs Cloudflare Access, and StillOn needs a strong password. Never expose the origin port directly.
+- Keep StillOn bound to localhost by default.
+- This installation task stops at the local origin. Do not configure a reverse proxy, Cloudflare Tunnel, VPN, Tailscale, firewall, DNS, public URL, `--host`, `--remote`, or `--trust-proxy` unless I make a separate, explicit external-ingress request.
+- `--share` and `--cloudflared` are not StillOn features. If I later ask for access from another device, explain the local [external-ingress contract](external-ingress.md) and let me choose the operator-managed proxy, tunnel, or direct-listener approach; do not choose or administer it on my behalf.
 - Do not expose secrets in shell history, logs, source files, or chat output.
 - Treat provider tests and the first message as billable or quota-consuming work. Send them only after I explicitly approve.
 <!-- prompt:end -->
 
+External ingress is intentionally a separate step. After local installation and the chosen provider's first-use check work, the operator may connect an independently managed proxy, tunnel, or direct listener using the [external-ingress contract](external-ingress.md).
+
 ## What this prompt considers “done”
 
-The coding agent is an installation and first-use guide, not a one-shot installer. A successful run has five observable outcomes: a named StillOn instance, a healthy local server, a ready chosen provider, a verified chosen access path, and a first message sent with the user's approval.
+The coding agent is an installation and first-use guide, not a one-shot installer. A successful run has four observable outcomes: a named StillOn instance, a healthy local server, a ready chosen provider, and a first message sent with the user's approval. A separately requested external ingress has its own verification under the external-ingress contract.
 
-Even when the user only needs local access, explain after local verification that LAN and internet access are optional next steps. Only configure them if the user chooses them.
+After local verification, explain that LAN and Internet access are optional next steps, point to the external-ingress contract, and do not configure them automatically.

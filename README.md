@@ -27,7 +27,7 @@
 
 StillOn turns an always-on Mac into a personal agent outpost. Leave the computer at home or in the office, then reconnect from an iPad, phone, or browser to continue local Claude Code and Codex sessions.
 
-Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and secure connection path; it does not move agent execution into a hosted cloud.
+Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and local origin; an operator chooses and manages any external connection path. It does not move agent execution into a hosted cloud.
 
 > 离开电脑，Agent 继续干活。
 
@@ -130,12 +130,11 @@ enable lingering for that account:
 sudo loginctl enable-linger "$USER"
 ```
 
-The service integration deliberately does not expose StillOn to the LAN or
-internet, store passwords or tunnel tokens, or prevent the computer from
-sleeping. It listens on the normal loopback address. Continue running StillOn
-under your own supervisor when you need custom launch arguments; remote access
-must still be configured and authenticated explicitly. Removing the service
-does not remove projects or data under `~/.stillon/`.
+The service integration defaults to the normal loopback address and does not
+store passwords or provision a tunnel. It can persist `--host`, `--remote`,
+and `--trust-proxy` when an operator manages the external entrypoint; see
+[External ingress](docs/external-ingress.md). Removing the service does not
+remove projects or data under `~/.stillon/`.
 
 Windows service management is included for forward compatibility, but the
 broader Windows runtime remains planned rather than supported in this beta.
@@ -148,26 +147,20 @@ broader Windows runtime remains planned rather than supported in this beta.
 - **Usage visibility** — view Codex and Claude Code plan limits when the authenticated CLI exposes them
 - **Persistent sessions** — resume chats with event-backed history, snapshots, and hydrated tool results
 - **Project workspace** — organize chats by project, inspect Git state, run terminals, preview local apps, and attach files
-- **Remote-friendly security** — password-gated sessions and Cloudflare tunnel support
+- **Operator-managed ingress** — keep the local origin on loopback or connect it through your own proxy, tunnel, or network listener
 
 ## Remote access
 
-StillOn gives an authenticated remote user access to local projects, agent processes, file previews, Git operations, and terminals. Treat access as equivalent to granting control of your development account.
+StillOn gives an authenticated remote user access to local projects, agent
+processes, file previews, Git operations, and terminals. Treat that access as
+equivalent to granting control of your development account.
 
-```bash
-# Temporary public URL and terminal QR code
-stillon --share --password '<strong-password>'
-
-# Named Cloudflare Tunnel using its token
-stillon --cloudflared '<tunnel-token>' --password '<strong-password>'
-
-# LAN or Tailscale
-stillon --remote --password '<strong-password>'
-```
-
-`--share` refuses to start without `--password`. For named tunnels, use both a StillOn password and Cloudflare Access. You can also choose a custom port with `--port 4000`. `--share` and `--cloudflared` cannot be combined with `--host` or `--remote`.
-
-For a named Cloudflare Tunnel, route the public hostname to `http://localhost:3210` and leave WebSockets enabled. StillOn accepts attachments up to 100 MB; make sure Cloudflare's request-size limit for your plan is not lower than the file you upload.
+StillOn starts on `127.0.0.1` by default. It does not create a public URL,
+Cloudflare Tunnel, or other external route. You may run a Cloudflare Tunnel,
+another tunnel, a reverse proxy, or a direct network listener independently;
+StillOn's supported local contract is documented in
+[External ingress](docs/external-ingress.md). Use `--trust-proxy` only when a
+trusted proxy is the sole route to the local origin.
 
 ## Development
 
@@ -177,7 +170,7 @@ bun run check
 bun test
 ```
 
-`bun run dev --port 3333` uses port 3333 for Vite and 3334 for the backend. Development mode also supports `--share`, `--cloudflared`, `--host`, and `--remote`.
+`bun run dev --port 3333` uses port 3333 for Vite and 3334 for the backend. Development mode supports explicit `--host`, `--remote`, and `--trust-proxy`; its default listener stays on loopback.
 
 ## Architecture
 

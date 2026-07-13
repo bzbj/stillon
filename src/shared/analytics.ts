@@ -23,6 +23,4 @@ export const ANALYTICS_STATIC_PROPERTY_NAMES = [
   "strict_port_enabled",
   "remote_enabled",
   "host_enabled",
-  "share_quick_enabled",
-  "share_token_enabled",
 ] as const

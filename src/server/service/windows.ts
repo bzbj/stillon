@@ -65,8 +65,6 @@ function findPersistedSecretFlag(args: string[]) {
     const normalized = arg.toLowerCase()
     return normalized === "--password"
       || normalized.startsWith("--password=")
-      || normalized === "--cloudflared"
-      || normalized.startsWith("--cloudflared=")
   })
 }
 
