@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
-import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UpdateInstallResult, type UpdateSnapshot, type UserPromptEntry } from "../../shared/types"
+import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -20,7 +20,6 @@ import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
 import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction } from "../../shared/protocol"
-import { APP_NAME } from "../../shared/branding"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -538,20 +537,7 @@ export function shouldAutoFollowTranscript(distanceFromBottom: number) {
   return distanceFromBottom < 24
 }
 
-export function getUiUpdateRestartReconnectAction(
-  phase: string | null,
-  connectionStatus: SocketStatus
-): "none" | "awaiting_server_ready" {
-  if (phase === "awaiting_disconnect" && connectionStatus === "disconnected") {
-    return "awaiting_server_ready"
-  }
-
-  return "none"
-}
-
 export const TRANSCRIPT_PADDING_BOTTOM_OFFSET = 30
-const UI_UPDATE_RESTART_STORAGE_KEY = "kanna:ui-update-restart"
-const UI_UPDATE_RELOAD_REQUEST_STORAGE_KEY = "kanna:last-update-reload-request"
 
 export function getTranscriptPaddingBottom(inputHeight: number) {
   return inputHeight + TRANSCRIPT_PADDING_BOTTOM_OFFSET
@@ -559,38 +545,6 @@ export function getTranscriptPaddingBottom(inputHeight: number) {
 
 export function getNextMeasuredInputHeight(previousHeight: number, measuredHeight: number) {
   return measuredHeight > 0 ? measuredHeight : previousHeight
-}
-
-function getUiUpdateRestartPhase() {
-  return window.sessionStorage.getItem(UI_UPDATE_RESTART_STORAGE_KEY)
-}
-
-function setUiUpdateRestartPhase(phase: "awaiting_disconnect" | "awaiting_server_ready") {
-  window.sessionStorage.setItem(UI_UPDATE_RESTART_STORAGE_KEY, phase)
-}
-
-function clearUiUpdateRestartPhase() {
-  window.sessionStorage.removeItem(UI_UPDATE_RESTART_STORAGE_KEY)
-}
-
-export function shouldHandleUiUpdateReloadRequest(
-  reloadRequestedAt: number | null | undefined,
-  lastHandledReloadRequest: string | null
-) {
-  if (!reloadRequestedAt) return false
-  return String(reloadRequestedAt) !== lastHandledReloadRequest
-}
-
-function getLastHandledUiUpdateReloadRequest() {
-  return window.sessionStorage.getItem(UI_UPDATE_RELOAD_REQUEST_STORAGE_KEY)
-}
-
-function setLastHandledUiUpdateReloadRequest(reloadRequestedAt: number) {
-  window.sessionStorage.setItem(UI_UPDATE_RELOAD_REQUEST_STORAGE_KEY, String(reloadRequestedAt))
-}
-
-export function getUiUpdateReadinessPath() {
-  return "/auth/status"
 }
 
 function downloadTextFile(fileName: string, contents: string, contentType = "application/json") {
@@ -604,18 +558,6 @@ function downloadTextFile(fileName: string, contents: string, contentType = "app
   anchor.click()
   anchor.remove()
   URL.revokeObjectURL(url)
-}
-
-async function isServerReady(fetchImpl: typeof fetch = fetch) {
-  const response = await fetchImpl(getUiUpdateReadinessPath(), {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-    },
-  })
-
-  return response.ok
 }
 
 export interface ProjectRequest {
@@ -666,7 +608,6 @@ export interface KannaState {
   activeProjectId: string | null
   sidebarData: SidebarData
   localProjects: LocalProjectsSnapshot | null
-  updateSnapshot: UpdateSnapshot | null
   chatSnapshot: ChatSnapshot | null
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
@@ -711,8 +652,6 @@ export interface KannaState {
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleListLocalDirectories: (localPath?: string) => Promise<LocalDirectoryListResult>
-  handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
-  handleInstallUpdate: () => Promise<void>
   handleReadAppSettings: () => Promise<void>
   handleWriteAppSettings: (patch: AppSettingsPatch) => Promise<AppSettingsSnapshot>
   handleReadLlmProvider: () => Promise<void>
@@ -763,7 +702,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [sidebarData, setSidebarData] = useState<SidebarData>({ projectGroups: [] })
   const [optimisticSidebarProjectOrder, setOptimisticSidebarProjectOrder] = useState<string[] | null>(null)
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
-  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [olderHistoryEntries, setOlderHistoryEntries] = useState<TranscriptEntry[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
@@ -859,93 +797,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(null)
     })
   }, [socket])
-
-  useEffect(() => {
-    return socket.subscribe<UpdateSnapshot>({ type: "update" }, (snapshot) => {
-      setUpdateSnapshot(snapshot)
-      setCommandError(null)
-    })
-  }, [socket])
-
-  useEffect(() => {
-    if (connectionStatus !== "connected") return
-    void socket.command<UpdateSnapshot>({ type: "update.check", force: true }).catch((error) => {
-      setCommandError(error instanceof Error ? error.message : String(error))
-    })
-  }, [connectionStatus, socket])
-
-  useEffect(() => {
-    const reloadRequestedAt = updateSnapshot?.reloadRequestedAt
-    if (!shouldHandleUiUpdateReloadRequest(reloadRequestedAt, getLastHandledUiUpdateReloadRequest())) {
-      return
-    }
-    if (!reloadRequestedAt) {
-      return
-    }
-
-    setLastHandledUiUpdateReloadRequest(reloadRequestedAt)
-    setUiUpdateRestartPhase("awaiting_disconnect")
-  }, [updateSnapshot?.reloadRequestedAt])
-
-  useEffect(() => {
-    const phase = getUiUpdateRestartPhase()
-    const reconnectAction = getUiUpdateRestartReconnectAction(phase, connectionStatus)
-    if (reconnectAction === "awaiting_server_ready") {
-      setUiUpdateRestartPhase("awaiting_server_ready")
-      return
-    }
-  }, [connectionStatus])
-
-  useEffect(() => {
-    if (getUiUpdateRestartPhase() !== "awaiting_server_ready") {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const pollServerReadiness = async () => {
-      try {
-        if (await isServerReady()) {
-          if (cancelled) return
-          clearUiUpdateRestartPhase()
-          window.location.reload()
-          return
-        }
-      } catch {
-        // Keep polling while the process restarts.
-      }
-
-      if (cancelled) return
-      timeoutId = window.setTimeout(() => {
-        void pollServerReadiness()
-      }, 500)
-    }
-
-    void pollServerReadiness()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [connectionStatus])
-
-  useEffect(() => {
-    function handleWindowFocus() {
-      if (!updateSnapshot?.lastCheckedAt) return
-      if (Date.now() - updateSnapshot.lastCheckedAt <= 60 * 60 * 1000) return
-      void socket.command<UpdateSnapshot>({ type: "update.check" }).catch((error) => {
-        setCommandError(error instanceof Error ? error.message : String(error))
-      })
-    }
-
-    window.addEventListener("focus", handleWindowFocus)
-    return () => {
-      window.removeEventListener("focus", handleWindowFocus)
-    }
-  }, [socket, updateSnapshot?.lastCheckedAt])
 
   useEffect(() => {
     return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
@@ -1482,44 +1333,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const handleCreateProject = useCallback(async (project: ProjectRequest) => {
     await startChatFromIntent({ kind: "project_request", project })
   }, [startChatFromIntent])
-
-  const handleCheckForUpdates = useCallback(async (options?: { force?: boolean }) => {
-    try {
-      await socket.command<UpdateSnapshot>({ type: "update.check", force: options?.force })
-      setCommandError(null)
-    } catch (error) {
-      setCommandError(error instanceof Error ? error.message : String(error))
-    }
-  }, [socket])
-
-  const handleInstallUpdate = useCallback(async () => {
-    try {
-      const result = await socket.command<UpdateInstallResult>({ type: "update.install" })
-      if (!result.ok) {
-        clearUiUpdateRestartPhase()
-        setCommandError(null)
-        await dialog.alert({
-          title: result.userTitle ?? "Update failed",
-          description: result.userMessage ?? `${APP_NAME} could not install the update. Try again later.`,
-          closeLabel: "OK",
-        })
-        return
-      }
-
-      if (result.ok && result.action === "reload") {
-        window.location.reload()
-        return
-      }
-
-      if (result.ok && result.action === "restart") {
-        setUiUpdateRestartPhase("awaiting_disconnect")
-      }
-      setCommandError(null)
-    } catch (error) {
-      clearUiUpdateRestartPhase()
-      setCommandError(error instanceof Error ? error.message : String(error))
-    }
-  }, [dialog, socket])
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -2064,7 +1877,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
     activeProjectId,
     sidebarData: resolvedSidebarData,
     localProjects,
-    updateSnapshot,
     chatSnapshot,
     chatDiffSnapshot,
     keybindings,
@@ -2109,8 +1921,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleOpenLocalProject,
     handleCreateProject,
     handleListLocalDirectories,
-    handleCheckForUpdates,
-    handleInstallUpdate,
     handleReadAppSettings,
     handleWriteAppSettings,
     handleReadLlmProvider,

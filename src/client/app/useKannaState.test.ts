@@ -7,12 +7,9 @@ import {
   getNewestRemainingChatId,
   getPreviousPrompt,
   getTranscriptPaddingBottom,
-  getUiUpdateReadinessPath,
   getUserPromptSignature,
-  getUiUpdateRestartReconnectAction,
   reconcileOptimisticUserPrompts,
   resolveComposeIntent,
-  shouldHandleUiUpdateReloadRequest,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
 } from "./useKannaState"
@@ -193,38 +190,6 @@ describe("shouldMarkActiveChatRead", () => {
       visibilityState: "visible",
       hasFocus: () => false,
     })).toBe(false)
-  })
-})
-
-describe("getUiUpdateRestartReconnectAction", () => {
-  test("waits for server readiness after the socket disconnects", () => {
-    expect(getUiUpdateRestartReconnectAction("awaiting_disconnect", "disconnected")).toBe("awaiting_server_ready")
-  })
-
-  test("does nothing for unrelated phase and connection combinations", () => {
-    expect(getUiUpdateRestartReconnectAction(null, "connected")).toBe("none")
-    expect(getUiUpdateRestartReconnectAction("awaiting_disconnect", "connected")).toBe("none")
-    expect(getUiUpdateRestartReconnectAction("awaiting_server_ready", "disconnected")).toBe("none")
-    expect(getUiUpdateRestartReconnectAction("awaiting_server_ready", "connected")).toBe("none")
-  })
-})
-
-describe("shouldHandleUiUpdateReloadRequest", () => {
-  test("handles a new backend reload request", () => {
-    expect(shouldHandleUiUpdateReloadRequest(123, null)).toBe(true)
-    expect(shouldHandleUiUpdateReloadRequest(123, "122")).toBe(true)
-  })
-
-  test("ignores missing or already handled reload requests", () => {
-    expect(shouldHandleUiUpdateReloadRequest(null, null)).toBe(false)
-    expect(shouldHandleUiUpdateReloadRequest(undefined, null)).toBe(false)
-    expect(shouldHandleUiUpdateReloadRequest(123, "123")).toBe(false)
-  })
-})
-
-describe("getUiUpdateReadinessPath", () => {
-  test("uses a public auth endpoint so password-protected restarts can reload", () => {
-    expect(getUiUpdateReadinessPath()).toBe("/auth/status")
   })
 })
 

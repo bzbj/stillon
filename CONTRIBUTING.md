@@ -14,6 +14,7 @@ bun run audit
 ~~~
 
 Open a focused pull request with a clear description, user impact, and validation notes.
+Release versions are chosen explicitly after merge; follow the [release guide](docs/releasing.md).
 
 ## Public-repository hygiene
 

@@ -10,9 +10,6 @@ export const ANALYTICS_STATIC_EVENT_NAMES = [
   "chat_created",
   "chat_deleted",
   "message_sent",
-  "update_checked",
-  "update_installed",
-  "update_failed",
   "analytics_enabled",
   "analytics_disabled",
 ] as const
@@ -20,7 +17,6 @@ export const ANALYTICS_STATIC_EVENT_NAMES = [
 export const ANALYTICS_STATIC_PROPERTY_NAMES = [
   "current_version",
   "environment",
-  "latest_version",
   "custom_port_enabled",
   "no_open_enabled",
   "password_enabled",

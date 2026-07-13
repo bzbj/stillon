@@ -5,7 +5,6 @@ export const DATA_ROOT_NAME = ".stillon"
 export const DEV_DATA_ROOT_NAME = ".stillon-dev"
 export const LEGACY_DATA_ROOT_NAME = ".kanna"
 export const LEGACY_DEV_DATA_ROOT_NAME = ".kanna-dev"
-export const PACKAGE_NAME = "@bzbj/stillon"
 export const RELEASE_EDITION_SEQUENCE = [
   "Pup",
   "Husky",

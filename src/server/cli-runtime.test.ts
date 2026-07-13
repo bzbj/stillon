@@ -1,14 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { compareVersions, classifyInstallVersionFailure, parseArgs, runCli } from "./cli-runtime"
-import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
+import { compareVersions, parseArgs, runCli } from "./cli-runtime"
 
 const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
-const originalSuppressOpen = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
 const originalStillOnTrustProxy = process.env.STILLON_TRUST_PROXY
-const originalStillOnDisableSelfUpdate = process.env.STILLON_DISABLE_SELF_UPDATE
-
 beforeEach(() => {
-  delete process.env.STILLON_DISABLE_SELF_UPDATE
   delete process.env.STILLON_TRUST_PROXY
 })
 
@@ -18,20 +13,10 @@ afterEach(() => {
   } else {
     process.env.STILLON_RUNTIME_PROFILE = originalRuntimeProfile
   }
-  if (originalSuppressOpen === undefined) {
-    delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
-  } else {
-    process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] = originalSuppressOpen
-  }
   if (originalStillOnTrustProxy === undefined) {
     delete process.env.STILLON_TRUST_PROXY
   } else {
     process.env.STILLON_TRUST_PROXY = originalStillOnTrustProxy
-  }
-  if (originalStillOnDisableSelfUpdate === undefined) {
-    delete process.env.STILLON_DISABLE_SELF_UPDATE
-  } else {
-    process.env.STILLON_DISABLE_SELF_UPDATE = originalStillOnDisableSelfUpdate
   }
 })
 
@@ -45,14 +30,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
       password: string | null
       strictPort: boolean
       trustProxy?: boolean
-      update?: {
-        version: string
-        argv: string[]
-        command: string
-      }
     }>,
-    fetchLatestVersion: [] as string[],
-    installVersion: [] as Array<{ packageName: string; version: string }>,
     openUrl: [] as string[],
     log: [] as string[],
     warn: [] as string[],
@@ -70,19 +48,6 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
       return {
         port: options.port,
         stop: async () => {},
-      }
-    },
-    fetchLatestVersion: async (packageName) => {
-      calls.fetchLatestVersion.push(packageName)
-      return "0.3.0"
-    },
-    installVersion: (packageName, version) => {
-      calls.installVersion.push({ packageName, version })
-      return {
-        ok: true,
-        errorCode: null,
-        userTitle: null,
-        userMessage: null,
       }
     },
     openUrl: (url) => {
@@ -314,26 +279,14 @@ describe("compareVersions", () => {
   })
 })
 
-describe("classifyInstallVersionFailure", () => {
-  test("maps version propagation failures to a user-facing retry message", () => {
-    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "@bzbj/stillon"')).toEqual({
-      ok: false,
-      errorCode: "version_not_live_yet",
-      userTitle: "Update not live yet",
-      userMessage: "This update is still propagating. Try again in a few minutes.",
-    })
-  })
-})
-
 describe("runCli", () => {
-  test("runs service management without checking updates or starting the server", async () => {
+  test("runs service management without starting the server", async () => {
     const { calls, deps } = createDeps()
 
     const result = await runCli(["service", "install", "--port", "4000", "--env-file", "/etc/stillon/production.env"], deps)
 
     expect(result).toEqual({ kind: "exited", code: 0 })
     expect(calls.manageService).toEqual([{ action: "install", port: 4000, environmentFile: "/etc/stillon/production.env" }])
-    expect(calls.fetchLatestVersion).toEqual([])
     expect(calls.startServer).toEqual([])
   })
 
@@ -351,26 +304,23 @@ describe("runCli", () => {
     expect(calls.startServer).toEqual([])
   })
 
-  test("skips update checks for --version", async () => {
+  test("prints the version without starting the server", async () => {
     const { calls, deps } = createDeps()
 
     const result = await runCli(["--version"], deps)
 
     expect(result).toEqual({ kind: "exited", code: 0 })
-    expect(calls.fetchLatestVersion).toEqual([])
     expect(calls.startServer).toEqual([])
     expect(calls.log).toEqual(["0.3.0"])
   })
 
-  test("starts normally when no newer version exists", async () => {
+  test("starts normally", async () => {
     const { calls, deps } = createDeps()
     process.env.STILLON_RUNTIME_PROFILE = "prod"
 
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    expect(calls.fetchLatestVersion).toEqual(["@bzbj/stillon"])
-    expect(calls.installVersion).toEqual([])
     expect(calls.startServer).toHaveLength(1)
     expect(calls.startServer[0]).toMatchObject({
       port: 4000,
@@ -380,11 +330,6 @@ describe("runCli", () => {
       password: null,
       strictPort: false,
       trustProxy: false,
-      update: {
-        version: "0.3.0",
-        argv: ["--port", "4000", "--no-open"],
-        command: "stillon",
-      },
     })
     expect(calls.openUrl).toEqual([])
     expect(calls.log).toContain("[stillon] data dir: ~/.stillon/data")
@@ -421,7 +366,6 @@ describe("runCli", () => {
   })
 
   test("opens the root route in the browser", async () => {
-    delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
     const { calls, deps } = createDeps()
 
     await runCli(["--port", "4000"], deps)
@@ -430,7 +374,6 @@ describe("runCli", () => {
   })
 
   test("opens browser at hostname when --host <host> is given", async () => {
-    delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
     const { calls, deps } = createDeps()
 
     await runCli(["--host", "dev-box", "--port", "4000"], deps)
@@ -438,17 +381,7 @@ describe("runCli", () => {
     expect(calls.openUrl).toEqual(["http://dev-box:4000"])
   })
 
-  test("suppresses browser open for a ui-triggered restarted child", async () => {
-    process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] = "1"
-    const { calls, deps } = createDeps()
-
-    await runCli(["--port", "4000"], deps)
-
-    expect(calls.openUrl).toEqual([])
-  })
-
   test("starts a share tunnel and prints qr/public/local urls", async () => {
-    delete process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR]
     const { calls, deps } = createDeps()
 
     const result = await runCli(["--share", "--password", "secret", "--port", "4000"], deps)
@@ -577,57 +510,4 @@ describe("runCli", () => {
     expect(calls.renderShareQr).toEqual([])
   })
 
-  test("returns restarting when a newer version is available", async () => {
-    const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
-        return "0.4.0"
-      },
-    })
-
-    const result = await runCli(["--port", "4000", "--no-open"], deps)
-
-    expect(result).toEqual({ kind: "restarting", reason: "startup_update" })
-    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/stillon", version: "0.4.0" }])
-    expect(calls.startServer).toEqual([])
-  })
-
-  test("falls back to current version when install fails", async () => {
-    const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
-        return "0.4.0"
-      },
-      installVersion: (packageName, version) => {
-        calls.installVersion.push({ packageName, version })
-        return {
-          ok: false,
-          errorCode: "install_failed",
-          userTitle: "Update failed",
-          userMessage: "StillOn could not install the update. Try again later.",
-        }
-      },
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
-    expect(result.kind).toBe("started")
-    expect(calls.installVersion).toEqual([{ packageName: "@bzbj/stillon", version: "0.4.0" }])
-    expect(calls.warn).toContain("[stillon] update failed, continuing current version")
-  })
-
-  test("falls back to current version when the registry check fails", async () => {
-    const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
-        throw new Error("network unavailable")
-      },
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
-    expect(result.kind).toBe("started")
-    expect(calls.installVersion).toEqual([])
-    expect(calls.warn).toContain("[stillon] update check failed, continuing current version")
-  })
 })

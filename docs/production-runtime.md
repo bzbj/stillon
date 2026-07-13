@@ -33,7 +33,6 @@ For example:
 ```dotenv
 STILLON_TRUST_PROXY=1
 STILLON_MACHINE_NAME=Office Mac
-STILLON_DISABLE_SELF_UPDATE=1
 ```
 
 Install the native service by invoking the entrypoint in this runtime:
@@ -61,7 +60,9 @@ curl --fail http://127.0.0.1:3210/health
 
 For an update, create and build a new release directory, verify it manually
 on an unused local port, then run `service install` from its `bin/stillon`
-entrypoint. The per-user service is replaced with the new runtime.
+entrypoint. The per-user service is replaced with the new runtime. StillOn
+does not download or install releases itself; **Settings → Changelog** can
+generate a source-upgrade prompt for Codex or Claude Code instead.
 
 To roll back, reinstall the service from the known-good release directory:
 

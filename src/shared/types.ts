@@ -660,39 +660,6 @@ export interface LlmProviderValidationResult {
   error: unknown | null
 }
 
-export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "up_to_date"
-  | "updating"
-  | "restart_pending"
-  | "error"
-
-export interface UpdateSnapshot {
-  currentVersion: string
-  latestVersion: string | null
-  status: UpdateStatus
-  updateAvailable: boolean
-  lastCheckedAt: number | null
-  error: string | null
-  installAction: "restart" | "reload"
-  reloadRequestedAt: number | null
-}
-
-export type UpdateInstallErrorCode =
-  | "version_not_live_yet"
-  | "install_failed"
-  | "command_missing"
-
-export interface UpdateInstallResult {
-  ok: boolean
-  action: "restart" | "reload"
-  errorCode: UpdateInstallErrorCode | null
-  userTitle: string | null
-  userMessage: string | null
-}
-
 export type KeybindingAction =
   | "toggleEmbeddedTerminal"
   | "toggleRightSidebar"
