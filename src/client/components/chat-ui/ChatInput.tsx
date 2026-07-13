@@ -1,5 +1,5 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { ArrowUp, Paperclip } from "lucide-react"
+import { ArrowUp, CircleAlert, CircleDashed, Paperclip } from "lucide-react"
 import {
   type AgentProvider,
   type ChatAttachment,
@@ -69,6 +69,87 @@ export async function getUploadResponseError(response: Response) {
   }
 
   return `Upload failed (HTTP ${response.status}).${rayIdSuffix}`
+}
+
+export function getUploadProgress(event: { lengthComputable: boolean; loaded: number; total: number }) {
+  if (!event.lengthComputable || event.total <= 0) return undefined
+  return Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)))
+}
+
+export function getUploadXhrResponseError(args: {
+  status: number
+  contentType: string
+  responseText: string
+  requestId?: string | null
+}) {
+  const requestIdSuffix = args.requestId ? ` Request ID: ${args.requestId}.` : ""
+  let payload: { error?: unknown } = {}
+
+  try {
+    payload = JSON.parse(args.responseText || "{}") as { error?: unknown }
+  } catch {
+    payload = {}
+  }
+
+  if (typeof payload.error === "string") {
+    return payload.error
+  }
+
+  if (args.status === 401 || args.status === 403 || args.contentType.includes("text/html")) {
+    return `Cloudflare or browser access controls blocked this upload (HTTP ${args.status}).${requestIdSuffix}`
+  }
+
+  return `Upload failed (HTTP ${args.status}).${requestIdSuffix}`
+}
+
+export function uploadProjectAttachment(args: {
+  projectId: string
+  file: File
+  onProgress?: (progress: number) => void
+}): Promise<ChatAttachment> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    const formData = new FormData()
+    formData.append("files", args.file)
+
+    request.open("POST", `/api/projects/${args.projectId}/uploads`)
+    request.upload.addEventListener("progress", (event) => {
+      const progress = getUploadProgress(event)
+      if (progress !== undefined) args.onProgress?.(progress)
+    })
+    request.addEventListener("load", () => {
+      const contentType = request.getResponseHeader("content-type") ?? ""
+      let payload: { attachments?: ChatAttachment[] }
+
+      try {
+        payload = JSON.parse(request.responseText || "{}") as { attachments?: ChatAttachment[] }
+      } catch {
+        payload = {}
+      }
+
+      const uploaded = payload.attachments?.[0]
+      if (request.status >= 200 && request.status < 300 && contentType.includes("application/json") && uploaded) {
+        resolve(uploaded)
+        return
+      }
+
+      reject(new Error(getUploadXhrResponseError({
+        status: request.status,
+        contentType,
+        responseText: request.responseText,
+        requestId: request.getResponseHeader("x-request-id") ?? request.getResponseHeader("cf-ray"),
+      })))
+    })
+    request.addEventListener("error", () => reject(new TypeError("Failed to fetch")))
+    request.addEventListener("timeout", () => reject(new TypeError("Network request failed")))
+    request.addEventListener("abort", () => reject(new DOMException("The upload was aborted.", "AbortError")))
+
+    try {
+      request.send(formData)
+    } catch (error) {
+      reject(error)
+    }
+  })
 }
 
 export function getUploadNetworkError(error: unknown) {
@@ -154,9 +235,69 @@ function replaceTextSelection(args: {
   return `${args.value.slice(0, args.selectionStart)}${args.insertedText}${args.value.slice(args.selectionEnd)}`
 }
 
+type ComposerAttachmentStatus = "uploading" | "uploaded" | "failed"
+
 interface ComposerAttachment extends ChatAttachment {
-  status: "uploading" | "uploaded" | "failed"
+  status: ComposerAttachmentStatus
   previewUrl?: string
+  uploadProgress?: number
+}
+
+export function getComposerUploadState(args: {
+  pendingUploadCount: number
+  attachmentStatuses: Iterable<ComposerAttachmentStatus>
+}) {
+  let attachmentUploadCount = 0
+  let hasFailedUploads = false
+
+  for (const status of args.attachmentStatuses) {
+    if (status === "uploading") attachmentUploadCount += 1
+    if (status === "failed") hasFailedUploads = true
+  }
+
+  const visiblePendingUploadCount = Math.max(0, args.pendingUploadCount, attachmentUploadCount)
+  const hasPendingUploads = visiblePendingUploadCount > 0
+
+  return {
+    visiblePendingUploadCount,
+    hasPendingUploads,
+    hasFailedUploads,
+    hasBlockingUploads: hasPendingUploads || hasFailedUploads,
+  }
+}
+
+export function getComposerUploadActivityNotice(args: {
+  pendingUploadCount: number
+  attachmentStates: Iterable<Pick<ComposerAttachment, "status" | "uploadProgress">>
+}) {
+  let uploadingAttachmentCount = 0
+  let processingAttachmentCount = 0
+
+  for (const attachment of args.attachmentStates) {
+    if (attachment.status !== "uploading") continue
+    uploadingAttachmentCount += 1
+    if (attachment.uploadProgress === 100) processingAttachmentCount += 1
+  }
+
+  const visiblePendingUploadCount = Math.max(0, args.pendingUploadCount, uploadingAttachmentCount)
+  if (visiblePendingUploadCount === 0) return null
+
+  const attachmentLabel = visiblePendingUploadCount === 1 ? "attachment" : "attachments"
+  if (
+    uploadingAttachmentCount > 0
+    && processingAttachmentCount === uploadingAttachmentCount
+    && processingAttachmentCount === visiblePendingUploadCount
+  ) {
+    return {
+      state: "processing" as const,
+      message: "Processing " + visiblePendingUploadCount + " " + attachmentLabel + ". Sending is disabled while we confirm the upload.",
+    }
+  }
+
+  return {
+    state: "uploading" as const,
+    message: "Uploading " + visiblePendingUploadCount + " " + attachmentLabel + ". Sending is disabled until upload finishes.",
+  }
 }
 
 interface Props {
@@ -262,8 +403,10 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(() => hydrateComposerAttachments(chatId ? getAttachmentDrafts(chatId) : []))
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [pendingUploadCount, setPendingUploadCount] = useState(0)
   const uploadQueueRef = useRef<File[]>([])
   const activeUploadsRef = useRef(0)
+  const pendingUploadCountRef = useRef(0)
   const attachmentsRef = useRef<ComposerAttachment[]>([])
   const uploadGenerationRef = useRef(0)
   const removedAttachmentIdsRef = useRef<Set<string>>(new Set())
@@ -287,7 +430,18 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return overrideContextWindowMaxTokens(contextWindowSnapshot, stagedMaxTokens)
   }, [contextWindowSnapshot, providerPrefs.model, providerPrefs.modelOptions, providerPrefs.provider])
   const uploadedAttachments = attachments.filter((attachment) => attachment.status === "uploaded")
-  const hasPendingUploads = attachments.some((attachment) => attachment.status === "uploading")
+  const {
+    hasPendingUploads,
+    hasFailedUploads,
+    hasBlockingUploads,
+  } = getComposerUploadState({
+    pendingUploadCount,
+    attachmentStatuses: attachments.map((attachment) => attachment.status),
+  })
+  const uploadActivityNotice = getComposerUploadActivityNotice({
+    pendingUploadCount,
+    attachmentStates: attachments,
+  })
   const hasTextToSend = value.trim().length > 0
   const canSubmit = value.trim().length > 0 || uploadedAttachments.length > 0
   const orderedAttachments = [...attachments].sort((left, right) => {
@@ -302,6 +456,27 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [])
 
+  const resetPendingUploads = useCallback(() => {
+    pendingUploadCountRef.current = 0
+    setPendingUploadCount(0)
+  }, [])
+
+  const beginPendingUploads = useCallback((count: number) => {
+    if (count <= 0) return
+    pendingUploadCountRef.current += count
+    setPendingUploadCount(pendingUploadCountRef.current)
+  }, [])
+
+  const finishPendingUpload = useCallback((generation: number) => {
+    if (generation !== uploadGenerationRef.current) return
+    pendingUploadCountRef.current = Math.max(0, pendingUploadCountRef.current - 1)
+    setPendingUploadCount(pendingUploadCountRef.current)
+  }, [])
+
+  function hasBlockingUploadsInFlight() {
+    return pendingUploadCountRef.current > 0 || attachmentsRef.current.some((attachment) => attachment.status !== "uploaded")
+  }
+
   const clearAttachments = useCallback((options?: { cleanupPreviews?: boolean }) => {
     const cleanupPreviews = options?.cleanupPreviews ?? true
     uploadGenerationRef.current += 1
@@ -314,9 +489,10 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     })
     uploadQueueRef.current = []
     activeUploadsRef.current = 0
+    resetPendingUploads()
     setSelectedAttachmentId(null)
     setUploadError(null)
-  }, [cleanupAttachmentPreview])
+  }, [cleanupAttachmentPreview, resetPendingUploads])
 
   const autoResize = useCallback(() => {
     const element = textareaRef.current
@@ -358,7 +534,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useLayoutEffect(() => {
     onLayoutChange?.()
-  }, [attachments.length, onLayoutChange, uploadError])
+  }, [attachments.length, hasFailedUploads, hasPendingUploads, onLayoutChange, uploadError])
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -376,6 +552,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     uploadGenerationRef.current += 1
     uploadQueueRef.current = []
     activeUploadsRef.current = 0
+    resetPendingUploads()
     removedAttachmentIdsRef.current.clear()
     setSelectedAttachmentId(null)
     setUploadError(null)
@@ -383,7 +560,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       current.forEach(cleanupAttachmentPreview)
       return hydrateComposerAttachments(chatId ? getAttachmentDrafts(chatId) : [])
     })
-  }, [chatId, cleanupAttachmentPreview, getAttachmentDrafts])
+  }, [chatId, cleanupAttachmentPreview, getAttachmentDrafts, resetPendingUploads])
 
   useEffect(() => {
     const previousProjectId = previousProjectIdRef.current
@@ -408,7 +585,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
     const persistedAttachments = attachments
       .filter((attachment) => attachment.status === "uploaded")
-      .map(({ previewUrl: _previewUrl, status: _status, ...attachment }) => attachment)
+      .map(({ previewUrl: _previewUrl, status: _status, uploadProgress: _uploadProgress, ...attachment }) => attachment)
 
     if (persistedAttachments.length === 0) {
       clearAttachmentDrafts(chatId)
@@ -478,35 +655,24 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
         mimeType: file.type || "application/octet-stream",
         size: file.size,
         status: "uploading",
+        uploadProgress: 0,
         previewUrl,
       }])
 
       void (async () => {
         try {
-          const formData = new FormData()
-          formData.append("files", file)
-
-          const response = await fetch(`/api/projects/${projectId}/uploads`, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            redirect: "manual",
+          let previousProgress = -1
+          const uploaded = await uploadProjectAttachment({
+            projectId,
+            file,
+            onProgress: (uploadProgress) => {
+              if (uploadProgress === previousProgress || generation !== uploadGenerationRef.current) return
+              previousProgress = uploadProgress
+              setAttachments((current) => current.map((attachment) => (
+                attachment.id === tempId ? { ...attachment, uploadProgress } : attachment
+              )))
+            },
           })
-
-          if (!response.ok) {
-            throw new Error(await getUploadResponseError(response))
-          }
-
-          const contentType = response.headers.get("content-type") ?? ""
-          if (!contentType.includes("application/json")) {
-            throw new Error(await getUploadResponseError(response))
-          }
-
-          const payload = await response.json() as { attachments: ChatAttachment[] }
-          const uploaded = payload.attachments[0]
-          if (!uploaded) {
-            throw new Error("Upload failed")
-          }
 
           if (generation !== uploadGenerationRef.current) {
             void deleteUploadedAttachment(uploaded)
@@ -529,6 +695,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   ...uploaded,
                   previewUrl: attachment.previewUrl,
                   status: "uploaded",
+                  uploadProgress: undefined,
                 }
           )))
           setUploadError(null)
@@ -543,11 +710,12 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setUploadError(getUploadNetworkError(error))
         } finally {
           activeUploadsRef.current = Math.max(0, activeUploadsRef.current - 1)
+          finishPendingUpload(generation)
           processUploadQueue()
         }
       })()
     }
-  }, [projectId])
+  }, [finishPendingUpload, projectId])
 
   const enqueueFiles = useCallback((files: File[]) => {
     if (!projectId) {
@@ -564,23 +732,24 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return
     }
 
+    beginPendingUploads(files.length)
     uploadQueueRef.current.push(...files)
     setUploadError(null)
     processUploadQueue()
-  }, [processUploadQueue, projectId])
+  }, [beginPendingUploads, processUploadQueue, projectId])
 
   useImperativeHandle(forwardedRef, () => ({
     enqueueFiles,
   }), [enqueueFiles])
 
   async function handleSubmit() {
-    if (!canSubmit || hasPendingUploads) return
+    if (!canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
 
     const nextValue = value
     const previousAttachments = attachmentsRef.current
     const previousSelectedAttachmentId = selectedAttachmentId
     const previousUploadError = uploadError
-    const attachmentsForSubmit = uploadedAttachments.map(({ previewUrl: _previewUrl, status: _status, ...attachment }) => attachment)
+    const attachmentsForSubmit = uploadedAttachments.map(({ previewUrl: _previewUrl, status: _status, uploadProgress: _uploadProgress, ...attachment }) => attachment)
     let modelOptions: ModelOptions
     if (providerPrefs.provider === "claude") {
       modelOptions = { claude: { ...providerPrefs.modelOptions } }
@@ -648,7 +817,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       event.key === "Enter"
       && !event.shiftKey
       && !disabled
-      && !hasPendingUploads
+      && !hasBlockingUploadsInFlight()
       && ((isModifiedEnter && canSubmit) || (!isModifiedEnter && isDesktopLikeDevice && hasTextToSend))
     ) {
       event.preventDefault()
@@ -720,12 +889,50 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       removedAttachmentIdsRef.current.delete(attachment.id)
       void deleteUploadedAttachment(attachment)
     }
+
+    if (attachment.status === "failed") {
+      setUploadError(null)
+    }
   }
 
   return (
     <div>
       <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
         <div className="max-w-[840px] mx-auto rounded-[32px]">
+          {uploadActivityNotice || hasFailedUploads || uploadError ? (
+            <div className="mb-2 space-y-1.5 px-1 text-sm">
+              {uploadActivityNotice ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-muted-foreground"
+                >
+                  <CircleDashed
+                    aria-hidden="true"
+                    className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none"
+                  />
+                  <span>{uploadActivityNotice.message}</span>
+                </div>
+              ) : null}
+              {hasFailedUploads || uploadError ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-xl border border-destructive/35 bg-destructive/10 px-3 py-2 text-destructive"
+                >
+                  <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <div>{uploadError ?? "An attachment upload failed."}</div>
+                    {hasFailedUploads ? (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Remove the failed attachment to re-enable sending.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {attachments.length > 0 ? (
             <ScrollArea className="overflow-x-auto overflow-y-hidden whitespace-nowrap px-2 pb-2">
               <div className="flex items-end gap-2 pt-2">
@@ -738,6 +945,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <AttachmentImageCard
                         attachment={attachment}
                         previewUrl={attachment.previewUrl}
+                        uploadState={attachment.status === "uploaded" ? undefined : attachment.status}
+                        uploadProgress={attachment.uploadProgress}
                         size="composer"
                         onClick={attachment.status === "uploaded" ? () => handleAttachmentPreview(attachment) : undefined}
                         onRemove={() => removeAttachment(attachment)}
@@ -745,6 +954,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     ) : (
                       <AttachmentFileCard
                         attachment={attachment}
+                        uploadState={attachment.status === "uploaded" ? undefined : attachment.status}
+                        uploadProgress={attachment.uploadProgress}
                         onClick={attachment.status === "uploaded" ? () => handleAttachmentPreview(attachment) : undefined}
                         onRemove={() => removeAttachment(attachment)}
                       />
@@ -801,19 +1012,32 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
               type="button"
               onPointerDown={(event) => {
                 event.preventDefault()
-                if (!disabled && hasTextToSend && !hasPendingUploads) {
+                if (!disabled && hasTextToSend && !hasBlockingUploadsInFlight()) {
                   void handleSubmit()
                 } else if (canCancel) {
                   onCancel?.()
-                } else if (!disabled && canSubmit && !hasPendingUploads) {
+                } else if (!disabled && canSubmit && !hasBlockingUploadsInFlight()) {
                   void handleSubmit()
                 }
               }}
-              disabled={disabled || (!canCancel && !canSubmit) || hasPendingUploads}
+              disabled={disabled || (!canCancel && !canSubmit) || hasBlockingUploads}
+              aria-label={
+                hasPendingUploads
+                  ? "Uploading attachments"
+                  : hasFailedUploads
+                    ? "An attachment upload failed. Remove the failed attachment before sending."
+                    : hasTextToSend || !canCancel
+                      ? "Send message"
+                      : "Stop generating"
+              }
               size="icon"
               className="flex-shrink-0 bg-slate-600 text-white dark:bg-white dark:text-slate-900 rounded-full cursor-pointer h-10 w-10 md:h-11 md:w-11 mb-1 -mr-0.5 md:mr-0 md:mb-1.5 touch-manipulation disabled:bg-white/60 disabled:text-slate-700"
             >
-              {hasTextToSend ? (
+              {hasPendingUploads ? (
+                <CircleDashed aria-hidden="true" className="h-5 w-5 animate-spin motion-reduce:animate-none md:h-6 md:w-6" />
+              ) : hasFailedUploads ? (
+                <CircleAlert aria-hidden="true" className="h-5 w-5 md:h-6 md:w-6" />
+              ) : hasTextToSend ? (
                 <ArrowUp className="h-5 w-5 md:h-6 md:w-6" />
               ) : canCancel ? (
                 <div className="w-3 h-3 md:w-4 md:h-4 rounded-xs bg-current" />
@@ -823,12 +1047,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </Button>
           </div>
         </div>
-
-        {uploadError ? (
-          <div className="max-w-[840px] mx-auto mt-2 px-1 text-sm text-destructive">
-            {uploadError}
-          </div>
-        ) : null}
       </div>
 
       <div className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
