@@ -29,9 +29,9 @@ describe("shouldRedirectToChangelog", () => {
 })
 
 describe("getAppPageTitle", () => {
-  test("separates the current machine from the Still On wordmark with a comma", () => {
-    expect(getAppPageTitle("Office Mac")).toBe("Office Mac, Still On")
-    expect(getAppPageTitle("Office Mac", 2)).toBe("[2] Office Mac, Still On")
+  test("places the Still On wordmark before the current machine name", () => {
+    expect(getAppPageTitle("Office Mac")).toBe("Still On Office Mac")
+    expect(getAppPageTitle("Office Mac", 2)).toBe("[2] Still On Office Mac")
     expect(getAppPageTitle(null)).toBe("Still On")
   })
 })
