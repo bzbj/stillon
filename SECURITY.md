@@ -30,6 +30,6 @@ Passwords passed as command-line arguments can appear in shell history or local 
 - State-changing authentication requests and WebSocket upgrades validate their origin.
 - Failed password attempts are rate limited.
 - Browser preview proxying strips StillOn cookies, authorization data, forwarding metadata, and upstream Set-Cookie headers.
-- New analytics installations are disabled unless explicitly enabled, and no analytics endpoint is configured by default.
+- StillOn does not collect or transmit product analytics.
 
 The detailed threat model and remaining release work are in [docs/public-release-readiness.md](docs/public-release-readiness.md).

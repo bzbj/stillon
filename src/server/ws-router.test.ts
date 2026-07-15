@@ -76,7 +76,6 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 }
 
 const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
-  analyticsEnabled: true,
   browserSettingsMigrated: false,
   machineName: "Local Machine",
   theme: "system",
@@ -508,84 +507,6 @@ describe("ws-router", () => {
     ])
   })
 
-  test("reads and writes app settings via commands", async () => {
-    const writes: Array<{ analyticsEnabled: boolean }> = []
-    let analyticsEnabled = DEFAULT_APP_SETTINGS_SNAPSHOT.analyticsEnabled
-    const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      appSettings: {
-        getSnapshot: () => ({
-          ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled,
-        }),
-        write: async (value) => {
-          writes.push(value)
-          analyticsEnabled = value.analyticsEnabled
-          return {
-            ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-            analyticsEnabled: value.analyticsEnabled,
-          }
-        },
-      },
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-    router.handleOpen(ws as never)
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-read-1",
-        command: { type: "settings.readAppSettings" },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-write-1",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: false,
-        },
-      })
-    )
-
-    expect(ws.sent).toEqual([
-      {
-        v: PROTOCOL_VERSION,
-        type: "ack",
-        id: "settings-read-1",
-        result: DEFAULT_APP_SETTINGS_SNAPSHOT,
-      },
-      {
-        v: PROTOCOL_VERSION,
-        type: "ack",
-        id: "settings-write-1",
-        result: {
-          ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled: false,
-        },
-      },
-    ])
-    expect(writes).toEqual([{ analyticsEnabled: false }])
-  })
-
   test("subscribes to app settings and writes patches through the router", async () => {
     let snapshot: AppSettingsSnapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
     let listener: ((nextSnapshot: AppSettingsSnapshot) => void) | null = null
@@ -602,14 +523,9 @@ describe("ws-router", () => {
       } as never,
       appSettings: {
         getSnapshot: () => snapshot,
-        write: async (value) => {
-          snapshot = { ...snapshot, analyticsEnabled: value.analyticsEnabled }
-          return snapshot
-        },
         writePatch: async (patch) => {
           snapshot = {
             ...snapshot,
-            analyticsEnabled: patch.analyticsEnabled ?? snapshot.analyticsEnabled,
             browserSettingsMigrated: patch.browserSettingsMigrated ?? snapshot.browserSettingsMigrated,
             theme: patch.theme ?? snapshot.theme,
             chatSoundPreference: patch.chatSoundPreference ?? snapshot.chatSoundPreference,
@@ -719,7 +635,6 @@ describe("ws-router", () => {
       } as never,
       appSettings: {
         getSnapshot: () => snapshot,
-        write: async () => snapshot,
         onChange: (nextListener) => {
           listener = nextListener
           return () => {
@@ -754,176 +669,6 @@ describe("ws-router", () => {
         },
       },
     })
-  })
-
-  test("tracks analytics preference transitions in the correct order", async () => {
-    const analyticsEvents: string[] = []
-    let analyticsEnabled = true
-    const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      appSettings: {
-        getSnapshot: () => ({
-          ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled,
-        }),
-        write: async (value) => {
-          analyticsEnabled = value.analyticsEnabled
-          return {
-            ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-            analyticsEnabled: value.analyticsEnabled,
-          }
-        },
-      },
-      analytics: {
-        track: (eventName: string) => {
-          analyticsEvents.push(eventName)
-        },
-        trackLaunch: () => {},
-      },
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-disable-1",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: false,
-        },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-enable-1",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: true,
-        },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-enable-2",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: true,
-        },
-      })
-    )
-
-    expect(analyticsEvents).toEqual([
-      "analytics_disabled",
-      "analytics_enabled",
-    ])
-  })
-
-  test("tracks project lifecycle analytics", async () => {
-    const analyticsEvents: string[] = []
-    const state = createEmptyState()
-    const projectPath = await mkdtemp(path.join(tmpdir(), "kanna-router-project-"))
-
-    try {
-      const router = createWsRouter({
-        store: {
-          state,
-          openProject: async (localPath: string, title?: string) => {
-            const project = {
-              id: "project-1",
-              localPath,
-              title: title ?? "Project",
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              deletedAt: null,
-            }
-            state.projectsById.set(project.id, project as never)
-            state.projectIdsByPath.set(localPath, project.id)
-            return project
-          },
-          getProject: () => ({
-            id: "project-1",
-            localPath: projectPath,
-          }),
-          listChatsByProject: () => [{ id: "chat-1" }, { id: "chat-2" }],
-          removeProject: async () => {},
-        } as never,
-        agent: {
-          cancel: async () => {},
-          closeChat: async () => {},
-          getActiveStatuses: () => new Map(),
-          getDrainingChatIds: () => new Set(),
-        } as never,
-        analytics: {
-          track: (eventName: string) => {
-            analyticsEvents.push(eventName)
-          },
-          trackLaunch: () => {},
-        },
-        terminals: {
-          closeByCwd: () => {},
-          getSnapshot: () => null,
-          onEvent: () => () => {},
-        } as never,
-        keybindings: {
-          getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-          onChange: () => () => {},
-        } as never,
-        refreshDiscovery: async () => [],
-        getDiscoveredProjects: () => [],
-        machineDisplayName: "Local Machine",
-      })
-      const ws = new FakeWebSocket()
-
-      await router.handleMessage(
-        ws as never,
-        JSON.stringify({
-          v: 1,
-          type: "command",
-          id: "project-create-1",
-          command: { type: "project.create", localPath: projectPath, title: "Project" },
-        })
-      )
-
-      await router.handleMessage(
-        ws as never,
-        JSON.stringify({
-          v: 1,
-          type: "command",
-          id: "project-remove-1",
-          command: { type: "project.remove", projectId: "project-1" },
-        })
-      )
-
-      expect(analyticsEvents).toEqual([
-        "project_opened",
-        "project_created",
-        "project_removed",
-      ])
-    } finally {
-      await rm(projectPath, { recursive: true, force: true })
-    }
   })
 
   test("acks terminal.input without rebroadcasting terminal snapshots", async () => {
