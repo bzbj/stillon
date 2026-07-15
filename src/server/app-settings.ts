@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { watch, type FSWatcher } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -35,8 +34,6 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
-  analyticsEnabled?: unknown
-  analyticsUserId?: unknown
   browserSettingsMigrated?: unknown
   machineName?: unknown
   theme?: unknown
@@ -57,9 +54,7 @@ interface AppSettingsFile {
   }
 }
 
-interface AppSettingsState extends AppSettingsSnapshot {
-  analyticsUserId: string
-}
+type AppSettingsState = AppSettingsSnapshot
 
 interface NormalizedAppSettings {
   payload: AppSettingsState
@@ -89,10 +84,6 @@ function formatDisplayPath(filePath: string) {
     return `~${filePath.slice(homePath.length)}`
   }
   return filePath
-}
-
-function createAnalyticsUserId() {
-  return `anon_${randomUUID()}`
 }
 
 function getDefaultEditorCommandTemplate(preset: EditorPreset) {
@@ -231,8 +222,6 @@ function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | 
 
 function toFilePayload(state: AppSettingsState) {
   return {
-    analyticsEnabled: state.analyticsEnabled,
-    analyticsUserId: state.analyticsUserId,
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
@@ -247,7 +236,6 @@ function toFilePayload(state: AppSettingsState) {
 
 function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
   return {
-    analyticsEnabled: state.analyticsEnabled,
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
@@ -276,27 +264,15 @@ function normalizeAppSettings(
     warnings.push("Settings file must contain a JSON object")
   }
 
-  const analyticsEnabled = typeof source?.analyticsEnabled === "boolean" ? source.analyticsEnabled : false
-  if (source?.analyticsEnabled !== undefined && typeof source.analyticsEnabled !== "boolean") {
-    warnings.push("analyticsEnabled must be a boolean")
-  }
-
-  const rawAnalyticsUserId = typeof source?.analyticsUserId === "string" ? source.analyticsUserId.trim() : ""
-  if (source?.analyticsUserId !== undefined && typeof source.analyticsUserId !== "string") {
-    warnings.push("analyticsUserId must be a string")
-  }
-  const analyticsUserId = rawAnalyticsUserId || createAnalyticsUserId()
-  if (!rawAnalyticsUserId && source?.analyticsUserId !== undefined) {
-    warnings.push("analyticsUserId must be a non-empty string")
-  }
+  const hasLegacyAnalyticsSettings = Boolean(
+    source && ("analyticsEnabled" in source || "analyticsUserId" in source)
+  )
 
   const editorPreset = normalizeEditorPreset(source?.editor?.preset)
   const machineName = normalizeMachineName(source?.machineName)
     ?? normalizeMachineName(defaultMachineName)
     ?? "This Machine"
   const state: AppSettingsState = {
-    analyticsEnabled,
-    analyticsUserId,
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     machineName,
     theme: normalizeTheme(source?.theme),
@@ -316,7 +292,8 @@ function normalizeAppSettings(
     filePathDisplay: formatDisplayPath(filePath),
   }
 
-  const shouldWrite = JSON.stringify(source ? toComparablePayload(source) : null) !== JSON.stringify(toFilePayload(state))
+  const shouldWrite = hasLegacyAnalyticsSettings
+    || JSON.stringify(source ? toComparablePayload(source) : null) !== JSON.stringify(toFilePayload(state))
   state.warning = warnings.length > 0
     ? `Some settings were reset to defaults: ${warnings.join("; ")}`
     : null
@@ -330,8 +307,6 @@ function normalizeAppSettings(
 
 function toComparablePayload(source: AppSettingsFile) {
   return {
-    analyticsEnabled: source.analyticsEnabled,
-    analyticsUserId: typeof source.analyticsUserId === "string" ? source.analyticsUserId.trim() : source.analyticsUserId,
     browserSettingsMigrated: source.browserSettingsMigrated,
     machineName: source.machineName,
     theme: source.theme,
@@ -436,10 +411,6 @@ export class AppSettingsManager {
     return toSnapshot(this.state)
   }
 
-  getState() {
-    return this.state
-  }
-
   onChange(listener: (snapshot: AppSettingsSnapshot) => void) {
     this.listeners.add(listener)
     return () => {
@@ -450,10 +421,6 @@ export class AppSettingsManager {
   async reload(options?: { persistNormalized?: boolean }) {
     const nextState = await this.readState(options)
     this.setState(nextState)
-  }
-
-  async write(value: { analyticsEnabled: boolean }) {
-    return this.writePatch({ analyticsEnabled: value.analyticsEnabled })
   }
 
   async writePatch(patch: AppSettingsPatch) {

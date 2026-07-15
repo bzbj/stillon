@@ -28,7 +28,6 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
 import { APP_NAME, getKeybindingsFilePathDisplay, SDK_CLIENT_APP } from "../../shared/branding"
-import { ANALYTICS_STATIC_EVENT_NAMES, ANALYTICS_STATIC_PROPERTY_NAMES } from "../../shared/analytics"
 import {
   DEFAULT_KEYBINDINGS,
   DEFAULT_OPENAI_SDK_MODEL,
@@ -146,11 +145,6 @@ const chatSoundPreferenceOptions: { value: ChatSoundPreference; label: string }[
   { value: "never", label: "Never" },
   { value: "unfocused", label: "When Unfocused" },
   { value: "always", label: "Always" },
-]
-
-const analyticsOptions = [
-  { value: "disabled" as const, label: "Off" },
-  { value: "enabled" as const, label: "On" },
 ]
 
 const QUICK_RESPONSE_PROVIDER_OPTIONS: Array<{ value: LlmProviderKind; label: string }> = [
@@ -1701,7 +1695,6 @@ export function SettingsPage() {
   const [subscriptionUsage, setSubscriptionUsage] = useState<SubscriptionUsageSnapshot | null>(null)
   const [subscriptionUsageStatus, setSubscriptionUsageStatus] = useState<SubscriptionUsageLoadStatus>("idle")
   const [subscriptionUsageError, setSubscriptionUsageError] = useState<string | null>(null)
-  const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false)
   const [llmProviderDraft, setLlmProviderDraft] = useState({
     provider: "openai" as LlmProviderKind,
     apiKey: "",
@@ -1994,15 +1987,6 @@ export function SettingsPage() {
     void playChatNotificationSound(nextValue, 1).catch(() => undefined)
   }
 
-  async function handleAnalyticsPreferenceChange(nextValue: "enabled" | "disabled") {
-    try {
-      setAppSettingsError(null)
-      await handleWriteAppSettings({ analyticsEnabled: nextValue === "enabled" })
-    } catch (error) {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save analytics settings.")
-    }
-  }
-
   function handleDefaultProviderChange(nextValue: "last_used" | AgentProvider) {
     setDefaultProvider(nextValue)
     void handleWriteAppSettings({ defaultProvider: nextValue }).catch((error) => {
@@ -2134,8 +2118,6 @@ export function SettingsPage() {
     .replaceAll("{path}", customEditorPreviewPath)
     .replaceAll("{line}", "12")
     .replaceAll("{column}", "1")
-  const analyticsDisclosureEvents = ANALYTICS_STATIC_EVENT_NAMES
-  const analyticsSettingValue = appSettings?.analyticsEnabled === false ? "disabled" : "enabled"
   const selectedSection = sidebarItems.find((item) => item.id === selectedPage) ?? sidebarItems[0]
   const selectedSectionSubtitle =
     selectedPage === "keybindings"
@@ -2348,6 +2330,11 @@ export function SettingsPage() {
                     {appSettingsError ? (
                       <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                         {appSettingsError}
+                      </div>
+                    ) : null}
+                    {appSettings?.warning ? (
+                      <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                        {appSettings.warning}
                       </div>
                     ) : null}
                     <div className="border-b border-border">
@@ -2582,39 +2569,6 @@ export function SettingsPage() {
                         </div>
                       </SettingsRow>
 
-                      <SettingsRow
-                        title="Anonymous Analytics"
-                        description={(
-                          <>
-                            <span>
-                              Help improve {APP_NAME} with anonymous product analytics. {APP_NAME} sends tracked event names plus a small set of event properties like current version, environment, and launch flags. No message content, prompts, file paths, or provider credentials are sent.
-                            </span>
-                            <span className="mt-1 block">
-                              Stored in {appSettings?.filePathDisplay ?? "~/.stillon/data/settings.json"}.
-                              {" "}
-                              <button
-                                type="button"
-                                onClick={() => setAnalyticsDialogOpen(true)}
-                                className="underline underline-offset-2 text-foreground hover:text-foreground/80"
-                              >
-                                View tracked events
-                              </button>
-                            </span>
-                            {appSettings?.warning ? (
-                              <span className="mt-1 block">{appSettings.warning}</span>
-                            ) : null}
-                          </>
-                        )}
-                      >
-                        <SegmentedControl
-                          value={analyticsSettingValue}
-                          onValueChange={(value) => {
-                            void handleAnalyticsPreferenceChange(value)
-                          }}
-                          options={analyticsOptions}
-                          size="sm"
-                        />
-                      </SettingsRow>
                     </div>
                   </>
                 ) : selectedPage === "providers" ? (
@@ -2892,43 +2846,6 @@ export function SettingsPage() {
           </div>
         </div>
       ) : null}
-      <Dialog open={analyticsDialogOpen} onOpenChange={setAnalyticsDialogOpen}>
-        <DialogContent size="lg">
-          <DialogBody className="space-y-4">
-            <DialogTitle>Tracked Events</DialogTitle>
-            <div className="text-sm text-muted-foreground">
-              {APP_NAME} sends these event names plus the limited property keys below, depending on the event type.
-            </div>
-            <div className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-muted/40 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Event Names
-              </div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {analyticsDisclosureEvents.map((eventName) => (
-                  <li key={eventName} className="font-mono text-foreground">
-                    {eventName}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Property Keys
-              </div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {ANALYTICS_STATIC_PROPERTY_NAMES.map((propertyName) => (
-                  <li key={propertyName} className="font-mono text-foreground">
-                    {propertyName}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" size="sm" onClick={() => setAnalyticsDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <Dialog open={llmValidationDialogOpen} onOpenChange={setLlmValidationDialogOpen}>
         <DialogContent size="lg">
           <DialogBody className="space-y-4">

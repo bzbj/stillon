@@ -25,7 +25,6 @@ function expectedDisplayPath(filePath: string) {
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
-    analyticsEnabled: false,
     browserSettingsMigrated: false,
     machineName: "This Machine",
     theme: "system",
@@ -79,60 +78,49 @@ describe("readAppSettingsSnapshot", () => {
     await writeFile(filePath, "{not-json", "utf8")
 
     const snapshot = await readAppSettingsSnapshot(filePath)
-    expect(snapshot.analyticsEnabled).toBe(false)
+    expect(snapshot.browserSettingsMigrated).toBe(false)
     expect(snapshot.warning).toContain("invalid JSON")
   })
 })
 
 describe("AppSettingsManager", () => {
-  test("creates a settings file with analytics disabled and a stable anonymous id", async () => {
+  test("creates a settings file with default preferences", async () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)
 
     await manager.initialize()
 
-    const payload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
-    expect(payload.analyticsEnabled).toBe(false)
-    expect(payload.analyticsUserId).toMatch(/^anon_/)
+    const payload = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>
+    expect(payload).not.toHaveProperty("analyticsEnabled")
+    expect(payload).not.toHaveProperty("analyticsUserId")
     expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
 
     manager.dispose()
   })
 
-  test("writes analyticsEnabled without replacing the stored user id", async () => {
+  test("removes legacy analytics preferences and anonymous IDs", async () => {
     const filePath = await createTempFilePath()
+    await writeFile(filePath, JSON.stringify({
+      analyticsEnabled: true,
+      analyticsUserId: "anon_legacy",
+    }), "utf8")
     const manager = new AppSettingsManager(filePath)
 
     await manager.initialize()
-    const initialPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
+    const payload = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>
 
-    const snapshot = await manager.write({ analyticsEnabled: false })
-    const nextPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
-
-    expect(snapshot).toEqual(expectedSettingsSnapshot(filePath, { analyticsEnabled: false }))
-    expect(nextPayload.analyticsEnabled).toBe(false)
-    expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
+    expect(payload).not.toHaveProperty("analyticsEnabled")
+    expect(payload).not.toHaveProperty("analyticsUserId")
+    expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
 
     manager.dispose()
   })
 
-  test("patches expanded settings without replacing the stored user id", async () => {
+  test("patches expanded settings", async () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)
 
     await manager.initialize()
-    const initialPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsUserId: string
-    }
 
     const snapshot = await manager.writePatch({
       theme: "dark",
@@ -146,7 +134,6 @@ describe("AppSettingsManager", () => {
       },
     })
     const nextPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsUserId: string
       theme: string
       chatSoundId: string
       terminal: { scrollbackLines: number; minColumnWidth: number }
@@ -161,7 +148,6 @@ describe("AppSettingsManager", () => {
     expect(snapshot.editor.preset).toBe("vscode")
     expect(snapshot.editor.commandTemplate).toBe("cursor {path}")
     expect(snapshot.providerDefaults.codex.modelOptions.fastMode).toBe(true)
-    expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
 

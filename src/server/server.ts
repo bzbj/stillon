@@ -1,12 +1,11 @@
 import path from "node:path"
 import { stat } from "node:fs/promises"
-import { APP_NAME, APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
+import { APP_NAME, LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
-import { StillOnAnalyticsReporter } from "./analytics"
 import { AppSettingsManager } from "./app-settings"
 import { DiffStore } from "./diff-store"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
@@ -81,7 +80,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const port = options.port ?? 3210
   const hostname = options.host ?? "127.0.0.1"
   const strictPort = options.strictPort ?? false
-  const runtimeProfile = getRuntimeProfile()
   const auth = options.password ? createAuthManager(options.password, { trustProxy: options.trustProxy ?? false }) : null
   if (!options.dataDir) {
     const migration = await migrateLegacyBrandDataRoot()
@@ -113,14 +111,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   })
   await appSettings.initialize()
   await keybindings.initialize()
-  const analytics = new StillOnAnalyticsReporter({
-    settings: appSettings,
-    currentVersion: APP_VERSION,
-    environment: runtimeProfile === "dev" ? "dev" : "prod",
-  })
   const agent = new AgentCoordinator({
     store,
-    analytics,
     onStateChange: (chatId?: string, options?: { immediate?: boolean }) => {
       if (chatId) {
         if (options?.immediate) {
@@ -141,7 +133,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     terminals,
     keybindings,
     appSettings,
-    analytics,
     llmProvider: {
       read: readLlmProviderSnapshot,
       write: writeLlmProviderSnapshot,
@@ -294,14 +285,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       actualPort++
     }
   }
-
-  analytics.trackLaunch({
-    port: actualPort,
-    host: hostname,
-    openBrowser: options.openBrowser ?? true,
-    password: options.password ?? null,
-    strictPort,
-  })
 
   const shutdown = async () => {
     clearInterval(staleEmptyChatPruneInterval)

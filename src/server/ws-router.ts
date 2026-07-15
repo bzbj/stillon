@@ -6,8 +6,6 @@ import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissi
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
-import type { AnalyticsReporter } from "./analytics"
-import { NoopAnalyticsReporter } from "./analytics"
 import type { AppSettingsManager } from "./app-settings"
 import type { DiscoveredProject } from "./discovery"
 import { DiffStore } from "./diff-store"
@@ -16,7 +14,7 @@ import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { listLocalDirectories } from "./local-directories"
 import { killLocalHttpServer, listLocalHttpServers } from "./local-http-servers"
-import { ensureProjectDirectory, resolveLocalPath } from "./paths"
+import { ensureProjectDirectory } from "./paths"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
@@ -118,8 +116,7 @@ interface CreateWsRouterArgs {
   agent: AgentCoordinator
   terminals: TerminalManager
   keybindings: KeybindingsManager
-  appSettings?: Pick<AppSettingsManager, "getSnapshot" | "write"> & Partial<Pick<AppSettingsManager, "writePatch" | "onChange">>
-  analytics?: AnalyticsReporter
+  appSettings?: Pick<AppSettingsManager, "getSnapshot"> & Partial<Pick<AppSettingsManager, "writePatch" | "onChange">>
   llmProvider?: {
     read: () => Promise<LlmProviderSnapshot>
     write: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<LlmProviderSnapshot>
@@ -378,7 +375,6 @@ export function createWsRouter({
   terminals,
   keybindings,
   appSettings,
-  analytics,
   llmProvider,
   subscriptionUsage,
   refreshDiscovery,
@@ -453,7 +449,6 @@ export function createWsRouter({
     read: readSubscriptionUsageSnapshot,
   }
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {
-    analyticsEnabled: true,
     browserSettingsMigrated: false,
     machineName: "This Machine",
     theme: "system",
@@ -529,22 +524,13 @@ export function createWsRouter({
   })
   const resolvedAppSettings = {
     getSnapshot: () => appSettings?.getSnapshot() ?? fallbackAppSettingsSnapshot,
-    write: async (value: { analyticsEnabled: boolean }) => {
-      if (appSettings) return await appSettings.write(value)
-      fallbackAppSettingsSnapshot = { ...fallbackAppSettingsSnapshot, analyticsEnabled: value.analyticsEnabled }
-      return fallbackAppSettingsSnapshot
-    },
     writePatch: async (patch: AppSettingsPatch) => {
       if (appSettings?.writePatch) return await appSettings.writePatch(patch)
-      if (appSettings && patch.analyticsEnabled !== undefined && Object.keys(patch).length === 1) {
-        return await appSettings.write({ analyticsEnabled: patch.analyticsEnabled })
-      }
       fallbackAppSettingsSnapshot = mergeAppSettingsPatch(appSettings?.getSnapshot() ?? fallbackAppSettingsSnapshot, patch)
       return fallbackAppSettingsSnapshot
     },
     onChange: (listener: (snapshot: AppSettingsSnapshot) => void) => appSettings?.onChange?.(listener) ?? (() => {}),
   }
-  const resolvedAnalytics = analytics ?? NoopAnalyticsReporter
 
   function getProtectedChatIds() {
     const activeStatuses = agent.getActiveStatuses()
@@ -1063,28 +1049,9 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: resolvedAppSettings.getSnapshot() })
           return
         }
-        case "settings.writeAppSettings": {
-          const previousAnalyticsEnabled = resolvedAppSettings.getSnapshot().analyticsEnabled
-          if (previousAnalyticsEnabled && !command.analyticsEnabled) {
-            resolvedAnalytics.track("analytics_disabled")
-          }
-          const snapshot = await resolvedAppSettings.write({ analyticsEnabled: command.analyticsEnabled })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
-          if (!previousAnalyticsEnabled && command.analyticsEnabled) {
-            resolvedAnalytics.track("analytics_enabled")
-          }
-          return
-        }
         case "settings.writeAppSettingsPatch": {
-          const previousAnalyticsEnabled = resolvedAppSettings.getSnapshot().analyticsEnabled
           const snapshot = await resolvedAppSettings.writePatch(command.patch)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
-          if (command.patch.analyticsEnabled !== undefined && previousAnalyticsEnabled && !snapshot.analyticsEnabled) {
-            resolvedAnalytics.track("analytics_disabled")
-          }
-          if (command.patch.analyticsEnabled !== undefined && !previousAnalyticsEnabled && snapshot.analyticsEnabled) {
-            resolvedAnalytics.track("analytics_enabled")
-          }
           return
         }
         case "settings.readLlmProvider": {
@@ -1137,27 +1104,16 @@ export function createWsRouter({
         }
         case "project.open": {
           await ensureProjectDirectory(command.localPath)
-          const normalizedPath = resolveLocalPath(command.localPath)
-          const existingProjectId = store.state.projectIdsByPath.get(normalizedPath)
           const project = await store.openProject(command.localPath)
           await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
-          if (!existingProjectId) {
-            resolvedAnalytics.track("project_opened")
-          }
           break
         }
         case "project.create": {
           await ensureProjectDirectory(command.localPath)
-          const normalizedPath = resolveLocalPath(command.localPath)
-          const existingProjectId = store.state.projectIdsByPath.get(normalizedPath)
           const project = await store.openProject(command.localPath, command.title)
           await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
-          if (!existingProjectId) {
-            resolvedAnalytics.track("project_opened")
-            resolvedAnalytics.track("project_created")
-          }
           break
         }
         case "project.rename": {
@@ -1169,7 +1125,6 @@ export function createWsRouter({
         case "project.remove": {
           await store.removeProject(command.projectId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          resolvedAnalytics.track("project_removed")
           break
         }
         case "sidebar.reorderProjectGroups": {
@@ -1198,7 +1153,6 @@ export function createWsRouter({
         case "chat.create": {
           const chat = await store.createChat(command.projectId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { chatId: chat.id } })
-          resolvedAnalytics.track("chat_created")
           await broadcastChatAndSidebar(chat.id)
           return
         }
@@ -1231,7 +1185,6 @@ export function createWsRouter({
           await agent.closeChat(command.chatId)
           await store.deleteChat(command.chatId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          resolvedAnalytics.track("chat_deleted")
           await broadcastFilteredSnapshots({ includeSidebar: true })
           return
         }
