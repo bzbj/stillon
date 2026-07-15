@@ -9,6 +9,7 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react"
+import { defaultUrlTransform, type UrlTransform } from "react-markdown"
 import { Button } from "../ui/button"
 import {
   ArrowDownToLine,
@@ -45,6 +46,14 @@ export type OpenLocalLinkTarget = {
 }
 type OpenLocalLinkHandler = (target: OpenLocalLinkTarget) => void
 type ResolveLocalLinkHandler = (href: string | undefined | null) => ParsedLocalFileLink | null
+
+const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^[a-z]:[\\/]/i
+
+export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => (
+  key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(url)
+    ? url
+    : defaultUrlTransform(url)
+)
 
 const defaultOpenLocalLink: OpenLocalLinkHandler = () => {}
 

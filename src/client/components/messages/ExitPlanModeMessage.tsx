@@ -4,7 +4,7 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ProcessedToolCall } from "./types"
 import { Button } from "../ui/button"
-import { createMarkdownComponents } from "./shared"
+import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { cn } from "../../lib/utils"
 import { useTranscriptRenderOptions } from "./render-context"
 
@@ -74,7 +74,11 @@ export function ExitPlanModeMessage({ message, onConfirm, isLatest }: Props) {
           )}
           {input?.plan ? (
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <Markdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                components={createMarkdownComponents()}
+                urlTransform={localFileMarkdownUrlTransform}
+              >
                 {input.plan}
               </Markdown>
               <div className="mt-5" />
