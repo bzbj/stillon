@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog"
-import { createMarkdownComponents } from "./shared"
+import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { FileContentView } from "./FileContentView"
 import {
   TABLE_PREVIEW_COLUMN_LIMIT,
@@ -221,7 +221,11 @@ function renderAttachmentPreviewBody(
       <div className="space-y-3">
         {previewState.truncated ? <PreviewNotice message="Preview truncated to 1024 KB." /> : null}
         <div className="prose prose-sm max-w-none overflow-auto rounded-xl border border-border bg-background p-4 prose-invert">
-          <Markdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            components={createMarkdownComponents()}
+            urlTransform={localFileMarkdownUrlTransform}
+          >
             {previewState.content}
           </Markdown>
         </div>

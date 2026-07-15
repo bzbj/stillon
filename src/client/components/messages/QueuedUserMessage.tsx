@@ -2,7 +2,7 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { QueuedChatMessage } from "../../../shared/types"
 import { Button } from "../ui/button"
-import { createMarkdownComponents } from "./shared"
+import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { ArrowUp, X } from "lucide-react"
 
 interface QueuedUserMessageProps {
@@ -33,7 +33,13 @@ export function QueuedUserMessage({ message, onRemove, onSendNow }: QueuedUserMe
 
               <div className="grid grid-cols-[1fr_auto] items-end gap-2.5 rounded-[20px] border border-dashed border-border bg-transparent pl-3.5 pr-1.5 py-1.5 prose prose-sm prose-invert text-left text-primary [&_p]:whitespace-pre-line">
                 <div>
-                <Markdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>{message.content}</Markdown>
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={createMarkdownComponents()}
+                  urlTransform={localFileMarkdownUrlTransform}
+                >
+                  {message.content}
+                </Markdown>
                 </div>
                   <Button
                   type="button"

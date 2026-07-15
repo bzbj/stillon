@@ -14,7 +14,7 @@ import {
   isProjectMarkdownPreviewPath,
 } from "../../../shared/project-file-urls"
 import { cn } from "../../lib/utils"
-import { createMarkdownComponents } from "../messages/shared"
+import { createMarkdownComponents, localFileMarkdownUrlTransform } from "../messages/shared"
 import { TEXT_PREVIEW_LIMIT_BYTES, fetchTextPreview } from "../messages/attachmentPreview"
 
 type MarkdownPreviewState =
@@ -158,7 +158,11 @@ export function MarkdownPreviewPanel({
                 </div>
               ) : null}
               <article className="prose prose-sm max-w-none text-foreground dark:prose-invert">
-                <Markdown remarkPlugins={[remarkGfm]} components={components}>
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={components}
+                  urlTransform={localFileMarkdownUrlTransform}
+                >
                   {previewState.content}
                 </Markdown>
               </article>
