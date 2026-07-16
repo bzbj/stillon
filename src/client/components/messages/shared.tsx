@@ -49,11 +49,12 @@ type ResolveLocalLinkHandler = (href: string | undefined | null) => ParsedLocalF
 
 const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^[a-z]:[\\/]/i
 
-export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => (
-  key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(url)
-    ? url
+export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => {
+  const normalizedUrl = key === "href" ? url.replace(/%5c/gi, "/") : url
+  return key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(normalizedUrl)
+    ? normalizedUrl
     : defaultUrlTransform(url)
-)
+}
 
 const defaultOpenLocalLink: OpenLocalLinkHandler = () => {}
 

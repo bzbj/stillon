@@ -23,6 +23,27 @@ describe("TextMessage", () => {
     expect(html).not.toContain('target="_blank"')
   })
 
+  test("normalizes encoded Windows backslashes before local preview handling", () => {
+    const filePath = String.raw`C:\Users\iamppr\Documents\Personal\Talent\outputs\2d-character-gallery\index.html`
+    const normalizedPath = filePath.replaceAll("\\", "/")
+    const html = renderToStaticMarkup(
+      <OpenLocalLinkProvider onOpenLocalLink={() => {}}>
+        <TextMessage
+          message={{
+            id: "assistant-1",
+            kind: "assistant_text",
+            text: `[二维人物插画集 index.html](${filePath})`,
+            timestamp: new Date().toISOString(),
+          }}
+        />
+      </OpenLocalLinkProvider>
+    )
+
+    expect(html).toContain(`href="${normalizedPath}"`)
+    expect(html).not.toContain('href=""')
+    expect(html).not.toContain('target="_blank"')
+  })
+
   test("continues to sanitize unsafe non-file protocols", () => {
     const html = renderToStaticMarkup(
       <TextMessage
