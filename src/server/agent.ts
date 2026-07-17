@@ -27,7 +27,6 @@ import {
   applyClaudeSdkModels,
   type ClaudeSdkModelInfo,
   codexServiceTierFromModelOptions,
-  getServerProviderCatalog,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
   normalizeServerModel,
@@ -185,7 +184,6 @@ interface SendMessageOptions {
   model?: string
   modelOptions?: ModelOptions
   effort?: string
-  planMode?: boolean
   permissionMode?: AgentPermissionMode
 }
 
@@ -814,7 +812,6 @@ export class AgentCoordinator {
   }
 
   private getProviderSettings(provider: AgentProvider, options: SendMessageOptions) {
-    const catalog = getServerProviderCatalog(provider)
     if (provider === "claude") {
       const model = normalizeServerModel(provider, options.model)
       const modelOptions = normalizeClaudeModelOptions(model, options.modelOptions, options.effort)
@@ -822,7 +819,7 @@ export class AgentCoordinator {
         model: resolveClaudeApiModelId(model, modelOptions.contextWindow),
         effort: modelOptions.reasoningEffort,
         serviceTier: undefined,
-        planMode: catalog.supportsPlanMode ? Boolean(options.planMode) : false,
+        planMode: false,
         permissionMode: normalizeClaudePermissionMode(options.permissionMode),
       }
     }
@@ -833,7 +830,7 @@ export class AgentCoordinator {
       model,
       effort: modelOptions.reasoningEffort,
       serviceTier: codexServiceTierFromModelOptions(modelOptions),
-      planMode: catalog.supportsPlanMode ? Boolean(options.planMode) : false,
+      planMode: false,
       permissionMode: normalizeCodexPermissionMode(options.permissionMode),
     }
   }
@@ -845,7 +842,6 @@ export class AgentCoordinator {
       provider: options?.provider,
       model: options?.model,
       modelOptions: options?.modelOptions,
-      planMode: options?.planMode,
       permissionMode: options?.permissionMode,
     })
     this.emitStateChange(chatId)
@@ -1221,7 +1217,6 @@ export class AgentCoordinator {
         model: command.model,
         modelOptions: command.modelOptions,
         effort: command.effort,
-        planMode: command.planMode,
         permissionMode: command.permissionMode,
       })
       return { chatId, queuedMessageId: queuedMessage.id, queued: true as const }
@@ -1257,7 +1252,7 @@ export class AgentCoordinator {
       provider: command.provider,
       model: command.model,
       modelOptions: command.modelOptions,
-      planMode: command.planMode,
+      permissionMode: command.permissionMode,
     })
     return { queuedMessageId: queuedMessage.id }
   }

@@ -125,7 +125,6 @@ describe("read models", () => {
       createdAt: 2,
       provider: "claude",
       model: "claude-sonnet-4-6",
-      planMode: true,
     }])
 
     const chat = deriveChatSnapshot(

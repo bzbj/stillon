@@ -175,14 +175,12 @@ describe("EventStore", () => {
       attachments: [],
       provider: "codex",
       model: "gpt-5.4",
-      planMode: false,
     })
     const second = await store.enqueueMessage(chat.id, {
       content: "second queued",
       attachments: [],
       provider: "claude",
       model: "claude-sonnet-4-6",
-      planMode: true,
     })
 
     expect(store.getQueuedMessages(chat.id).map((message) => message.content)).toEqual([

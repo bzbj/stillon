@@ -303,7 +303,7 @@ export function getComposerUploadActivityNotice(args: {
 interface Props {
   onSubmit: (
     value: string,
-    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean; permissionMode?: ClaudePermissionMode | CodexPermissionMode; attachments?: ChatAttachment[] }
+    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: ClaudePermissionMode | CodexPermissionMode; attachments?: ChatAttachment[] }
   ) => Promise<void>
   onLayoutChange?: () => void
   onCancel?: () => void
@@ -351,14 +351,12 @@ function getEffectiveComposerState(
       provider: "claude",
       model: providerDefaults.claude.model,
       modelOptions: { ...providerDefaults.claude.modelOptions },
-      planMode: composerState.planMode,
       permissionMode: providerDefaults.claude.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE,
     }
     : {
       provider: "codex",
       model: providerDefaults.codex.model,
       modelOptions: { ...providerDefaults.codex.modelOptions },
-      planMode: composerState.planMode,
       permissionMode: providerDefaults.codex.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     }
 }
@@ -390,7 +388,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     getComposerState,
     initializeComposerForChat,
     setChatComposerModel,
-    setChatComposerPlanMode,
     setChatComposerPermissionMode,
     resetChatComposerFromProvider,
   } = useChatPreferencesStore()
@@ -416,8 +413,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const providerLocked = activeProvider !== null
   const providerPrefs = getEffectiveComposerState(composerState, activeProvider, providerDefaults)
   const selectedProvider = providerLocked ? activeProvider : composerState.provider
-  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
-  const showPlanMode = providerConfig?.supportsPlanMode ?? false
   const activeContextWindow = useMemo(() => {
     if (providerPrefs.provider !== "claude") {
       return contextWindowSnapshot
@@ -621,16 +616,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     )
   }
 
-  function setEffectivePlanMode(planMode: boolean) {
-    setChatComposerPlanMode(composerChatId, planMode)
-  }
-
   function setEffectivePermissionMode(permissionMode: ClaudePermissionMode | CodexPermissionMode) {
     setChatComposerPermissionMode(composerChatId, permissionMode)
-  }
-
-  function toggleEffectivePlanMode() {
-    setEffectivePlanMode(!providerPrefs.planMode)
   }
 
   const processUploadQueue = useCallback(() => {
@@ -760,7 +747,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       provider: selectedProvider,
       model: providerPrefs.model,
       modelOptions,
-      planMode: showPlanMode ? providerPrefs.planMode : false,
       permissionMode: providerPrefs.permissionMode,
       attachments: attachmentsForSubmit,
     }
@@ -789,12 +775,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (event.key === "Tab" && !event.shiftKey) {
       event.preventDefault()
       focusNextChatInput(textareaRef.current, document)
-      return
-    }
-
-    if (event.key === "Tab" && event.shiftKey && showPlanMode) {
-      event.preventDefault()
-      toggleEffectivePlanMode()
       return
     }
 
@@ -1090,14 +1070,11 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   break
               }
             }}
-            planMode={providerPrefs.planMode}
-            onPlanModeChange={setEffectivePlanMode}
             permissionMode={providerPrefs.permissionMode}
             onPermissionModeChange={(change) => {
               if (change.provider !== providerPrefs.provider) return
               setEffectivePermissionMode(change.permissionMode)
             }}
-            includePlanMode={showPlanMode}
             className="max-w-[840px] mx-auto"
           />
           {activeContextWindow ? (

@@ -470,7 +470,6 @@ export function createWsRouter({
           reasoningEffort: "high",
           contextWindow: "200k",
         },
-        planMode: false,
         permissionMode: "acceptEdits",
       },
       codex: {
@@ -479,7 +478,6 @@ export function createWsRouter({
           reasoningEffort: "xhigh",
           fastMode: true,
         },
-        planMode: false,
         permissionMode: "full",
       },
     },
