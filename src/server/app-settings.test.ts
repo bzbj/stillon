@@ -46,7 +46,6 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
           reasoningEffort: "high",
           contextWindow: "200k",
         },
-        planMode: false,
         permissionMode: "acceptEdits",
       },
       codex: {
@@ -55,7 +54,6 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
           reasoningEffort: "xhigh",
           fastMode: true,
         },
-        planMode: false,
         permissionMode: "full",
       },
     },
@@ -111,6 +109,28 @@ describe("AppSettingsManager", () => {
 
     expect(payload).not.toHaveProperty("analyticsEnabled")
     expect(payload).not.toHaveProperty("analyticsUserId")
+    expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
+
+    manager.dispose()
+  })
+
+  test("removes legacy provider plan-mode preferences", async () => {
+    const filePath = await createTempFilePath()
+    await writeFile(filePath, JSON.stringify({
+      providerDefaults: {
+        claude: { planMode: true },
+        codex: { planMode: true },
+      },
+    }), "utf8")
+    const manager = new AppSettingsManager(filePath)
+
+    await manager.initialize()
+    const payload = JSON.parse(await readFile(filePath, "utf8")) as {
+      providerDefaults: Record<string, Record<string, unknown>>
+    }
+
+    expect(payload.providerDefaults.claude).not.toHaveProperty("planMode")
+    expect(payload.providerDefaults.codex).not.toHaveProperty("planMode")
     expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
 
     manager.dispose()

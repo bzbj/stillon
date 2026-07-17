@@ -682,7 +682,6 @@ describe("AgentCoordinator codex integration", () => {
       chatId: "chat-1",
       provider: "codex",
       content: "plan this",
-      planMode: true,
     })
 
     await waitFor(() => coordinator.getPendingTool("chat-1")?.toolKind === "exit_plan_mode")
@@ -701,7 +700,7 @@ describe("AgentCoordinator codex integration", () => {
     await waitFor(() => store.turnFinishedCount === 1)
 
     expect(startTurnCalls).toEqual([
-      { content: "plan this", planMode: true },
+      { content: "plan this", planMode: false },
       { content: "Proceed with the approved plan. Additional guidance: Use the fast path", planMode: false },
     ])
     expect(sessionCalls).toEqual([
@@ -1232,7 +1231,6 @@ describe("AgentCoordinator codex integration", () => {
       chatId: "chat-1",
       provider: "codex",
       content: "plan this",
-      planMode: true,
     })
 
     await waitFor(() => coordinator.getPendingTool("chat-1")?.toolKind === "exit_plan_mode")

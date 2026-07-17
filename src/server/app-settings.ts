@@ -106,13 +106,11 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
     claude: {
       model: "claude-opus-4-8",
       modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
-      planMode: false,
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
     codex: {
       model: "gpt-5.6-sol",
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
-      planMode: false,
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     },
   }
@@ -168,7 +166,6 @@ function normalizeClaudePreference(value?: {
   model?: unknown
   effort?: unknown
   modelOptions?: Partial<Record<keyof ClaudeModelOptions, unknown>>
-  planMode?: unknown
   permissionMode?: unknown
 }): ProviderPreference<ClaudeModelOptions, ClaudePermissionMode> {
   const model = normalizeClaudeModelId(typeof value?.model === "string" ? value.model : undefined)
@@ -185,7 +182,6 @@ function normalizeClaudePreference(value?: {
       reasoningEffort: !supportsClaudeMaxReasoningEffort(model) && normalizedEffort === "max" ? "high" : normalizedEffort,
       contextWindow: normalizeClaudeContextWindow(model, value?.modelOptions?.contextWindow),
     },
-    planMode: value?.planMode === true,
     permissionMode: normalizeClaudePermissionMode(value?.permissionMode),
   }
 }
@@ -194,7 +190,6 @@ function normalizeCodexPreference(value?: {
   model?: unknown
   effort?: unknown
   modelOptions?: Partial<Record<keyof CodexModelOptions, unknown>>
-  planMode?: unknown
   permissionMode?: unknown
 }): ProviderPreference<CodexModelOptions, CodexPermissionMode> {
   const model = normalizeCodexModelId(typeof value?.model === "string" ? value.model : undefined)
@@ -207,7 +202,6 @@ function normalizeCodexPreference(value?: {
         ? value.modelOptions.fastMode
         : supportsCodexFastMode(model) && DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
     },
-    planMode: value?.planMode === true,
     permissionMode: normalizeCodexPermissionMode(value?.permissionMode),
   }
 }

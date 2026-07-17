@@ -1,5 +1,5 @@
 import { useState, type ComponentType, type SVGProps } from "react"
-import { Bot, Box, Brain, Gauge, ListTodo, LockOpen, Shield, ShieldCheck, ShieldQuestion, ShieldX, SquareMenu, SquareMinus } from "lucide-react"
+import { Bot, Box, Brain, Gauge, LockOpen, Shield, ShieldCheck, ShieldQuestion, ShieldX, SquareMenu, SquareMinus } from "lucide-react"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
   CLAUDE_PERMISSION_OPTIONS,
@@ -161,11 +161,8 @@ interface ChatPreferenceControlsProps {
   onProviderChange?: (provider: AgentProvider) => void
   onModelChange: (provider: AgentProvider, model: string) => void
   onModelOptionChange: (change: ModelOptionChange) => void
-  planMode?: boolean
-  onPlanModeChange?: (planMode: boolean) => void
   permissionMode?: ClaudePermissionMode | CodexPermissionMode
   onPermissionModeChange?: (change: PermissionModeChange) => void
-  includePlanMode?: boolean
   className?: string
 }
 
@@ -180,17 +177,13 @@ export function ChatPreferenceControls({
   onProviderChange,
   onModelChange,
   onModelOptionChange,
-  planMode = false,
-  onPlanModeChange,
   permissionMode,
   onPermissionModeChange,
-  includePlanMode = true,
   className,
 }: ChatPreferenceControlsProps) {
   const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
   const ProviderIcon = PROVIDER_ICONS[selectedProvider]
   const ModelIcon = Box
-  const showPlanMode = includePlanMode && providerConfig?.supportsPlanMode && onPlanModeChange
   const claudeModelOptions = selectedProvider === "claude" ? modelOptions as ClaudeModelOptions : null
   const codexModelOptions = selectedProvider === "codex" ? modelOptions as CodexModelOptions : null
   const contextWindowOptions = providerConfig.models.find((candidate) => candidate.id === model)?.contextWindowOptions ?? []
@@ -433,42 +426,6 @@ export function ChatPreferenceControls({
         </InputPopover>
       ) : null}
 
-      {showPlanMode ? (
-        <InputPopover
-          trigger={(
-            <>
-              {planMode ? <ListTodo className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-              <span>{planMode ? "Plan Mode" : "Run Mode"}</span>
-            </>
-          )}
-          triggerClassName={planMode ? "text-blue-400 dark:text-blue-300" : undefined}
-        >
-          {(close) => (
-            <>
-              <PopoverMenuItem
-                onClick={() => {
-                  onPlanModeChange(false)
-                  close()
-                }}
-                selected={!planMode}
-                icon={<ShieldCheck className="h-4 w-4 text-muted-foreground" />}
-                label="Run Mode"
-                description="Use the selected permission mode"
-              />
-              <PopoverMenuItem
-                onClick={() => {
-                  onPlanModeChange(true)
-                  close()
-                }}
-                selected={planMode}
-                icon={<ListTodo className="h-4 w-4 text-muted-foreground" />}
-                label="Plan Mode"
-                description="Review a plan before execution"
-              />
-            </>
-          )}
-        </InputPopover>
-      ) : null}
     </div>
   )
 }

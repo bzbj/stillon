@@ -31,19 +31,19 @@ export type ComposerState =
     provider: "claude"
     model: string
     modelOptions: ClaudeModelOptions
-    planMode: boolean
     permissionMode: ClaudePermissionMode
   }
   | {
     provider: "codex"
     model: string
     modelOptions: CodexModelOptions
-    planMode: boolean
     permissionMode: CodexPermissionMode
   }
 
 export const NEW_CHAT_COMPOSER_ID = "__new__"
 
+// planMode is intentionally present only in these persisted input shapes so
+// older browser state can be read and discarded during migration.
 type LegacyPersistedChatPreferencesState = Partial<{
   defaultProvider: string
   providerDefaults: {
@@ -114,7 +114,6 @@ export function normalizeClaudePreference(value?: {
   model?: string
   effort?: string
   modelOptions?: Partial<ClaudeModelOptions>
-  planMode?: boolean
   permissionMode?: unknown
 }): ProviderPreference<ClaudeModelOptions, ClaudePermissionMode> {
   const reasoningEffort = value?.modelOptions?.reasoningEffort
@@ -132,7 +131,6 @@ export function normalizeClaudePreference(value?: {
       reasoningEffort: !supportsClaudeMaxReasoningEffort(model) && normalizedEffort === "max" ? "high" : normalizedEffort,
       contextWindow,
     },
-    planMode: Boolean(value?.planMode),
     permissionMode: normalizeClaudePermissionMode(value?.permissionMode),
   }
 }
@@ -141,7 +139,6 @@ export function normalizeCodexPreference(value?: {
   model?: string
   effort?: string
   modelOptions?: Partial<CodexModelOptions>
-  planMode?: boolean
   permissionMode?: unknown
 }): ProviderPreference<CodexModelOptions, CodexPermissionMode> {
   const model = normalizeCodexModelId(value?.model)
@@ -154,7 +151,6 @@ export function normalizeCodexPreference(value?: {
         ? value.modelOptions.fastMode
         : supportsCodexFastMode(model) && DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
     },
-    planMode: Boolean(value?.planMode),
     permissionMode: normalizeCodexPermissionMode(value?.permissionMode),
   }
 }
@@ -163,7 +159,6 @@ function forcePersistedCodexPreference<T extends {
   model?: string
   effort?: string
   modelOptions?: Partial<CodexModelOptions>
-  planMode?: boolean
 }>(value?: T): T | undefined {
   if (!value) return value
   return {
@@ -198,13 +193,11 @@ export function createDefaultProviderDefaults(): ChatProviderPreferences {
     claude: {
       model: "claude-opus-4-8",
       modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
-      planMode: false,
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
     codex: {
       model: "gpt-5.6-sol",
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
-      planMode: false,
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     },
   }
@@ -215,14 +208,12 @@ export function normalizeProviderDefaults(value?: {
     model?: string
     effort?: string
     modelOptions?: Partial<ClaudeModelOptions>
-    planMode?: boolean
     permissionMode?: unknown
   }
   codex?: {
     model?: string
     effort?: string
     modelOptions?: Partial<CodexModelOptions>
-    planMode?: boolean
     permissionMode?: unknown
   }
 }): ChatProviderPreferences {
@@ -251,7 +242,6 @@ function composerFromProviderDefaults(
       provider: "claude",
       model: preference.model,
       modelOptions: { ...preference.modelOptions },
-      planMode: preference.planMode,
       permissionMode: preference.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE,
     }
   }
@@ -261,7 +251,6 @@ function composerFromProviderDefaults(
     provider: "codex",
     model: preference.model,
     modelOptions: { ...preference.modelOptions },
-    planMode: preference.planMode,
     permissionMode: preference.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
   }
 }
@@ -272,21 +261,19 @@ function cloneComposerState(state: ComposerState): ComposerState {
       provider: "claude",
       model: state.model,
       modelOptions: { ...state.modelOptions },
-      planMode: state.planMode,
       permissionMode: normalizeClaudePermissionMode(state.permissionMode),
     }
     : {
       provider: "codex",
       model: state.model,
       modelOptions: { ...state.modelOptions },
-      planMode: state.planMode,
       permissionMode: normalizeCodexPermissionMode(state.permissionMode),
     }
 }
 
 function sameComposerState(left: ComposerState | undefined, right: ComposerState): boolean {
   if (!left || left.provider !== right.provider) return false
-  if (left.model !== right.model || left.planMode !== right.planMode || left.permissionMode !== right.permissionMode) return false
+  if (left.model !== right.model || left.permissionMode !== right.permissionMode) return false
 
   if (left.provider === "claude" && right.provider === "claude") {
     return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
@@ -313,7 +300,6 @@ function normalizeComposerState(
       provider: "claude",
       model: preference.model,
       modelOptions: preference.modelOptions,
-      planMode: preference.planMode,
       permissionMode: preference.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE,
     }
   }
@@ -324,7 +310,6 @@ function normalizeComposerState(
       provider: "codex",
       model: preference.model,
       modelOptions: preference.modelOptions,
-      planMode: preference.planMode,
       permissionMode: preference.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     }
   }
@@ -335,7 +320,6 @@ function normalizeComposerState(
       provider: "claude",
       model: preference.model,
       modelOptions: preference.modelOptions,
-      planMode: preference.planMode,
       permissionMode: preference.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE,
     }
   }
@@ -346,7 +330,6 @@ function normalizeComposerState(
       provider: "codex",
       model: preference.model,
       modelOptions: preference.modelOptions,
-      planMode: preference.planMode,
       permissionMode: preference.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     }
   }
@@ -439,7 +422,6 @@ interface ChatPreferencesState {
     provider: TProvider,
     modelOptions: Partial<ProviderModelOptionsByProvider[TProvider]>
   ) => void
-  setProviderDefaultPlanMode: (provider: AgentProvider, planMode: boolean) => void
   setProviderDefaultPermissionMode: (provider: AgentProvider, permissionMode: ClaudePermissionMode | CodexPermissionMode) => void
   getComposerState: (chatId: string) => ComposerState
   initializeComposerForChat: (chatId: string, options?: { sourceState?: ComposerState | null }) => void
@@ -450,7 +432,6 @@ interface ChatPreferencesState {
     chatId: string,
     modelOptions: Partial<ClaudeModelOptions> | Partial<CodexModelOptions>
   ) => void
-  setChatComposerPlanMode: (chatId: string, planMode: boolean) => void
   setChatComposerPermissionMode: (chatId: string, permissionMode: ClaudePermissionMode | CodexPermissionMode) => void
   resetChatComposerFromProvider: (chatId: string, provider: AgentProvider) => void
 }
@@ -554,16 +535,6 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
               }),
           },
         })),
-      setProviderDefaultPlanMode: (provider, planMode) =>
-        set((state) => ({
-          providerDefaults: {
-            ...state.providerDefaults,
-            [provider]: {
-              ...state.providerDefaults[provider],
-              planMode,
-            },
-          },
-        })),
       setProviderDefaultPermissionMode: (provider: AgentProvider, permissionMode: ClaudePermissionMode | CodexPermissionMode) =>
         set((state) => ({
           providerDefaults: {
@@ -611,14 +582,12 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 provider: "claude",
                 model: normalizeClaudePreference(composerState).model,
                 modelOptions: normalizeClaudePreference(composerState).modelOptions,
-                planMode: composerState.planMode,
                 permissionMode: normalizeClaudePermissionMode(composerState.permissionMode),
               }
               : {
                 provider: "codex",
                 model: normalizeCodexPreference(composerState).model,
                 modelOptions: normalizeCodexPreference(composerState).modelOptions,
-                planMode: composerState.planMode,
                 permissionMode: normalizeCodexPermissionMode(composerState.permissionMode),
               },
           },
@@ -638,7 +607,6 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 ...composerState,
                 model,
               }).modelOptions,
-              planMode: composerState.planMode,
               permissionMode: composerState.permissionMode,
             }
             : {
@@ -648,7 +616,6 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 ...composerState,
                 model,
               }).modelOptions,
-              planMode: composerState.planMode,
               permissionMode: composerState.permissionMode,
             }
         ))),
@@ -665,7 +632,6 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                   ...modelOptions as Partial<ClaudeModelOptions>,
                 },
               }).modelOptions,
-              planMode: composerState.planMode,
               permissionMode: composerState.permissionMode,
             }
             : {
@@ -678,15 +644,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                   ...modelOptions as Partial<CodexModelOptions>,
                 },
               }).modelOptions,
-              planMode: composerState.planMode,
               permissionMode: composerState.permissionMode,
             }
         ))),
-      setChatComposerPlanMode: (chatId, planMode) =>
-        set((state) => withChatComposerState(state, chatId, (composerState) => ({
-          ...composerState,
-          planMode,
-        }))),
       setChatComposerPermissionMode: (chatId, permissionMode) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
           composerState.provider === "claude"

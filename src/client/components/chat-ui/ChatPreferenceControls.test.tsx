@@ -4,7 +4,7 @@ import { PROVIDERS } from "../../../shared/types"
 import { ChatPreferenceControls } from "./ChatPreferenceControls"
 
 describe("ChatPreferenceControls", () => {
-  test("renders codex-specific controls and can omit plan mode", () => {
+  test("renders codex-specific controls without a run or plan mode selector", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls
         availableProviders={PROVIDERS}
@@ -14,7 +14,6 @@ describe("ChatPreferenceControls", () => {
         onProviderChange={() => {}}
         onModelChange={() => {}}
         onModelOptionChange={() => {}}
-        includePlanMode={false}
       />
     )
 
@@ -22,6 +21,7 @@ describe("ChatPreferenceControls", () => {
     expect(html).toContain("GPT-5.6-Sol")
     expect(html).toContain("XHigh")
     expect(html).toContain("Fast Mode")
+    expect(html).not.toContain("Run Mode")
     expect(html).not.toContain("Plan Mode")
   })
 
@@ -34,7 +34,6 @@ describe("ChatPreferenceControls", () => {
         modelOptions={{ reasoningEffort: "high", fastMode: false }}
         onModelChange={() => {}}
         onModelOptionChange={() => {}}
-        includePlanMode={false}
       />
     )
 
@@ -44,7 +43,7 @@ describe("ChatPreferenceControls", () => {
     expect(html).not.toContain("Fast Mode")
   })
 
-  test("renders claude plan mode controls when enabled", () => {
+  test("renders Claude controls without a run or plan mode selector", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls
         availableProviders={PROVIDERS}
@@ -54,9 +53,6 @@ describe("ChatPreferenceControls", () => {
         onProviderChange={() => {}}
         onModelChange={() => {}}
         onModelOptionChange={() => {}}
-        planMode
-        onPlanModeChange={() => {}}
-        includePlanMode
       />
     )
 
@@ -64,7 +60,8 @@ describe("ChatPreferenceControls", () => {
     expect(html).toContain("Opus")
     expect(html).toContain("Max")
     expect(html).toContain("1M")
-    expect(html).toContain("Plan Mode")
+    expect(html).not.toContain("Run Mode")
+    expect(html).not.toContain("Plan Mode")
   })
 
   test("renders Fable as a Claude model option", () => {
@@ -77,7 +74,6 @@ describe("ChatPreferenceControls", () => {
         onProviderChange={() => {}}
         onModelChange={() => {}}
         onModelOptionChange={() => {}}
-        includePlanMode={false}
       />
     )
 

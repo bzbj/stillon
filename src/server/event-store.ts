@@ -973,7 +973,6 @@ export class EventStore {
       provider: message.provider,
       model: message.model,
       modelOptions: message.modelOptions,
-      planMode: message.planMode,
       permissionMode: message.permissionMode,
     }
     const event: QueuedMessageEvent = {

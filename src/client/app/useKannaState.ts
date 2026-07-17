@@ -77,7 +77,6 @@ function sameQueuedMessage(left: QueuedChatMessage, right: QueuedChatMessage) {
     && left.createdAt === right.createdAt
     && left.provider === right.provider
     && left.model === right.model
-    && left.planMode === right.planMode
     && JSON.stringify(left.modelOptions) === JSON.stringify(right.modelOptions)
     && sameAttachmentArray(left.attachments, right.attachments)
 }
@@ -486,7 +485,6 @@ function composerStateFromSendOptions(options?: {
   provider?: AgentProvider
   model?: string
   modelOptions?: ModelOptions
-  planMode?: boolean
   permissionMode?: AgentPermissionMode
 }): ComposerState | null {
   if (options?.provider === "claude" && options.model && options.modelOptions?.claude) {
@@ -497,7 +495,6 @@ function composerStateFromSendOptions(options?: {
         reasoningEffort: options.modelOptions.claude.reasoningEffort ?? "high",
         contextWindow: options.modelOptions.claude.contextWindow ?? "200k",
       },
-      planMode: Boolean(options.planMode),
       permissionMode: options.permissionMode === "default"
         || options.permissionMode === "acceptEdits"
         || options.permissionMode === "auto"
@@ -516,7 +513,6 @@ function composerStateFromSendOptions(options?: {
         reasoningEffort: options.modelOptions.codex.reasoningEffort ?? "high",
         fastMode: options.modelOptions.codex.fastMode ?? false,
       },
-      planMode: Boolean(options.planMode),
       permissionMode: options.permissionMode === "request"
         || options.permissionMode === "auto"
         || options.permissionMode === "full"
@@ -658,7 +654,7 @@ export interface KannaState {
   handleWriteLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<void>
   handleValidateLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<LlmProviderValidationResult>
   handleSignOut: () => Promise<void>
-  handleSend: (content: string, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean; permissionMode?: AgentPermissionMode }) => Promise<void>
+  handleSend: (content: string, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode }) => Promise<void>
   handleSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   handleRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
   handleCancel: () => Promise<void>
@@ -1356,7 +1352,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const handleSend = useCallback(async (
     content: string,
-    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean; permissionMode?: AgentPermissionMode; attachments?: ChatAttachment[] }
+    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode; attachments?: ChatAttachment[] }
   ) => {
     const attachments = options?.attachments ?? []
     if (activeChatId && isProcessing) {
@@ -1369,7 +1365,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
           provider: options?.provider,
           model: options?.model,
           modelOptions: options?.modelOptions,
-          planMode: options?.planMode,
           permissionMode: options?.permissionMode,
         })
         setCommandError(null)
@@ -1450,7 +1445,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
         attachments,
         model: options?.model,
         modelOptions: options?.modelOptions,
-        planMode: options?.planMode,
         permissionMode: options?.permissionMode,
       })
       sendTrace.ackAt = performance.now()
@@ -1852,9 +1846,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const handleExitPlanMode = useCallback(async (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => {
     if (!activeChatId) return
-    if (confirmed) {
-      useChatPreferencesStore.getState().setChatComposerPlanMode(activeChatId, false)
-    }
     try {
       await socket.command({
         type: "chat.respondTool",

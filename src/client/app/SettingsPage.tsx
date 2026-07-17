@@ -1677,7 +1677,6 @@ export function SettingsPage() {
   const setDefaultProvider = useChatPreferencesStore((store) => store.setDefaultProvider)
   const setProviderDefaultModel = useChatPreferencesStore((store) => store.setProviderDefaultModel)
   const setProviderDefaultModelOptions = useChatPreferencesStore((store) => store.setProviderDefaultModelOptions)
-  const setProviderDefaultPlanMode = useChatPreferencesStore((store) => store.setProviderDefaultPlanMode)
   const setProviderDefaultPermissionMode = useChatPreferencesStore((store) => store.setProviderDefaultPermissionMode)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
@@ -2007,13 +2006,6 @@ export function SettingsPage() {
   ) {
     setProviderDefaultModelOptions(provider, modelOptions)
     void handleWriteAppSettings({ providerDefaults: { [provider]: { modelOptions } } }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
-    })
-  }
-
-  function handleProviderDefaultPlanModeChange(provider: AgentProvider, planMode: boolean) {
-    setProviderDefaultPlanMode(provider, planMode)
-    void handleWriteAppSettings({ providerDefaults: { [provider]: { planMode } } }).catch((error) => {
       setAppSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
     })
   }
@@ -2623,11 +2615,8 @@ export function SettingsPage() {
                               handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
                             }
                           }}
-                          planMode={providerDefaults.claude.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("claude", planMode)}
                           permissionMode={providerDefaults.claude.permissionMode}
                           onPermissionModeChange={handleProviderDefaultPermissionModeChange}
-                          includePlanMode
                           className="justify-start flex-wrap"
                         />
                       </div>
@@ -2656,11 +2645,8 @@ export function SettingsPage() {
                               handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
                             }
                           }}
-                          planMode={providerDefaults.codex.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
                           permissionMode={providerDefaults.codex.permissionMode}
                           onPermissionModeChange={handleProviderDefaultPermissionModeChange}
-                          includePlanMode
                           className="justify-start flex-wrap"
                         />
                       </div>

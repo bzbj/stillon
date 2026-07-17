@@ -97,7 +97,6 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
         reasoningEffort: "high",
         contextWindow: "200k",
       },
-      planMode: false,
       permissionMode: "acceptEdits",
     },
     codex: {
@@ -106,7 +105,6 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
         reasoningEffort: "xhigh",
         fastMode: true,
       },
-      planMode: false,
       permissionMode: "full",
     },
   },

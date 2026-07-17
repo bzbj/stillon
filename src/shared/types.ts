@@ -153,7 +153,6 @@ export interface QueuedChatMessage {
   provider?: AgentProvider
   model?: string
   modelOptions?: ModelOptions
-  planMode?: boolean
   permissionMode?: AgentPermissionMode
 }
 
@@ -249,7 +248,6 @@ export interface ProviderModelOptionsByProvider {
 export interface ProviderPreference<TModelOptions, TPermissionMode extends string = string> {
   model: string
   modelOptions: TModelOptions
-  planMode: boolean
   permissionMode?: TPermissionMode
 }
 
@@ -386,7 +384,6 @@ export interface ProviderCatalogEntry {
   label: string
   defaultModel: string
   defaultEffort?: string
-  supportsPlanMode: boolean
   models: ProviderModelOption[]
   efforts: ProviderEffortOption[]
 }
@@ -397,7 +394,6 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
     label: "Claude",
     defaultModel: "claude-sonnet-4-6",
     defaultEffort: "high",
-    supportsPlanMode: true,
     models: [
       {
         id: "claude-fable-5",
@@ -435,7 +431,6 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
     id: "codex",
     label: "Codex",
     defaultModel: "gpt-5.6-sol",
-    supportsPlanMode: true,
     models: CODEX_MODELS,
     efforts: [...CODEX_REASONING_OPTIONS],
   },

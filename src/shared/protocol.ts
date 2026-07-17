@@ -143,7 +143,6 @@ export type ClientCommand =
       model?: string
       modelOptions?: ModelOptions
       effort?: string
-      planMode?: boolean
       permissionMode?: AgentPermissionMode
     }
   | { type: "chat.refreshDiffs"; chatId: string }
@@ -232,7 +231,6 @@ export type ClientCommand =
       provider?: AgentProvider
       model?: string
       modelOptions?: ModelOptions
-      planMode?: boolean
       permissionMode?: AgentPermissionMode
     }
   | {
