@@ -71,6 +71,7 @@ interface PendingTurn {
   model: string
   startedAt: number
   stderrLines: string[]
+  lastProtocolError: string | null
   startedToolIds: Set<string>
   resolved: boolean
 }
@@ -318,6 +319,7 @@ export class CodexExecManager {
       model: args.model,
       startedAt: Date.now(),
       stderrLines: [],
+      lastProtocolError: null,
       startedToolIds: new Set(),
       resolved: false,
     }
@@ -472,9 +474,15 @@ export class CodexExecManager {
     })
 
     pendingTurn.child.on("close", (code) => {
-      if (pendingTurn.resolved) return
-      const message = pendingTurn.stderrLines.at(-1) || `Codex exec exited with code ${code ?? 1}`
-      this.finishTurn(context, pendingTurn, code === 0 ? "success" : "error", code === 0 ? "" : message)
+      // Let the readline loops consume any final buffered stdout/stderr lines
+      // before selecting the terminal error message.
+      queueMicrotask(() => {
+        if (pendingTurn.resolved) return
+        const message = pendingTurn.lastProtocolError
+          || pendingTurn.stderrLines.at(-1)
+          || `Codex exec exited with code ${code ?? 1}`
+        this.finishTurn(context, pendingTurn, code === 0 ? "success" : "error", code === 0 ? "" : message)
+      })
     })
   }
 
@@ -529,9 +537,28 @@ export class CodexExecManager {
       return
     }
 
+    if (type === "turn.failed") {
+      const message = asString(asRecord(event.error)?.message)
+        ?? asString(event.message)
+        ?? pendingTurn.lastProtocolError
+        ?? "Codex exec turn failed"
+      this.finishTurn(context, pendingTurn, "error", message)
+      return
+    }
+
     if (type === "error") {
       const message = asString(asRecord(event.error)?.message) ?? asString(event.message) ?? "Codex exec error"
-      this.finishTurn(context, pendingTurn, "error", message)
+      // Codex emits this event for retryable transport errors while keeping
+      // the exec turn running. A terminal failure arrives later as
+      // `turn.failed` or a non-zero child exit.
+      pendingTurn.lastProtocolError = message
+      pendingTurn.queue.push({
+        type: "transcript",
+        entry: timestamped({
+          kind: "status",
+          status: message,
+        }),
+      })
     }
   }
 

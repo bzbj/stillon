@@ -312,6 +312,133 @@ describe("CodexExecManager", () => {
     })
   })
 
+  test("keeps retryable protocol errors non-terminal until the turn recovers", async () => {
+    const process = new FakeCodexExecProcess()
+    const manager = new CodexExecManager({
+      spawnProcess: () => process as never,
+    })
+
+    await manager.startSession({
+      chatId: "chat-1",
+      cwd: "/tmp/project",
+      model: "gpt-5.5",
+      sessionToken: null,
+    })
+
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Recover",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    process.writeJson({ type: "turn.started" })
+    process.writeJson({ type: "error", message: "Reconnecting... 2/5 (request timed out)" })
+    process.writeJson({
+      type: "item.completed",
+      item: { id: "item-1", type: "agent_message", text: "Recovered" },
+    })
+    process.writeJson({
+      type: "turn.completed",
+      usage: { input_tokens: 2, output_tokens: 1 },
+    })
+
+    const events = await collectStream(turn.stream)
+    const entries = events
+      .filter((event) => event.type === "transcript")
+      .map((event) => event.entry)
+
+    expect(entries.find((entry) => entry.kind === "status")).toMatchObject({
+      status: "Reconnecting... 2/5 (request timed out)",
+    })
+    expect(entries.find((entry) => entry.kind === "assistant_text")).toMatchObject({
+      text: "Recovered",
+    })
+    expect(entries.at(-1)).toMatchObject({
+      kind: "result",
+      subtype: "success",
+      isError: false,
+    })
+  })
+
+  test("treats turn.failed as the terminal Codex error", async () => {
+    const process = new FakeCodexExecProcess()
+    const manager = new CodexExecManager({
+      spawnProcess: () => process as never,
+    })
+
+    await manager.startSession({
+      chatId: "chat-1",
+      cwd: "/tmp/project",
+      model: "gpt-5.5",
+      sessionToken: null,
+    })
+
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Fail",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    process.writeJson({ type: "turn.started" })
+    process.writeJson({ type: "error", message: "Reconnecting... 5/5" })
+    process.writeJson({ type: "turn.failed", error: { message: "stream disconnected before completion" } })
+
+    const events = await collectStream(turn.stream)
+    const result = events
+      .filter((event) => event.type === "transcript")
+      .map((event) => event.entry)
+      .find((entry) => entry.kind === "result")
+
+    expect(result).toMatchObject({
+      kind: "result",
+      subtype: "error",
+      isError: true,
+      result: "stream disconnected before completion",
+    })
+  })
+
+  test("uses the last protocol error when the exec process exits non-zero", async () => {
+    const process = new FakeCodexExecProcess()
+    const manager = new CodexExecManager({
+      spawnProcess: () => process as never,
+    })
+
+    await manager.startSession({
+      chatId: "chat-1",
+      cwd: "/tmp/project",
+      model: "gpt-5.5",
+      sessionToken: null,
+    })
+
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Fail",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    process.writeJson({ type: "error", message: "network unavailable" })
+    process.closeWithCode(1)
+
+    const events = await collectStream(turn.stream)
+    const result = events
+      .filter((event) => event.type === "transcript")
+      .map((event) => event.entry)
+      .find((entry) => entry.kind === "result")
+
+    expect(result).toMatchObject({
+      kind: "result",
+      subtype: "error",
+      isError: true,
+      result: "network unavailable",
+    })
+  })
+
   test("interrupt kills the active exec process", async () => {
     const process = new FakeCodexExecProcess()
     const manager = new CodexExecManager({
