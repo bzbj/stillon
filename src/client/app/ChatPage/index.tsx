@@ -12,6 +12,7 @@ import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybinding
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { getProjectRenderablePreviewPath } from "../../lib/pathUtils"
+import { resolveDirectLocalFileAction, shouldBypassInAppLocalFilePreview } from "../../lib/transcriptLocalLinkPolicy"
 import { cn } from "../../lib/utils"
 import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 import { buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
@@ -790,6 +791,14 @@ export function ChatPage() {
   }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
   const handleOpenTranscriptLocalLink = useCallback<KannaState["handleOpenLocalLink"]>(async (target, action, editor) => {
+    if (shouldBypassInAppLocalFilePreview(window.location.hostname)) {
+      const directAction = target.trigger === "contextmenu"
+        ? action
+        : resolveDirectLocalFileAction(target.path, action)
+      await state.handleOpenLocalLink(target, directAction, editor)
+      return
+    }
+
     const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
     const previewTarget = target.trigger === "contextmenu"
       ? null
