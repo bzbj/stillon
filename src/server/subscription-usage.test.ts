@@ -145,6 +145,7 @@ describe("subscription usage", () => {
   })
 
   test("reads Codex app-server and Claude usage into one settings snapshot", async () => {
+    let claudeCliCalls = 0
     const snapshot = await readSubscriptionUsageSnapshot({
       now: new Date(2026, 5, 30, 17, 30).getTime(),
       readCodexAppServer: async () => ({
@@ -193,6 +194,10 @@ describe("subscription usage", () => {
           },
         ],
       }),
+      runCommand: async () => {
+        claudeCliCalls += 1
+        throw new Error("Claude CLI fallback should not run")
+      },
     })
 
     expect(snapshot.providers[0]).toMatchObject({
@@ -216,6 +221,7 @@ describe("subscription usage", () => {
         { id: "fable_weekly", label: "Fable 5 limit", usedPercent: 42 },
       ],
     })
+    expect(claudeCliCalls).toBe(0)
   })
 
   test("falls back to Claude CLI usage when the SDK usage API is unavailable", async () => {
@@ -253,6 +259,77 @@ describe("subscription usage", () => {
       windows: [
         { id: "five_hour", usedPercent: 3 },
         { id: "weekly", usedPercent: 11 },
+      ],
+    })
+  })
+
+  test("falls back to Claude CLI usage when the SDK omits rate-limit details", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: new Date(2026, 5, 30, 17, 30).getTime(),
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => ({
+        subscriptionType: "max",
+        accountEmail: "claude@example.com",
+        rateLimitsAvailable: false,
+        fiveHour: null,
+        weekly: null,
+        modelScoped: [],
+      }),
+      runCommand: async (_command, args) => {
+        if (args[0] === "auth") {
+          return {
+            stdout: JSON.stringify({ subscriptionType: "max", email: "claude@example.com" }),
+            stderr: "",
+          }
+        }
+        return {
+          stdout: JSON.stringify({
+            result: "Current session: 2% used · resets Jun 30 at 9:29pm (Asia/Shanghai)",
+          }),
+          stderr: "",
+        }
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      status: "available",
+      source: "claude /usage",
+      planType: "max",
+      accountEmail: "claude@example.com",
+      windows: [
+        { id: "five_hour", usedPercent: 2 },
+        { id: "weekly", usedPercent: null },
+      ],
+    })
+  })
+
+  test("preserves SDK identity when the Claude CLI fallback fails", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: new Date(2026, 5, 30, 17, 30).getTime(),
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => ({
+        subscriptionType: "max",
+        accountEmail: "claude@example.com",
+        rateLimitsAvailable: false,
+        fiveHour: null,
+        weekly: null,
+        modelScoped: [],
+      }),
+      runCommand: async () => {
+        throw new Error("Claude CLI fallback failed")
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      status: "error",
+      source: "claude /usage",
+      planType: "max",
+      accountEmail: "claude@example.com",
+      windows: [
+        { id: "five_hour", usedPercent: null },
+        { id: "weekly", usedPercent: null },
       ],
     })
   })
