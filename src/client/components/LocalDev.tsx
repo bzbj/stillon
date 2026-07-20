@@ -13,7 +13,7 @@ import {
   Terminal,
 } from "lucide-react"
 import { APP_NAME, getCliInvocation, SDK_CLIENT_APP } from "../../shared/branding"
-import type { LocalDirectoryListResult } from "../../shared/protocol"
+import type { LocalDirectoryListResult, ResolvedLocalPath } from "../../shared/protocol"
 import type { LocalProjectsSnapshot } from "../../shared/types"
 import type { SocketStatus } from "../app/socket"
 import { PageHeader } from "../app/PageHeader"
@@ -34,6 +34,7 @@ interface LocalDevProps {
   onOpenProject: (localPath: string) => Promise<void>
   onCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
   onListDirectories: (localPath?: string) => Promise<LocalDirectoryListResult>
+  onResolveLocalPath: (localPath: string) => Promise<ResolvedLocalPath>
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -178,6 +179,7 @@ export function LocalDev({
   onOpenProject,
   onCreateProject,
   onListDirectories,
+  onResolveLocalPath,
 }: LocalDevProps) {
   const projects = useMemo(() => snapshot?.projects ?? [], [snapshot?.projects])
   const isConnecting = connectionStatus === "connecting" || !ready
@@ -314,6 +316,7 @@ export function LocalDev({
           void onCreateProject(project)
         }}
         onListDirectories={onListDirectories}
+        onResolveLocalPath={onResolveLocalPath}
       />
 
       <div className="py-4 text-center">

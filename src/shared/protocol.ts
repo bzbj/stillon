@@ -46,6 +46,11 @@ export interface LocalDirectoryListResult {
   entries: LocalDirectoryEntry[]
 }
 
+export interface ResolvedLocalPath {
+  path: string
+  separator: "/" | "\\"
+}
+
 export interface ProjectQuickAction {
   id: string
   label: string
@@ -85,6 +90,7 @@ export type ClientCommand =
   | { type: "project.rename"; projectId: string; title: string }
   | { type: "project.remove"; projectId: string }
   | { type: "filesystem.listDirectories"; localPath?: string }
+  | { type: "filesystem.resolvePath"; localPath: string }
   | { type: "sidebar.reorderProjectGroups"; projectIds: string[] }
   | { type: "project.readDiffPatch"; projectId: string; path: string }
   | { type: "system.ping" }

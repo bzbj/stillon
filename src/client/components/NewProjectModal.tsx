@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { ChevronLeft, ChevronRight, Folder, Home, Loader2, RefreshCw } from "lucide-react"
 import { DEFAULT_NEW_PROJECT_ROOT } from "../../shared/branding"
-import type { LocalDirectoryListResult } from "../../shared/protocol"
+import type { LocalDirectoryListResult, ResolvedLocalPath } from "../../shared/protocol"
+import { getPathBasename } from "../lib/formatters"
+import { appendLocalPathSegment, getLocalPathPrefix } from "../lib/localPaths"
 import { Button } from "./ui/button"
 import {
   Dialog,
@@ -19,6 +21,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
   onConfirm: (project: { mode: Tab; localPath: string; title: string }) => void
   onListDirectories?: (localPath?: string) => Promise<LocalDirectoryListResult>
+  onResolveLocalPath: (localPath: string) => Promise<ResolvedLocalPath>
 }
 
 type Tab = "new" | "existing"
@@ -32,37 +35,74 @@ function toKebab(str: string): string {
     .replace(/^-|-$/g, "")
 }
 
-export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectories }: Props) {
+export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectories, onResolveLocalPath }: Props) {
   const [tab, setTab] = useState<Tab>("new")
   const [name, setName] = useState("")
+  const [newProjectLocation, setNewProjectLocation] = useState<ResolvedLocalPath | null>(null)
+  const [newProjectLocationLoading, setNewProjectLocationLoading] = useState(false)
+  const [newProjectLocationError, setNewProjectLocationError] = useState<string | null>(null)
   const [existingPath, setExistingPath] = useState("")
   const [directoryList, setDirectoryList] = useState<LocalDirectoryListResult | null>(null)
   const [directoryLoading, setDirectoryLoading] = useState(false)
   const [directoryError, setDirectoryError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const existingInputRef = useRef<HTMLInputElement>(null)
+  const newProjectLocationRequestIdRef = useRef(0)
   const directoryRequestIdRef = useRef(0)
 
   useEffect(() => {
     if (open) {
       setTab("new")
       setName("")
+      setNewProjectLocation(null)
+      setNewProjectLocationError(null)
+      setNewProjectLocationLoading(false)
       setExistingPath("")
       setDirectoryList(null)
       setDirectoryError(null)
       setDirectoryLoading(false)
-      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open])
 
   useEffect(() => {
     if (open) {
       setTimeout(() => {
-        if (tab === "new") inputRef.current?.focus()
-        else existingInputRef.current?.focus()
+        if (tab === "new") {
+          if (newProjectLocation) inputRef.current?.focus()
+          return
+        }
+        existingInputRef.current?.focus()
       }, 0)
     }
-  }, [tab, open])
+  }, [newProjectLocation, open, tab])
+
+  const resolveNewProjectLocation = useCallback(async () => {
+    const requestId = newProjectLocationRequestIdRef.current + 1
+    newProjectLocationRequestIdRef.current = requestId
+    setNewProjectLocationLoading(true)
+    setNewProjectLocationError(null)
+    try {
+      const result = await onResolveLocalPath(DEFAULT_NEW_PROJECT_ROOT)
+      if (newProjectLocationRequestIdRef.current !== requestId) return
+      setNewProjectLocation(result)
+    } catch (error) {
+      if (newProjectLocationRequestIdRef.current !== requestId) return
+      setNewProjectLocation(null)
+      setNewProjectLocationError(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (newProjectLocationRequestIdRef.current === requestId) {
+        setNewProjectLocationLoading(false)
+      }
+    }
+  }, [onResolveLocalPath])
+
+  useEffect(() => {
+    if (!open) {
+      newProjectLocationRequestIdRef.current += 1
+      return
+    }
+    void resolveNewProjectLocation()
+  }, [open, resolveNewProjectLocation])
 
   const loadDirectory = useCallback(async (localPath?: string) => {
     if (!onListDirectories) return
@@ -92,17 +132,22 @@ export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectori
   }, [directoryError, directoryList, directoryLoading, loadDirectory, onListDirectories, open, tab])
 
   const kebab = toKebab(name)
-  const newPath = kebab ? `${DEFAULT_NEW_PROJECT_ROOT}/${kebab}` : ""
+  const newPathPrefix = newProjectLocation ? getLocalPathPrefix(newProjectLocation) : ""
+  const newPath = kebab && newProjectLocation
+    ? appendLocalPathSegment(newProjectLocation, kebab)
+    : ""
+  const isResolvingNewProjectLocation = newProjectLocationLoading
+    || (!newProjectLocation && !newProjectLocationError)
   const trimmedExisting = existingPath.trim()
 
-  const canSubmit = tab === "new" ? !!kebab : !!trimmedExisting
+  const canSubmit = tab === "new" ? !!kebab && !!newProjectLocation : !!trimmedExisting
 
   const handleSubmit = () => {
     if (!canSubmit) return
     if (tab === "new") {
       onConfirm({ mode: "new", localPath: newPath, title: name.trim() })
     } else {
-      const folderName = trimmedExisting.split("/").pop() || trimmedExisting
+      const folderName = getPathBasename(trimmedExisting)
       onConfirm({ mode: "existing", localPath: trimmedExisting, title: folderName })
     }
     onOpenChange(false)
@@ -111,7 +156,7 @@ export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectori
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
-        <DialogBody className="space-y-4">
+        <DialogBody className="flex flex-col gap-4">
           <DialogTitle>Add Project</DialogTitle>
 
           <SegmentedControl
@@ -121,31 +166,60 @@ export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectori
               { value: "new" as Tab, label: "New Folder" },
               { value: "existing" as Tab, label: "Existing Path" },
             ]}
-            className="w-full mb-2"
+            className="w-full"
             optionClassName="flex-1 justify-center"
           />
 
           {tab === "new" ? (
-            <div className="space-y-2">
-              <Input
-                ref={inputRef}
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit()
-                  if (e.key === "Escape") onOpenChange(false)
-                }}
-                placeholder="Project name"
-              />
-              {newPath && (
-                <p className="text-xs text-muted-foreground font-mono">
-                  {newPath}
+            <div className="flex flex-col gap-2">
+              <label className="sr-only" htmlFor="new-project-name">Project name</label>
+              <div className="flex min-w-0">
+                <div
+                  className="flex min-w-0 max-w-[60%] shrink-0 items-center gap-2 rounded-l-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground"
+                  title={newPathPrefix || undefined}
+                >
+                  {isResolvingNewProjectLocation ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : null}
+                  <span className="truncate">
+                    {isResolvingNewProjectLocation
+                      ? "Resolving location..."
+                      : newPathPrefix || "Location unavailable"}
+                  </span>
+                </div>
+                <Input
+                  id="new-project-name"
+                  ref={inputRef}
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSubmit()
+                    if (e.key === "Escape") onOpenChange(false)
+                  }}
+                  placeholder="Project name"
+                  aria-describedby="new-project-location-hint"
+                  disabled={!newProjectLocation}
+                  className="-ml-px min-w-[8rem] flex-1 rounded-l-none"
+                />
+              </div>
+              {newProjectLocationError ? (
+                <p id="new-project-location-hint" className="text-xs text-destructive">
+                  Could not resolve the project location: {newProjectLocationError}
+                </p>
+              ) : isResolvingNewProjectLocation ? (
+                <p id="new-project-location-hint" className="text-xs text-muted-foreground">
+                  Resolving the project location on the connected machine...
+                </p>
+              ) : (
+                <p id="new-project-location-hint" className="text-xs text-muted-foreground">
+                  A new folder will be created at{" "}
+                  <span className="break-all font-mono text-foreground">
+                    {newPath || (newPathPrefix ? `${newPathPrefix}<project-name>` : "this location")}
+                  </span>.
                 </p>
               )}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <Input
                   ref={existingInputRef}

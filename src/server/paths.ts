@@ -1,22 +1,43 @@
 import { mkdir, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
+import type { ResolvedLocalPath } from "../shared/protocol"
 
 export const PROJECT_DATA_DIR_NAME = ".stillon"
 export const LEGACY_PROJECT_DATA_DIR_NAME = ".kanna"
 
-export function resolveLocalPath(localPath: string) {
+interface PathOperations {
+  join(...paths: string[]): string
+  resolve(...paths: string[]): string
+}
+
+export function resolveLocalPathForPlatform(
+  localPath: string,
+  homeDirectory: string,
+  pathOperations: PathOperations,
+) {
   const trimmed = localPath.trim()
   if (!trimmed) {
     throw new Error("Project path is required")
   }
   if (trimmed === "~") {
-    return homedir()
+    return homeDirectory
   }
-  if (trimmed.startsWith("~/")) {
-    return path.join(homedir(), trimmed.slice(2))
+  if (/^~[\\/]/u.test(trimmed)) {
+    return pathOperations.join(homeDirectory, trimmed.slice(2))
   }
-  return path.resolve(trimmed)
+  return pathOperations.resolve(trimmed)
+}
+
+export function resolveLocalPath(localPath: string) {
+  return resolveLocalPathForPlatform(localPath, homedir(), path)
+}
+
+export function getResolvedLocalPath(localPath: string): ResolvedLocalPath {
+  return {
+    path: resolveLocalPath(localPath),
+    separator: path.sep === "\\" ? "\\" : "/",
+  }
 }
 
 export async function ensureProjectDirectory(localPath: string) {
