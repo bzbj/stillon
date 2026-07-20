@@ -18,6 +18,7 @@ import {
   buildWindowsServicePowerShell,
   buildWindowsTaskXml,
   encodeWindowsPowerShell,
+  encodeWindowsTaskXml,
   escapeWindowsTaskXml,
   getWindowsServicePaths,
   windowsServiceBackend,
@@ -93,6 +94,11 @@ function decodeEncodedCommand(xml: string) {
   return Buffer.from(match[1], "base64").toString("utf16le")
 }
 
+function decodeTaskXml(contents: Buffer) {
+  expect(contents.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xfe]))
+  return contents.subarray(2).toString("utf16le")
+}
+
 describe("Windows service configuration", () => {
   test("escapes XML metacharacters deterministically", () => {
     expect(escapeWindowsTaskXml(`a&<b>\"'`)).toBe("a&amp;&lt;b&gt;&quot;&apos;")
@@ -134,6 +140,7 @@ describe("Windows service configuration", () => {
     expect(xml).toContain("<LogonTrigger>")
     expect(xml).toContain("<UserId>DOMAIN\\Alice &amp; Bob</UserId>")
     expect(xml).toContain("<LogonType>InteractiveToken</LogonType>")
+    expect(xml).toContain("<Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive")
     expect(xml).toContain(`<Interval>${WINDOWS_RESTART_INTERVAL}</Interval>`)
     expect(xml).toContain(`<Count>${WINDOWS_RESTART_COUNT}</Count>`)
     expect(xml).toContain("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>")
@@ -149,6 +156,11 @@ describe("Windows service configuration", () => {
   test("encodes PowerShell as UTF-16LE for Windows PowerShell", () => {
     const script = "Write-Output '你好'"
     expect(Buffer.from(encodeWindowsPowerShell(script), "base64").toString("utf16le")).toBe(script)
+  })
+
+  test("encodes task XML as UTF-16LE with a BOM for schtasks.exe", () => {
+    const xml = '<?xml version="1.0" encoding="UTF-16"?><Task />'
+    expect(decodeTaskXml(encodeWindowsTaskXml(xml))).toBe(xml)
   })
 
   test("persists the dedicated env-file path in the task invocation", () => {
@@ -189,7 +201,7 @@ describe("windowsServiceBackend", () => {
     await windowsServiceBackend.install(context)
 
     const servicePaths = getWindowsServicePaths(launch)
-    const writtenXml = await readFile(servicePaths.taskXml, "utf8")
+    const writtenXml = decodeTaskXml(await readFile(servicePaths.taskXml))
     expect(writtenXml).toBe(buildWindowsTaskXml(launch, "DOMAIN\\Alice"))
     expect(calls).toEqual([
       { command: "whoami.exe", args: [] },
@@ -248,7 +260,7 @@ describe("windowsServiceBackend", () => {
     const { calls, context } = createContext(launch, async ({ command, args }) => {
       if (command === "whoami.exe") return commandResult({ stdout: "DOMAIN\\Alice" })
       if (args[0] === "/Query") {
-        xmlObservedAtQuery = await readFile(servicePaths.taskXml, "utf8")
+        xmlObservedAtQuery = decodeTaskXml(await readFile(servicePaths.taskXml))
       }
       return commandResult()
     })
