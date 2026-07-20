@@ -100,6 +100,18 @@ export function encodeWindowsPowerShell(script: string) {
   return Buffer.from(script, "utf16le").toString("base64")
 }
 
+/**
+ * Some Windows schtasks.exe environments reject UTF-8 task XML at the encoding
+ * declaration. UTF-16LE with a BOM matches Task Scheduler's native Unicode
+ * serialization and avoids that locale-dependent import failure.
+ */
+export function encodeWindowsTaskXml(xml: string) {
+  return Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(xml, "utf16le"),
+  ])
+}
+
 export function buildWindowsTaskXml(
   launch: ServiceLaunchSpec,
   userId: string,
@@ -115,7 +127,7 @@ export function buildWindowsTaskXml(
   )
   const escapedUserId = escapeWindowsTaskXml(normalizedUserId)
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Run StillOn in the current user session.</Description>
@@ -161,7 +173,7 @@ export function buildWindowsTaskXml(
   <Actions Context="CurrentUser">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
+      <Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
       <WorkingDirectory>${escapeWindowsTaskXml(launch.workingDirectory)}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -243,7 +255,7 @@ export const windowsServiceBackend: ServiceBackend = {
     const servicePaths = getWindowsServicePaths(context.launch)
     const taskXml = buildWindowsTaskXml(context.launch, userId, servicePaths)
     await mkdir(servicePaths.directory, { recursive: true })
-    await writeFile(servicePaths.taskXml, taskXml, "utf8")
+    await writeFile(servicePaths.taskXml, encodeWindowsTaskXml(taskXml))
 
     const existingTask = await context.run(WINDOWS_SCHEDULER_COMMAND, [
       "/Query",
