@@ -206,6 +206,50 @@ describe("skills helpers", () => {
 })
 
 describe("filesystem commands", () => {
+  test("acks paths resolved by the connected host", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "kanna-ws-resolve-path-"))
+    try {
+      const router = createWsRouter({
+        store: { state: createEmptyState() } as never,
+        agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+        terminals: {
+          getSnapshot: () => null,
+          onEvent: () => () => {},
+        } as never,
+        keybindings: {
+          getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+          onChange: () => () => {},
+        } as never,
+        refreshDiscovery: async () => [],
+        getDiscoveredProjects: () => [],
+        machineDisplayName: "Local Machine",
+      })
+      const ws = new FakeWebSocket()
+
+      await router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "resolve-path-1",
+          command: { type: "filesystem.resolvePath", localPath: root },
+        })
+      )
+
+      expect(ws.sent).toEqual([{
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "resolve-path-1",
+        result: {
+          path: root,
+          separator: path.sep,
+        },
+      }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   test("acks one-level directory listings", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "kanna-ws-local-directories-"))
     try {

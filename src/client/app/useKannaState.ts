@@ -19,7 +19,7 @@ import { processTranscriptMessages } from "../lib/parseTranscript"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
-import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction } from "../../shared/protocol"
+import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -648,6 +648,7 @@ export interface KannaState {
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleListLocalDirectories: (localPath?: string) => Promise<LocalDirectoryListResult>
+  handleResolveLocalPath: (localPath: string) => Promise<ResolvedLocalPath>
   handleReadAppSettings: () => Promise<void>
   handleWriteAppSettings: (patch: AppSettingsPatch) => Promise<AppSettingsSnapshot>
   handleReadLlmProvider: () => Promise<void>
@@ -1826,6 +1827,13 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
   }, [socket])
 
+  const handleResolveLocalPath = useCallback(async (localPath: string) => {
+    return await socket.command<ResolvedLocalPath>({
+      type: "filesystem.resolvePath",
+      localPath,
+    })
+  }, [socket])
+
   const handleAskUserQuestion = useCallback(async (
     toolUseId: string,
     questions: AskUserQuestionItem[],
@@ -1912,6 +1920,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleOpenLocalProject,
     handleCreateProject,
     handleListLocalDirectories,
+    handleResolveLocalPath,
     handleReadAppSettings,
     handleWriteAppSettings,
     handleReadLlmProvider,

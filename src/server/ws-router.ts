@@ -14,7 +14,7 @@ import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { listLocalDirectories } from "./local-directories"
 import { killLocalHttpServer, listLocalHttpServers } from "./local-http-servers"
-import { ensureProjectDirectory } from "./paths"
+import { ensureProjectDirectory, getResolvedLocalPath } from "./paths"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
@@ -1013,6 +1013,11 @@ export function createWsRouter({
         }
         case "filesystem.listDirectories": {
           const result = await listLocalDirectories(command.localPath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "filesystem.resolvePath": {
+          const result = getResolvedLocalPath(command.localPath)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }

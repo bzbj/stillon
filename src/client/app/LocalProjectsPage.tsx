@@ -24,6 +24,7 @@ export function LocalProjectsPage() {
         onOpenProject={state.handleOpenLocalProject}
         onCreateProject={state.handleCreateProject}
         onListDirectories={state.handleListLocalDirectories}
+        onResolveLocalPath={state.handleResolveLocalPath}
       />
     </div>
   )
