@@ -1,15 +1,15 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, Upload } from "lucide-react"
+import { ArrowDown, Ban, Download, Eye, Upload } from "lucide-react"
 import { AnimatedShinyText } from "../../components/ui/animated-shiny-text"
 import { DrainingIndicator } from "../../components/messages/DrainingIndicator"
 import { QueuedUserMessage } from "../../components/messages/QueuedUserMessage"
 import { OpenLocalLinkProvider, type OpenLocalLinkTarget } from "../../components/messages/shared"
 import { ProcessingMessage } from "../../components/messages/ProcessingMessage"
-import { ContextMenu, ContextMenuTrigger } from "../../components/ui/context-menu"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../components/ui/context-menu"
 import { OpenExternalContextMenuContent } from "../../components/open-external-menu"
 import { cn } from "../../lib/utils"
-import { parseProjectRelativeRenderableFileLink, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
+import { getProjectRelativeFilePath, parseProjectRelativeFileLink, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
 import {
   buildResolvedTranscriptRows,
   KannaTranscriptRow,
@@ -22,6 +22,7 @@ import {
   EMPTY_STATE_TEXT,
 } from "./utils"
 import type { EditorPreset } from "../../../shared/protocol"
+import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 
 interface ChatTranscriptViewportProps {
   activeChatId: string | null
@@ -42,6 +43,7 @@ interface ChatTranscriptViewportProps {
   onSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
   onOpenLocalLink: KannaState["handleOpenLocalLink"]
+  canOpenHostFiles?: boolean
   onAskUserQuestionSubmit: KannaState["handleAskUserQuestion"]
   onExitPlanModeConfirm: KannaState["handleExitPlanMode"]
   showScrollButton: boolean
@@ -76,6 +78,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   onSteerQueuedMessage,
   onRemoveQueuedMessage,
   onOpenLocalLink,
+  canOpenHostFiles = false,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
   showScrollButton,
@@ -210,8 +213,8 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     })
   }, [onOpenLocalLink])
 
-  const resolveProjectRenderableLink = useCallback((href: string | undefined | null) => (
-    parseProjectRelativeRenderableFileLink(href, localPath)
+  const resolveProjectFileLink = useCallback((href: string | undefined | null) => (
+    parseProjectRelativeFileLink(href, localPath)
   ), [localPath])
 
   const renderItem = useCallback(({ item }: { item: ResolvedTranscriptRow }) => (
@@ -267,7 +270,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   return (
     <>
-      <OpenLocalLinkProvider onOpenLocalLink={handleOpenLocalLinkClick} resolveLocalLink={resolveProjectRenderableLink}>
+      <OpenLocalLinkProvider onOpenLocalLink={handleOpenLocalLinkClick} resolveLocalLink={resolveProjectFileLink}>
         <LegendList<ResolvedTranscriptRow>
           ref={listRef}
           data={resolvedRows}
@@ -305,7 +308,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
             }}
           />
         </ContextMenuTrigger>
-        {localLinkMenuTarget ? (
+        {localLinkMenuTarget && canOpenHostFiles ? (
           <OpenExternalContextMenuContent
             isMac={isMac}
             editorPreset={editorPreset}
@@ -315,6 +318,15 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
             includeDefault
             onOpenExternal={(action, editor) => {
               void onOpenLocalLink(localLinkMenuTarget, action, editor)
+            }}
+          />
+        ) : localLinkMenuTarget ? (
+          <RemoteFileContextMenuContent
+            target={localLinkMenuTarget}
+            localPath={localPath}
+            onActivate={() => {
+              const action = shouldOpenLocalFileLinkInEditor(localLinkMenuTarget.path) ? "open_editor" : "open_default"
+              void onOpenLocalLink({ ...localLinkMenuTarget, trigger: "click" }, action)
             }}
           />
         ) : null}
@@ -394,6 +406,40 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     </>
   )
 })
+
+function RemoteFileContextMenuContent({
+  target,
+  localPath,
+  onActivate,
+}: {
+  target: OpenLocalLinkTarget
+  localPath: string | null | undefined
+  onActivate: () => void
+}) {
+  const canPreview = isLocalHtmlPreviewPath(target.path) || isLocalMarkdownPreviewPath(target.path)
+  const canDownload = Boolean(getProjectRelativeFilePath(target.path, localPath))
+  const enabled = canPreview || canDownload
+  const Icon = canPreview ? Eye : canDownload ? Download : Ban
+  const label = canPreview ? "Open Preview" : canDownload ? "Download" : "Unavailable outside project"
+
+  return (
+    <ContextMenuContent className="rounded-lg p-1">
+      <ContextMenuItem
+        disabled={!enabled}
+        className="rounded-md text-sm font-normal focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground"
+        onSelect={(event) => {
+          event.preventDefault()
+          if (enabled) onActivate()
+        }}
+      >
+        <span className="flex items-center gap-3">
+          <Icon className="h-5 w-5 shrink-0" />
+          <span>{label}</span>
+        </span>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  )
+}
 
 function keyExtractor(item: ResolvedTranscriptRow) {
   return item.id

@@ -23,12 +23,19 @@ describe("local file urls", () => {
 
     expect(parseLocalMarkdownPreviewUrl("https://stillon.example.com/api/local-files/markdown-preview/%2FUsers%2Fexample%2F.agents%2Fskills%2Flark-apps%2FSKILL.md"))
       .toEqual({ filePath: "/Users/example/.agents/skills/lark-apps/SKILL.md" })
+
+    expect(parseLocalMarkdownPreviewUrl("/api/local-files/markdown-preview/%2FUsers%2Fexample%2FREADME.md?plain=1#usage"))
+      .toEqual({ filePath: "/Users/example/README.md" })
   })
 
-  test("parses local file content urls only for markdown files", () => {
+  test("parses local file content urls only for Markdown and safe embedded images", () => {
     expect(parseLocalFileContentUrl("/api/local-files/content/%2FUsers%2Fexample%2Fnotes.markdown"))
       .toEqual({ filePath: "/Users/example/notes.markdown" })
+    expect(parseLocalFileContentUrl("/api/local-files/content/%2FUsers%2Fexample%2Fchart.png"))
+      .toEqual({ filePath: "/Users/example/chart.png" })
     expect(parseLocalFileContentUrl("/api/local-files/content/%2FUsers%2Fexample%2Fsecret.env"))
+      .toBeNull()
+    expect(parseLocalFileContentUrl("/api/local-files/content/%2FUsers%2Fexample%2Freport.pdf"))
       .toBeNull()
   })
 

@@ -46,14 +46,43 @@ export function parseBrowserPreviewProxyTarget(pathname: string): BrowserPreview
 
 export function rewritePreviewResponseText(text: string, port: number) {
   const prefix = `${BROWSER_PREVIEW_PROXY_PREFIX}/${port}`
-  return text
+  const withLoopbackUrlsRewritten = text
     .replace(new RegExp(`https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\]):${port}(?=/|["'\\s)<]|$)`, "g"), prefix)
     .replace(new RegExp(`//(?:localhost|127\\.0\\.0\\.1|\\[::1\\]):${port}(?=/|["'\\s)<]|$)`, "g"), prefix)
-    .replace(/((?:src|href|action|poster|data|formaction|xlink:href)=["'])\/(?!\/|api\/browser-proxy\/)/gi, `$1${prefix}/`)
-    .replace(/(srcset=["'][^"']*)\/(?!\/|api\/browser-proxy\/)/gi, `$1${prefix}/`)
-    .replace(/(url\(\s*["']?)\/(?!\/|api\/browser-proxy\/)/gi, `$1${prefix}/`)
-    .replace(/(@import\s+(?:url\()?["'])\/(?!\/|api\/browser-proxy\/)/gi, `$1${prefix}/`)
-    .replace(/(\b(?:from|import)\s*\(?\s*["'])\/(?!\/|api\/browser-proxy\/)/g, `$1${prefix}/`)
+  return rewriteRootRelativeReferences(withLoopbackUrlsRewritten, prefix)
+}
+
+export function rewriteRootRelativeReferences(text: string, rawPrefix: string) {
+  const prefix = rawPrefix.replace(/\/+$/, "")
+  const withPrefix = (value: string) => {
+    const absolutePath = `/${value}`
+    return absolutePath === prefix || absolutePath.startsWith(`${prefix}/`)
+      ? absolutePath
+      : `${prefix}${absolutePath}`
+  }
+
+  return text
+    .replace(
+      /((?:src|href|action|poster|data|formaction|xlink:href)=["'])\/(?!\/)([^"']*)/gi,
+      (_match, attribute: string, value: string) => `${attribute}${withPrefix(value)}`,
+    )
+    .replace(/(srcset=["'])([^"']*)/gi, (_match, attribute: string, value: string) => (
+      `${attribute}${value.replace(/(^|,\s*)\/(?!\/)([^,\s]+)/g, (_entry, separator: string, pathValue: string) => (
+        `${separator}${withPrefix(pathValue)}`
+      ))}`
+    ))
+    .replace(
+      /(url\(\s*["']?)\/(?!\/)([^"')]+)/gi,
+      (_match, opener: string, value: string) => `${opener}${withPrefix(value)}`,
+    )
+    .replace(
+      /(@import\s+(?:url\()?["'])\/(?!\/)([^"']+)/gi,
+      (_match, opener: string, value: string) => `${opener}${withPrefix(value)}`,
+    )
+    .replace(
+      /(\b(?:from|import)\s*\(?\s*["'])\/(?!\/)([^"']+)/g,
+      (_match, opener: string, value: string) => `${opener}${withPrefix(value)}`,
+    )
 }
 
 export function rewritePreviewLocationHeader(location: string, port: number) {

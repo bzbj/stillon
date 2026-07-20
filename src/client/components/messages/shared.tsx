@@ -40,6 +40,8 @@ export type OpenLocalLinkTarget = {
   path: string
   line?: number
   column?: number
+  query?: string
+  fragment?: string
   clientX?: number
   clientY?: number
   trigger?: "click" | "contextmenu"
@@ -47,7 +49,7 @@ export type OpenLocalLinkTarget = {
 type OpenLocalLinkHandler = (target: OpenLocalLinkTarget) => void
 type ResolveLocalLinkHandler = (href: string | undefined | null) => ParsedLocalFileLink | null
 
-const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^[a-z]:[\\/]/i
+const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i
 
 export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => (
   key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(url)

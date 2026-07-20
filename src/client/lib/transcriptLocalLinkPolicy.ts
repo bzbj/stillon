@@ -1,16 +1,22 @@
 import { isLoopbackPreviewHost } from "../../shared/browser-preview-proxy"
 import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../shared/local-file-urls"
-import type { OpenExternalAction } from "../../shared/protocol"
 
-export function shouldBypassInAppLocalFilePreview(hostname: string) {
+export type TranscriptLocalFileDisposition = "preview" | "open_host" | "download" | "blocked"
+
+export function canOpenTranscriptFilesOnHost(hostname: string) {
   return isLoopbackPreviewHost(hostname)
 }
 
-export function resolveDirectLocalFileAction(
-  filePath: string,
-  requestedAction: OpenExternalAction | undefined,
-): OpenExternalAction | undefined {
-  return isLocalHtmlPreviewPath(filePath) || isLocalMarkdownPreviewPath(filePath)
-    ? "open_default"
-    : requestedAction
+export function resolveTranscriptLocalFileDisposition(args: {
+  hostname: string
+  filePath: string
+  isProjectFile: boolean
+}): TranscriptLocalFileDisposition {
+  if (isLocalHtmlPreviewPath(args.filePath) || isLocalMarkdownPreviewPath(args.filePath)) {
+    return "preview"
+  }
+  if (canOpenTranscriptFilesOnHost(args.hostname)) {
+    return "open_host"
+  }
+  return args.isProjectFile ? "download" : "blocked"
 }

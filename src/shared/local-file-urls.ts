@@ -1,5 +1,9 @@
 export const LOCAL_HTML_PREVIEW_SESSION_ENDPOINT = "/api/local-html-previews"
 
+const LOCAL_MARKDOWN_RESOURCE_EXTENSIONS = new Set([
+  ".apng", ".avif", ".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp",
+])
+
 export function buildLocalFileContentUrl(filePath: string, options: { download?: boolean } = {}) {
   const url = `/api/local-files/content/${encodeURIComponent(filePath)}`
   return options.download ? `${url}?download=1` : url
@@ -17,14 +21,10 @@ export function parseLocalMarkdownPreviewUrl(address: string): LocalMarkdownPrev
   if (!address) return null
 
   let pathname: string
-  if (address.startsWith("/")) {
-    pathname = address
-  } else {
-    try {
-      pathname = new URL(address).pathname
-    } catch {
-      return null
-    }
+  try {
+    pathname = new URL(address, "http://stillon.invalid").pathname
+  } catch {
+    return null
   }
 
   const match = pathname.match(/^\/api\/local-files\/markdown-preview\/(.+)$/)
@@ -43,14 +43,10 @@ export function parseLocalFileContentUrl(address: string): { filePath: string } 
   if (!address) return null
 
   let pathname: string
-  if (address.startsWith("/")) {
-    pathname = address
-  } else {
-    try {
-      pathname = new URL(address).pathname
-    } catch {
-      return null
-    }
+  try {
+    pathname = new URL(address, "http://stillon.invalid").pathname
+  } catch {
+    return null
   }
 
   const match = pathname.match(/^\/api\/local-files\/content\/(.+)$/)
@@ -58,7 +54,7 @@ export function parseLocalFileContentUrl(address: string): { filePath: string } 
 
   try {
     const filePath = decodeURIComponent(match[1] ?? "")
-    if (!isAbsoluteLocalPath(filePath) || !isLocalMarkdownPreviewPath(filePath)) return null
+    if (!isAbsoluteLocalPath(filePath) || !isLocalFileContentPath(filePath)) return null
     return { filePath }
   } catch {
     return null
@@ -76,9 +72,13 @@ export function isLocalHtmlPreviewPath(filePath: string) {
   return extension === ".html" || extension === ".htm"
 }
 
+export function isLocalFileContentPath(filePath: string) {
+  return isLocalMarkdownPreviewPath(filePath) || LOCAL_MARKDOWN_RESOURCE_EXTENSIONS.has(getLocalFileExtension(filePath))
+}
+
 function isAbsoluteLocalPath(filePath: string) {
   if (filePath.includes("\0")) return false
-  return filePath.startsWith("/") || /^[a-z]:[\\/]/i.test(filePath)
+  return filePath.startsWith("/") || /^[a-z]:[\\/]/i.test(filePath) || /^\\\\[^\\/]+[\\/][^\\/]+/.test(filePath)
 }
 
 function getLocalFileExtension(filePath: string) {

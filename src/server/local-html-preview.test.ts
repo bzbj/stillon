@@ -21,10 +21,11 @@ describe("local HTML previews", () => {
     await mkdir(path.join(previewDir, "assets"), { recursive: true })
     await writeFile(
       path.join(previewDir, "index.html"),
-      "<!doctype html><title>Outside project</title><script src=\"./assets/app.js\"></script>",
+      "<!doctype html><title>Outside project</title><script src=\"./assets/app.js\"></script><img src=\"/assets/chart.png\">",
       "utf8",
     )
     await writeFile(path.join(previewDir, "assets", "app.js"), "document.body.dataset.ready = '1'", "utf8")
+    await writeFile(path.join(previewDir, "assets", "chart.png"), new Uint8Array([137, 80, 78, 71]))
     await writeFile(path.join(previewDir, ".env"), "SECRET=do-not-serve", "utf8")
     await writeFile(path.join(outsideDir, "outside.js"), "globalThis.stolen = true", "utf8")
     if (process.platform !== "win32") {
@@ -40,6 +41,13 @@ describe("local HTML previews", () => {
 
     try {
       const origin = `http://127.0.0.1:${server.port}`
+      const remoteCreateResponse = await fetch(`${origin}${LOCAL_HTML_PREVIEW_SESSION_ENDPOINT}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Host: "stillon.example.com" },
+        body: JSON.stringify({ filePath: path.join(previewDir, "index.html") }),
+      })
+      expect(remoteCreateResponse.status).toBe(403)
+
       const createResponse = await fetch(`${origin}${LOCAL_HTML_PREVIEW_SESSION_ENDPOINT}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -47,6 +55,7 @@ describe("local HTML previews", () => {
       })
       expect(createResponse.status).toBe(201)
       const payload = await createResponse.json() as { url: string, expiresAt: number }
+      const sessionRootUrl = payload.url.slice(0, payload.url.lastIndexOf("/") + 1)
       expect(payload.url).toMatch(/^\/api\/local-html-previews\/[A-Za-z0-9_-]+\/index\.html$/)
       expect(payload.expiresAt).toBeGreaterThan(Date.now())
 
@@ -62,7 +71,9 @@ describe("local HTML previews", () => {
       expect(csp).toContain("form-action 'none'")
       expect(csp).toContain("sandbox allow-scripts")
       expect(csp).not.toContain("allow-same-origin")
-      expect(await htmlResponse.text()).toContain("Outside project")
+      const previewHtml = await htmlResponse.text()
+      expect(previewHtml).toContain("Outside project")
+      expect(previewHtml).toContain(`${sessionRootUrl}assets/chart.png`)
 
       const scriptUrl = new URL("./assets/app.js", `${origin}${payload.url}`)
       const scriptResponse = await fetch(scriptUrl)
@@ -70,7 +81,6 @@ describe("local HTML previews", () => {
       expect(scriptResponse.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
       expect(await scriptResponse.text()).toContain("dataset.ready")
 
-      const sessionRootUrl = payload.url.slice(0, payload.url.lastIndexOf("/") + 1)
       const secretResponse = await fetch(`${origin}${sessionRootUrl}.env`)
       expect(secretResponse.status).toBe(403)
       expect(await secretResponse.text()).not.toContain("do-not-serve")

@@ -3,6 +3,7 @@ import { realpath, stat } from "node:fs/promises"
 import path from "node:path"
 import { LOCAL_HTML_PREVIEW_SESSION_ENDPOINT } from "../shared/local-file-urls"
 import { inferProjectFileContentType } from "./uploads"
+import { rewriteRootRelativeReferences } from "./browser-preview-proxy"
 
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000
 const MAX_SESSIONS = 64
@@ -231,7 +232,15 @@ export function createLocalHtmlPreviewManager(
 
     const file = Bun.file(canonicalFilePath)
     const headers = getPreviewHeaders(canonicalFilePath, file.type)
-    return new Response(req.method === "HEAD" ? null : file, { headers })
+    const body = req.method === "HEAD"
+      ? null
+      : isRewritablePreviewFile(canonicalFilePath)
+        ? rewriteRootRelativeReferences(
+            await file.text(),
+            `${LOCAL_HTML_PREVIEW_SESSION_ENDPOINT}/${token}`,
+          )
+        : file
+    return new Response(body, { headers })
   }
 
   return {
@@ -299,6 +308,16 @@ function isPathInsideRoot(rootPath: string, filePath: string) {
 function isHtmlFile(filePath: string) {
   const extension = path.extname(filePath).toLowerCase()
   return extension === ".html" || extension === ".htm"
+}
+
+function isRewritablePreviewFile(filePath: string) {
+  const extension = path.extname(filePath).toLowerCase()
+  return extension === ".html"
+    || extension === ".htm"
+    || extension === ".css"
+    || extension === ".js"
+    || extension === ".mjs"
+    || extension === ".cjs"
 }
 
 function getPreviewHeaders(filePath: string, fallbackType?: string) {

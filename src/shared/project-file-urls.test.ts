@@ -37,6 +37,8 @@ describe("project file urls", () => {
       .toBeNull()
     expect(parseProjectMarkdownPreviewUrl("https://example.com/api/projects/project-1/markdown-preview/README.md"))
       .toBeNull()
+    expect(parseProjectMarkdownPreviewUrl("/api/projects/project-1/markdown-preview/docs/README.md?plain=1#usage"))
+      .toEqual({ projectId: "project-1", filePath: "docs/README.md" })
   })
 
   test("detects markdown preview paths", () => {

@@ -4,6 +4,7 @@ import {
   parseBrowserPreviewProxyTarget,
   rewritePreviewLocationHeader,
   rewritePreviewResponseText,
+  rewriteRootRelativeReferences,
 } from "./browser-preview-proxy"
 
 describe("browser preview proxy", () => {
@@ -33,6 +34,24 @@ describe("browser preview proxy", () => {
     expect(rewritten).toContain('href="/api/browser-proxy/5173/page"')
     expect(rewritten).toContain("url('/api/browser-proxy/5173/bg.png')")
     expect(rewritten).toContain('import "/api/browser-proxy/5173/@vite/client"')
+  })
+
+  test("rewrites root-relative static document resources without duplicating an existing prefix", () => {
+    const prefix = "/api/projects/project-1/preview"
+    const rewritten = rewriteRootRelativeReferences(
+      [
+        '<img src="/images/chart.png">',
+        '<img srcset="/images/small.png 1x, /images/large.png 2x">',
+        '<a href="/api/projects/project-1/preview/already.html">Existing</a>',
+        "body { background: url('/images/bg.png') }",
+      ].join("\n"),
+      prefix,
+    )
+
+    expect(rewritten).toContain(`src="${prefix}/images/chart.png"`)
+    expect(rewritten).toContain(`srcset="${prefix}/images/small.png 1x, ${prefix}/images/large.png 2x"`)
+    expect(rewritten).toContain(`href="${prefix}/already.html"`)
+    expect(rewritten).toContain(`url('${prefix}/images/bg.png')`)
   })
 
   test("rewrites absolute localhost redirect locations", () => {

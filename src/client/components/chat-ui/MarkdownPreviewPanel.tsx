@@ -14,6 +14,8 @@ import {
   isProjectMarkdownPreviewPath,
 } from "../../../shared/project-file-urls"
 import { cn } from "../../lib/utils"
+import { appendLocalFileLinkLocation, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
+import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "../messages/shared"
 import { TEXT_PREVIEW_LIMIT_BYTES, fetchTextPreview } from "../messages/attachmentPreview"
 
@@ -33,6 +35,9 @@ interface MarkdownPreviewPanelProps {
   refreshVersion: number
   zoom: number
   onNavigate: (address: string) => void
+  canOpenHostFiles?: boolean
+  projectLocalPath?: string | null
+  onOpenHostFile?: (filePath: string, action: "open_editor" | "open_default") => void
 }
 
 export function MarkdownPreviewPanel({
@@ -40,13 +45,18 @@ export function MarkdownPreviewPanel({
   refreshVersion,
   zoom,
   onNavigate,
+  canOpenHostFiles = false,
+  projectLocalPath,
+  onOpenHostFile,
 }: MarkdownPreviewPanelProps) {
   const [previewState, setPreviewState] = useState<MarkdownPreviewState>({ status: "loading" })
+  const [navigationError, setNavigationError] = useState<string | null>(null)
   const { filePath } = source
 
   useEffect(() => {
     let cancelled = false
     setPreviewState({ status: "loading" })
+    setNavigationError(null)
 
     void fetchTextPreview(buildMarkdownContentUrl(source), TEXT_PREVIEW_LIMIT_BYTES)
       .then(({ content, truncated }) => {
@@ -73,12 +83,13 @@ export function MarkdownPreviewPanel({
       a: ({ children, href, onClick, ...props }: ComponentPropsWithoutRef<"a">) => {
         const linkedPath = resolveMarkdownResourcePath(source, href)
         if (!linkedPath) {
+          const isDocumentFragment = href?.startsWith("#") ?? false
           return (
             <a
               className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
               href={href}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={isDocumentFragment ? undefined : "_blank"}
+              rel={isDocumentFragment ? undefined : "noopener noreferrer"}
               onClick={onClick}
               {...props}
             >
@@ -87,21 +98,60 @@ export function MarkdownPreviewPanel({
           )
         }
 
+        const location = getMarkdownTargetLocation(href)
         const previewUrl = buildPreviewUrlForLinkedPath(source, linkedPath)
-        const contentUrl = buildContentUrlForLinkedPath(source, linkedPath)
+        const locatedPreviewUrl = previewUrl ? appendLocalFileLinkLocation(previewUrl, location) : null
+        const isLocalHtmlLink = source.kind === "local" && isHtmlPreviewPath(linkedPath)
+        const hostFilePath = getHostFilePath(source, linkedPath, projectLocalPath)
+        const shouldOpenOnHost = canOpenHostFiles && Boolean(hostFilePath && onOpenHostFile)
+        const shouldDownload = !canOpenHostFiles && source.kind === "project"
+        const contentUrl = buildContentUrlForLinkedPath(source, linkedPath, { download: shouldDownload })
+        const isUnavailable = !locatedPreviewUrl && !isLocalHtmlLink && !shouldOpenOnHost && !shouldDownload
         const linkUrl = previewUrl ?? contentUrl
+
+        if (isUnavailable) {
+          return (
+            <span
+              className="text-muted-foreground underline decoration-dotted"
+              title="This project-external file cannot be downloaded remotely."
+            >
+              {children}
+            </span>
+          )
+        }
 
         return (
           <a
             className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
-            href={linkUrl}
-            target={previewUrl ? undefined : "_blank"}
-            rel={previewUrl ? undefined : "noopener noreferrer"}
+            href={locatedPreviewUrl ?? (isLocalHtmlLink || shouldOpenOnHost ? "#" : linkUrl)}
+            target={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "_blank"}
+            rel={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "noopener noreferrer"}
+            download={shouldDownload ? getFileName(linkedPath) : undefined}
             onClick={(event: ReactMouseEvent<HTMLAnchorElement>) => {
               onClick?.(event)
-              if (event.defaultPrevented || !previewUrl) return
-              event.preventDefault()
-              onNavigate(previewUrl)
+              if (event.defaultPrevented) return
+              if (locatedPreviewUrl) {
+                event.preventDefault()
+                onNavigate(locatedPreviewUrl)
+                return
+              }
+              if (isLocalHtmlLink) {
+                event.preventDefault()
+                setNavigationError(null)
+                void requestLocalHtmlPreviewUrl(linkedPath)
+                  .then((url) => onNavigate(appendLocalFileLinkLocation(url, location)))
+                  .catch((error: unknown) => {
+                    setNavigationError(error instanceof Error ? error.message : "Unable to open HTML preview.")
+                  })
+                return
+              }
+              if (shouldOpenOnHost && hostFilePath && onOpenHostFile) {
+                event.preventDefault()
+                onOpenHostFile(
+                  hostFilePath,
+                  shouldOpenLocalFileLinkInEditor(hostFilePath) ? "open_editor" : "open_default",
+                )
+              }
             }}
             {...props}
           >
@@ -122,7 +172,7 @@ export function MarkdownPreviewPanel({
         )
       },
     }
-  }, [onNavigate, source])
+  }, [canOpenHostFiles, onNavigate, onOpenHostFile, projectLocalPath, source])
 
   return (
     <div className="h-full w-full overflow-auto bg-background">
@@ -140,6 +190,12 @@ export function MarkdownPreviewPanel({
               {filePath}
             </div>
           </div>
+
+          {navigationError ? (
+            <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {navigationError}
+            </div>
+          ) : null}
 
           {previewState.status === "loading" ? (
             <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
@@ -194,10 +250,14 @@ function buildPreviewUrlForLinkedPath(source: MarkdownPreviewSource, filePath: s
   return null
 }
 
-function buildContentUrlForLinkedPath(source: MarkdownPreviewSource, filePath: string) {
+function buildContentUrlForLinkedPath(
+  source: MarkdownPreviewSource,
+  filePath: string,
+  options: { download?: boolean } = {},
+) {
   return source.kind === "project"
-    ? buildProjectFileContentUrl(source.projectId, filePath)
-    : buildLocalFileContentUrl(filePath)
+    ? buildProjectFileContentUrl(source.projectId, filePath, options)
+    : buildLocalFileContentUrl(filePath, options)
 }
 
 function isHtmlPreviewPath(filePath: string) {
@@ -209,6 +269,30 @@ function getFileExtension(filePath: string) {
   const fileName = filePath.split(/[\\/]/).pop() ?? filePath
   const extensionIndex = fileName.lastIndexOf(".")
   return extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : ""
+}
+
+function getFileName(filePath: string) {
+  return filePath.split(/[\\/]/).pop() || "download"
+}
+
+function getMarkdownTargetLocation(target: string | undefined | null) {
+  if (!target) return {}
+  const hashIndex = target.indexOf("#")
+  const fragment = hashIndex >= 0 ? target.slice(hashIndex + 1) : undefined
+  const withoutFragment = hashIndex >= 0 ? target.slice(0, hashIndex) : target
+  const queryIndex = withoutFragment.indexOf("?")
+  const query = queryIndex >= 0 ? withoutFragment.slice(queryIndex + 1) : undefined
+  return { query, fragment }
+}
+
+function getHostFilePath(
+  source: MarkdownPreviewSource,
+  linkedPath: string,
+  projectLocalPath: string | null | undefined,
+) {
+  if (source.kind === "local") return linkedPath
+  if (!projectLocalPath) return null
+  return `${projectLocalPath.replace(/[\\/]+$/, "").replace(/\\/g, "/")}/${linkedPath}`
 }
 
 export function resolveMarkdownResourcePath(source: MarkdownPreviewSource, target: string | undefined | null) {
