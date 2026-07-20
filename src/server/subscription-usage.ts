@@ -138,11 +138,29 @@ async function readClaudeUsageProvider(
   now: number
 ): Promise<SubscriptionUsageProviderSnapshot> {
   const readClaudeSdkUsage = options.readClaudeSdkUsage ?? readClaudeSdkUsageSnapshot
+  let sdkSnapshot: SubscriptionUsageProviderSnapshot | null = null
 
   try {
-    return parseClaudeSdkUsageSnapshot(await readClaudeSdkUsage({ timeoutMs: COMMAND_TIMEOUT_MS }), now)
+    sdkSnapshot = parseClaudeSdkUsageSnapshot(
+      await readClaudeSdkUsage({ timeoutMs: COMMAND_TIMEOUT_MS }),
+      now,
+    )
+    // Some Claude Code versions return account information but omit rate
+    // limits from the experimental SDK API. The CLI's /usage command remains
+    // available in that case, so do not mistake missing SDK limits for a
+    // disconnected Claude installation.
+    if (sdkSnapshot.status === "available") return sdkSnapshot
   } catch {
-    return readClaudeUsageProviderFromCli(options, now)
+    // Fall through to the stable CLI usage command.
+  }
+
+  const cliSnapshot = await readClaudeUsageProviderFromCli(options, now)
+  if (!sdkSnapshot) return cliSnapshot
+
+  return {
+    ...cliSnapshot,
+    planType: cliSnapshot.planType ?? sdkSnapshot.planType,
+    accountEmail: cliSnapshot.accountEmail ?? sdkSnapshot.accountEmail,
   }
 }
 
