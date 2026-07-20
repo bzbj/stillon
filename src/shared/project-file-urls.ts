@@ -24,7 +24,13 @@ export interface ProjectMarkdownPreviewTarget {
 
 export function parseProjectMarkdownPreviewUrl(address: string): ProjectMarkdownPreviewTarget | null {
   if (!address.startsWith("/")) return null
-  const match = address.match(/^\/api\/projects\/([^/]+)\/markdown-preview\/(.+)$/)
+  let pathname: string
+  try {
+    pathname = new URL(address, "http://stillon.invalid").pathname
+  } catch {
+    return null
+  }
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/markdown-preview\/(.+)$/)
   if (!match) return null
 
   try {

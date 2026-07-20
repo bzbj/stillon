@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
+  appendLocalFileLinkLocation,
   getProjectHtmlPreviewPath,
+  getProjectRelativeFilePath,
   getProjectRenderablePreviewPath,
   parseLocalFileLink,
+  parseProjectRelativeFileLink,
   parseProjectRelativeHtmlFileLink,
   parseProjectRelativeRenderableFileLink,
   shouldOpenLocalFileLinkInEditor,
@@ -47,35 +50,38 @@ describe("parseLocalFileLink", () => {
     })
   })
 
-  test("parses same-origin absolute file urls with a line suffix", () => {
-    const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window")
-    Object.defineProperty(globalThis, "window", {
-      value: {
-        location: {
-          origin: "http://localhost:9000",
-        },
-      },
-      configurable: true,
-      writable: true,
+  test("parses Windows UNC file paths", () => {
+    expect(parseLocalFileLink("\\\\server\\share\\reports\\summary.pdf")).toEqual({
+      path: "//server/share/reports/summary.pdf",
     })
+  })
 
-    try {
-      expect(parseLocalFileLink("http://localhost:9000/Users/example/Projects/sample-app/scripts/e2b-proxy.mjs:1")).toEqual({
-        path: "/Users/example/Projects/sample-app/scripts/e2b-proxy.mjs",
-        line: 1,
-        column: undefined,
-      })
-    } finally {
-      if (originalWindowDescriptor) {
-        Object.defineProperty(globalThis, "window", originalWindowDescriptor)
-      } else {
-        Reflect.deleteProperty(globalThis, "window")
-      }
-    }
+  test("keeps HTTP URLs as web links even when they share the app origin", () => {
+    expect(parseLocalFileLink("http://localhost:9000/Users/example/Projects/sample-app/report.pdf")).toBeNull()
   })
 
   test("does not treat web links as local file links", () => {
     expect(parseLocalFileLink("https://example.com")).toBeNull()
+  })
+
+  test("separates query strings and document fragments from macOS and Windows paths", () => {
+    expect(parseLocalFileLink("/Users/example/report.html?theme=dark#summary")).toEqual({
+      path: "/Users/example/report.html",
+      query: "theme=dark",
+      fragment: "summary",
+    })
+    expect(parseLocalFileLink("C:\\Users\\example\\README.md?plain=1#usage")).toEqual({
+      path: "C:/Users/example/README.md",
+      query: "plain=1",
+      fragment: "usage",
+    })
+  })
+
+  test("decodes encoded path characters without decoding URL location data", () => {
+    expect(parseLocalFileLink("/Users/example/My%20Report.pdf#page=2")).toEqual({
+      path: "/Users/example/My Report.pdf",
+      fragment: "page=2",
+    })
   })
 })
 
@@ -135,6 +141,22 @@ describe("getProjectRenderablePreviewPath", () => {
   })
 })
 
+describe("getProjectRelativeFilePath", () => {
+  test("returns all project file types and compares Windows paths case-insensitively", () => {
+    expect(getProjectRelativeFilePath("/Users/example/Projects/stillon/output/report.xlsx", "/Users/example/Projects/stillon"))
+      .toBe("output/report.xlsx")
+    expect(getProjectRelativeFilePath("c:\\users\\Example\\Project\\REPORT.PDF", "C:\\Users\\Example\\Project"))
+      .toBe("REPORT.PDF")
+    expect(getProjectRelativeFilePath("//SERVER/Share/Project/reports/data.xlsx", "\\\\server\\share\\project"))
+      .toBe("reports/data.xlsx")
+  })
+
+  test("rejects sibling projects and path escapes", () => {
+    expect(getProjectRelativeFilePath("/Users/example/Projects/stillon-copy/report.pdf", "/Users/example/Projects/stillon")).toBeNull()
+    expect(getProjectRelativeFilePath("/Users/example/Projects/stillon/../secret.pdf", "/Users/example/Projects/stillon")).toBeNull()
+  })
+})
+
 describe("parseProjectRelativeHtmlFileLink", () => {
   test("resolves relative html links against the project path", () => {
     expect(parseProjectRelativeHtmlFileLink("./output/index.html#L12C3", "/Users/example/Projects/stillon")).toEqual({
@@ -167,5 +189,37 @@ describe("parseProjectRelativeRenderableFileLink", () => {
     expect(parseProjectRelativeRenderableFileLink("https://example.com/README.md", "/Users/example/Projects/stillon")).toBeNull()
     expect(parseProjectRelativeRenderableFileLink("output/index.ts", "/Users/example/Projects/stillon")).toBeNull()
     expect(parseProjectRelativeRenderableFileLink("../secret.md", "/Users/example/Projects/stillon")).toBeNull()
+  })
+})
+
+describe("parseProjectRelativeFileLink", () => {
+  test("resolves PDF, Excel, extensionless, and anchored document links from the project root", () => {
+    expect(parseProjectRelativeFileLink("./output/report.pdf", "/Users/example/Projects/stillon")).toEqual({
+      path: "/Users/example/Projects/stillon/output/report.pdf",
+    })
+    expect(parseProjectRelativeFileLink("data/report.xlsx?download=latest", "C:\\Users\\example\\stillon")).toEqual({
+      path: "C:/Users/example/stillon/data/report.xlsx",
+      query: "download=latest",
+    })
+    expect(parseProjectRelativeFileLink("Makefile", "/Users/example/Projects/stillon")).toEqual({
+      path: "/Users/example/Projects/stillon/Makefile",
+    })
+    expect(parseProjectRelativeFileLink("docs/README.md#usage", "/Users/example/Projects/stillon")).toEqual({
+      path: "/Users/example/Projects/stillon/docs/README.md",
+      fragment: "usage",
+    })
+  })
+
+  test("rejects external URLs, document-only fragments, and project escapes", () => {
+    expect(parseProjectRelativeFileLink("https://example.com/report.pdf", "/Users/example/Projects/stillon")).toBeNull()
+    expect(parseProjectRelativeFileLink("#usage", "/Users/example/Projects/stillon")).toBeNull()
+    expect(parseProjectRelativeFileLink("../secret.pdf", "/Users/example/Projects/stillon")).toBeNull()
+  })
+})
+
+describe("appendLocalFileLinkLocation", () => {
+  test("preserves preview query strings and fragments", () => {
+    expect(appendLocalFileLinkLocation("/preview/index.html", { query: "theme=dark", fragment: "summary" }))
+      .toBe("/preview/index.html?theme=dark#summary")
   })
 })

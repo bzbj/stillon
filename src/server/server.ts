@@ -1,5 +1,5 @@
 import path from "node:path"
-import { stat } from "node:fs/promises"
+import { realpath, stat } from "node:fs/promises"
 import { APP_NAME, LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
@@ -14,7 +14,7 @@ import { readLlmProviderSnapshot, validateLlmProviderCredentials, writeLlmProvid
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
 import { createWsRouter, type ClientState } from "./ws-router"
-import { handleBrowserPreviewProxy } from "./browser-preview-proxy"
+import { handleBrowserPreviewProxy, rewriteRootRelativeReferences } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
 import { resolveProjectUploadFilePath } from "./paths"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
@@ -249,13 +249,15 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           }
 
           const localHtmlPreviewResponse = await localHtmlPreviews.handleRequest(req, url, {
-            allowCreate: Boolean(auth) || isLoopbackBindHost(hostname),
+            allowCreate: Boolean(auth) || isLoopbackBindHost(url.hostname),
           })
           if (localHtmlPreviewResponse) {
             return localHtmlPreviewResponse
           }
 
-          const localFileContentResponse = await handleLocalFileContent(req, url)
+          const localFileContentResponse = await handleLocalFileContent(req, url, {
+            allowRead: Boolean(auth) || isLoopbackBindHost(url.hostname),
+          })
           if (localFileContentResponse) {
             return localFileContentResponse
           }
@@ -413,7 +415,7 @@ async function handleAttachmentContent(req: Request, url: URL, store: EventStore
   return new Response(file, { headers })
 }
 
-function resolveProjectFileFromUrl(store: EventStore, projectId: string, rawRelativePath: string) {
+async function resolveProjectFileFromUrl(store: EventStore, projectId: string, rawRelativePath: string) {
   const project = store.getProject(projectId)
   if (!project) {
     return { error: Response.json({ error: "Project not found" }, { status: 404 }) }
@@ -437,7 +439,27 @@ function resolveProjectFileFromUrl(store: EventStore, projectId: string, rawRela
     return { error: Response.json({ error: "Invalid project file path" }, { status: 400 }) }
   }
 
-  return { project, relativePath, filePath }
+  let canonicalProjectRoot: string
+  let canonicalFilePath: string
+  try {
+    [canonicalProjectRoot, canonicalFilePath] = await Promise.all([
+      realpath(projectRoot),
+      realpath(filePath),
+    ])
+  } catch {
+    return { error: Response.json({ error: "File not found" }, { status: 404 }) }
+  }
+
+  const canonicalRelativePath = path.relative(canonicalProjectRoot, canonicalFilePath)
+  if (
+    canonicalRelativePath === ".."
+    || canonicalRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(canonicalRelativePath)
+  ) {
+    return { error: Response.json({ error: "Project file path escapes the project root" }, { status: 403 }) }
+  }
+
+  return { project, relativePath, filePath: canonicalFilePath }
 }
 
 async function readProjectFile(projectFilePath: string) {
@@ -460,22 +482,31 @@ async function handleProjectFilePreview(req: Request, url: URL, store: EventStor
     return null
   }
 
-  if (req.method !== "GET") {
+  if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response(null, {
       status: 405,
       headers: {
-        Allow: "GET",
+        Allow: "GET, HEAD",
       },
     })
   }
 
-  const resolved = resolveProjectFileFromUrl(store, match[1], match[2])
+  const resolved = await resolveProjectFileFromUrl(store, match[1], match[2])
   if ("error" in resolved) return resolved.error
 
   const readResult = await readProjectFile(resolved.filePath)
   if ("error" in readResult) return readResult.error
 
-  return new Response(readResult.file, {
+  const body = req.method === "HEAD"
+    ? null
+    : isRewritableProjectPreviewFile(resolved.relativePath)
+      ? rewriteRootRelativeReferences(
+          await readResult.file.text(),
+          `/api/projects/${match[1]}/preview`,
+        )
+      : readResult.file
+
+  return new Response(body, {
     headers: getProjectFilePreviewHeaders(resolved.relativePath, readResult.file.type),
   })
 }
@@ -486,16 +517,16 @@ async function handleProjectFileContent(req: Request, url: URL, store: EventStor
     return null
   }
 
-  if (req.method !== "GET") {
+  if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response(null, {
       status: 405,
       headers: {
-        Allow: "GET",
+        Allow: "GET, HEAD",
       },
     })
   }
 
-  const resolved = resolveProjectFileFromUrl(store, match[1], match[2])
+  const resolved = await resolveProjectFileFromUrl(store, match[1], match[2])
   if ("error" in resolved) return resolved.error
 
   const readResult = await readProjectFile(resolved.filePath)
@@ -503,20 +534,29 @@ async function handleProjectFileContent(req: Request, url: URL, store: EventStor
 
   const headers = new Headers({
     "Content-Type": inferProjectFileContentType(resolved.relativePath, readResult.file.type),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
   })
   applyDownloadHeader(headers, path.basename(resolved.relativePath), url)
 
-  return new Response(readResult.file, { headers })
+  return new Response(req.method === "HEAD" ? null : readResult.file, { headers })
 }
 
-async function handleLocalFileContent(req: Request, url: URL) {
+async function handleLocalFileContent(req: Request, url: URL, options: { allowRead: boolean }) {
   if (!url.pathname.startsWith("/api/local-files/content/")) {
     return null
   }
 
   const target = parseLocalFileContentUrl(url.pathname)
   if (!target) {
-    return Response.json({ error: "Invalid local Markdown file path" }, { status: 400 })
+    return Response.json({ error: "Invalid local Markdown content path" }, { status: 400 })
+  }
+
+  if (!options.allowRead) {
+    return Response.json(
+      { error: "Project-external Markdown previews require password protection during remote access." },
+      { status: 403 },
+    )
   }
 
   if (req.method !== "GET") {
@@ -533,7 +573,12 @@ async function handleLocalFileContent(req: Request, url: URL) {
 
   const headers = new Headers({
     "Content-Type": inferProjectFileContentType(target.filePath, readResult.file.type),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
   })
+  if (path.extname(target.filePath).toLowerCase() === ".svg") {
+    headers.set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox")
+  }
   applyDownloadHeader(headers, path.basename(target.filePath), url)
 
   return new Response(readResult.file, { headers })
@@ -595,6 +640,16 @@ function inferProjectFilePreviewContentType(fileName: string, fallbackType?: str
 function isHtmlFile(fileName: string) {
   const extension = path.extname(fileName).toLowerCase()
   return extension === ".html" || extension === ".htm"
+}
+
+function isRewritableProjectPreviewFile(fileName: string) {
+  const extension = path.extname(fileName).toLowerCase()
+  return extension === ".html"
+    || extension === ".htm"
+    || extension === ".css"
+    || extension === ".js"
+    || extension === ".mjs"
+    || extension === ".cjs"
 }
 
 async function handleProjectUploadDelete(req: Request, url: URL, store: EventStore) {

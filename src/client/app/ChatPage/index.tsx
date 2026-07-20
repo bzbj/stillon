@@ -10,12 +10,13 @@ import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
+import { downloadUrl } from "../../lib/download"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
-import { getProjectRenderablePreviewPath } from "../../lib/pathUtils"
-import { resolveDirectLocalFileAction, shouldBypassInAppLocalFilePreview } from "../../lib/transcriptLocalLinkPolicy"
+import { appendLocalFileLinkLocation, getProjectRelativeFilePath } from "../../lib/pathUtils"
+import { canOpenTranscriptFilesOnHost, resolveTranscriptLocalFileDisposition } from "../../lib/transcriptLocalLinkPolicy"
 import { cn } from "../../lib/utils"
 import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
-import { buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
+import { buildProjectFileContentUrl, buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
 import {
   DEFAULT_RIGHT_SIDEBAR_SIZE,
   DEFAULT_RIGHT_SIDEBAR_VISIBILITY_STATE,
@@ -44,6 +45,10 @@ const ChatInputDock = lazy(() => import("./ChatInputDock").then(({ ChatInputDock
 const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").then(({ ChatTranscriptViewport }) => ({ default: ChatTranscriptViewport })))
 const GitPanel = lazy(() => import("../../components/chat-ui/GitPanel").then(({ GitPanel }) => ({ default: GitPanel })))
 const TerminalWorkspaceShell = lazy(() => import("./TerminalWorkspaceShell").then(({ TerminalWorkspaceShell }) => ({ default: TerminalWorkspaceShell })))
+
+function getLocalFileName(filePath: string) {
+  return filePath.split(/[\\/]/).pop() || "download"
+}
 
 export {
   getIgnoreFolderEntryFromDiffPath,
@@ -538,6 +543,7 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
+  const canOpenHostFiles = canOpenTranscriptFilesOnHost(window.location.hostname)
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
   const terminalLayout = projectTerminalLayout ?? DEFAULT_PROJECT_TERMINAL_LAYOUT
   const projectRightSidebarVisibility = useRightSidebarStore((store) => (projectId ? store.projects[projectId] : undefined))
@@ -791,55 +797,80 @@ export function ChatPage() {
   }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
   const handleOpenTranscriptLocalLink = useCallback<KannaState["handleOpenLocalLink"]>(async (target, action, editor) => {
-    if (shouldBypassInAppLocalFilePreview(window.location.hostname)) {
-      const directAction = target.trigger === "contextmenu"
-        ? action
-        : resolveDirectLocalFileAction(target.path, action)
-      await state.handleOpenLocalLink(target, directAction, editor)
+    if (target.trigger === "contextmenu" && canOpenHostFiles) {
+      await state.handleOpenLocalLink(target, action, editor)
       return
     }
 
     const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
-    const previewTarget = target.trigger === "contextmenu"
-      ? null
-      : getProjectRenderablePreviewPath(target.path, projectLocalPath)
+    const projectFilePath = getProjectRelativeFilePath(target.path, projectLocalPath)
+    const disposition = resolveTranscriptLocalFileDisposition({
+      hostname: window.location.hostname,
+      filePath: target.path,
+      isProjectFile: Boolean(projectFilePath),
+    })
 
-    if (projectId && previewTarget) {
-      navigateBrowser(projectId, buildProjectRenderablePreviewUrl(projectId, previewTarget.path))
-      if (activeRightPanel !== "browser") {
-        toggleRightPanel(projectId, "browser")
-      }
-      return
-    }
-
-    if (projectId && target.trigger !== "contextmenu" && isLocalMarkdownPreviewPath(target.path)) {
-      navigateBrowser(projectId, buildLocalMarkdownPreviewUrl(target.path))
-      if (activeRightPanel !== "browser") {
-        toggleRightPanel(projectId, "browser")
-      }
-      return
-    }
-
-    if (projectId && target.trigger !== "contextmenu" && isLocalHtmlPreviewPath(target.path)) {
-      try {
-        const previewAddress = await requestLocalHtmlPreviewUrl(target.path)
-        navigateBrowser(projectId, previewAddress)
-        if (activeRightPanel !== "browser") {
-          toggleRightPanel(projectId, "browser")
-        }
-      } catch (error) {
+    if (disposition === "preview") {
+      if (!projectId) {
         await dialog.alert({
           title: "Preview unavailable",
-          description: error instanceof Error ? error.message : String(error),
+          description: "Open this link from a project chat to preview it.",
           closeLabel: "OK",
         })
+        return
+      }
+
+      if (projectFilePath) {
+        navigateBrowser(
+          projectId,
+          appendLocalFileLinkLocation(buildProjectRenderablePreviewUrl(projectId, projectFilePath), target),
+        )
+      } else if (isLocalMarkdownPreviewPath(target.path)) {
+        navigateBrowser(
+          projectId,
+          appendLocalFileLinkLocation(buildLocalMarkdownPreviewUrl(target.path), target),
+        )
+      } else if (isLocalHtmlPreviewPath(target.path)) {
+        try {
+          const previewAddress = await requestLocalHtmlPreviewUrl(target.path)
+          navigateBrowser(projectId, appendLocalFileLinkLocation(previewAddress, target))
+        } catch (error) {
+          await dialog.alert({
+            title: "Preview unavailable",
+            description: error instanceof Error ? error.message : String(error),
+            closeLabel: "OK",
+          })
+          return
+        }
+      }
+
+      if (activeRightPanel !== "browser") {
+        toggleRightPanel(projectId, "browser")
       }
       return
     }
 
-    await state.handleOpenLocalLink(target, action, editor)
+    if (disposition === "open_host") {
+      await state.handleOpenLocalLink(target, action, editor)
+      return
+    }
+
+    if (disposition === "download" && projectId && projectFilePath) {
+      downloadUrl(
+        buildProjectFileContentUrl(projectId, projectFilePath),
+        getLocalFileName(projectFilePath),
+      )
+      return
+    }
+
+    await dialog.alert({
+      title: "Download unavailable",
+      description: "For remote access, only files inside the current project can be downloaded.",
+      closeLabel: "OK",
+    })
   }, [
     activeRightPanel,
+    canOpenHostFiles,
     dialog,
     navigateBrowser,
     projectId,
@@ -848,6 +879,10 @@ export function ChatPage() {
     state.runtime?.localPath,
     toggleRightPanel,
   ])
+
+  const handleOpenBrowserHostFile = useCallback((filePath: string, action: "open_editor" | "open_default") => {
+    void state.handleOpenLocalLink({ path: filePath }, action)
+  }, [state.handleOpenLocalLink])
 
   const handleRemoveTerminal = useCallback((currentProjectId: string, terminalId: string) => {
     void state.socket.command({ type: "terminal.close", terminalId }).catch(() => {})
@@ -1089,7 +1124,7 @@ export function ChatPage() {
             messages={state.messages}
             queuedMessages={state.queuedMessages}
             transcriptPaddingBottom={transcriptPaddingBottom}
-            localPath={state.runtime?.localPath}
+            localPath={state.runtime?.localPath ?? state.navbarLocalPath}
             latestToolIds={state.latestToolIds}
             isHistoryLoading={state.isHistoryLoading}
             hasOlderHistory={state.hasOlderHistory}
@@ -1102,6 +1137,7 @@ export function ChatPage() {
             onSteerQueuedMessage={state.handleSteerQueuedMessage}
             onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
             onOpenLocalLink={handleOpenTranscriptLocalLink}
+            canOpenHostFiles={canOpenHostFiles}
             editorPreset={editorPreset}
             editorCommandTemplate={editorCommandTemplate}
             platform={state.localProjects?.machine.platform}
@@ -1245,7 +1281,15 @@ export function ChatPage() {
   const rightPanelContent = activeRightPanel === "browser" && projectId
     ? (
       <Suspense fallback={<PanelLoadingFallback label="Loading browser…" />}>
-        <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
+        <BrowserPanel
+          projectId={projectId}
+          socket={state.socket}
+          localPath={state.runtime?.localPath ?? state.navbarLocalPath}
+          canOpenHostFiles={canOpenHostFiles}
+          onOpenHostFile={handleOpenBrowserHostFile}
+          onClose={handleCloseRightSidebar}
+          onRunQuickAction={handleRunQuickAction}
+        />
       </Suspense>
     )
     : shouldKeepGitPanelMounted && gitPanelContentProps

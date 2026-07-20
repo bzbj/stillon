@@ -44,6 +44,9 @@ function openContextMenuFromButton(event: ReactMouseEvent<HTMLButtonElement>) {
 interface BrowserPanelProps {
   projectId: string
   socket: KannaSocket
+  localPath?: string | null
+  canOpenHostFiles?: boolean
+  onOpenHostFile?: (filePath: string, action: "open_editor" | "open_default") => void
   onClose: () => void
   onRunQuickAction: (command: string) => void
 }
@@ -75,7 +78,14 @@ function BrowserToolbarButton({
   )
 }
 
-function BrowserPanelImpl({ projectId, socket, onRunQuickAction }: BrowserPanelProps) {
+function BrowserPanelImpl({
+  projectId,
+  socket,
+  localPath,
+  canOpenHostFiles = false,
+  onOpenHostFile,
+  onRunQuickAction,
+}: BrowserPanelProps) {
   const browserState = useRightSidebarStore((store) => store.projectBrowser[projectId])
   const navigateBrowser = useRightSidebarStore((store) => store.navigateBrowser)
   const setBrowserZoom = useRightSidebarStore((store) => store.setBrowserZoom)
@@ -518,6 +528,9 @@ function BrowserPanelImpl({ projectId, socket, onRunQuickAction }: BrowserPanelP
                   refreshVersion={iframeVersion}
                   zoom={zoom}
                   onNavigate={(nextAddress) => navigateBrowser(projectId, nextAddress)}
+                  canOpenHostFiles={canOpenHostFiles}
+                  projectLocalPath={localPath}
+                  onOpenHostFile={onOpenHostFile}
                 />
               ) : localMarkdownPreviewTarget ? (
                 <MarkdownPreviewPanel
@@ -529,6 +542,9 @@ function BrowserPanelImpl({ projectId, socket, onRunQuickAction }: BrowserPanelP
                   refreshVersion={iframeVersion}
                   zoom={zoom}
                   onNavigate={(nextAddress) => navigateBrowser(projectId, nextAddress)}
+                  canOpenHostFiles={canOpenHostFiles}
+                  projectLocalPath={localPath}
+                  onOpenHostFile={onOpenHostFile}
                 />
               ) : (
                 <iframe
