@@ -6,6 +6,7 @@ import {
   buildLocalFileContentUrl,
   buildLocalMarkdownPreviewUrl,
   isLocalMarkdownPreviewPath,
+  normalizeLocalFilePath,
 } from "../../../shared/local-file-urls"
 import {
   buildProjectFileContentUrl,
@@ -348,7 +349,7 @@ function normalizeRelativePath(filePath: string) {
 }
 
 function normalizeAbsoluteLocalPath(filePath: string) {
-  const normalized = filePath.replace(/\\/g, "/")
+  const normalized = normalizeLocalFilePath(filePath).replace(/\\/g, "/")
   if (/^[a-z]:\//i.test(normalized)) {
     const drive = normalized.slice(0, 2)
     const relativePath = normalizeRelativePath(normalized.slice(3))
