@@ -122,6 +122,14 @@ describe("project file routes", () => {
       expect(markdownResponse.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
       expect(await markdownResponse.text()).toBe("# Skill\n\nBody")
 
+      if (process.platform === "win32") {
+        const uriStylePath = `/${markdownPath.replace(/\\/g, "/")}`
+        const uriStyleUrl = `/api/local-files/content/${encodeURIComponent(uriStylePath)}`
+        const uriStyleResponse = await fetch(`http://localhost:${server.port}${uriStyleUrl}`)
+        expect(uriStyleResponse.status).toBe(200)
+        expect(await uriStyleResponse.text()).toBe("# Skill\n\nBody")
+      }
+
       const imageResponse = await fetch(`http://localhost:${server.port}${buildLocalFileContentUrl(imagePath)}`)
       expect(imageResponse.status).toBe(200)
       expect(imageResponse.headers.get("content-type")).toBe("image/png")

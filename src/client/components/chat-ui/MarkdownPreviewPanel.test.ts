@@ -19,6 +19,11 @@ describe("resolveMarkdownResourcePath", () => {
       { kind: "local", filePath: "C:\\Users\\iamppr\\docs\\README.md" },
       "D:\\assets\\chart.png",
     )).toBe("D:/assets/chart.png")
+
+    expect(resolveMarkdownResourcePath(
+      { kind: "local", filePath: "C:\\Users\\iamppr\\docs\\README.md" },
+      "/D:/assets/chart.png",
+    )).toBe("D:/assets/chart.png")
   })
 
   test("keeps project resources relative and rejects web urls", () => {

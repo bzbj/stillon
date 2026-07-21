@@ -3,6 +3,8 @@
  * Supports both local paths (from localPath) and sandbox paths (/home/user/workspace).
  */
 
+import { normalizeLocalFilePath } from "../../shared/local-file-urls"
+
 export interface ParsedLocalFileLink {
   path: string
   line?: number
@@ -214,17 +216,17 @@ function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
 
 export function parseLocalFileLink(target: string | undefined | null): ParsedLocalFileLink | null {
   if (!target) return null
-  const trimmed = target.trim()
-  if (!trimmed || /^(mailto:|ftp:|file:)/i.test(trimmed)) return null
-  if (/^[a-z][a-z\d+.-]*:/i.test(trimmed) && !WINDOWS_ABSOLUTE_PATH_PATTERN.test(trimmed)) return null
+  const normalizedTarget = normalizeLocalFilePath(target.trim())
+  if (!normalizedTarget || /^(mailto:|ftp:|file:)/i.test(normalizedTarget)) return null
+  if (/^[a-z][a-z\d+.-]*:/i.test(normalizedTarget) && !WINDOWS_ABSOLUTE_PATH_PATTERN.test(normalizedTarget)) return null
 
-  return parseWindowsAbsoluteFileTarget(trimmed) ?? parseAbsoluteFileTarget(trimmed)
+  return parseWindowsAbsoluteFileTarget(normalizedTarget) ?? parseAbsoluteFileTarget(normalizedTarget)
 }
 
 export function getProjectRelativeFilePath(filePath: string | undefined | null, localPath: string | undefined | null) {
   if (!filePath || !localPath) return null
-  const decodedFilePath = safeDecodePath(filePath).replace(/\\/g, "/")
-  const projectPath = stripTrailingSlashes(safeDecodePath(localPath).replace(/\\/g, "/"))
+  const decodedFilePath = normalizeLocalFilePath(safeDecodePath(filePath)).replace(/\\/g, "/")
+  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(safeDecodePath(localPath)).replace(/\\/g, "/"))
   const projectPrefix = `${projectPath}/`
   const caseInsensitive = WINDOWS_ABSOLUTE_PATH_PATTERN.test(decodedFilePath)
     || WINDOWS_ABSOLUTE_PATH_PATTERN.test(projectPath)
@@ -264,7 +266,7 @@ export function parseProjectRelativeFileLink(target: string | undefined | null, 
   const relativePath = normalizeProjectRelativePath(safeDecodePath(parsedTarget.path))
   if (!relativePath) return null
 
-  const projectPath = stripTrailingSlashes(safeDecodePath(localPath).replace(/\\/g, "/"))
+  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(safeDecodePath(localPath)).replace(/\\/g, "/"))
   return {
     ...parsedTarget,
     path: `${projectPath}/${relativePath}`,

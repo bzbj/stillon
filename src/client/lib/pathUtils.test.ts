@@ -50,6 +50,14 @@ describe("parseLocalFileLink", () => {
     })
   })
 
+  test("normalizes URI-style Windows drive paths", () => {
+    expect(parseLocalFileLink("/C:/Users/iamppr/stillon/src/app.ts#L12C3")).toEqual({
+      path: "C:/Users/iamppr/stillon/src/app.ts",
+      line: 12,
+      column: 3,
+    })
+  })
+
   test("parses Windows UNC file paths", () => {
     expect(parseLocalFileLink("\\\\server\\share\\reports\\summary.pdf")).toEqual({
       path: "//server/share/reports/summary.pdf",
@@ -149,6 +157,8 @@ describe("getProjectRelativeFilePath", () => {
       .toBe("REPORT.PDF")
     expect(getProjectRelativeFilePath("//SERVER/Share/Project/reports/data.xlsx", "\\\\server\\share\\project"))
       .toBe("reports/data.xlsx")
+    expect(getProjectRelativeFilePath("/C:/Users/Example/Project/docs/README.md", "C:\\Users\\Example\\Project"))
+      .toBe("docs/README.md")
   })
 
   test("rejects sibling projects and path escapes", () => {

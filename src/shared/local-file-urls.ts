@@ -4,13 +4,20 @@ const LOCAL_MARKDOWN_RESOURCE_EXTENSIONS = new Set([
   ".apng", ".avif", ".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp",
 ])
 
+const WINDOWS_URI_PATH_PATTERN = /^\/(?=[a-z]:[\\/])/i
+
+// URL pathnames expose Windows drive paths as /C:/..., but filesystem APIs expect C:/...
+export function normalizeLocalFilePath(filePath: string) {
+  return filePath.replace(WINDOWS_URI_PATH_PATTERN, "")
+}
+
 export function buildLocalFileContentUrl(filePath: string, options: { download?: boolean } = {}) {
-  const url = `/api/local-files/content/${encodeURIComponent(filePath)}`
+  const url = `/api/local-files/content/${encodeURIComponent(normalizeLocalFilePath(filePath))}`
   return options.download ? `${url}?download=1` : url
 }
 
 export function buildLocalMarkdownPreviewUrl(filePath: string) {
-  return `/api/local-files/markdown-preview/${encodeURIComponent(filePath)}`
+  return `/api/local-files/markdown-preview/${encodeURIComponent(normalizeLocalFilePath(filePath))}`
 }
 
 export interface LocalMarkdownPreviewTarget {
@@ -31,7 +38,7 @@ export function parseLocalMarkdownPreviewUrl(address: string): LocalMarkdownPrev
   if (!match) return null
 
   try {
-    const filePath = decodeURIComponent(match[1] ?? "")
+    const filePath = normalizeLocalFilePath(decodeURIComponent(match[1] ?? ""))
     if (!isAbsoluteLocalPath(filePath) || !isLocalMarkdownPreviewPath(filePath)) return null
     return { filePath }
   } catch {
@@ -53,7 +60,7 @@ export function parseLocalFileContentUrl(address: string): { filePath: string } 
   if (!match) return null
 
   try {
-    const filePath = decodeURIComponent(match[1] ?? "")
+    const filePath = normalizeLocalFilePath(decodeURIComponent(match[1] ?? ""))
     if (!isAbsoluteLocalPath(filePath) || !isLocalFileContentPath(filePath)) return null
     return { filePath }
   } catch {
@@ -78,7 +85,8 @@ export function isLocalFileContentPath(filePath: string) {
 
 function isAbsoluteLocalPath(filePath: string) {
   if (filePath.includes("\0")) return false
-  return filePath.startsWith("/") || /^[a-z]:[\\/]/i.test(filePath) || /^\\\\[^\\/]+[\\/][^\\/]+/.test(filePath)
+  const normalizedPath = normalizeLocalFilePath(filePath)
+  return normalizedPath.startsWith("/") || /^[a-z]:[\\/]/i.test(normalizedPath) || /^\\\\[^\\/]+[\\/][^\\/]+/.test(normalizedPath)
 }
 
 function getLocalFileExtension(filePath: string) {
