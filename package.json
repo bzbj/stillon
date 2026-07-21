@@ -1,7 +1,7 @@
 {
   "name": "@bzbj/stillon",
   "type": "module",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Still On — leave your Mac, keep your coding agents",
   "license": "SEE LICENSE IN LICENSE",
