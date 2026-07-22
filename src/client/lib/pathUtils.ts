@@ -51,6 +51,20 @@ interface ParsedFileTarget {
 
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/i
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\/]+[\\/][^\\/]+/
+const WINDOWS_DRIVE_TARGET_PATTERN = /^[a-z]:(?:[\\/]|%5c)/i
+const WINDOWS_FILE_URI_PATTERN = /^file:\/\/\/(?<path>\/?[a-z]:(?:[\\/]|%5c).*)$/i
+
+export function normalizeWindowsLocalFileTarget(target: string) {
+  const fileUriPath = WINDOWS_FILE_URI_PATTERN.exec(target)?.groups?.path
+  const candidate = fileUriPath === undefined
+    ? target
+    : fileUriPath.replace(/^\/(?=[a-z]:(?:[\\/]|%5c))/i, "")
+  if (!WINDOWS_DRIVE_TARGET_PATTERN.test(candidate)) return target
+  const locationIndex = candidate.search(/[?#]/)
+  const path = locationIndex >= 0 ? candidate.slice(0, locationIndex) : candidate
+  const location = locationIndex >= 0 ? candidate.slice(locationIndex) : ""
+  return `${path.replace(/%5c/gi, "/")}${location}`
+}
 
 function toPositiveInteger(value: string | undefined) {
   if (!value) return undefined
@@ -216,7 +230,7 @@ function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
 
 export function parseLocalFileLink(target: string | undefined | null): ParsedLocalFileLink | null {
   if (!target) return null
-  const normalizedTarget = normalizeLocalFilePath(target.trim())
+  const normalizedTarget = normalizeLocalFilePath(normalizeWindowsLocalFileTarget(target.trim()))
   if (!normalizedTarget || /^(mailto:|ftp:|file:)/i.test(normalizedTarget)) return null
   if (/^[a-z][a-z\d+.-]*:/i.test(normalizedTarget) && !WINDOWS_ABSOLUTE_PATH_PATTERN.test(normalizedTarget)) return null
 

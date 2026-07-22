@@ -68,7 +68,7 @@ interface CodexAppServerProcess {
   once(event: "error", listener: (error: Error) => void): this
 }
 
-type SpawnCodexAppServer = (cwd: string) => CodexAppServerProcess
+type SpawnCodexAppServer = (cwd: string, environment: NodeJS.ProcessEnv) => CodexAppServerProcess
 
 interface PendingRequest<TResult> {
   method: string
@@ -739,13 +739,15 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 export class CodexAppServerManager {
   private readonly sessions = new Map<string, SessionContext>()
   private readonly spawnProcess: SpawnCodexAppServer
+  private readonly getEnvironment: () => NodeJS.ProcessEnv
 
-  constructor(args: { spawnProcess?: SpawnCodexAppServer } = {}) {
-    this.spawnProcess = args.spawnProcess ?? ((cwd) =>
+  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
+    this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
+    this.spawnProcess = args.spawnProcess ?? ((cwd, environment) =>
       spawn(getCodexCliCommand(), ["app-server"], {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
-        env: inheritAgentEnvironment(),
+        env: environment,
       }) as unknown as CodexAppServerProcess)
   }
 
@@ -759,7 +761,7 @@ export class CodexAppServerManager {
       this.stopSession(args.chatId)
     }
 
-    const child = this.spawnProcess(args.cwd)
+    const child = this.spawnProcess(args.cwd, this.getEnvironment())
     const context: SessionContext = {
       chatId: args.chatId,
       cwd: args.cwd,

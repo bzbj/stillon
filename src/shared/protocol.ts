@@ -102,6 +102,10 @@ export type ClientCommand =
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.readAppSettings" }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
+  | { type: "settings.readAgentNetworkStatus" }
+  | { type: "settings.detectSystemProxy" }
+  | { type: "settings.testAgentNetworkConnection"; provider: AgentProvider }
+  | { type: "settings.restartAgentSessions" }
   | { type: "settings.readLlmProvider" }
   | { type: "settings.readSubscriptionUsage" }
   | { type: "skills.search"; query: string; limit?: number }

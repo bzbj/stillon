@@ -4,6 +4,7 @@ import {
   getProjectHtmlPreviewPath,
   getProjectRelativeFilePath,
   getProjectRenderablePreviewPath,
+  normalizeWindowsLocalFileTarget,
   parseLocalFileLink,
   parseProjectRelativeFileLink,
   parseProjectRelativeHtmlFileLink,
@@ -50,6 +51,27 @@ describe("parseLocalFileLink", () => {
     })
   })
 
+  test("parses Windows paths with encoded backslashes", () => {
+    expect(parseLocalFileLink("C:%5CUsers%5Ciamppr%5Cstillon%5Csrc%5Capp.ts:12:3")).toEqual({
+      path: "C:/Users/iamppr/stillon/src/app.ts",
+      line: 12,
+      column: 3,
+    })
+    expect(parseLocalFileLink("C:%5cUsers%5ciamppr%5cstillon%5csrc%5capp.ts#L12C3")).toEqual({
+      path: "C:/Users/iamppr/stillon/src/app.ts",
+      line: 12,
+      column: 3,
+    })
+  })
+
+  test("parses Windows file URIs with encoded backslashes", () => {
+    expect(parseLocalFileLink("file:///C:%5CUsers%5Cexample%5Creport.html?theme=dark#summary")).toEqual({
+      path: "C:/Users/example/report.html",
+      query: "theme=dark",
+      fragment: "summary",
+    })
+  })
+
   test("normalizes URI-style Windows drive paths", () => {
     expect(parseLocalFileLink("/C:/Users/iamppr/stillon/src/app.ts#L12C3")).toEqual({
       path: "C:/Users/iamppr/stillon/src/app.ts",
@@ -90,6 +112,25 @@ describe("parseLocalFileLink", () => {
       path: "/Users/example/My Report.pdf",
       fragment: "page=2",
     })
+  })
+})
+
+describe("normalizeWindowsLocalFileTarget", () => {
+  test("only normalizes encoded separators in recognized Windows targets", () => {
+    expect(normalizeWindowsLocalFileTarget("C:%5CUsers%5cdemo%5Cindex.html"))
+      .toBe("C:/Users/demo/index.html")
+    expect(normalizeWindowsLocalFileTarget("file:///C:%5CUsers%5cdemo%5Cindex.html"))
+      .toBe("C:/Users/demo/index.html")
+    expect(normalizeWindowsLocalFileTarget("C:%5CUsers%5Cdemo%5Cindex.html?pattern=%5Cw#literal-%5C"))
+      .toBe("C:/Users/demo/index.html?pattern=%5Cw#literal-%5C")
+    expect(normalizeWindowsLocalFileTarget("C:\\Users\\demo\\index.html"))
+      .toBe("C:\\Users\\demo\\index.html")
+    expect(normalizeWindowsLocalFileTarget("/C:/Users/demo/index.html"))
+      .toBe("/C:/Users/demo/index.html")
+    expect(normalizeWindowsLocalFileTarget("\\\\server\\share\\index.html"))
+      .toBe("\\\\server\\share\\index.html")
+    expect(normalizeWindowsLocalFileTarget("https://example.com/a%5Cb"))
+      .toBe("https://example.com/a%5Cb")
   })
 })
 

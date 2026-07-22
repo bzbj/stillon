@@ -23,6 +23,10 @@ import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } fr
 import type {
   AppSettingsPatch,
   AppSettingsSnapshot,
+  AgentNetworkConnectionTestResult,
+  AgentNetworkDetectionResult,
+  AgentNetworkStatus,
+  AgentProvider,
   InstalledSkillsSnapshot,
   LlmProviderSnapshot,
   LlmProviderValidationResult,
@@ -125,8 +129,14 @@ interface CreateWsRouterArgs {
   subscriptionUsage?: {
     read: () => Promise<SubscriptionUsageSnapshot>
   }
-  refreshDiscovery: () => Promise<DiscoveredProject[]>
+  agentNetwork?: {
+    readStatus: () => AgentNetworkStatus
+    detect: () => Promise<AgentNetworkDetectionResult>
+    testConnection: (provider: AgentProvider) => Promise<AgentNetworkConnectionTestResult>
+  }
+  refreshDiscovery: (options?: { force?: boolean }) => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
+  isDiscoveryInProgress?: () => boolean
   machineDisplayName: string | (() => string)
 }
 
@@ -377,8 +387,10 @@ export function createWsRouter({
   appSettings,
   llmProvider,
   subscriptionUsage,
+  agentNetwork,
   refreshDiscovery,
   getDiscoveredProjects,
+  isDiscoveryInProgress,
   machineDisplayName,
 }: CreateWsRouterArgs) {
   const getCurrentMachineDisplayName = typeof machineDisplayName === "function"
@@ -481,6 +493,13 @@ export function createWsRouter({
         permissionMode: "full",
       },
     },
+    network: {
+      mode: "system",
+      httpProxy: "",
+      httpsProxy: "",
+      allProxy: "",
+      noProxy: "localhost,127.0.0.1,::1",
+    },
     warning: null,
     filePathDisplay: "~/.stillon/data/settings.json",
   }
@@ -494,6 +513,10 @@ export function createWsRouter({
     editor: {
       ...snapshot.editor,
       ...patch.editor,
+    },
+    network: {
+      ...snapshot.network,
+      ...patch.network,
     },
     providerDefaults: {
       claude: {
@@ -529,6 +552,34 @@ export function createWsRouter({
     },
     onChange: (listener: (snapshot: AppSettingsSnapshot) => void) => appSettings?.onChange?.(listener) ?? (() => {}),
   }
+  const resolvedAgentNetwork = agentNetwork ?? {
+    readStatus: () => ({
+      mode: resolvedAppSettings.getSnapshot().network.mode,
+      source: "system" as const,
+      sourceLabel: "System network or VPN routing",
+      effectiveProxy: [],
+      restartRequired: false,
+    }),
+    detect: async () => ({
+      status: "unsupported" as const,
+      platform: process.platform,
+      sourceLabel: "System proxy",
+      settings: null,
+      message: "Automatic proxy detection is unavailable.",
+      pacUrlDetected: false,
+    }),
+    testConnection: async (provider: AgentProvider) => ({
+      ok: false,
+      provider,
+      targetLabel: provider === "claude" ? "Claude API" : "Codex / ChatGPT",
+      sourceLabel: "System network or VPN routing",
+      proxy: null,
+      durationMs: 0,
+      errorCode: "http_failed" as const,
+      message: "Network diagnostics are unavailable.",
+    }),
+  }
+  let agentNetworkRestartRequired = false
 
   function getProtectedChatIds() {
     const activeStatuses = agent.getActiveStatuses()
@@ -663,7 +714,10 @@ export function createWsRouter({
 
     if (topic.type === "local-projects") {
       const discoveredProjects = getDiscoveredProjects()
-      const data = deriveLocalProjectsSnapshot(store.state, discoveredProjects, getCurrentMachineDisplayName())
+      const snapshot = deriveLocalProjectsSnapshot(store.state, discoveredProjects, getCurrentMachineDisplayName())
+      const data = isDiscoveryInProgress
+        ? { ...snapshot, isDiscovering: isDiscoveryInProgress() }
+        : snapshot
 
       return {
         v: PROTOCOL_VERSION,
@@ -1053,8 +1107,35 @@ export function createWsRouter({
           return
         }
         case "settings.writeAppSettingsPatch": {
+          const previousNetwork = resolvedAppSettings.getSnapshot().network
           const snapshot = await resolvedAppSettings.writePatch(command.patch)
+          if (command.patch.network && JSON.stringify(previousNetwork) !== JSON.stringify(snapshot.network)) {
+            agentNetworkRestartRequired = true
+          }
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "settings.readAgentNetworkStatus": {
+          send(ws, {
+            v: PROTOCOL_VERSION,
+            type: "ack",
+            id,
+            result: { ...resolvedAgentNetwork.readStatus(), restartRequired: agentNetworkRestartRequired },
+          })
+          return
+        }
+        case "settings.detectSystemProxy": {
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: await resolvedAgentNetwork.detect() })
+          return
+        }
+        case "settings.testAgentNetworkConnection": {
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: await resolvedAgentNetwork.testConnection(command.provider) })
+          return
+        }
+        case "settings.restartAgentSessions": {
+          const result = agent.restartSessions()
+          agentNetworkRestartRequired = false
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
         case "settings.readLlmProvider": {
@@ -1108,14 +1189,14 @@ export function createWsRouter({
         case "project.open": {
           await ensureProjectDirectory(command.localPath)
           const project = await store.openProject(command.localPath)
-          await refreshDiscovery()
+          void refreshDiscovery({ force: true })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
           break
         }
         case "project.create": {
           await ensureProjectDirectory(command.localPath)
           const project = await store.openProject(command.localPath, command.title)
-          await refreshDiscovery()
+          void refreshDiscovery({ force: true })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
           break
         }
@@ -1498,6 +1579,7 @@ export function createWsRouter({
       sockets.delete(ws)
     },
     broadcastSnapshots,
+    broadcastLocalProjectsSnapshots: () => broadcastFilteredSnapshots({ includeLocalProjects: true }),
     broadcastChatStateImmediately,
     scheduleBroadcast,
     scheduleChatStateBroadcast,
@@ -1521,7 +1603,11 @@ export function createWsRouter({
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)
         if (parsed.topic.type === "local-projects") {
-          void refreshDiscovery().then(() => {
+          // Saved StillOn projects can be rendered immediately. Provider
+          // history discovery continues in the background and pushes updates.
+          const discovery = refreshDiscovery()
+          await pushSnapshots(ws, { skipPrune: true })
+          void discovery.then(() => {
             if (ws.data.subscriptions.has(parsed.id)) {
               void pushSnapshots(ws, { skipPrune: true })
             }

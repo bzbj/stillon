@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import path from "node:path"
 import { getSettingsFilePath, LOG_PREFIX } from "../shared/branding"
 import { normalizeMachineName } from "./machine-name"
+import { applyAgentNetworkPatch, normalizeAgentNetworkSettings } from "./agent-network"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CLAUDE_PERMISSION_MODE,
@@ -52,6 +53,7 @@ interface AppSettingsFile {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
     codex?: Partial<ProviderPreference<Partial<CodexModelOptions>>> & { effort?: unknown }
   }
+  network?: unknown
 }
 
 type AppSettingsState = AppSettingsSnapshot
@@ -225,6 +227,7 @@ function toFilePayload(state: AppSettingsState) {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     providerDefaults: state.providerDefaults,
+    network: state.network,
   }
 }
 
@@ -239,6 +242,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     providerDefaults: state.providerDefaults,
+    network: state.network,
     warning: state.warning,
     filePathDisplay: state.filePathDisplay,
   }
@@ -266,6 +270,8 @@ function normalizeAppSettings(
   const machineName = normalizeMachineName(source?.machineName)
     ?? normalizeMachineName(defaultMachineName)
     ?? "This Machine"
+  const normalizedNetwork = normalizeAgentNetworkSettings(source?.network)
+  warnings.push(...normalizedNetwork.warnings)
   const state: AppSettingsState = {
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     machineName,
@@ -282,6 +288,7 @@ function normalizeAppSettings(
     },
     defaultProvider: normalizeDefaultProvider(source?.defaultProvider),
     providerDefaults: normalizeProviderDefaults(source?.providerDefaults),
+    network: normalizedNetwork.settings,
     warning: null,
     filePathDisplay: formatDisplayPath(filePath),
   }
@@ -310,6 +317,7 @@ function toComparablePayload(source: AppSettingsFile) {
     editor: source.editor,
     defaultProvider: source.defaultProvider,
     providerDefaults: source.providerDefaults,
+    network: source.network,
   }
 }
 
@@ -318,6 +326,9 @@ function applyPatch(
   patch: AppSettingsPatch,
   defaultMachineName: string,
 ): AppSettingsState {
+  const network = patch.network
+    ? applyAgentNetworkPatch(state.network, patch.network)
+    : state.network
   return normalizeAppSettings({
     ...toFilePayload(state),
     ...patch,
@@ -347,6 +358,7 @@ function applyPatch(
         },
       },
     },
+    network,
   }, state.filePathDisplay, defaultMachineName).payload
 }
 

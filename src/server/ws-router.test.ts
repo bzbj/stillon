@@ -108,6 +108,13 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
       permissionMode: "full",
     },
   },
+  network: {
+    mode: "system",
+    httpProxy: "",
+    httpsProxy: "",
+    allProxy: "",
+    noProxy: "localhost,127.0.0.1,::1",
+  },
   warning: null,
   filePathDisplay: "~/.kanna/data/settings.json",
 }
@@ -202,6 +209,147 @@ describe("skills helpers", () => {
       "claude-code",
       "--yes",
     ])
+  })
+})
+
+describe("local project discovery subscriptions", () => {
+  test("sends saved projects immediately while provider history refresh is still running", async () => {
+    let isDiscovering = true
+    let finishRefresh: () => void = () => {}
+    const refreshGate = new Promise<void>((resolve) => {
+      finishRefresh = resolve
+    })
+    const state = createEmptyState()
+    state.projectsById.set("saved-project", {
+      id: "saved-project",
+      localPath: "/tmp/saved-project",
+      title: "Saved Project",
+      createdAt: 5,
+      updatedAt: 10,
+    })
+    state.projectIdsByPath.set("/tmp/saved-project", "saved-project")
+    const router = createWsRouter({
+      store: { state } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      refreshDiscovery: async () => {
+        await refreshGate
+        return []
+      },
+      getDiscoveredProjects: () => [],
+      isDiscoveryInProgress: () => isDiscovering,
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    await router.handleMessage(ws as never, JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: "subscribe",
+      id: "local-projects-1",
+      topic: { type: "local-projects" },
+    }))
+
+    expect(ws.sent).toEqual([{
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id: "local-projects-1",
+      snapshot: {
+        type: "local-projects",
+        data: {
+          machine: {
+            id: "local",
+            displayName: "Local Machine",
+            platform: process.platform,
+          },
+          projects: [{
+            localPath: "/tmp/saved-project",
+            title: "Saved Project",
+            source: "saved",
+            lastOpenedAt: 10,
+            chatCount: 0,
+          }],
+          isDiscovering: true,
+        },
+      },
+    }])
+
+    isDiscovering = false
+    finishRefresh()
+    await Bun.sleep(0)
+    expect(ws.sent.at(-1)).toMatchObject({
+      snapshot: {
+        type: "local-projects",
+        data: { isDiscovering: false },
+      },
+    })
+    router.dispose()
+  })
+
+  test("forces discovery invalidation after opening a project", async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-open-project-"))
+    const state = createEmptyState()
+    const refreshOptions: Array<{ force?: boolean } | undefined> = []
+    const router = createWsRouter({
+      store: {
+        state,
+        openProject: async (localPath: string) => {
+          const project = {
+            id: "opened-project",
+            localPath,
+            title: "Opened Project",
+            createdAt: 10,
+            updatedAt: 10,
+          }
+          state.projectsById.set(project.id, project)
+          state.projectIdsByPath.set(project.localPath, project.id)
+          return project
+        },
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      refreshDiscovery: async (options) => {
+        refreshOptions.push(options)
+        return []
+      },
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+
+    try {
+      await router.handleMessage(ws as never, JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "command",
+        id: "open-project-1",
+        command: { type: "project.open", localPath: projectDir },
+      }))
+
+      expect(refreshOptions).toEqual([{ force: true }])
+      expect(ws.sent).toContainEqual({
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "open-project-1",
+        result: { projectId: "opened-project" },
+      })
+    } finally {
+      router.dispose()
+      await rm(projectDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -547,6 +695,101 @@ describe("ws-router", () => {
         result: DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT,
       },
     ])
+  })
+
+  test("routes Agent network status, detection, testing, and durable restart state", async () => {
+    let snapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
+    let restartCalls = 0
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: {
+        getActiveStatuses: () => new Map(),
+        getDrainingChatIds: () => new Set(),
+        restartSessions: () => {
+          restartCalls += 1
+          return { restarted: true, closedClaudeSessions: 1 }
+        },
+      } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      appSettings: {
+        getSnapshot: () => snapshot,
+        writePatch: async (patch) => {
+          snapshot = {
+            ...snapshot,
+            network: { ...snapshot.network, ...patch.network },
+          }
+          return snapshot
+        },
+      },
+      agentNetwork: {
+        readStatus: () => ({
+          mode: snapshot.network.mode,
+          source: "system",
+          sourceLabel: "System network or VPN routing",
+          effectiveProxy: [],
+          restartRequired: false,
+        }),
+        detect: async () => ({
+          status: "detected",
+          platform: "darwin",
+          sourceLabel: "macOS System Configuration",
+          settings: {
+            mode: "detected",
+            httpProxy: "http://127.0.0.1:7890",
+            httpsProxy: "",
+            allProxy: "",
+            noProxy: "localhost,127.0.0.1,::1",
+          },
+          message: "Detected system proxy values. Review them before saving.",
+          pacUrlDetected: false,
+        }),
+        testConnection: async (provider) => ({
+          ok: true,
+          provider,
+          targetLabel: "Claude API",
+          sourceLabel: "System network or VPN routing",
+          proxy: null,
+          durationMs: 12,
+          errorCode: null,
+          message: "Claude API is reachable through the system network.",
+        }),
+      },
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+    const command = async (id: string, value: Record<string, unknown>) => {
+      await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id, command: value }))
+    }
+
+    await command("network-status-before", { type: "settings.readAgentNetworkStatus" })
+    await command("network-detect", { type: "settings.detectSystemProxy" })
+    await command("network-test", { type: "settings.testAgentNetworkConnection", provider: "claude" })
+    await command("network-save", {
+      type: "settings.writeAppSettingsPatch",
+      patch: { network: { mode: "manual", httpsProxy: "http://127.0.0.1:7890" } },
+    })
+    await command("network-status-pending", { type: "settings.readAgentNetworkStatus" })
+    await command("network-restart", { type: "settings.restartAgentSessions" })
+    await command("network-status-after", { type: "settings.readAgentNetworkStatus" })
+
+    const byId = new Map(ws.sent.map((message: any) => [message.id, message]))
+    expect(byId.get("network-status-before")?.result.restartRequired).toBe(false)
+    expect(byId.get("network-detect")?.result.settings.httpProxy).toBe("http://127.0.0.1:7890")
+    expect(byId.get("network-test")?.result.ok).toBe(true)
+    expect(byId.get("network-status-pending")?.result.restartRequired).toBe(true)
+    expect(byId.get("network-restart")?.result).toEqual({ restarted: true, closedClaudeSessions: 1 })
+    expect(byId.get("network-status-after")?.result.restartRequired).toBe(false)
+    expect(restartCalls).toBe(1)
   })
 
   test("subscribes to app settings and writes patches through the router", async () => {

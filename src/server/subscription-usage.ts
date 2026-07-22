@@ -21,15 +21,15 @@ const CLAUDE_SDK_USAGE_SOURCE = "Claude Agent SDK /usage"
 type CommandRunner = (
   command: string,
   args: string[],
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ) => Promise<{ stdout: string; stderr: string }>
 
 type CodexAppServerReader = (
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ) => Promise<CodexAppServerSnapshot>
 
 type ClaudeSdkUsageReader = (
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ) => Promise<ClaudeSdkUsageSnapshot>
 
 export interface ReadSubscriptionUsageOptions {
@@ -38,6 +38,7 @@ export interface ReadSubscriptionUsageOptions {
   readCodexAppServer?: CodexAppServerReader
   readClaudeSdkUsage?: ClaudeSdkUsageReader
   codexAppServerTimeoutMs?: number
+  environment?: NodeJS.ProcessEnv
 }
 
 export function getClaudeCliCommand(platform: NodeJS.Platform = process.platform) {
@@ -118,6 +119,7 @@ async function readCodexUsageProvider(
   try {
     const snapshot = await readCodexAppServer({
       timeoutMs: options.codexAppServerTimeoutMs ?? CODEX_APP_SERVER_TIMEOUT_MS,
+      environment: options.environment,
     })
     return parseCodexAppServerSnapshot(snapshot.account, snapshot.rateLimits, now)
   } catch (error) {
@@ -142,7 +144,7 @@ async function readClaudeUsageProvider(
 
   try {
     sdkSnapshot = parseClaudeSdkUsageSnapshot(
-      await readClaudeSdkUsage({ timeoutMs: COMMAND_TIMEOUT_MS }),
+      await readClaudeSdkUsage({ timeoutMs: COMMAND_TIMEOUT_MS, environment: options.environment }),
       now,
     )
     // Some Claude Code versions return account information but omit rate
@@ -174,7 +176,7 @@ async function readClaudeUsageProviderFromCli(
   let accountEmail: string | null = null
 
   try {
-    const auth = await runCommand(claudeCommand, ["auth", "status"], { timeoutMs: COMMAND_TIMEOUT_MS })
+    const auth = await runCommand(claudeCommand, ["auth", "status"], { timeoutMs: COMMAND_TIMEOUT_MS, environment: options.environment })
     const authSnapshot = parseClaudeAuthStatus(auth.stdout)
     planType = authSnapshot.planType
     accountEmail = authSnapshot.accountEmail
@@ -186,6 +188,7 @@ async function readClaudeUsageProviderFromCli(
   try {
     const usage = await runCommand(claudeCommand, ["-p", "/usage", "--output-format", "json", "--model", "sonnet"], {
       timeoutMs: COMMAND_TIMEOUT_MS,
+      environment: options.environment,
     })
     const resultText = parseClaudeUsageCommandResult(usage.stdout)
     const windows = parseClaudeUsageResult(resultText, now)
@@ -218,7 +221,7 @@ async function readClaudeUsageProviderFromCli(
 }
 
 async function readClaudeSdkUsageSnapshot(
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ): Promise<ClaudeSdkUsageSnapshot> {
   const prompt = createIdleClaudePromptStream()
   const q = query({
@@ -230,7 +233,7 @@ async function readClaudeSdkUsageSnapshot(
       persistSession: false,
       settingSources: ["user"],
       pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
-      env: inheritClaudeAgentEnvironment(),
+      env: inheritClaudeAgentEnvironment(options.environment),
     },
   })
   let timedOut = false
@@ -512,13 +515,13 @@ function codexWindowFromAppServerLimit(
 }
 
 async function readCodexAppServerSnapshot(
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ): Promise<CodexAppServerSnapshot> {
   const child = spawn(getCodexCliCommand(), ["app-server"], {
     cwd: os.homedir(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
-      ...inheritAgentEnvironment(),
+      ...inheritAgentEnvironment(options.environment),
       DISABLE_TELEMETRY: process.env.DISABLE_TELEMETRY ?? "1",
     },
   })
@@ -714,7 +717,7 @@ export function parseClaudeResetAtText(resetText: string, now = Date.now()): num
 async function runCliCommand(
   command: string,
   args: string[],
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ): Promise<{ stdout: string; stderr: string }> {
   let timedOut = false
   const subprocess = Bun.spawn([command, ...args], {
@@ -722,7 +725,7 @@ async function runCliCommand(
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      ...inheritAgentEnvironment(),
+      ...inheritAgentEnvironment(options.environment),
       DISABLE_TELEMETRY: process.env.DISABLE_TELEMETRY ?? "1",
     },
   })

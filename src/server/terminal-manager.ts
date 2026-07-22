@@ -281,7 +281,10 @@ export class TerminalManager {
         session.terminal.write(filteredData.slice(cursor, ctrlCIndex))
       }
 
-      signalTerminalProcessGroup(session.process, "SIGINT")
+      // Let the PTY line discipline deliver SIGINT to its foreground process
+      // group. Signalling the shell's original process group directly can hit
+      // the interactive shell while it is between commands and terminate it.
+      session.terminal.write("\x03")
       cursor = ctrlCIndex + 1
     }
   }

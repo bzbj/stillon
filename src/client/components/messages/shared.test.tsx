@@ -2,7 +2,47 @@ import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { createMarkdownComponents, markdownComponents, OpenLocalLinkProvider } from "./shared"
+import {
+  createMarkdownComponents,
+  localFileMarkdownUrlTransform,
+  markdownComponents,
+  OpenLocalLinkProvider,
+} from "./shared"
+
+const anchorNode = {
+  type: "element",
+  tagName: "a",
+  properties: {},
+  children: [],
+} as const
+
+describe("localFileMarkdownUrlTransform", () => {
+  test("normalizes encoded Windows drive links and file URIs", () => {
+    expect(localFileMarkdownUrlTransform(
+      "C:%5CUsers%5cdemo%5Cindex.html",
+      "href",
+      anchorNode,
+    )).toBe("C:/Users/demo/index.html")
+    expect(localFileMarkdownUrlTransform(
+      "file:///C:%5CUsers%5cdemo%5Cindex.html",
+      "href",
+      anchorNode,
+    )).toBe("C:/Users/demo/index.html")
+  })
+
+  test("preserves literal drive and UNC links without rewriting web URLs", () => {
+    expect(localFileMarkdownUrlTransform("C:\\Users\\demo\\index.html", "href", anchorNode))
+      .toBe("C:\\Users\\demo\\index.html")
+    expect(localFileMarkdownUrlTransform("\\\\server\\share\\index.html", "href", anchorNode))
+      .toBe("\\\\server\\share\\index.html")
+    expect(localFileMarkdownUrlTransform("https://example.com/a%5Cb", "href", anchorNode))
+      .toBe("https://example.com/a%5Cb")
+  })
+
+  test("continues to sanitize unsafe protocols", () => {
+    expect(localFileMarkdownUrlTransform("javascript:alert(1)%5Cfoo", "href", anchorNode)).toBe("")
+  })
+})
 
 describe("markdownComponents", () => {
   test("renders markdown headings with transcript-specific sizes and no bold weight", () => {

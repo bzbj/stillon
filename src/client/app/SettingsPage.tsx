@@ -22,6 +22,7 @@ import {
   Sun,
   LogOut,
   Trash2,
+  Wifi,
   X,
 } from "lucide-react"
 import Markdown from "react-markdown"
@@ -34,6 +35,10 @@ import {
   DEFAULT_OPENROUTER_SDK_MODEL,
   PROVIDERS,
   type AgentProvider,
+  type AgentNetworkConnectionTestResult,
+  type AgentNetworkDetectionResult,
+  type AgentNetworkProxySettings,
+  type AgentNetworkStatus,
   type InstalledSkillSummary,
   type KeybindingAction,
   type LlmProviderKind,
@@ -94,6 +99,12 @@ const sidebarItems = [
     label: "General",
     icon: Settings2,
     subtitle: "Manage this machine's identity, appearance, editor behavior, and embedded terminal defaults.",
+  },
+  {
+    id: "network",
+    label: "Network",
+    icon: Wifi,
+    subtitle: "Configure and test outbound network settings used by Codex and Claude Code.",
   },
   {
     id: "skills",
@@ -1641,6 +1652,289 @@ export function getMachineNameEditorState(draft: string, confirmedName: string |
   }
 }
 
+const DEFAULT_AGENT_NETWORK_SETTINGS: AgentNetworkProxySettings = {
+  mode: "system",
+  httpProxy: "",
+  httpsProxy: "",
+  allProxy: "",
+  noProxy: "localhost,127.0.0.1,::1",
+}
+
+function NetworkSettingsSection({ state }: { state: KannaState }) {
+  const savedSettings = state.appSettings?.network ?? DEFAULT_AGENT_NETWORK_SETTINGS
+  const [draft, setDraft] = useState<AgentNetworkProxySettings>(savedSettings)
+  const [status, setStatus] = useState<AgentNetworkStatus | null>(null)
+  const [detection, setDetection] = useState<AgentNetworkDetectionResult | null>(null)
+  const [tests, setTests] = useState<Partial<Record<AgentProvider, AgentNetworkConnectionTestResult>>>({})
+  const [detecting, setDetecting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [testingProvider, setTestingProvider] = useState<AgentProvider | null>(null)
+  const [restarting, setRestarting] = useState(false)
+  const [restartRequired, setRestartRequired] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const hasUnsavedChanges = JSON.stringify(draft) !== JSON.stringify(savedSettings)
+
+  async function refreshStatus() {
+    try {
+      const next = await state.socket.command<AgentNetworkStatus>({ type: "settings.readAgentNetworkStatus" })
+      setStatus(next)
+      setRestartRequired(next.restartRequired)
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Unable to read the effective network settings.")
+    }
+  }
+
+  useEffect(() => {
+    setDraft(savedSettings)
+  }, [savedSettings.mode, savedSettings.httpProxy, savedSettings.httpsProxy, savedSettings.allProxy, savedSettings.noProxy])
+
+  useEffect(() => {
+    void refreshStatus()
+  // The socket is stable for the lifetime of this settings page.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedSettings.mode, savedSettings.httpProxy, savedSettings.httpsProxy, savedSettings.allProxy, savedSettings.noProxy])
+
+  function updateProxyField(field: keyof Omit<AgentNetworkProxySettings, "mode">, value: string) {
+    setDraft((current) => ({
+      ...current,
+      mode: current.mode === "detected" ? "manual" : current.mode,
+      [field]: value,
+    }))
+    setError(null)
+    setNotice(null)
+  }
+
+  async function detectProxy() {
+    setDetecting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await state.socket.command<AgentNetworkDetectionResult>({ type: "settings.detectSystemProxy" })
+      setDetection(result)
+      if (result.settings) {
+        setDraft(result.settings)
+        setNotice("Detected values are only a draft. Review and save them to override the inherited service environment.")
+      }
+    } catch (detectError) {
+      setError(detectError instanceof Error ? detectError.message : "Unable to detect the system proxy.")
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  async function saveNetworkSettings() {
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const snapshot = await state.handleWriteAppSettings({ network: draft })
+      setDraft(snapshot.network)
+      setTests({})
+      setRestartRequired(true)
+      setNotice("Saved. New Agent sessions use this environment immediately; restart existing sessions before their next turn.")
+      await refreshStatus()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save Agent network settings.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testConnection(provider: AgentProvider) {
+    setTestingProvider(provider)
+    setError(null)
+    try {
+      const result = await state.socket.command<AgentNetworkConnectionTestResult>({
+        type: "settings.testAgentNetworkConnection",
+        provider,
+      })
+      setTests((current) => ({ ...current, [provider]: result }))
+    } catch (testError) {
+      setError(testError instanceof Error ? testError.message : "Unable to run the connection test.")
+    } finally {
+      setTestingProvider(null)
+    }
+  }
+
+  async function restartAgentSessions() {
+    setRestarting(true)
+    setError(null)
+    try {
+      await state.socket.command({ type: "settings.restartAgentSessions" })
+      setRestartRequired(false)
+      setNotice("Agent sessions restarted. Their next turn will use the saved network environment.")
+    } catch (restartError) {
+      setError(restartError instanceof Error ? restartError.message : "Unable to restart Agent sessions.")
+    } finally {
+      setRestarting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error ? (
+        <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {notice ? (
+        <div role="status" className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+          {notice}
+        </div>
+      ) : null}
+      {restartRequired ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            Existing Codex or Claude sessions keep the environment they started with. Active turns must finish or be stopped first.
+          </div>
+          <Button type="button" size="sm" variant="outline" disabled={restarting} onClick={() => { void restartAgentSessions() }}>
+            {restarting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Restart Agent sessions
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="border-b border-border">
+        <SettingsRow
+          title="Outbound network mode"
+          description="System mode preserves the service environment and OS routing. A connected system VPN needs no StillOn-specific port."
+          bordered={false}
+          alignStart
+        >
+          <div className="flex w-full max-w-[440px] flex-col items-stretch gap-3">
+            <Select
+              value={draft.mode}
+              onValueChange={(value) => {
+                setDraft((current) => ({ ...current, mode: value as AgentNetworkProxySettings["mode"] }))
+                setError(null)
+                setNotice(null)
+              }}
+            >
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="system">Use system network</SelectItem>
+                  {draft.mode === "detected" ? <SelectItem value="detected">Use saved detected proxy</SelectItem> : null}
+                  <SelectItem value="manual">Manual proxy</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" disabled={detecting} onClick={() => { void detectProxy() }}>
+              {detecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Detect / refresh system proxy
+            </Button>
+            {detection ? (
+              <p className={cn("text-xs leading-5", detection.status === "detected" ? "text-foreground" : "text-muted-foreground")}>
+                {detection.sourceLabel}: {detection.message}
+              </p>
+            ) : null}
+          </div>
+        </SettingsRow>
+
+        {draft.mode !== "system" ? (
+          <>
+            {([
+              ["httpProxy", "HTTP proxy", "http://127.0.0.1:7890"],
+              ["httpsProxy", "HTTPS proxy", "http://127.0.0.1:7890"],
+              ["allProxy", "SOCKS / all proxy", "socks5://127.0.0.1:1080"],
+            ] as const).map(([field, label, placeholder]) => (
+              <SettingsRow key={field} title={label} description={`Complete ${label} URL. Credentialed URLs are rejected; use a restricted --env-file for those.`} alignStart>
+                <Input
+                  type="text"
+                  value={draft[field]}
+                  onChange={(event) => updateProxyField(field, event.target.value)}
+                  placeholder={placeholder}
+                  spellCheck={false}
+                  autoCapitalize="none"
+                  className="w-full max-w-[440px] font-mono"
+                />
+              </SettingsRow>
+            ))}
+            <SettingsRow title="Proxy bypass list" description="Comma-separated NO_PROXY hosts. Loopback and inherited service bypass entries are retained." alignStart>
+              <Textarea
+                value={draft.noProxy}
+                onChange={(event) => updateProxyField("noProxy", event.target.value)}
+                placeholder="localhost,127.0.0.1,::1,.local"
+                className="min-h-24 w-full max-w-[440px] font-mono"
+              />
+            </SettingsRow>
+          </>
+        ) : null}
+
+        <SettingsRow title="Save Agent network" description="Only non-empty saved proxy variables override values inherited from the service or --env-file." alignStart>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" disabled={!hasUnsavedChanges || saving} onClick={() => setDraft(savedSettings)}>Discard</Button>
+            <Button type="button" disabled={!hasUnsavedChanges || saving} onClick={() => { void saveNetworkSettings() }}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save network settings
+            </Button>
+          </div>
+        </SettingsRow>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card/30 p-4">
+        <div className="text-sm font-medium">Effective environment</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {status?.sourceLabel ?? "Reading effective source…"}
+        </div>
+        {status?.effectiveProxy.length ? (
+          <div className="mt-3 space-y-1.5">
+            {status.effectiveProxy.map((entry) => (
+              <div key={entry.variable} className="flex min-w-0 gap-2 text-xs">
+                <code className="shrink-0 text-foreground">{entry.variable}</code>
+                <span className="truncate text-muted-foreground">{entry.value}</span>
+                <span className="shrink-0 text-muted-foreground">({entry.source})</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-muted-foreground">No explicit proxy variables are active. Agent traffic follows the operating system route or VPN.</p>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-border bg-card/30 p-4">
+        <div className="text-sm font-medium">Test connection</div>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Tests the saved effective environment against each provider endpoint. Save draft changes first.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(["codex", "claude"] as AgentProvider[]).map((provider) => (
+            <Button
+              key={provider}
+              type="button"
+              variant="outline"
+              disabled={hasUnsavedChanges || testingProvider !== null}
+              onClick={() => { void testConnection(provider) }}
+            >
+              {testingProvider === provider ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Test {provider === "codex" ? "Codex" : "Claude"}
+            </Button>
+          ))}
+        </div>
+        <div className="mt-3 space-y-2">
+          {(["codex", "claude"] as AgentProvider[]).map((provider) => {
+            const result = tests[provider]
+            if (!result) return null
+            return (
+              <div key={provider} className={cn(
+                "rounded-md border px-3 py-2 text-xs leading-5",
+                result.ok
+                  ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-800 dark:text-emerald-200"
+                  : "border-destructive/20 bg-destructive/5 text-destructive",
+              )}>
+                <div className="font-medium">{result.targetLabel}: {result.ok ? "Reachable" : "Failed"} ({result.durationMs} ms)</div>
+                <div>{result.message}</div>
+                <div className="opacity-80">Source: {result.sourceLabel}{result.proxy ? ` · Proxy: ${result.proxy}` : ""}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
@@ -2563,6 +2857,8 @@ export function SettingsPage() {
 
                     </div>
                   </>
+                ) : selectedPage === "network" ? (
+                  <NetworkSettingsSection state={state} />
                 ) : selectedPage === "providers" ? (
                   <div className="border-b border-border">
                     <SettingsRow

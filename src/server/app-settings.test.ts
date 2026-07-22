@@ -60,6 +60,13 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
     warning: null,
     filePathDisplay: expectedDisplayPath(filePath),
     ...overrides,
+    network: overrides.network ?? {
+      mode: "system",
+      httpProxy: "",
+      httpsProxy: "",
+      allProxy: "",
+      noProxy: "localhost,127.0.0.1,::1",
+    },
   }
 }
 
@@ -171,6 +178,49 @@ describe("AppSettingsManager", () => {
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
 
+    manager.dispose()
+  })
+
+  test("persists validated Agent network overrides across manager restarts", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+
+    const saved = await manager.writePatch({
+      network: {
+        mode: "manual",
+        httpProxy: "http://127.0.0.1:7890",
+        allProxy: "socks5://127.0.0.1:1080",
+        noProxy: ".internal",
+      },
+    })
+    expect(saved.network).toEqual({
+      mode: "manual",
+      httpProxy: "http://127.0.0.1:7890",
+      httpsProxy: "",
+      allProxy: "socks5://127.0.0.1:1080",
+      noProxy: ".internal,localhost,127.0.0.1,::1",
+    })
+    manager.dispose()
+
+    const restarted = new AppSettingsManager(filePath)
+    await restarted.initialize()
+    expect(restarted.getSnapshot().network).toEqual(saved.network)
+    restarted.dispose()
+  })
+
+  test("rejects credentialed proxy overrides without writing them", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+
+    await expect(manager.writePatch({
+      network: {
+        mode: "manual",
+        httpsProxy: "http://user:secret@127.0.0.1:7890",
+      },
+    })).rejects.toThrow("cannot contain credentials")
+    expect(await readFile(filePath, "utf8")).not.toContain("secret")
     manager.dispose()
   })
 
