@@ -593,6 +593,62 @@ export interface LocalProjectsSnapshot {
     platform: NodeJS.Platform
   }
   projects: LocalProjectSummary[]
+  isDiscovering?: boolean
+}
+
+export type AgentNetworkMode = "system" | "detected" | "manual"
+
+export interface AgentNetworkProxySettings {
+  mode: AgentNetworkMode
+  httpProxy: string
+  httpsProxy: string
+  allProxy: string
+  noProxy: string
+}
+
+export type AgentNetworkProxySource = "settings" | "inherited" | "system"
+
+export interface AgentNetworkEffectiveProxy {
+  variable: "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
+  value: string
+  source: AgentNetworkProxySource
+}
+
+export interface AgentNetworkStatus {
+  mode: AgentNetworkMode
+  source: AgentNetworkProxySource
+  sourceLabel: string
+  effectiveProxy: AgentNetworkEffectiveProxy[]
+  restartRequired: boolean
+}
+
+export interface AgentNetworkDetectionResult {
+  status: "detected" | "none" | "unsupported" | "pac_only" | "error"
+  platform: NodeJS.Platform
+  sourceLabel: string
+  settings: AgentNetworkProxySettings | null
+  message: string
+  pacUrlDetected: boolean
+}
+
+export interface AgentNetworkConnectionTestResult {
+  ok: boolean
+  provider: AgentProvider
+  targetLabel: string
+  sourceLabel: string
+  proxy: string | null
+  durationMs: number
+  errorCode:
+    | "dns_failed"
+    | "proxy_unreachable"
+    | "proxy_auth_required"
+    | "proxy_rejected"
+    | "tls_failed"
+    | "http_failed"
+    | "timeout"
+    | "invalid_configuration"
+    | null
+  message: string
 }
 
 export interface AppSettingsSnapshot {
@@ -611,6 +667,7 @@ export interface AppSettingsSnapshot {
   }
   defaultProvider: DefaultProviderPreference
   providerDefaults: ChatProviderPreferences
+  network: AgentNetworkProxySettings
   warning: string | null
   filePathDisplay: string
 }
@@ -628,6 +685,7 @@ export interface AppSettingsPatch {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>
     codex?: Partial<ProviderPreference<CodexModelOptions>>
   }
+  network?: Partial<AgentNetworkProxySettings>
 }
 
 export interface LlmProviderFile {

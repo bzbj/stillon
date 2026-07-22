@@ -146,9 +146,14 @@ describe("subscription usage", () => {
 
   test("reads Codex app-server and Claude usage into one settings snapshot", async () => {
     let claudeCliCalls = 0
+    let codexEnvironment: NodeJS.ProcessEnv | undefined
+    let claudeEnvironment: NodeJS.ProcessEnv | undefined
     const snapshot = await readSubscriptionUsageSnapshot({
       now: new Date(2026, 5, 30, 17, 30).getTime(),
-      readCodexAppServer: async () => ({
+      environment: { HTTPS_PROXY: "http://127.0.0.1:7890" },
+      readCodexAppServer: async (options) => {
+        codexEnvironment = options.environment
+        return ({
         account: {
           account: {
             email: "codex@example.com",
@@ -173,8 +178,11 @@ describe("subscription usage", () => {
             },
           },
         },
-      }),
-      readClaudeSdkUsage: async () => ({
+        })
+      },
+      readClaudeSdkUsage: async (options) => {
+        claudeEnvironment = options.environment
+        return ({
         subscriptionType: "pro",
         accountEmail: "claude@example.com",
         rateLimitsAvailable: true,
@@ -193,7 +201,8 @@ describe("subscription usage", () => {
             resetsAt: "2026-06-30T20:59:00.000Z",
           },
         ],
-      }),
+        })
+      },
       runCommand: async () => {
         claudeCliCalls += 1
         throw new Error("Claude CLI fallback should not run")
@@ -222,6 +231,8 @@ describe("subscription usage", () => {
       ],
     })
     expect(claudeCliCalls).toBe(0)
+    expect(codexEnvironment?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
+    expect(claudeEnvironment?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
   })
 
   test("falls back to Claude CLI usage when the SDK usage API is unavailable", async () => {

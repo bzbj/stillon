@@ -23,6 +23,28 @@ describe("TextMessage", () => {
     expect(html).not.toContain('target="_blank"')
   })
 
+  test("normalizes encoded Windows paths and file URIs for local preview handling", () => {
+    const html = renderToStaticMarkup(
+      <OpenLocalLinkProvider onOpenLocalLink={() => {}}>
+        <TextMessage
+          message={{
+            id: "assistant-1",
+            kind: "assistant_text",
+            text: [
+              "[report.html](C:%5CUsers%5cdemo%5Coutput%5Creport.html)",
+              "[index.html](file:///C:%5CUsers%5cdemo%5Coutput%5Cindex.html)",
+            ].join("\n\n"),
+            timestamp: new Date().toISOString(),
+          }}
+        />
+      </OpenLocalLinkProvider>
+    )
+
+    expect(html).toContain('href="C:/Users/demo/output/report.html"')
+    expect(html).toContain('href="C:/Users/demo/output/index.html"')
+    expect(html).not.toContain('target="_blank"')
+  })
+
   test("continues to sanitize unsafe non-file protocols", () => {
     const html = renderToStaticMarkup(
       <TextMessage

@@ -15,13 +15,20 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-async function startIsolatedServer(options: { port: number; strictPort?: boolean }) {
+async function startIsolatedServer(options: {
+  port: number
+  strictPort?: boolean
+  maxUploadSizeBytes?: number
+}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-server-data-"))
   tempDirs.push(dataDir)
   return startStillOnServer({
     dataDir,
     port: options.port,
     strictPort: options.strictPort ?? true,
+    uploadLimits: options.maxUploadSizeBytes
+      ? { maxUploadSizeBytes: options.maxUploadSizeBytes }
+      : undefined,
   })
 }
 
@@ -187,12 +194,13 @@ describe("uploads", () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-oversize-"))
     tempDirs.push(projectDir)
 
-    const server = await startIsolatedServer({ port: 4313 })
+    const maxUploadSizeBytes = 1024 * 1024
+    const server = await startIsolatedServer({ port: 4313, maxUploadSizeBytes })
 
     try {
       const project = await server.store.openProject(projectDir, "Project")
       const formData = new FormData()
-      formData.append("files", new File([new Uint8Array(100 * 1024 * 1024 + 1)], "big.bin", { type: "application/octet-stream" }))
+      formData.append("files", new File([new Uint8Array(maxUploadSizeBytes + 1)], "big.bin", { type: "application/octet-stream" }))
 
       const response = await fetch(`http://localhost:${server.port}/api/projects/${project.id}/uploads`, {
         method: "POST",
@@ -201,7 +209,7 @@ describe("uploads", () => {
 
       expect(response.status).toBe(413)
       expect(await response.json()).toEqual({
-        error: "File \"big.bin\" exceeds the 100 MB limit.",
+        error: "File \"big.bin\" exceeds the 1 MB limit.",
       })
     } finally {
       await server.stop()
@@ -212,12 +220,13 @@ describe("uploads", () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-batch-oversize-"))
     tempDirs.push(projectDir)
 
-    const server = await startIsolatedServer({ port: 4315 })
+    const maxUploadSizeBytes = 1024 * 1024
+    const server = await startIsolatedServer({ port: 4315, maxUploadSizeBytes })
 
     try {
       const project = await server.store.openProject(projectDir, "Project")
       const formData = new FormData()
-      const halfLimitPlusOne = new Uint8Array(50 * 1024 * 1024 + 1)
+      const halfLimitPlusOne = new Uint8Array(maxUploadSizeBytes / 2 + 1)
       formData.append("files", new File([halfLimitPlusOne], "first.bin", { type: "application/octet-stream" }))
       formData.append("files", new File([halfLimitPlusOne], "second.bin", { type: "application/octet-stream" }))
 
@@ -228,7 +237,7 @@ describe("uploads", () => {
 
       expect(response.status).toBe(413)
       expect(await response.json()).toEqual({
-        error: "Combined uploads exceed the 100 MB limit.",
+        error: "Combined uploads exceed the 1 MB limit.",
       })
     } finally {
       await server.stop()

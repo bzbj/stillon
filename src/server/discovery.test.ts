@@ -6,6 +6,9 @@ import {
   ClaudeProjectDiscoveryAdapter,
   CodexProjectDiscoveryAdapter,
   discoverProjects,
+  discoverProjectsIncrementally,
+  isProjectDiscoverySnapshotFresh,
+  mergeIncrementalDiscoveryUpdate,
   type ProjectDiscoveryAdapter,
 } from "./discovery"
 
@@ -47,6 +50,32 @@ describe("project discovery", () => {
         title: "alpha-project",
         modifiedAt: new Date("2026-03-16T10:00:00.000Z").getTime(),
       },
+    ])
+  })
+
+  test("incremental Claude discovery prioritizes marker recency instead of encoded folder names", async () => {
+    const homeDir = makeTempDir()
+    const olderProjectDir = path.join(homeDir, "workspace", "z-older-project")
+    const newerProjectDir = path.join(homeDir, "workspace", "a-newer-project")
+    const claudeProjectsDir = path.join(homeDir, ".claude", "projects")
+    const olderMarkerDir = path.join(claudeProjectsDir, encodeClaudeProjectPath(olderProjectDir))
+    const newerMarkerDir = path.join(claudeProjectsDir, encodeClaudeProjectPath(newerProjectDir))
+
+    mkdirSync(olderProjectDir, { recursive: true })
+    mkdirSync(newerProjectDir, { recursive: true })
+    mkdirSync(olderMarkerDir, { recursive: true })
+    mkdirSync(newerMarkerDir, { recursive: true })
+    utimesSync(olderMarkerDir, new Date("2026-03-15T10:00:00.000Z"), new Date("2026-03-15T10:00:00.000Z"))
+    utimesSync(newerMarkerDir, new Date("2026-03-16T10:00:00.000Z"), new Date("2026-03-16T10:00:00.000Z"))
+
+    const projects = []
+    for await (const project of new ClaudeProjectDiscoveryAdapter().scanIncrementally(homeDir)) {
+      projects.push(project)
+    }
+
+    expect(projects.map((project) => project.localPath)).toEqual([
+      newerProjectDir,
+      olderProjectDir,
     ])
   })
 
@@ -207,5 +236,195 @@ describe("project discovery", () => {
         modifiedAt: 15,
       },
     ])
+  })
+
+  test("incremental discovery publishes saved projects before provider history and streams later results", async () => {
+    let continueScan: () => void = () => {}
+    const scanGate = new Promise<void>((resolve) => {
+      continueScan = resolve
+    })
+    const updates: Array<Array<{ localPath: string; title: string; modifiedAt: number }>> = []
+    const adapter: ProjectDiscoveryAdapter = {
+      provider: "codex",
+      scan: () => [],
+      async *scanIncrementally() {
+        await scanGate
+        yield {
+          provider: "codex",
+          localPath: "/tmp/discovered-project",
+          title: "Discovered Project",
+          modifiedAt: 20,
+        }
+      },
+    }
+
+    const discovery = discoverProjectsIncrementally("/unused-home", [adapter], {
+      initialProjects: [{
+        localPath: "/tmp/saved-project",
+        title: "Saved Project",
+        modifiedAt: 10,
+      }],
+      updateBatchSize: 1,
+      onUpdate: (projects) => {
+        updates.push(projects)
+      },
+    })
+
+    await Promise.resolve()
+    expect(updates).toEqual([[
+      {
+        localPath: "/tmp/saved-project",
+        title: "Saved Project",
+        modifiedAt: 10,
+      },
+    ]])
+
+    continueScan()
+    await expect(discovery).resolves.toEqual([
+      {
+        localPath: "/tmp/discovered-project",
+        title: "Discovered Project",
+        modifiedAt: 20,
+      },
+      {
+        localPath: "/tmp/saved-project",
+        title: "Saved Project",
+        modifiedAt: 10,
+      },
+    ])
+    expect(updates.at(-1)).toEqual([
+      {
+        localPath: "/tmp/discovered-project",
+        title: "Discovered Project",
+        modifiedAt: 20,
+      },
+      {
+        localPath: "/tmp/saved-project",
+        title: "Saved Project",
+        modifiedAt: 10,
+      },
+    ])
+  })
+
+  test("a project saved during an in-flight scan survives the final discovery snapshot", () => {
+    expect(mergeIncrementalDiscoveryUpdate({
+      currentProjects: [{
+        localPath: "/tmp/original-saved-project",
+        title: "Original Saved Project",
+        modifiedAt: 10,
+      }],
+      discoveredProjects: [{
+        localPath: "/tmp/provider-project",
+        title: "Provider Project",
+        modifiedAt: 20,
+      }],
+      savedProjects: [
+        {
+          localPath: "/tmp/original-saved-project",
+          title: "Original Saved Project",
+          modifiedAt: 10,
+        },
+        {
+          localPath: "/tmp/newly-opened-project",
+          title: "Newly Opened Project",
+          modifiedAt: 30,
+        },
+      ],
+      complete: true,
+    })).toEqual([
+      {
+        localPath: "/tmp/newly-opened-project",
+        title: "Newly Opened Project",
+        modifiedAt: 30,
+      },
+      {
+        localPath: "/tmp/provider-project",
+        title: "Provider Project",
+        modifiedAt: 20,
+      },
+      {
+        localPath: "/tmp/original-saved-project",
+        title: "Original Saved Project",
+        modifiedAt: 10,
+      },
+    ])
+  })
+
+  test("reuses a recently completed discovery snapshot until its freshness window expires", () => {
+    const completedAt = 1_000
+    expect(isProjectDiscoverySnapshotFresh(null, completedAt)).toBe(false)
+    expect(isProjectDiscoverySnapshotFresh(completedAt, completedAt + 59_999)).toBe(true)
+    expect(isProjectDiscoverySnapshotFresh(completedAt, completedAt + 60_000)).toBe(false)
+  })
+
+  test("incremental discovery stops without publishing a complete snapshot when aborted", async () => {
+    const abortController = new AbortController()
+    const progress: boolean[] = []
+    const adapter: ProjectDiscoveryAdapter = {
+      provider: "codex",
+      scan: () => [],
+      async *scanIncrementally() {
+        yield {
+          provider: "codex",
+          localPath: "/tmp/first-project",
+          title: "First Project",
+          modifiedAt: 10,
+        }
+        yield {
+          provider: "codex",
+          localPath: "/tmp/second-project",
+          title: "Second Project",
+          modifiedAt: 20,
+        }
+      },
+    }
+
+    const discovery = discoverProjectsIncrementally("/unused-home", [adapter], {
+      signal: abortController.signal,
+      updateBatchSize: 1,
+      onUpdate: (_projects, update) => {
+        progress.push(update.complete)
+        if (progress.length === 2) {
+          abortController.abort()
+        }
+      },
+    })
+
+    await expect(discovery).rejects.toHaveProperty("name", "AbortError")
+    expect(progress).toEqual([false, false])
+  })
+
+  test("incremental Codex discovery reads session metadata without loading the transcript body", async () => {
+    const homeDir = makeTempDir()
+    const sessionsDir = path.join(homeDir, ".codex", "sessions", "2026", "03", "16")
+    const projectDir = path.join(homeDir, "workspace", "incremental-project")
+    mkdirSync(projectDir, { recursive: true })
+    mkdirSync(sessionsDir, { recursive: true })
+
+    const metadata = JSON.stringify({
+      timestamp: "2026-03-17T03:42:25.751Z",
+      type: "session_meta",
+      payload: {
+        id: "incremental-session",
+        cwd: projectDir,
+      },
+    })
+    writeFileSync(
+      path.join(sessionsDir, "rollout-2026-03-16T23-42-24-incremental-session.jsonl"),
+      `${metadata}\n${"x".repeat(2 * 1024 * 1024)}`
+    )
+
+    const adapter = new CodexProjectDiscoveryAdapter()
+    const projects = []
+    for await (const project of adapter.scanIncrementally(homeDir)) {
+      projects.push(project)
+    }
+
+    expect(projects).toEqual([{
+      provider: "codex",
+      localPath: projectDir,
+      title: "incremental-project",
+      modifiedAt: Date.parse("2026-03-17T03:42:25.751Z"),
+    }])
   })
 })

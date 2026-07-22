@@ -161,6 +161,7 @@ export async function handleBrowserPreviewProxy(
     blockedPorts?: Iterable<number>
     fetchImpl?: typeof fetch
     isAllowedPort?: (port: number) => Promise<boolean>
+    signal?: AbortSignal
   } = {}
 ) {
   const target = parseBrowserPreviewProxyTarget(url.pathname)
@@ -183,11 +184,15 @@ export async function handleBrowserPreviewProxy(
 
   const fetchImpl = options.fetchImpl ?? fetch
   const upstreamUrl = `http://127.0.0.1:${target.port}${target.path}${url.search}`
+  const upstreamSignal = options.signal
+    ? AbortSignal.any([req.signal, options.signal])
+    : req.signal
   const upstreamResponse = await fetchImpl(upstreamUrl, {
     method: req.method,
     headers: buildForwardHeaders(req, target.port),
     body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
     redirect: "manual",
+    signal: upstreamSignal,
   })
   const headers = buildResponseHeaders(upstreamResponse.headers, target.port)
 

@@ -33,7 +33,11 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "../../lib/utils"
-import { parseLocalFileLink, type ParsedLocalFileLink } from "../../lib/pathUtils"
+import {
+  normalizeWindowsLocalFileTarget,
+  parseLocalFileLink,
+  type ParsedLocalFileLink,
+} from "../../lib/pathUtils"
 import { useTranscriptRenderOptions } from "./render-context"
 
 export type OpenLocalLinkTarget = {
@@ -51,11 +55,12 @@ type ResolveLocalLinkHandler = (href: string | undefined | null) => ParsedLocalF
 
 const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i
 
-export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => (
-  key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(url)
-    ? url
+export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => {
+  const normalizedUrl = key === "href" ? normalizeWindowsLocalFileTarget(url) : url
+  return key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(normalizedUrl)
+    ? normalizedUrl
     : defaultUrlTransform(url)
-)
+}
 
 const defaultOpenLocalLink: OpenLocalLinkHandler = () => {}
 

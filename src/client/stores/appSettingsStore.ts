@@ -31,6 +31,10 @@ export function mergeAppSettingsPatch(
       ...settings.editor,
       ...patch.editor,
     },
+    network: {
+      ...settings.network,
+      ...patch.network,
+    },
     providerDefaults: {
       claude: {
         ...settings.providerDefaults.claude,

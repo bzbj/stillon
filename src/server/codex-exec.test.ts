@@ -51,9 +51,12 @@ describe("CodexExecManager", () => {
   test("starts a fresh codex exec turn and maps JSONL events", async () => {
     const processes: FakeCodexExecProcess[] = []
     const spawned: Array<{ args: string[]; cwd: string }> = []
+    const spawnedEnvironments: NodeJS.ProcessEnv[] = []
     const manager = new CodexExecManager({
-      spawnProcess: (args, cwd) => {
+      getEnvironment: () => ({ HTTPS_PROXY: "http://127.0.0.1:7890" }),
+      spawnProcess: (args, cwd, environment) => {
         spawned.push({ args, cwd })
+        spawnedEnvironments.push(environment)
         const process = new FakeCodexExecProcess()
         processes.push(process)
         return process as never
@@ -102,6 +105,7 @@ describe("CodexExecManager", () => {
         "-",
       ],
     })
+    expect(spawnedEnvironments[0]?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
     expect(process.stdinText).toBe("Solve this\n")
 
     process.writeJson({ type: "thread.started", thread_id: "thread-1" })

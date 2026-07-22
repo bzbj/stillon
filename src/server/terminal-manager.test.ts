@@ -125,14 +125,14 @@ describeIfSupported("TerminalManager", () => {
     const { manager, getOutput } = await createSession(terminalId)
 
     try {
-      const before = getOutput()
       manager.write(terminalId, "\x03")
+      manager.write(terminalId, "printf '__STILLON_AFTER_IDLE_INT__\\n'\r")
 
-      await waitFor(() => getOutput().length > before.length, COMMAND_TIMEOUT_MS)
+      await waitForOutputToContain(getOutput, "__STILLON_AFTER_IDLE_INT__")
 
       const snapshot = manager.getSnapshot(terminalId)
       expect(snapshot?.status).toBe("running")
-      expect(getOutput().length).toBeGreaterThan(before.length)
+      expect(getOutput()).toContain("__STILLON_AFTER_IDLE_INT__")
     } finally {
       manager.close(terminalId)
     }

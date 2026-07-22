@@ -52,7 +52,7 @@ interface CodexExecProcess {
   on(event: "error", listener: (error: Error) => void): this
 }
 
-type SpawnCodexExec = (args: string[], cwd: string) => CodexExecProcess
+type SpawnCodexExec = (args: string[], cwd: string, environment: NodeJS.ProcessEnv) => CodexExecProcess
 
 interface SessionContext {
   chatId: string
@@ -259,13 +259,15 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 export class CodexExecManager {
   private readonly sessions = new Map<string, SessionContext>()
   private readonly spawnProcess: SpawnCodexExec
+  private readonly getEnvironment: () => NodeJS.ProcessEnv
 
-  constructor(args: { spawnProcess?: SpawnCodexExec } = {}) {
-    this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd) =>
+  constructor(args: { spawnProcess?: SpawnCodexExec; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
+    this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
+    this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd, environment) =>
       spawn(getCodexCliCommand(), commandArgs, {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
-        env: inheritAgentEnvironment(),
+        env: environment,
       }) as unknown as CodexExecProcess)
   }
 
@@ -312,7 +314,7 @@ export class CodexExecManager {
     }
 
     const commandArgs = this.buildCommandArgs(context, args)
-    const child = this.spawnProcess(commandArgs, context.cwd)
+    const child = this.spawnProcess(commandArgs, context.cwd, this.getEnvironment())
     const pendingTurn: PendingTurn = {
       child,
       queue,

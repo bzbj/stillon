@@ -9,7 +9,9 @@ describe("QuickResponseAdapter", () => {
   })
 
   test("returns the SDK structured result when configured and it validates", async () => {
+    let openAIEnvironment: NodeJS.ProcessEnv | undefined
     const adapter = new QuickResponseAdapter({
+      getEnvironment: () => ({ HTTPS_PROXY: "http://127.0.0.1:7890" }),
       readLlmProvider: async () => ({
         provider: "openai",
         apiKey: "test-key",
@@ -20,7 +22,10 @@ describe("QuickResponseAdapter", () => {
         warning: null,
         filePathDisplay: "~/.kanna/llm-provider.json",
       }),
-      runOpenAIStructured: async () => ({ title: "SDK title" }),
+      runOpenAIStructured: async (_config, _args, environment) => {
+        openAIEnvironment = environment
+        return { title: "SDK title" }
+      },
       runClaudeStructured: async () => ({ title: "Claude title" }),
       runCodexStructured: async () => ({ title: "Codex title" }),
     })
@@ -44,6 +49,7 @@ describe("QuickResponseAdapter", () => {
     })
 
     expect(result).toBe("SDK title")
+    expect(openAIEnvironment?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
   })
 
   test("returns the Claude structured result when it validates", async () => {

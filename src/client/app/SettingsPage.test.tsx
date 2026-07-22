@@ -152,6 +152,7 @@ describe("resolveSettingsSectionId", () => {
   test("accepts known settings sections", () => {
     expect(resolveSettingsSectionId("welcome")).toBe("welcome")
     expect(resolveSettingsSectionId("general")).toBe("general")
+    expect(resolveSettingsSectionId("network")).toBe("network")
     expect(resolveSettingsSectionId("providers")).toBe("providers")
     expect(resolveSettingsSectionId("changelog")).toBe("changelog")
     expect(resolveSettingsSectionId("keybindings")).toBe("keybindings")

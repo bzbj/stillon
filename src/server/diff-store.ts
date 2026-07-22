@@ -563,6 +563,7 @@ interface FetchGitHubPullRequestsDeps {
 
 interface DiffStoreDeps {
   pullRequestFetcher?: GitHubPullRequestsFetcher
+  generateCommitMessage?: typeof generateCommitMessageDetailed
 }
 
 async function fetchGitHubPullRequestsViaGh(path: string): Promise<GitHubPullRequestResponseItem[] | null> {
@@ -1097,9 +1098,11 @@ export function appendGitIgnoreEntry(currentContents: string | null, entry: stri
 export class DiffStore {
   private readonly states = new Map<string, StoredChatDiffState>()
   private readonly pullRequestFetcher: GitHubPullRequestsFetcher
+  private readonly generateCommitMessageFn: typeof generateCommitMessageDetailed
 
   constructor(_: string, deps: DiffStoreDeps = {}) {
     this.pullRequestFetcher = deps.pullRequestFetcher ?? fetchGitHubPullRequests
+    this.generateCommitMessageFn = deps.generateCommitMessage ?? generateCommitMessageDetailed
   }
 
   async initialize() {}
@@ -1987,7 +1990,7 @@ export class DiffStore {
     }))
 
     const branchName = await getBranchName(repo.repoRoot)
-    return await generateCommitMessageDetailed({
+    return await this.generateCommitMessageFn({
       cwd: repo.repoRoot,
       branchName,
       files: selectedFiles,

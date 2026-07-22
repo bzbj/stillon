@@ -182,6 +182,7 @@ export function LocalDev({
   onResolveLocalPath,
 }: LocalDevProps) {
   const projects = useMemo(() => snapshot?.projects ?? [], [snapshot?.projects])
+  const isDiscovering = snapshot?.isDiscovering ?? false
   const isConnecting = connectionStatus === "connecting" || !ready
   const isConnected = connectionStatus === "connected" && ready
 
@@ -274,7 +275,15 @@ export function LocalDev({
 
           <div className="w-full px-6 mb-10">
             <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Projects</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Projects</h2>
+                {isDiscovering ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground normal-case">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading history
+                  </span>
+                ) : null}
+              </div>
               <Button variant="default" size="sm" onClick={() => onNewProjectOpenChange(true)}>
                 <Plus className="h-4 w-4 mr-1.5" />
                 Add Project
@@ -296,7 +305,9 @@ export function LocalDev({
             ) : (
               <InfoCard>
                 <p className="text-sm text-muted-foreground">
-                  No local projects discovered yet. Open one with Claude or Codex, or create a new project here.
+                  {isDiscovering
+                    ? "Looking through your Claude and Codex project history..."
+                    : "No local projects discovered yet. Open one with Claude or Codex, or create a new project here."}
                 </p>
               </InfoCard>
             )}

@@ -4,6 +4,8 @@ import OpenAI from "openai"
 import { getDataRootDir } from "../shared/branding"
 import type { LlmProviderSnapshot } from "../shared/types"
 import { CodexExecManager } from "./codex-exec"
+import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
+import { createAgentNetworkFetch } from "./agent-network"
 import { readLlmProviderSnapshot } from "./llm-provider"
 
 const CLAUDE_STRUCTURED_TIMEOUT_MS = 5_000
@@ -28,10 +30,12 @@ interface QuickResponseAdapterArgs {
   readLlmProvider?: () => Promise<LlmProviderSnapshot>
   runOpenAIStructured?: (
     config: LlmProviderSnapshot,
-    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">
+    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+    environment: NodeJS.ProcessEnv,
   ) => Promise<unknown | null>
   runClaudeStructured?: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
   runCodexStructured?: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
+  getEnvironment?: () => NodeJS.ProcessEnv
 }
 
 type CodexStructuredManager = Pick<CodexExecManager, "generateStructured">
@@ -95,7 +99,10 @@ function structuredOutputFromSdkMessage(message: unknown): unknown | null {
   return null
 }
 
-export async function runClaudeStructured(args: Omit<StructuredQuickResponseArgs<unknown>, "parse">): Promise<unknown | null> {
+export async function runClaudeStructured(
+  args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+  environment: NodeJS.ProcessEnv = inheritAgentEnvironment(),
+): Promise<unknown | null> {
   const q = query({
     prompt: args.prompt,
     options: {
@@ -109,7 +116,7 @@ export async function runClaudeStructured(args: Omit<StructuredQuickResponseArgs
         type: "json_schema",
         schema: args.schema,
       },
-      env: { ...process.env },
+      env: inheritClaudeAgentEnvironment(environment),
     },
   })
 
@@ -145,11 +152,13 @@ export async function runClaudeStructured(args: Omit<StructuredQuickResponseArgs
 
 export async function runOpenAIStructured(
   config: LlmProviderSnapshot,
-  args: Omit<StructuredQuickResponseArgs<unknown>, "parse">
+  args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+  environment: NodeJS.ProcessEnv = inheritAgentEnvironment(),
 ): Promise<unknown | null> {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.resolvedBaseUrl,
+    fetch: createAgentNetworkFetch(environment),
   })
 
   const response = await client.responses.create({
@@ -181,8 +190,10 @@ export async function runCodexStructured(
   return parseJsonText(response)
 }
 
-export function createDefaultQuickResponseCodexManager(): CodexStructuredManager {
-  return new CodexExecManager()
+export function createDefaultQuickResponseCodexManager(
+  getEnvironment: () => NodeJS.ProcessEnv = () => inheritAgentEnvironment(),
+): CodexStructuredManager {
+  return new CodexExecManager({ getEnvironment })
 }
 
 export class QuickResponseAdapter {
@@ -190,16 +201,21 @@ export class QuickResponseAdapter {
   private readonly readLlmProvider: () => Promise<LlmProviderSnapshot>
   private readonly runOpenAIStructured: (
     config: LlmProviderSnapshot,
-    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">
+    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+    environment: NodeJS.ProcessEnv,
   ) => Promise<unknown | null>
   private readonly runClaudeStructured: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
   private readonly runCodexStructured: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
+  private readonly getEnvironment: () => NodeJS.ProcessEnv
 
   constructor(args: QuickResponseAdapterArgs = {}) {
-    this.codexManager = args.codexManager ?? createDefaultQuickResponseCodexManager()
+    const getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
+    this.getEnvironment = getEnvironment
+    this.codexManager = args.codexManager ?? createDefaultQuickResponseCodexManager(getEnvironment)
     this.readLlmProvider = args.readLlmProvider ?? (() => readLlmProviderSnapshot())
     this.runOpenAIStructured = args.runOpenAIStructured ?? runOpenAIStructured
-    this.runClaudeStructured = args.runClaudeStructured ?? runClaudeStructured
+    this.runClaudeStructured = args.runClaudeStructured ?? ((structuredArgs) =>
+      runClaudeStructured(structuredArgs, getEnvironment()))
     this.runCodexStructured = args.runCodexStructured ?? ((structuredArgs) =>
       runCodexStructured(this.codexManager, structuredArgs))
   }
@@ -219,7 +235,7 @@ export class QuickResponseAdapter {
     const failures: StructuredQuickResponseFailure[] = []
     const llmProvider = await this.readLlmProvider()
     if (llmProvider.enabled) {
-      const openAIResult = await this.tryProvider("openai", args.task, args.parse, () => this.runOpenAIStructured(llmProvider, request))
+      const openAIResult = await this.tryProvider("openai", args.task, args.parse, () => this.runOpenAIStructured(llmProvider, request, this.getEnvironment()))
       if (openAIResult.value !== null) {
         return {
           value: openAIResult.value,

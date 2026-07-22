@@ -22,7 +22,7 @@ import { EventStore } from "./event-store"
 import { CodexExecManager } from "./codex-exec"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
-import { inheritClaudeAgentEnvironment } from "./agent-environment"
+import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import {
   applyClaudeSdkModels,
   type ClaudeSdkModelInfo,
@@ -142,6 +142,7 @@ interface AgentCoordinatorArgs {
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   codexManager?: CodexManager
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
+  getEnvironment?: () => NodeJS.ProcessEnv
   startClaudeSession?: (args: {
     localPath: string
     model: string
@@ -150,6 +151,7 @@ interface AgentCoordinatorArgs {
     permissionMode: ClaudePermissionMode
     sessionToken: string | null
     forkSession: boolean
+    environment: NodeJS.ProcessEnv
     onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   }) => Promise<ClaudeSessionHandle>
 }
@@ -171,8 +173,8 @@ function logClaudeSteer(stage: string, details?: Record<string, unknown>) {
   }))
 }
 
-function createDefaultCodexManager(): CodexManager {
-  return new CodexExecManager()
+function createDefaultCodexManager(getEnvironment: () => NodeJS.ProcessEnv): CodexManager {
+  return new CodexExecManager({ getEnvironment })
 }
 
 const STEERED_MESSAGE_PREFIX = `<system-message>
@@ -602,6 +604,7 @@ async function startClaudeSession(args: {
   permissionMode: ClaudePermissionMode
   sessionToken: string | null
   forkSession: boolean
+  environment: NodeJS.ProcessEnv
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }): Promise<ClaudeSessionHandle> {
   const canUseTool: CanUseTool = async (toolName, input, options) => {
@@ -674,8 +677,8 @@ async function startClaudeSession(args: {
       canUseTool,
       tools: [...CLAUDE_TOOLSET],
       settingSources: ["user", "project", "local"],
-      pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
-      env: inheritClaudeAgentEnvironment(),
+      pathToClaudeCodeExecutable: args.environment.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
+      env: inheritClaudeAgentEnvironment(args.environment),
     },
   })
 
@@ -723,6 +726,7 @@ export class AgentCoordinator {
   private readonly codexManager: CodexManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   private readonly startClaudeSessionFn: NonNullable<AgentCoordinatorArgs["startClaudeSession"]>
+  private readonly getEnvironment: () => NodeJS.ProcessEnv
   private reportBackgroundError: ((message: string) => void) | null = null
   readonly activeTurns = new Map<string, ActiveTurn>()
   readonly drainingStreams = new Map<string, { turn: HarnessTurn }>()
@@ -731,7 +735,8 @@ export class AgentCoordinator {
   constructor(args: AgentCoordinatorArgs) {
     this.store = args.store
     this.onStateChange = args.onStateChange
-    this.codexManager = args.codexManager ?? createDefaultCodexManager()
+    this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
+    this.codexManager = args.codexManager ?? createDefaultCodexManager(this.getEnvironment)
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
   }
@@ -804,6 +809,20 @@ export class AgentCoordinator {
       this.claudeSessions.delete(chatId)
     }
     this.emitStateChange(chatId)
+  }
+
+  restartSessions() {
+    if (this.activeTurns.size > 0 || this.drainingStreams.size > 0) {
+      throw new Error("Wait for active agent turns to finish or stop them before restarting agent sessions.")
+    }
+    const claudeSessionCount = this.claudeSessions.size
+    for (const session of this.claudeSessions.values()) {
+      session.session.close()
+    }
+    this.claudeSessions.clear()
+    this.codexManager.stopAll()
+    this.emitStateChange()
+    return { restarted: true, closedClaudeSessions: claudeSessionCount }
   }
 
   private resolveProvider(options: SendMessageOptions, currentProvider: AgentProvider | null) {
@@ -1145,6 +1164,7 @@ export class AgentCoordinator {
         permissionMode: args.permissionMode,
         sessionToken: args.sessionToken,
         forkSession: args.forkSession,
+        environment: this.getEnvironment(),
         onToolRequest: args.onToolRequest,
       })
       this.refreshClaudeModelCatalog(started)

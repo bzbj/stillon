@@ -68,8 +68,13 @@ describe("CodexAppServerManager", () => {
       }
     })
 
+    const spawnedEnvironments: NodeJS.ProcessEnv[] = []
     const manager = new CodexAppServerManager({
-      spawnProcess: () => process as never,
+      getEnvironment: () => ({ ALL_PROXY: "socks5://127.0.0.1:1080" }),
+      spawnProcess: (_cwd, environment) => {
+        spawnedEnvironments.push(environment)
+        return process as never
+      },
     })
 
     await manager.startSession({
@@ -87,6 +92,7 @@ describe("CodexAppServerManager", () => {
     })
     expect((process.messages[1] as any).method).toBe("initialized")
     expect((process.messages[2] as any).method).toBe("thread/start")
+    expect(spawnedEnvironments[0]?.ALL_PROXY).toBe("socks5://127.0.0.1:1080")
   })
 
   test("falls back to thread/start when thread/resume is recoverably missing", async () => {

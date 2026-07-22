@@ -125,4 +125,38 @@ describe("browser preview proxy", () => {
     expect(response?.status).toBe(404)
     expect(didFetch).toBe(false)
   })
+
+  test("cancels an in-flight upstream request when the server lifecycle is aborted", async () => {
+    const lifecycle = new AbortController()
+    let markUpstreamStarted!: () => void
+    const upstreamStarted = new Promise<void>((resolve) => {
+      markUpstreamStarted = resolve
+    })
+    let upstreamWasAborted = false
+    const responsePromise = handleBrowserPreviewProxy(
+      new Request("https://stillon.example.com/api/browser-proxy/5173/hang"),
+      new URL("https://stillon.example.com/api/browser-proxy/5173/hang"),
+      {
+        signal: lifecycle.signal,
+        isAllowedPort: async () => true,
+        fetchImpl: (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+          const upstreamSignal = init?.signal
+          if (!upstreamSignal) throw new Error("Missing upstream abort signal")
+          markUpstreamStarted()
+          return await new Promise<Response>((_resolve, reject) => {
+            upstreamSignal.addEventListener("abort", () => {
+              upstreamWasAborted = true
+              reject(upstreamSignal.reason ?? new DOMException("Aborted", "AbortError"))
+            }, { once: true })
+          })
+        }) as unknown as typeof fetch,
+      },
+    )
+
+    await upstreamStarted
+    lifecycle.abort(new DOMException("Server shutting down", "AbortError"))
+
+    await expect(responsePromise).rejects.toMatchObject({ name: "AbortError" })
+    expect(upstreamWasAborted).toBe(true)
+  })
 })
