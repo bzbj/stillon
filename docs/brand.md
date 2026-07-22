@@ -12,7 +12,11 @@
 
 ## Naming architecture
 
-StillOn is the permanent product name. Working-dog names are release editions that communicate growing capability. The current release edition is **Husky**.
+StillOn is the permanent product name. Working-dog names are release editions
+that communicate growing capability across long product eras. The prototype
+period is **Pup**, the `0.x` public-beta line is **Husky**, and **Corgi** begins
+with the stable `1.0` line. The full sequence and the criteria for advancing an
+edition live in the [release roadmap](roadmap.md).
 
 Never use a dog name in place of the StillOn product name. Write editions as “StillOn — Husky release” or “StillOn, Husky edition.”
 
