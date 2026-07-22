@@ -205,7 +205,13 @@ Choose a non-sensitive machine label in **Settings → General → Machine Name*
 
 ## Release editions
 
-StillOn is the product name. Working-dog names are release editions, similar to capability tiers. The current release is **Husky**; the planned sequence is documented in the code and may evolve.
+StillOn is the product name. Working-dog names describe long product-maturity
+eras rather than individual patch or minor releases. The prototype period is
+retrospectively **Pup**, the entire `0.x` public-beta line is **Husky**, and
+**Corgi** begins when StillOn reaches the stable `1.0` contract.
+
+See the [release roadmap](docs/roadmap.md) for the graduation gates, the
+reserved edition sequence, and the origin of the names.
 
 ## Origin and license
 

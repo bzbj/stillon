@@ -28,6 +28,11 @@ Use semantic versions:
 tag must be `vX.Y.Z`; the release workflow validates that relationship before
 uploading assets.
 
+Working-dog edition names supplement semantic versions and never replace the
+numeric tag. All `0.x` releases belong to the **Husky** edition; **Corgi** begins
+at `1.0.0` after the graduation gates in the [release roadmap](roadmap.md) are
+met. Patch and minor releases do not advance the edition automatically.
+
 ## Release procedure
 
 1. Work from a clean, up-to-date `main` checkout. Do not release from a
