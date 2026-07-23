@@ -155,6 +155,7 @@ interface SnapshotComputationCache {
     data: ReturnType<typeof deriveSidebarData>
     signature: string
   }
+  chatHistories?: Map<string, ReturnType<EventStore["getRecentChatHistory"]>>
 }
 
 function getSidebarProjectOrder(store: EventStore) {
@@ -698,7 +699,11 @@ export function createWsRouter({
     return sidebar
   }
 
-  function createEnvelope(id: string, topic: SubscriptionTopic, cache?: SnapshotComputationCache): ServerEnvelope {
+  async function createEnvelope(
+    id: string,
+    topic: SubscriptionTopic,
+    cache?: SnapshotComputationCache,
+  ): Promise<ServerEnvelope> {
     if (topic.type === "sidebar") {
       const sidebar = getSidebarSnapshotCacheEntry(cache)
       return {
@@ -780,6 +785,31 @@ export function createWsRouter({
       }
     }
 
+    const chat = store.state.chatsById.get(topic.chatId)
+    if (!chat || chat.deletedAt) {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "chat",
+          data: null,
+        },
+      }
+    }
+
+    const recentLimit = topic.recentLimit ?? DEFAULT_CHAT_RECENT_LIMIT
+    const cacheKey = `${topic.chatId}:${recentLimit}`
+    let transcriptPromise = cache?.chatHistories?.get(cacheKey)
+    if (!transcriptPromise) {
+      transcriptPromise = store.getRecentChatHistory(topic.chatId, recentLimit)
+      if (cache) {
+        cache.chatHistories ??= new Map()
+        cache.chatHistories.set(cacheKey, transcriptPromise)
+      }
+    }
+    const transcript = await transcriptPromise
+
     return {
       v: PROTOCOL_VERSION,
       type: "snapshot",
@@ -791,7 +821,7 @@ export function createWsRouter({
           agent.getActiveStatuses(),
           agent.getDrainingChatIds(),
           topic.chatId,
-          (chatId) => store.getRecentChatHistory(chatId, topic.recentLimit ?? DEFAULT_CHAT_RECENT_LIMIT)
+          () => transcript,
         ),
       },
     }
@@ -813,7 +843,7 @@ export function createWsRouter({
         continue
       }
       const envelopeStartedAt = performance.now()
-      const envelope = createEnvelope(id, topic, options?.cache)
+      const envelope = await createEnvelope(id, topic, options?.cache)
       const createdAt = performance.now()
       if (envelope.type !== "snapshot") continue
       const signature = topic.type === "sidebar"
@@ -970,12 +1000,12 @@ export function createWsRouter({
     }
   }
 
-  function pushTerminalSnapshot(terminalId: string) {
+  async function pushTerminalSnapshot(terminalId: string) {
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "terminal" || topic.terminalId !== terminalId) continue
-        const envelope = createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1004,33 +1034,45 @@ export function createWsRouter({
   })
 
   const disposeKeybindingEvents = keybindings.onChange(() => {
-    for (const ws of sockets) {
-      const snapshotSignatures = ensureSnapshotSignatures(ws)
-      for (const [id, topic] of ws.data.subscriptions.entries()) {
-        if (topic.type !== "keybindings") continue
-        const envelope = createEnvelope(id, topic)
-        if (envelope.type !== "snapshot") continue
-        const signature = JSON.stringify(envelope.snapshot)
-        if (snapshotSignatures.get(id) === signature) continue
-        snapshotSignatures.set(id, signature)
-        send(ws, envelope)
+    void (async () => {
+      for (const ws of sockets) {
+        const snapshotSignatures = ensureSnapshotSignatures(ws)
+        for (const [id, topic] of ws.data.subscriptions.entries()) {
+          if (topic.type !== "keybindings") continue
+          const envelope = await createEnvelope(id, topic)
+          if (envelope.type !== "snapshot") continue
+          const signature = JSON.stringify(envelope.snapshot)
+          if (snapshotSignatures.get(id) === signature) continue
+          snapshotSignatures.set(id, signature)
+          send(ws, envelope)
+        }
       }
-    }
+    })().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("[ws-router] failed to push keybindings snapshot", error)
+      broadcastError(message)
+    })
   })
 
   const disposeAppSettingsEvents = resolvedAppSettings.onChange(() => {
-    for (const ws of sockets) {
-      const snapshotSignatures = ensureSnapshotSignatures(ws)
-      for (const [id, topic] of ws.data.subscriptions.entries()) {
-        if (topic.type !== "app-settings" && topic.type !== "local-projects") continue
-        const envelope = createEnvelope(id, topic)
-        if (envelope.type !== "snapshot") continue
-        const signature = JSON.stringify(envelope.snapshot)
-        if (snapshotSignatures.get(id) === signature) continue
-        snapshotSignatures.set(id, signature)
-        send(ws, envelope)
+    void (async () => {
+      for (const ws of sockets) {
+        const snapshotSignatures = ensureSnapshotSignatures(ws)
+        for (const [id, topic] of ws.data.subscriptions.entries()) {
+          if (topic.type !== "app-settings" && topic.type !== "local-projects") continue
+          const envelope = await createEnvelope(id, topic)
+          if (envelope.type !== "snapshot") continue
+          const signature = JSON.stringify(envelope.snapshot)
+          if (snapshotSignatures.get(id) === signature) continue
+          snapshotSignatures.set(id, signature)
+          send(ws, envelope)
+        }
       }
-    }
+    })().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("[ws-router] failed to push app settings snapshot", error)
+      broadcastError(message)
+    })
   })
 
   agent.setBackgroundErrorReporter?.(broadcastError)
@@ -1491,7 +1533,7 @@ export function createWsRouter({
             localPath: project.localPath,
             theme: command.theme,
             attachmentMode: command.attachmentMode,
-            messages: store.getMessages(command.chatId),
+            messages: await store.readAllMessages(command.chatId),
           })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
@@ -1499,7 +1541,7 @@ export function createWsRouter({
         case "chat.loadHistory": {
           const chat = store.getChat(command.chatId)
           if (!chat) throw new Error("Chat not found")
-          const page = store.getMessagesPageBefore(command.chatId, command.beforeCursor, command.limit)
+          const page = await store.getMessagesPageBefore(command.chatId, command.beforeCursor, command.limit)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: page })
           return
         }
@@ -1554,7 +1596,7 @@ export function createWsRouter({
         case "terminal.close": {
           terminals.close(command.terminalId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          pushTerminalSnapshot(command.terminalId)
+          await pushTerminalSnapshot(command.terminalId)
           return
         }
       }

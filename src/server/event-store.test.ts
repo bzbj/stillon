@@ -99,7 +99,7 @@ describe("EventStore", () => {
     expect(migrated).toBe(true)
     expect(progress.some((message) => message.includes("transcript migration detected"))).toBe(true)
     expect(progress.at(-1)).toContain("transcript migration complete")
-    expect(store.getMessages(chatId)).toEqual([
+    expect(await store.readAllMessages(chatId)).toEqual([
       entry("user_prompt", 100, { content: "hello" }),
       entry("assistant_text", 101, { text: "world" }),
     ])
@@ -121,7 +121,7 @@ describe("EventStore", () => {
     await store.appendMessage(chat.id, entry("assistant_text", 201, { content: "world" }))
     await store.compact()
 
-    expect(store.getMessages(chat.id)).toEqual([
+    expect(await store.readAllMessages(chat.id)).toEqual([
       entry("user_prompt", 200, { content: "hello" }),
       entry("assistant_text", 201, { text: "world" }),
     ])
@@ -146,17 +146,21 @@ describe("EventStore", () => {
       }))
     }
 
-    const recentPage = store.getRecentMessagesPage(chat.id, 2)
+    const recentPage = await store.getRecentMessagesPage(chat.id, 2)
     expect(recentPage.messages.map((message) => message._id)).toEqual(["assistant_text-204", "user_prompt-205"])
     expect(recentPage.hasOlder).toBe(true)
-    expect(recentPage.olderCursor).not.toBeNull()
+    expect(recentPage.olderCursor?.startsWith("h2.")).toBe(true)
 
-    const olderPage = store.getMessagesPageBefore(chat.id, recentPage.olderCursor!, 2)
+    await store.appendMessage(chat.id, entry("assistant_text", 206, { content: "message-6" }))
+    await store.appendMessage(chat.id, entry("user_prompt", 207, { content: "message-7" }))
+
+    const olderPage = await store.getMessagesPageBefore(chat.id, recentPage.olderCursor!, 2)
     expect(olderPage.messages.map((message) => message._id)).toEqual(["assistant_text-202", "user_prompt-203"])
     expect(olderPage.hasOlder).toBe(true)
     expect(olderPage.olderCursor).not.toBeNull()
+    expect(olderPage.revision).toBe(recentPage.revision)
 
-    const oldestPage = store.getMessagesPageBefore(chat.id, olderPage.olderCursor!, 2)
+    const oldestPage = await store.getMessagesPageBefore(chat.id, olderPage.olderCursor!, 2)
     expect(oldestPage.messages.map((message) => message._id)).toEqual(["user_prompt-201"])
     expect(oldestPage.hasOlder).toBe(false)
     expect(oldestPage.olderCursor).toBeNull()
@@ -631,7 +635,7 @@ describe("EventStore", () => {
     expect(forked.pendingForkSessionToken).toBe("session-1")
     expect(forked.lastTurnOutcome).toBeNull()
     expect(forked.lastMessageAt).toBeUndefined()
-    expect(store.getMessages(forked.id)).toEqual(store.getMessages(source.id))
+    expect(await store.readAllMessages(forked.id)).toEqual(await store.readAllMessages(source.id))
   })
 
   test("reopening a removed project restores its existing chats", async () => {
@@ -664,7 +668,7 @@ describe("EventStore", () => {
 
     expect(store.getChat(chat.id)?.archivedAt).toBeNumber()
     expect(store.listChatsByProject(project.id)).toEqual([])
-    expect(store.getMessages(chat.id).map((message) => message.kind)).toEqual(["user_prompt"])
+    expect((await store.readAllMessages(chat.id)).map((message) => message.kind)).toEqual(["user_prompt"])
 
     await store.unarchiveChat(chat.id)
 

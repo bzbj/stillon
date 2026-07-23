@@ -904,7 +904,7 @@ describe("ws-router", () => {
     ])
   })
 
-  test("pushes a refreshed local machine snapshot after its name changes", () => {
+  test("pushes a refreshed local machine snapshot after its name changes", async () => {
     let snapshot: AppSettingsSnapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
     let listener: (nextSnapshot: AppSettingsSnapshot) => void = () => {}
     const router = createWsRouter({
@@ -937,6 +937,7 @@ describe("ws-router", () => {
 
     snapshot = { ...snapshot, machineName: "Office Mac" }
     listener(snapshot)
+    await Bun.sleep(0)
 
     expect(ws.sent).toContainEqual({
       v: PROTOCOL_VERSION,
@@ -1385,7 +1386,7 @@ describe("ws-router", () => {
     const router = createWsRouter({
       store: {
         state,
-        getMessagesPageBefore: () => ({
+        getMessagesPageBefore: async () => ({
           messages: [{
             _id: "msg-1",
             kind: "assistant_text",
@@ -1394,6 +1395,7 @@ describe("ws-router", () => {
           }],
           hasOlder: false,
           olderCursor: null,
+          revision: "revision-1",
         }),
         getChat: () => state.chatsById.get("chat-1") ?? null,
       } as never,
@@ -1440,6 +1442,7 @@ describe("ws-router", () => {
         }],
         hasOlder: false,
         olderCursor: null,
+        revision: "revision-1",
       },
     })
   })
@@ -2145,7 +2148,15 @@ describe("ws-router", () => {
         state,
         getChat: (chatId: string) => state.chatsById.get(chatId) ?? null,
         getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
-        getRecentChatHistory: () => ({ entries: [], hasOlder: false, olderCursor: null }),
+        getRecentChatHistory: async () => ({
+          messages: [],
+          history: {
+            hasOlder: false,
+            olderCursor: null,
+            recentLimit: 200,
+            revision: "revision-1",
+          },
+        }),
       } as never,
       diffStore: diffStore as never,
       agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,

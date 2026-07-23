@@ -944,8 +944,8 @@ export class AgentCoordinator {
       planMode: args.planMode,
     })
 
-    const existingMessages = this.store.getMessages(args.chatId)
-    const shouldGenerateTitle = args.appendUserPrompt && chat.title === "New Chat" && existingMessages.length === 0
+    const hasExistingMessages = await this.store.hasMessages(args.chatId)
+    const shouldGenerateTitle = args.appendUserPrompt && chat.title === "New Chat" && !hasExistingMessages
     const optimisticTitle = shouldGenerateTitle ? fallbackTitleFromMessage(args.content) : null
 
     if (optimisticTitle) {

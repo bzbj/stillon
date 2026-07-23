@@ -8,12 +8,14 @@ import {
   getPreviousPrompt,
   getTranscriptPaddingBottom,
   getUserPromptSignature,
+  isHistoryCursorExpiredError,
+  reconcileHistoryPaginationSnapshot,
   reconcileOptimisticUserPrompts,
   resolveComposeIntent,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
 } from "./useKannaState"
-import type { ChatAttachment, ChatSnapshot, SidebarData, UserPromptEntry } from "../../shared/types"
+import type { ChatAttachment, ChatSnapshot, SidebarData, TranscriptEntry, UserPromptEntry } from "../../shared/types"
 
 function createSidebarData(): SidebarData {
   return {
@@ -255,6 +257,7 @@ describe("getActiveChatSnapshot", () => {
         hasOlder: false,
         olderCursor: null,
         recentLimit: 200,
+        revision: "revision-1",
       },
       availableProviders: [],
     }
@@ -281,11 +284,124 @@ describe("getActiveChatSnapshot", () => {
         hasOlder: false,
         olderCursor: null,
         recentLimit: 200,
+        revision: "revision-old",
       },
       availableProviders: [],
     }
 
     expect(getActiveChatSnapshot(snapshot, "chat-new")).toBeNull()
+  })
+})
+
+describe("reconcileHistoryPaginationSnapshot", () => {
+  function transcriptEntry(index: number): TranscriptEntry {
+    return {
+      _id: `message-${index}`,
+      kind: "assistant_text",
+      createdAt: index,
+      text: `message ${index}`,
+    }
+  }
+
+  function snapshot(
+    revision: string,
+    messages: TranscriptEntry[],
+    olderCursor: string | null,
+    hasOlder: boolean,
+  ): ChatSnapshot {
+    return {
+      runtime: {
+        chatId: "chat-1",
+        projectId: "project-1",
+        localPath: "/tmp/project-1",
+        title: "Chat 1",
+        status: "running",
+        isDraining: false,
+        provider: "codex",
+        planMode: false,
+        sessionToken: "session-1",
+      },
+      queuedMessages: [],
+      messages,
+      history: {
+        hasOlder,
+        olderCursor,
+        recentLimit: 3,
+        revision,
+      },
+      availableProviders: [],
+    }
+  }
+
+  test("preserves fallen-out tail entries and the earliest loaded cursor during live updates", () => {
+    const initial = reconcileHistoryPaginationSnapshot(
+      null,
+      snapshot("revision-1", [transcriptEntry(3), transcriptEntry(4), transcriptEntry(5)], "cursor-3", true),
+    )
+    const updated = reconcileHistoryPaginationSnapshot(
+      initial.state,
+      snapshot("revision-1", [transcriptEntry(4), transcriptEntry(5), transcriptEntry(6)], "cursor-4", true),
+    )
+
+    expect(updated.reset).toBe(false)
+    expect(updated.fallenOutEntries.map((entry) => entry._id)).toEqual(["message-3"])
+    expect(updated.state.olderCursor).toBe("cursor-3")
+    expect(updated.state.recentEntries.map((entry) => entry._id)).toEqual(["message-4", "message-5", "message-6"])
+  })
+
+  test("resets loaded pagination when the transcript revision changes", () => {
+    const initial = reconcileHistoryPaginationSnapshot(
+      null,
+      snapshot("revision-1", [transcriptEntry(1)], null, false),
+    )
+    const replaced = reconcileHistoryPaginationSnapshot(
+      initial.state,
+      snapshot("revision-2", [transcriptEntry(9)], "cursor-9", true),
+    )
+
+    expect(replaced.reset).toBe(true)
+    expect(replaced.fallenOutEntries).toEqual([])
+    expect(replaced.state.revision).toBe("revision-2")
+    expect(replaced.state.olderCursor).toBe("cursor-9")
+  })
+
+  test("resets to the latest contiguous page when live windows no longer overlap", () => {
+    const initial = reconcileHistoryPaginationSnapshot(
+      null,
+      snapshot("revision-1", [transcriptEntry(1), transcriptEntry(2)], null, false),
+    )
+    const jumped = reconcileHistoryPaginationSnapshot(
+      initial.state,
+      snapshot("revision-1", [transcriptEntry(500), transcriptEntry(501)], "cursor-500", true),
+    )
+
+    expect(jumped.reset).toBe(true)
+    expect(jumped.fallenOutEntries).toEqual([])
+    expect(jumped.state.olderCursor).toBe("cursor-500")
+    expect(jumped.state.hasOlder).toBe(true)
+  })
+
+  test("adopts the server cursor when an empty live window first receives history", () => {
+    const initial = reconcileHistoryPaginationSnapshot(
+      null,
+      snapshot("revision-1", [], null, false),
+    )
+    const populated = reconcileHistoryPaginationSnapshot(
+      initial.state,
+      snapshot("revision-1", [transcriptEntry(200), transcriptEntry(201)], "cursor-200", true),
+    )
+
+    expect(populated.reset).toBe(true)
+    expect(populated.state.olderCursor).toBe("cursor-200")
+    expect(populated.state.hasOlder).toBe(true)
+  })
+})
+
+describe("isHistoryCursorExpiredError", () => {
+  test("recognizes only the structured history refresh error", () => {
+    expect(isHistoryCursorExpiredError(new Error("History cursor expired. Refresh the chat and try again."))).toBe(true)
+    expect(isHistoryCursorExpiredError(new Error("Transcript contains an invalid record."))).toBe(false)
+    expect(isHistoryCursorExpiredError("History cursor expired.")).toBe(false)
   })
 })
 

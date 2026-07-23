@@ -1557,8 +1557,8 @@ function createFakeStore() {
       expect(projectId).toBe("project-1")
       return project
     },
-    getMessages() {
-      return this.messages
+    async hasMessages() {
+      return this.messages.length > 0
     },
     async setChatProvider(_chatId: string, provider: "claude" | "codex") {
       chat.provider = provider
