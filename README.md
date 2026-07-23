@@ -39,7 +39,7 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 | --- | --- | --- |
 | macOS 13+ | Primary | Main development and validation target |
 | Linux | Beta | Core server works; desktop integrations vary by distribution |
-| Windows 10/11 | Beta | Validated with PowerShell, Git, x64/ARM64 Bun, and Task Scheduler services |
+| Windows 10/11 | Beta | Server/UI, provider CLI shims, proxy diagnostics, Codex startup, and Task Scheduler configuration are covered; feature gaps remain |
 
 The repository does not yet ship signed desktop installers. Install from source and review the [public-release readiness notes](docs/public-release-readiness.md) before exposing a machine outside your own network.
 Versioned releases are explicit GitHub source releases; see the [release guide](docs/releasing.md).
@@ -88,9 +88,10 @@ Code should be installed for the current Windows user and available on `PATH`;
 StillOn resolves their `.cmd` shims on Windows. The optional background service
 uses Task Scheduler and starts at sign-in.
 
-Windows terminal sessions use the configured local shell. Unix-specific PTY
-signals do not have direct Windows equivalents, so advanced terminal signal
-handling has narrower automated coverage than macOS and Linux.
+The embedded terminal and local HTTP process discovery are not currently
+available on Windows. Use an external terminal for shell work. Windows remains
+a beta target while those gaps and the full Claude/Codex lifecycle matrix are
+completed.
 
 ## Background service
 
@@ -139,8 +140,10 @@ and `--trust-proxy` when an operator manages the external entrypoint; see
 [External ingress](docs/external-ingress.md). Removing the service does not
 remove projects or data under `~/.stillon/`.
 
-Windows service management is included for forward compatibility, but the
-broader Windows runtime remains planned rather than supported in this beta.
+Windows service management is part of the beta, but Windows is not yet at
+feature parity with macOS and Linux. See the
+[public-release readiness matrix](docs/public-release-readiness.md) for the
+current limits.
 
 ## Why StillOn
 
