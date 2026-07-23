@@ -1,7 +1,8 @@
-import { appendFile, copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
-import { existsSync, readFileSync as readFileSyncImmediate } from "node:fs"
+import { createReadStream } from "node:fs"
+import { appendFile, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
+import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
@@ -17,6 +18,11 @@ import {
   createEmptyState,
 } from "./events"
 import { resolveLocalPath } from "./paths"
+import {
+  HistoryCursorExpiredError,
+  TranscriptPager,
+  createTranscriptRevision,
+} from "./transcript-pager"
 
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
 const STALE_EMPTY_CHAT_MAX_AGE_MS = 30 * 60 * 1000
@@ -60,12 +66,6 @@ interface LegacyTranscriptStats {
   sources: Array<"snapshot" | "messages_log">
   chatCount: number
   entryCount: number
-}
-
-interface TranscriptPageResult {
-  entries: TranscriptEntry[]
-  hasOlder: boolean
-  olderCursor: string | null
 }
 
 interface ParsedReplayEvent {
@@ -127,11 +127,12 @@ function decodeCursor(cursor: string) {
   throw new Error("Invalid history cursor")
 }
 
-function getHistorySnapshot(page: TranscriptPageResult, recentLimit: number): ChatHistorySnapshot {
+function getHistorySnapshot(page: ChatHistoryPage, recentLimit: number): ChatHistorySnapshot {
   return {
     hasOlder: page.hasOlder,
     olderCursor: page.olderCursor,
     recentLimit,
+    revision: page.revision,
   }
 }
 
@@ -158,7 +159,8 @@ export class EventStore {
   private legacySidebarProjectOrder: string[] = []
   private sidebarProjectOrder: string[] = []
   private snapshotHasLegacyMessages = false
-  private cachedTranscript: { chatId: string; entries: TranscriptEntry[] } | null = null
+  private readonly transcriptPager = new TranscriptPager()
+  private readonly transcriptRevisions = new Map<string, string>()
   private replayArchivedLogs = false
 
   constructor(dataDir = getDataDir(homedir())) {
@@ -279,7 +281,7 @@ export class EventStore {
     this.state.queuedMessagesByChatId.clear()
     this.sidebarProjectOrder = []
     this.legacySidebarProjectOrder = []
-    this.cachedTranscript = null
+    this.transcriptRevisions.clear()
   }
 
   private clearLegacyTranscriptState() {
@@ -643,22 +645,43 @@ export class EventStore {
     return path.join(this.transcriptsDir, `${chatId}.jsonl`)
   }
 
-  private loadTranscriptFromDisk(chatId: string) {
-    const transcriptPath = this.transcriptPath(chatId)
-    if (!existsSync(transcriptPath)) {
-      return []
-    }
+  private getTranscriptRevision(chatId: string) {
+    const existing = this.transcriptRevisions.get(chatId)
+    if (existing) return existing
+    const revision = createTranscriptRevision()
+    this.transcriptRevisions.set(chatId, revision)
+    return revision
+  }
 
-    const text = readFileSyncImmediate(transcriptPath, "utf8")
-    if (!text.trim()) return []
+  private async waitForPendingWrites() {
+    const pendingWrites = this.writeChain
+    await pendingWrites
+  }
 
-    const entries: TranscriptEntry[] = []
-    for (const rawLine of text.split("\n")) {
-      const line = rawLine.trim()
-      if (!line) continue
-      entries.push(JSON.parse(line) as TranscriptEntry)
+  private async captureTranscriptEnd(chatId: string) {
+    let snapshotEnd = 0
+    const barrier = this.writeChain.then(async () => {
+      snapshotEnd = await this.getTranscriptSize(chatId)
+    })
+    this.writeChain = barrier
+    await barrier
+    return snapshotEnd
+  }
+
+  private async getTranscriptSize(chatId: string) {
+    try {
+      return (await stat(this.transcriptPath(chatId))).size
+    } catch (error) {
+      if (
+        error
+        && typeof error === "object"
+        && "code" in error
+        && error.code === "ENOENT"
+      ) {
+        return 0
+      }
+      throw error
     }
-    return entries
   }
 
   async openProject(localPath: string, title?: string) {
@@ -782,20 +805,32 @@ export class EventStore {
     await this.setPlanMode(chatId, sourceChat.planMode)
     await this.setPendingForkSessionToken(chatId, sourceSessionToken)
 
-    const sourceEntries = this.getMessages(sourceChatId)
-    if (sourceEntries.length > 0) {
+    await this.waitForPendingWrites()
+    const legacyEntries = this.legacyMessagesByChatId.get(sourceChatId)
+    const sourceSize = legacyEntries
+      ? legacyEntries.length
+      : await this.getTranscriptSize(sourceChatId)
+    if (sourceSize > 0) {
       const transcriptPath = this.transcriptPath(chatId)
-      const payload = sourceEntries.map((entry) => JSON.stringify(entry)).join("\n")
+      const tempPath = `${transcriptPath}.tmp-${crypto.randomUUID()}`
       this.writeChain = this.writeChain.then(async () => {
         await mkdir(this.transcriptsDir, { recursive: true })
-        await writeFile(transcriptPath, `${payload}\n`, "utf8")
+        try {
+          if (legacyEntries) {
+            const payload = legacyEntries.map((entry) => JSON.stringify(entry)).join("\n")
+            await writeFile(tempPath, `${payload}\n`, "utf8")
+          } else {
+            await copyFile(this.transcriptPath(sourceChatId), tempPath)
+          }
+          await rename(tempPath, transcriptPath)
+        } catch (error) {
+          await rm(tempPath, { force: true })
+          throw error
+        }
         const chat = this.state.chatsById.get(chatId)
         if (chat) {
           chat.hasMessages = true
           chat.updatedAt = Math.max(chat.updatedAt, createdAt)
-        }
-        if (this.cachedTranscript?.chatId === chatId) {
-          this.cachedTranscript = { chatId, entries: cloneTranscriptEntries(sourceEntries) }
         }
       })
       await this.writeChain
@@ -828,6 +863,7 @@ export class EventStore {
       chatId,
     }
     await this.append(this.chatsLogPath, event)
+    this.transcriptRevisions.delete(chatId)
   }
 
   async archiveChat(chatId: string) {
@@ -870,7 +906,7 @@ export class EventStore {
       if (chat.deletedAt || chat.archivedAt || protectedChatIds.has(chat.id)) continue
       if (now - chat.createdAt < maxAgeMs) continue
       if (chat.hasMessages) continue
-      if (this.getMessages(chat.id).length > 0) {
+      if (await this.hasMessages(chat.id)) {
         chat.hasMessages = true
         continue
       }
@@ -885,9 +921,7 @@ export class EventStore {
 
       const transcriptPath = this.transcriptPath(chat.id)
       await rm(transcriptPath, { force: true })
-      if (this.cachedTranscript?.chatId === chat.id) {
-        this.cachedTranscript = null
-      }
+      this.transcriptRevisions.delete(chat.id)
 
       prunedChatIds.push(chat.id)
     }
@@ -947,9 +981,6 @@ export class EventStore {
       await appendFile(transcriptPath, payload, "utf8")
       const afterAppendAt = performance.now()
       this.applyMessageMetadata(chatId, entry)
-      if (this.cachedTranscript?.chatId === chatId) {
-        this.cachedTranscript.entries.push({ ...entry })
-      }
       logSendToStartingProfile("event_store.append_message", {
         chatId,
         entryId: entry._id,
@@ -1097,34 +1128,79 @@ export class EventStore {
     return [...this.sidebarProjectOrder]
   }
 
-  private getMessagesPageFromEntries(entries: TranscriptEntry[], limit: number, beforeIndex?: number): TranscriptPageResult {
+  private getMessagesPageFromEntries(
+    entries: TranscriptEntry[],
+    limit: number,
+    revision: string,
+    beforeIndex?: number,
+  ): ChatHistoryPage {
     if (entries.length === 0) {
-      return { entries: [], hasOlder: false, olderCursor: null }
+      return { messages: [], hasOlder: false, olderCursor: null, revision }
     }
 
     const endIndex = beforeIndex === undefined ? entries.length : Math.max(0, Math.min(beforeIndex, entries.length))
     const startIndex = Math.max(0, endIndex - limit)
     return {
-      entries: cloneTranscriptEntries(entries.slice(startIndex, endIndex)),
+      messages: cloneTranscriptEntries(entries.slice(startIndex, endIndex)),
       hasOlder: startIndex > 0,
       olderCursor: startIndex > 0 ? encodeHistoryCursor(startIndex) : null,
+      revision,
     }
   }
 
-  getMessages(chatId: string) {
-    if (this.cachedTranscript?.chatId === chatId) {
-      return cloneTranscriptEntries(this.cachedTranscript.entries)
-    }
-
+  async *iterateMessages(chatId: string): AsyncGenerator<TranscriptEntry> {
+    this.requireChat(chatId)
     const legacyEntries = this.legacyMessagesByChatId.get(chatId)
     if (legacyEntries) {
-      this.cachedTranscript = { chatId, entries: cloneTranscriptEntries(legacyEntries) }
-      return cloneTranscriptEntries(this.cachedTranscript.entries)
+      for (const entry of cloneTranscriptEntries(legacyEntries)) {
+        yield entry
+      }
+      return
     }
 
-    const entries = this.loadTranscriptFromDisk(chatId)
-    this.cachedTranscript = { chatId, entries }
-    return cloneTranscriptEntries(entries)
+    const snapshotEnd = await this.captureTranscriptEnd(chatId)
+    if (snapshotEnd === 0) return
+    const input = createReadStream(this.transcriptPath(chatId), {
+      encoding: "utf8",
+      end: snapshotEnd - 1,
+    })
+    const lines = createInterface({ input, crlfDelay: Infinity })
+    try {
+      for await (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line) continue
+        yield JSON.parse(line) as TranscriptEntry
+      }
+    } catch (error) {
+      if (
+        error
+        && typeof error === "object"
+        && "code" in error
+        && error.code === "ENOENT"
+      ) {
+        return
+      }
+      throw error
+    } finally {
+      lines.close()
+      input.destroy()
+    }
+  }
+
+  async readAllMessages(chatId: string) {
+    const entries: TranscriptEntry[] = []
+    for await (const entry of this.iterateMessages(chatId)) {
+      entries.push(entry)
+    }
+    return entries
+  }
+
+  async hasMessages(chatId: string) {
+    const chat = this.requireChat(chatId)
+    if (chat.hasMessages) return true
+    const legacyEntries = this.legacyMessagesByChatId.get(chatId)
+    if (legacyEntries?.length) return true
+    return await this.captureTranscriptEnd(chatId) > 0
   }
 
   getQueuedMessages(chatId: string) {
@@ -1139,46 +1215,91 @@ export class EventStore {
     return this.getQueuedMessages(chatId).find((entry) => entry.id === queuedMessageId) ?? null
   }
 
-  getRecentMessagesPage(chatId: string, limit: number): ChatHistoryPage {
+  async getRecentMessagesPage(chatId: string, limit: number): Promise<ChatHistoryPage> {
+    this.requireChat(chatId)
+    const revision = this.getTranscriptRevision(chatId)
     if (limit <= 0) {
-      return { messages: [], hasOlder: false, olderCursor: null }
+      return { messages: [], hasOlder: false, olderCursor: null, revision }
     }
 
-    const entries = this.getMessages(chatId)
-    const page = this.getMessagesPageFromEntries(entries, limit)
-
-    return {
-      messages: page.entries,
-      hasOlder: page.hasOlder,
-      olderCursor: page.olderCursor,
-    }
-  }
-
-  getMessagesPageBefore(chatId: string, beforeCursor: string, limit: number): ChatHistoryPage {
-    if (limit <= 0) {
-      return { messages: [], hasOlder: false, olderCursor: null }
+    const legacyEntries = this.legacyMessagesByChatId.get(chatId)
+    if (legacyEntries) {
+      return this.getMessagesPageFromEntries(legacyEntries, limit, revision)
     }
 
-    const beforeIndex = decodeCursor(beforeCursor)
-    const entries = this.getMessages(chatId)
-    const page = this.getMessagesPageFromEntries(entries, limit, beforeIndex)
-
-    return {
-      messages: page.entries,
-      hasOlder: page.hasOlder,
-      olderCursor: page.olderCursor,
-    }
-  }
-
-  getRecentChatHistory(chatId: string, recentLimit: number) {
-    const page = this.getRecentMessagesPage(chatId, recentLimit)
+    const snapshotEnd = await this.captureTranscriptEnd(chatId)
+    const startedAt = performance.now()
+    const page = await this.transcriptPager.readRecent(
+      this.transcriptPath(chatId),
+      chatId,
+      revision,
+      limit,
+      snapshotEnd,
+    )
+    logSendToStartingProfile("event_store.transcript_recent_page", {
+      chatId,
+      messageCount: page.messages.length,
+      bytesRead: page.bytesRead,
+      snapshotBytes: page.snapshotEnd,
+      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    })
     return {
       messages: page.messages,
-      history: getHistorySnapshot({
-        entries: page.messages,
-        hasOlder: page.hasOlder,
-        olderCursor: page.olderCursor,
-      }, recentLimit),
+      hasOlder: page.hasOlder,
+      olderCursor: page.olderCursor,
+      revision: page.revision,
+    }
+  }
+
+  async getMessagesPageBefore(
+    chatId: string,
+    beforeCursor: string,
+    limit: number,
+  ): Promise<ChatHistoryPage> {
+    this.requireChat(chatId)
+    const revision = this.getTranscriptRevision(chatId)
+    if (limit <= 0) {
+      return { messages: [], hasOlder: false, olderCursor: null, revision }
+    }
+
+    const legacyEntries = this.legacyMessagesByChatId.get(chatId)
+    if (legacyEntries && beforeCursor.startsWith("idx:")) {
+      const beforeIndex = decodeCursor(beforeCursor)
+      return this.getMessagesPageFromEntries(legacyEntries, limit, revision, beforeIndex)
+    }
+    if (beforeCursor.startsWith("idx:")) {
+      throw new HistoryCursorExpiredError()
+    }
+
+    await this.waitForPendingWrites()
+    const startedAt = performance.now()
+    const page = await this.transcriptPager.readBefore(
+      this.transcriptPath(chatId),
+      chatId,
+      revision,
+      beforeCursor,
+      limit,
+    )
+    logSendToStartingProfile("event_store.transcript_older_page", {
+      chatId,
+      messageCount: page.messages.length,
+      bytesRead: page.bytesRead,
+      snapshotBytes: page.snapshotEnd,
+      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    })
+    return {
+      messages: page.messages,
+      hasOlder: page.hasOlder,
+      olderCursor: page.olderCursor,
+      revision: page.revision,
+    }
+  }
+
+  async getRecentChatHistory(chatId: string, recentLimit: number) {
+    const page = await this.getRecentMessagesPage(chatId, recentLimit)
+    return {
+      messages: page.messages,
+      history: getHistorySnapshot(page, recentLimit),
     }
   }
 
@@ -1329,7 +1450,7 @@ export class EventStore {
 
     this.clearLegacyTranscriptState()
     await this.compact()
-    this.cachedTranscript = null
+    this.transcriptRevisions.clear()
     onProgress?.(`${LOG_PREFIX} transcript migration complete`)
     return true
   }

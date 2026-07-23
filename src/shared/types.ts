@@ -1250,6 +1250,7 @@ export interface ChatHistorySnapshot {
   hasOlder: boolean
   olderCursor: string | null
   recentLimit: number
+  revision: string
 }
 
 export interface ChatSnapshot {
@@ -1264,6 +1265,7 @@ export interface ChatHistoryPage {
   messages: TranscriptEntry[]
   hasOlder: boolean
   olderCursor: string | null
+  revision: string
 }
 
 export interface KannaSnapshot {

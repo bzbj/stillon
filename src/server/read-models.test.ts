@@ -138,6 +138,7 @@ describe("read models", () => {
           hasOlder: false,
           olderCursor: null,
           recentLimit: 200,
+          revision: "revision-1",
         },
       })
     )

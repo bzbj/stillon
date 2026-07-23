@@ -69,6 +69,7 @@ function sameHistory(left: ChatSnapshot["history"] | null | undefined, right: Ch
   return left.hasOlder === right.hasOlder
     && left.olderCursor === right.olderCursor
     && left.recentLimit === right.recentLimit
+    && left.revision === right.revision
 }
 
 function sameQueuedMessage(left: QueuedChatMessage, right: QueuedChatMessage) {
@@ -180,6 +181,65 @@ function mergeTranscriptEntries(olderHistoryEntries: TranscriptEntry[], recentEn
     deduped.set(entry._id, entry)
   }
   return [...deduped.values()]
+}
+
+interface HistoryPaginationState {
+  chatId: string
+  revision: string
+  olderCursor: string | null
+  hasOlder: boolean
+  recentEntries: TranscriptEntry[]
+}
+
+export function reconcileHistoryPaginationSnapshot(
+  current: HistoryPaginationState | null,
+  snapshot: ChatSnapshot,
+) {
+  const createResetResult = () => ({
+    state: {
+      chatId: snapshot.runtime.chatId,
+      revision: snapshot.history.revision,
+      olderCursor: snapshot.history.olderCursor,
+      hasOlder: snapshot.history.hasOlder,
+      recentEntries: snapshot.messages,
+    } satisfies HistoryPaginationState,
+    fallenOutEntries: [] as TranscriptEntry[],
+    reset: true,
+  })
+
+  if (
+    !current
+    || current.chatId !== snapshot.runtime.chatId
+    || current.revision !== snapshot.history.revision
+  ) {
+    return createResetResult()
+  }
+
+  const nextRecentIds = new Set(snapshot.messages.map((entry) => entry._id))
+  const hasOverlap = current.recentEntries.some((entry) => nextRecentIds.has(entry._id))
+  if (
+    snapshot.messages.length > 0
+    && (
+      current.recentEntries.length === 0
+      || !hasOverlap
+    )
+  ) {
+    return createResetResult()
+  }
+
+  return {
+    state: {
+      ...current,
+      recentEntries: snapshot.messages,
+    },
+    fallenOutEntries: current.recentEntries.filter((entry) => !nextRecentIds.has(entry._id)),
+    reset: false,
+  }
+}
+
+export function isHistoryCursorExpiredError(error: unknown) {
+  return error instanceof Error
+    && error.message.startsWith("History cursor expired.")
 }
 
 export function getPreviousPrompt(messages: ReturnType<typeof processTranscriptMessages>) {
@@ -702,8 +762,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [olderHistoryEntries, setOlderHistoryEntries] = useState<TranscriptEntry[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null)
   const [hasOlderHistory, setHasOlderHistory] = useState(false)
+  const [historyRefreshEpoch, setHistoryRefreshEpoch] = useState(0)
   const [projectDiffSnapshots, setProjectDiffSnapshots] = useState<Record<string, ChatDiffSnapshot | null>>({})
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettingsSnapshot | null>(null)
@@ -729,6 +789,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [optimisticProcessing, setOptimisticProcessing] = useState<OptimisticProcessingState | null>(null)
   const [focusEpoch, setFocusEpoch] = useState(0)
   const sendToStartingProfilesRef = useRef<Map<string, SendToStartingTrace>>(new Map())
+  const historyPaginationRef = useRef<HistoryPaginationState | null>(null)
+  const historyRequestTokenRef = useRef(0)
+  const historyLoadInFlightRef = useRef(false)
   const draftChatIds = useChatInputStore(useShallow((state) => Object.keys(state.drafts).sort()))
   const attachmentDraftChatIds = useChatInputStore(
     useShallow((state) => Object.keys(state.attachmentDrafts).sort())
@@ -931,6 +994,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
     setChatSnapshot(null)
     setChatReady(false)
     const unsubscribe = socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId, recentLimit: INITIAL_CHAT_RECENT_LIMIT }, (snapshot) => {
+      if (subscriptionId !== chatSubscriptionDebugRef.current) {
+        return
+      }
       if (snapshot?.runtime.chatId) {
         const matchingTrace = [...sendToStartingProfilesRef.current.values()]
           .filter((trace) => trace.serverChatId === snapshot.runtime.chatId)
@@ -942,6 +1008,31 @@ export function useKannaState(activeChatId: string | null): KannaState {
             messageCount: snapshot.messages.length,
           })
         }
+      }
+      if (!snapshot) {
+        historyPaginationRef.current = null
+        historyRequestTokenRef.current += 1
+        historyLoadInFlightRef.current = false
+        setOlderHistoryEntries([])
+        setIsHistoryLoading(false)
+        setHasOlderHistory(false)
+      } else {
+        const reconciledHistory = reconcileHistoryPaginationSnapshot(
+          historyPaginationRef.current,
+          snapshot,
+        )
+        historyPaginationRef.current = reconciledHistory.state
+        if (reconciledHistory.reset) {
+          historyRequestTokenRef.current += 1
+          historyLoadInFlightRef.current = false
+          setOlderHistoryEntries([])
+          setIsHistoryLoading(false)
+        } else if (reconciledHistory.fallenOutEntries.length > 0) {
+          setOlderHistoryEntries((current) => (
+            mergeTranscriptEntries(current, reconciledHistory.fallenOutEntries)
+          ))
+        }
+        setHasOlderHistory(reconciledHistory.state.hasOlder)
       }
       setChatSnapshot((current) => {
         const reused = sameChatSnapshotCore(current, snapshot)
@@ -958,8 +1049,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
         })
         return reused ? current : snapshot
       })
-      setHistoryCursor(snapshot?.history.olderCursor ?? null)
-      setHasOlderHistory(snapshot?.history.hasOlder ?? false)
       setChatReady(true)
       setCommandError(null)
     })
@@ -972,7 +1061,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
       })
       unsubscribe()
     }
-  }, [activeChatId, socket])
+  }, [activeChatId, historyRefreshEpoch, socket])
 
   useEffect(() => {
     if (selectedProjectId) return
@@ -1019,9 +1108,11 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [activeChatId, focusEpoch, sidebarProjectGroups, sidebarReady, socket])
 
   useEffect(() => {
+    historyPaginationRef.current = null
+    historyRequestTokenRef.current += 1
+    historyLoadInFlightRef.current = false
     setOlderHistoryEntries([])
     setIsHistoryLoading(false)
-    setHistoryCursor(null)
     setHasOlderHistory(false)
   }, [activeChatId])
 
@@ -1224,29 +1315,74 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [optimisticScopeId, serverTranscriptEntries])
 
   const loadOlderHistory = useCallback(async () => {
-    if (!activeChatId || !historyCursor || isHistoryLoading || !hasOlderHistory) {
+    const pagination = historyPaginationRef.current
+    if (
+      !activeChatId
+      || !pagination
+      || pagination.chatId !== activeChatId
+      || !pagination.olderCursor
+      || !pagination.hasOlder
+      || historyLoadInFlightRef.current
+    ) {
       return
     }
 
+    const requestCursor = pagination.olderCursor
+    const requestRevision = pagination.revision
+    const requestToken = historyRequestTokenRef.current + 1
+    historyRequestTokenRef.current = requestToken
+    historyLoadInFlightRef.current = true
     setIsHistoryLoading(true)
     try {
       const page = await socket.command<ChatHistoryPage>({
         type: "chat.loadHistory",
         chatId: activeChatId,
-        beforeCursor: historyCursor,
+        beforeCursor: requestCursor,
         limit: CHAT_HISTORY_PAGE_SIZE,
       })
+      const current = historyPaginationRef.current
+      if (
+        historyRequestTokenRef.current !== requestToken
+        || !current
+        || current.chatId !== activeChatId
+        || current.revision !== requestRevision
+        || current.olderCursor !== requestCursor
+        || page.revision !== requestRevision
+      ) {
+        return
+      }
+
       setOlderHistoryEntries((current) => mergeTranscriptEntries(page.messages, current))
-      setHistoryCursor(page.olderCursor)
+      historyPaginationRef.current = {
+        ...current,
+        olderCursor: page.olderCursor,
+        hasOlder: page.hasOlder,
+      }
       setHasOlderHistory(page.hasOlder)
       setCommandError(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setCommandError(message)
+      if (historyRequestTokenRef.current === requestToken) {
+        if (isHistoryCursorExpiredError(error)) {
+          historyPaginationRef.current = null
+          historyRequestTokenRef.current += 1
+          historyLoadInFlightRef.current = false
+          setOlderHistoryEntries([])
+          setIsHistoryLoading(false)
+          setHasOlderHistory(false)
+          setCommandError(null)
+          setHistoryRefreshEpoch((value) => value + 1)
+        } else {
+          const message = error instanceof Error ? error.message : String(error)
+          setCommandError(message)
+        }
+      }
     } finally {
-      setIsHistoryLoading(false)
+      if (historyRequestTokenRef.current === requestToken) {
+        historyLoadInFlightRef.current = false
+        setIsHistoryLoading(false)
+      }
     }
-  }, [activeChatId, hasOlderHistory, historyCursor, isHistoryLoading, socket])
+  }, [activeChatId, socket])
 
   const createChatForProject = useCallback(async (projectId: string) => {
     const chatPreferences = useChatPreferencesStore.getState()
