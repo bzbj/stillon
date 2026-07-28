@@ -19,6 +19,7 @@ import {
   listInstalledSkills,
   parseInstalledSkillsLock,
 } from "./ws-router"
+import { DEFAULT_WEBSOCKET_COMPRESSION_THRESHOLD_BYTES } from "./websocket-compression"
 
 function withSidebarGroupDefaults(group: {
   groupKey: string
@@ -50,13 +51,15 @@ function withSidebarGroupDefaults(group: {
 
 class FakeWebSocket {
   readonly sent: unknown[] = []
+  readonly compression: Array<boolean | undefined> = []
   readonly data = {
     subscriptions: new Map(),
     protectedDraftChatIds: new Set<string>(),
   }
 
-  send(message: string) {
+  send(message: string, compress?: boolean) {
     this.sent.push(JSON.parse(message))
+    this.compression.push(compress)
   }
 }
 
@@ -561,6 +564,7 @@ describe("ws-router", () => {
         id: "ping-1",
       },
     ])
+    expect(ws.compression).toEqual([false])
   })
 
   test("reads and writes llm provider settings via commands", async () => {
@@ -656,6 +660,7 @@ describe("ws-router", () => {
   })
 
   test("reads subscription usage via command", async () => {
+    let usageSnapshot = DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT
     const router = createWsRouter({
       store: { state: createEmptyState() } as never,
       agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
@@ -668,7 +673,7 @@ describe("ws-router", () => {
         onChange: () => () => {},
       } as never,
       subscriptionUsage: {
-        read: async () => DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT,
+        read: async () => usageSnapshot,
       },
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
@@ -695,6 +700,34 @@ describe("ws-router", () => {
         result: DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT,
       },
     ])
+    expect(ws.compression).toEqual([false])
+
+    usageSnapshot = {
+      ...DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT,
+      providers: [{
+        ...DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT.providers[0]!,
+        source: "synthetic benchmark content ".repeat(
+          Math.ceil(DEFAULT_WEBSOCKET_COMPRESSION_THRESHOLD_BYTES / 10),
+        ),
+      }],
+    }
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "usage-read-large",
+        command: { type: "settings.readSubscriptionUsage" },
+      }),
+    )
+
+    expect(ws.sent.at(-1)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "usage-read-large",
+      result: usageSnapshot,
+    })
+    expect(ws.compression.at(-1)).toBe(true)
   })
 
   test("routes Agent network status, detection, testing, and durable restart state", async () => {

@@ -31,6 +31,7 @@ import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
+import { WEBSOCKET_PER_MESSAGE_DEFLATE } from "./websocket-compression"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -399,6 +400,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           })())
         },
         websocket: {
+          perMessageDeflate: WEBSOCKET_PER_MESSAGE_DEFLATE,
           open(ws) {
             router.handleOpen(ws)
           },

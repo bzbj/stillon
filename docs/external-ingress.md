@@ -37,6 +37,8 @@ The proxy must:
 
 - preserve or set the public `Host` header;
 - forward WebSocket upgrades for `/ws`;
+- carry a consistent `permessage-deflate` negotiation end to end, or terminate
+  and renegotiate the two WebSocket legs correctly;
 - set `X-Forwarded-Proto` to the browser-facing scheme (`https` in a normal
   public deployment); and
 - forward client addressing with `X-Forwarded-For` when login rate limiting
@@ -46,6 +48,14 @@ Enable `--trust-proxy` only when the proxy is the sole route to StillOn. In
 that mode StillOn trusts `X-Forwarded-Proto` for HTTPS redirects, origin
 validation, and Secure cookies. It deliberately does not trust
 `X-Forwarded-Host`; use the normal `Host` header for the public hostname.
+
+StillOn automatically falls back to uncompressed WebSocket frames when a
+client or proxy does not offer `permessage-deflate`. A proxy that does not
+support the extension should remove the offer before it reaches StillOn. It
+must not forward the browser's offer while removing only StillOn's negotiation
+response, because that creates asymmetric WebSocket state.
+The selected threshold, resource tradeoffs, and frame-level compatibility
+tests are documented in [WebSocket compression](websocket-compression.md).
 
 If StillOn listens on a non-loopback address with `--trust-proxy`, enforce a
 firewall or network rule so direct clients cannot reach the port and forge

@@ -55,6 +55,27 @@ async function waitForWebSocketOpen(socket: WebSocket) {
   })
 }
 
+async function waitForWebSocketMessage(socket: WebSocket) {
+  return new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Timed out waiting for WebSocket message"))
+    }, 2_000)
+
+    socket.addEventListener("message", (event) => {
+      clearTimeout(timeout)
+      resolve(String(event.data))
+    }, { once: true })
+    socket.addEventListener("error", () => {
+      clearTimeout(timeout)
+      reject(new Error("WebSocket connection failed"))
+    }, { once: true })
+    socket.addEventListener("close", (event) => {
+      clearTimeout(timeout)
+      reject(new Error(`WebSocket closed before receiving a message (${event.code})`))
+    }, { once: true })
+  })
+}
+
 function openWebSocketWithHeaders(url: string, headers: NonNullable<Bun.WebSocketOptions["headers"]>) {
   // The client app includes DOM types, while Bun supports test-only headers.
   const BunWebSocket = WebSocket as unknown as {
@@ -423,6 +444,20 @@ describe("password auth", () => {
         "X-Forwarded-Proto": "https",
       })
       await waitForWebSocketOpen(socket)
+      expect(socket.extensions).toContain("permessage-deflate")
+
+      const response = waitForWebSocketMessage(socket)
+      socket.send(JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "trusted-proxy-ping",
+        command: { type: "system.ping" },
+      }))
+      expect(JSON.parse(await response)).toEqual({
+        v: 1,
+        type: "ack",
+        id: "trusted-proxy-ping",
+      })
       socket.close()
     } finally {
       await server.stop()
