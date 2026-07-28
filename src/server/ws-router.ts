@@ -20,6 +20,7 @@ import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { TerminalManager } from "./terminal-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
+import { getWebSocketSendPolicy } from "./websocket-compression"
 import type {
   AppSettingsPatch,
   AppSettingsSnapshot,
@@ -166,8 +167,9 @@ function getSidebarProjectOrder(store: EventStore) {
 
 function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
   const payload = JSON.stringify(message)
-  ws.send(payload)
-  return payload.length
+  const policy = getWebSocketSendPolicy(payload)
+  ws.send(payload, policy.compress)
+  return policy.payloadBytes
 }
 
 export function assertSafeSkillSource(source: string) {

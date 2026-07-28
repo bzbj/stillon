@@ -34,12 +34,21 @@ http://127.0.0.1:3210
 
 - 保留或设置公网使用的 `Host` 请求头；
 - 为 `/ws` 转发 WebSocket upgrade；
+- 保证 `permessage-deflate` 端到端协商一致；若代理会终止 WebSocket，则分别
+  正确协商浏览器侧与源站侧连接；
 - 设置 `X-Forwarded-Proto` 为浏览器侧协议（通常公网部署为 `https`）；
 - 如需按真实用户进行登录限流，转发 `X-Forwarded-For`。
 
 只有当该代理是访问 StillOn 的唯一途径时，才启用 `--trust-proxy`。该模式下
 StillOn 会信任 `X-Forwarded-Proto` 来处理 HTTPS 跳转、Origin 校验和 Secure
 Cookie；它刻意不信任 `X-Forwarded-Host`，公网域名应通过普通 `Host` 请求头传入。
+
+如果客户端或代理没有提供 `permessage-deflate`，StillOn 会自动回退到未压缩的
+WebSocket 帧。不支持该扩展的代理应在请求到达 StillOn 前移除提议；不能一边转发
+浏览器的扩展提议，一边只删除 StillOn 返回的协商结果，否则会造成 WebSocket
+两端状态不一致。
+压缩阈值、资源取舍和帧级兼容性测试见
+[WebSocket compression](websocket-compression.md)。
 
 若用 `--trust-proxy` 同时让 StillOn 监听非 loopback 地址，必须用防火墙或网络
 规则保证直连客户端无法访问该端口，否则客户端可以伪造转发请求头。
