@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
+import { deriveChatMetadata, deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import { createEmptyState } from "./events"
 
 describe("read models", () => {
@@ -94,6 +94,64 @@ describe("read models", () => {
 
     expect(sidebar.projectGroups[0]?.chats.map((chat) => chat.chatId)).toEqual(["chat-active"])
     expect(sidebar.projectGroups[0]?.archivedChats?.map((chat) => chat.chatId)).toEqual(["chat-archived"])
+  })
+
+  test("derives chat metadata without requiring transcript history", () => {
+    const state = createEmptyState()
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      localPath: "/tmp/project",
+      title: "Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByPath.set("/tmp/project", "project-1")
+    state.chatsById.set("chat-1", {
+      id: "chat-1",
+      projectId: "project-1",
+      title: "Chat",
+      createdAt: 1,
+      updatedAt: 1,
+      unread: false,
+      provider: "codex",
+      planMode: true,
+      sessionToken: "thread-1",
+      lastTurnOutcome: null,
+    })
+    state.queuedMessagesByChatId.set("chat-1", [{
+      id: "queued-1",
+      content: "next",
+      attachments: [],
+      createdAt: 2,
+      provider: "codex",
+      model: "gpt-5.6-sol",
+    }])
+
+    const metadata = deriveChatMetadata(
+      state,
+      new Map([["chat-1", "running"]]),
+      new Set(["chat-1"]),
+      "chat-1",
+    )
+
+    expect(metadata?.runtime).toMatchObject({
+      chatId: "chat-1",
+      projectId: "project-1",
+      localPath: "/tmp/project",
+      status: "running",
+      isDraining: true,
+      provider: "codex",
+      planMode: true,
+      sessionToken: "thread-1",
+    })
+    expect(metadata?.queuedMessages.map((message) => message.content)).toEqual(["next"])
+    expect(metadata?.queuedMessages[0]?.attachments).not.toBe(
+      state.queuedMessagesByChatId.get("chat-1")?.[0]?.attachments,
+    )
+    expect(metadata?.availableProviders.length).toBeGreaterThan(1)
+
+    state.projectsById.get("project-1")!.deletedAt = 3
+    expect(deriveChatMetadata(state, new Map(), new Set(), "chat-1")).toBeNull()
   })
 
   test("includes available providers in chat snapshots", () => {

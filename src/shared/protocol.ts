@@ -6,16 +6,22 @@ import type {
   ChatAttachment,
   ChatDiffSnapshot,
   ChatHistoryPage,
+  ChatHistorySnapshot,
+  ChatRuntime,
   ChatSnapshot,
+  ChatStreamCursor,
   DiffCommitMode,
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   LocalProjectsSnapshot,
   ModelOptions,
+  ProviderCatalogEntry,
+  QueuedChatMessage,
   SidebarData,
   StandaloneTranscriptAttachmentMode,
   StandaloneTranscriptExportResult,
   EditorPreset,
+  TranscriptEntry,
 } from "./types"
 
 export type { EditorPreset }
@@ -62,7 +68,7 @@ export type SubscriptionTopic =
   | { type: "local-projects" }
   | { type: "keybindings" }
   | { type: "app-settings" }
-  | { type: "chat"; chatId: string; recentLimit?: number }
+  | { type: "chat"; chatId: string; recentLimit?: number; stream?: { version: 1 } }
   | { type: "project-git"; projectId: string }
   | { type: "terminal"; terminalId: string }
 
@@ -83,6 +89,34 @@ export interface TerminalSnapshot {
 export type TerminalEvent =
   | { type: "terminal.output"; terminalId: string; data: string }
   | { type: "terminal.exit"; terminalId: string; exitCode: number; signal?: number }
+
+export type ChatTranscriptDelta =
+  | {
+      type: "patch"
+      evictedIds: string[]
+      removedIds: string[]
+      replaced: TranscriptEntry[]
+      appended: TranscriptEntry[]
+    }
+  | {
+      type: "reset"
+      messages: TranscriptEntry[]
+      history: ChatHistorySnapshot
+    }
+
+export interface ChatDeltaEvent {
+  type: "chat.delta"
+  chatId: string
+  baseSequence: number
+  stream: ChatStreamCursor
+  transcript?: ChatTranscriptDelta
+  runtime?: ChatRuntime
+  queuedMessages?: QueuedChatMessage[]
+  history?: ChatHistorySnapshot
+  availableProviders?: ProviderCatalogEntry[]
+}
+
+export type SubscriptionEvent = TerminalEvent | ChatDeltaEvent
 
 export type ClientCommand =
   | { type: "project.open"; localPath: string }
@@ -277,7 +311,7 @@ export type ServerSnapshot =
 
 export type ServerEnvelope =
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
-  | { v: 1; type: "event"; id: string; event: TerminalEvent }
+  | { v: 1; type: "event"; id: string; event: SubscriptionEvent }
   | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult }
   | { v: 1; type: "error"; id?: string; message: string }
 

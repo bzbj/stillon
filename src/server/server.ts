@@ -339,6 +339,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               data: {
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),
+                chatDeliveries: new Map(),
               },
             })
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })

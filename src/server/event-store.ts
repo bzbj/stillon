@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs"
 import { appendFile, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { Buffer } from "node:buffer"
 import { homedir } from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline"
@@ -27,6 +28,52 @@ import {
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
 const STALE_EMPTY_CHAT_MAX_AGE_MS = 30 * 60 * 1000
 const SIDEBAR_PROJECT_ORDER_FILE = "sidebar-order.json"
+const DEFAULT_TRANSCRIPT_APPEND_JOURNAL_MAX_ENTRIES = 512
+const DEFAULT_TRANSCRIPT_APPEND_JOURNAL_MAX_BYTES = 4 * 1024 * 1024
+
+export interface TranscriptDeliveryHead {
+  revision: string
+  sequence: number
+}
+
+export interface RecentChatHistoryWithDeliveryHead {
+  messages: TranscriptEntry[]
+  history: ChatHistorySnapshot
+  deliveryHead: TranscriptDeliveryHead
+}
+
+export type TranscriptAppendsSinceResult =
+  | {
+      type: "appends"
+      entries: TranscriptEntry[]
+      deliveryHead: TranscriptDeliveryHead
+    }
+  | {
+      type: "reset"
+      deliveryHead: TranscriptDeliveryHead
+    }
+
+export interface EventStoreOptions {
+  /** Process-wide retained append budget shared across all chats. */
+  transcriptAppendJournal?: {
+    maxEntries?: number
+    maxBytes?: number
+  }
+}
+
+interface TranscriptAppendJournalEntry {
+  chatId: string
+  sequence: number
+  payload: string
+  bytes: number
+}
+
+interface TranscriptAppendJournal {
+  revision: string
+  sequence: number
+  coverageFloor: number
+  entries: TranscriptAppendJournalEntry[]
+}
 
 function normalizeSidebarProjectOrder(value: unknown) {
   if (!Array.isArray(value)) {
@@ -142,6 +189,12 @@ function getForkedChatTitle(title: string) {
   return trimmed.startsWith("Fork: ") ? trimmed : `Fork: ${trimmed}`
 }
 
+function normalizeJournalLimit(value: number | undefined, fallback: number) {
+  if (value === undefined) return fallback
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
+}
+
 export class EventStore {
   readonly dataDir: string
   readonly state: StoreState = createEmptyState()
@@ -161,9 +214,14 @@ export class EventStore {
   private snapshotHasLegacyMessages = false
   private readonly transcriptPager = new TranscriptPager()
   private readonly transcriptRevisions = new Map<string, string>()
+  private readonly transcriptAppendJournals = new Map<string, TranscriptAppendJournal>()
+  private readonly transcriptAppendJournalEntries: TranscriptAppendJournalEntry[] = []
+  private transcriptAppendJournalBytes = 0
+  private readonly transcriptAppendJournalMaxEntries: number
+  private readonly transcriptAppendJournalMaxBytes: number
   private replayArchivedLogs = false
 
-  constructor(dataDir = getDataDir(homedir())) {
+  constructor(dataDir = getDataDir(homedir()), options: EventStoreOptions = {}) {
     this.dataDir = dataDir
     this.snapshotPath = path.join(this.dataDir, "snapshot.json")
     this.snapshotBackupPath = `${this.snapshotPath}.bak`
@@ -174,6 +232,14 @@ export class EventStore {
     this.turnsLogPath = path.join(this.dataDir, "turns.jsonl")
     this.transcriptsDir = path.join(this.dataDir, "transcripts")
     this.sidebarProjectOrderPath = path.join(this.dataDir, SIDEBAR_PROJECT_ORDER_FILE)
+    this.transcriptAppendJournalMaxEntries = normalizeJournalLimit(
+      options.transcriptAppendJournal?.maxEntries,
+      DEFAULT_TRANSCRIPT_APPEND_JOURNAL_MAX_ENTRIES,
+    )
+    this.transcriptAppendJournalMaxBytes = normalizeJournalLimit(
+      options.transcriptAppendJournal?.maxBytes,
+      DEFAULT_TRANSCRIPT_APPEND_JOURNAL_MAX_BYTES,
+    )
   }
 
   async initialize() {
@@ -282,6 +348,7 @@ export class EventStore {
     this.sidebarProjectOrder = []
     this.legacySidebarProjectOrder = []
     this.transcriptRevisions.clear()
+    this.clearTranscriptAppendJournals()
   }
 
   private clearLegacyTranscriptState() {
@@ -653,6 +720,105 @@ export class EventStore {
     return revision
   }
 
+  private getTranscriptAppendJournal(chatId: string) {
+    const existing = this.transcriptAppendJournals.get(chatId)
+    if (existing) return existing
+    const journal: TranscriptAppendJournal = {
+      revision: createTranscriptRevision(),
+      sequence: 0,
+      coverageFloor: 0,
+      entries: [],
+    }
+    this.transcriptAppendJournals.set(chatId, journal)
+    return journal
+  }
+
+  private getTranscriptDeliveryHead(chatId: string): TranscriptDeliveryHead {
+    const journal = this.getTranscriptAppendJournal(chatId)
+    return {
+      revision: journal.revision,
+      sequence: journal.sequence,
+    }
+  }
+
+  private recordTranscriptAppend(chatId: string, payload: string, bytes: number) {
+    const journal = this.getTranscriptAppendJournal(chatId)
+    journal.sequence += 1
+    const journalEntry: TranscriptAppendJournalEntry = {
+      chatId,
+      sequence: journal.sequence,
+      payload,
+      bytes,
+    }
+    journal.entries.push(journalEntry)
+    this.transcriptAppendJournalEntries.push(journalEntry)
+    this.transcriptAppendJournalBytes += bytes
+
+    while (
+      this.transcriptAppendJournalEntries.length > this.transcriptAppendJournalMaxEntries
+      || this.transcriptAppendJournalBytes > this.transcriptAppendJournalMaxBytes
+    ) {
+      const removed = this.transcriptAppendJournalEntries.shift()
+      if (!removed) break
+      this.transcriptAppendJournalBytes -= removed.bytes
+
+      const removedJournal = this.transcriptAppendJournals.get(removed.chatId)
+      if (!removedJournal) continue
+      const retainedEntryIndex = removedJournal.entries.indexOf(removed)
+      if (retainedEntryIndex >= 0) {
+        removedJournal.entries.splice(retainedEntryIndex, 1)
+      }
+      removedJournal.coverageFloor = Math.max(
+        removedJournal.coverageFloor,
+        removed.sequence,
+      )
+    }
+  }
+
+  private deleteTranscriptAppendJournal(chatId: string) {
+    this.transcriptAppendJournals.delete(chatId)
+    for (let index = this.transcriptAppendJournalEntries.length - 1; index >= 0; index -= 1) {
+      const entry = this.transcriptAppendJournalEntries[index]
+      if (entry?.chatId !== chatId) continue
+      this.transcriptAppendJournalEntries.splice(index, 1)
+      this.transcriptAppendJournalBytes -= entry.bytes
+    }
+  }
+
+  private clearTranscriptAppendJournals() {
+    this.transcriptAppendJournals.clear()
+    this.transcriptAppendJournalEntries.length = 0
+    this.transcriptAppendJournalBytes = 0
+  }
+
+  getTranscriptAppendsSince(
+    chatId: string,
+    deliveryHead: TranscriptDeliveryHead,
+  ): TranscriptAppendsSinceResult {
+    this.requireChat(chatId)
+    const journal = this.getTranscriptAppendJournal(chatId)
+    const currentHead = this.getTranscriptDeliveryHead(chatId)
+    if (
+      deliveryHead.revision !== journal.revision
+      || !Number.isSafeInteger(deliveryHead.sequence)
+      || deliveryHead.sequence < journal.coverageFloor
+      || deliveryHead.sequence > journal.sequence
+    ) {
+      return {
+        type: "reset",
+        deliveryHead: currentHead,
+      }
+    }
+
+    return {
+      type: "appends",
+      entries: journal.entries
+        .filter((entry) => entry.sequence > deliveryHead.sequence)
+        .map((entry) => JSON.parse(entry.payload) as TranscriptEntry),
+      deliveryHead: currentHead,
+    }
+  }
+
   private async waitForPendingWrites() {
     const pendingWrites = this.writeChain
     await pendingWrites
@@ -666,6 +832,21 @@ export class EventStore {
     this.writeChain = barrier
     await barrier
     return snapshotEnd
+  }
+
+  private async captureTranscriptHead(chatId: string) {
+    let snapshotEnd = 0
+    let deliveryHead: TranscriptDeliveryHead | null = null
+    const barrier = this.writeChain.then(async () => {
+      snapshotEnd = await this.getTranscriptSize(chatId)
+      deliveryHead = this.getTranscriptDeliveryHead(chatId)
+    })
+    this.writeChain = barrier
+    await barrier
+    return {
+      snapshotEnd,
+      deliveryHead: deliveryHead!,
+    }
   }
 
   private async getTranscriptSize(chatId: string) {
@@ -864,6 +1045,7 @@ export class EventStore {
     }
     await this.append(this.chatsLogPath, event)
     this.transcriptRevisions.delete(chatId)
+    this.deleteTranscriptAppendJournal(chatId)
   }
 
   async archiveChat(chatId: string) {
@@ -922,6 +1104,7 @@ export class EventStore {
       const transcriptPath = this.transcriptPath(chat.id)
       await rm(transcriptPath, { force: true })
       this.transcriptRevisions.delete(chat.id)
+      this.deleteTranscriptAppendJournal(chat.id)
 
       prunedChatIds.push(chat.id)
     }
@@ -971,6 +1154,7 @@ export class EventStore {
   async appendMessage(chatId: string, entry: TranscriptEntry) {
     this.requireChat(chatId)
     const payload = `${JSON.stringify(entry)}\n`
+    const payloadBytes = Buffer.byteLength(payload, "utf8")
     const transcriptPath = this.transcriptPath(chatId)
     const queuedAt = performance.now()
     this.writeChain = this.writeChain.then(async () => {
@@ -980,12 +1164,13 @@ export class EventStore {
       const beforeAppendAt = performance.now()
       await appendFile(transcriptPath, payload, "utf8")
       const afterAppendAt = performance.now()
+      this.recordTranscriptAppend(chatId, payload, payloadBytes)
       this.applyMessageMetadata(chatId, entry)
       logSendToStartingProfile("event_store.append_message", {
         chatId,
         entryId: entry._id,
         kind: entry.kind,
-        payloadBytes: payload.length,
+        payloadBytes,
         queueDelayMs,
         appendMs: Number((afterAppendAt - beforeAppendAt).toFixed(1)),
         totalMs: Number((afterAppendAt - queuedAt).toFixed(1)),
@@ -1215,19 +1400,28 @@ export class EventStore {
     return this.getQueuedMessages(chatId).find((entry) => entry.id === queuedMessageId) ?? null
   }
 
-  async getRecentMessagesPage(chatId: string, limit: number): Promise<ChatHistoryPage> {
+  private async getRecentMessagesPageWithDeliveryHead(
+    chatId: string,
+    limit: number,
+  ): Promise<{ page: ChatHistoryPage; deliveryHead: TranscriptDeliveryHead }> {
     this.requireChat(chatId)
     const revision = this.getTranscriptRevision(chatId)
+    const { snapshotEnd, deliveryHead } = await this.captureTranscriptHead(chatId)
     if (limit <= 0) {
-      return { messages: [], hasOlder: false, olderCursor: null, revision }
+      return {
+        page: { messages: [], hasOlder: false, olderCursor: null, revision },
+        deliveryHead,
+      }
     }
 
     const legacyEntries = this.legacyMessagesByChatId.get(chatId)
     if (legacyEntries) {
-      return this.getMessagesPageFromEntries(legacyEntries, limit, revision)
+      return {
+        page: this.getMessagesPageFromEntries(legacyEntries, limit, revision),
+        deliveryHead,
+      }
     }
 
-    const snapshotEnd = await this.captureTranscriptEnd(chatId)
     const startedAt = performance.now()
     const page = await this.transcriptPager.readRecent(
       this.transcriptPath(chatId),
@@ -1244,11 +1438,18 @@ export class EventStore {
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     })
     return {
-      messages: page.messages,
-      hasOlder: page.hasOlder,
-      olderCursor: page.olderCursor,
-      revision: page.revision,
+      page: {
+        messages: page.messages,
+        hasOlder: page.hasOlder,
+        olderCursor: page.olderCursor,
+        revision: page.revision,
+      },
+      deliveryHead,
     }
+  }
+
+  async getRecentMessagesPage(chatId: string, limit: number): Promise<ChatHistoryPage> {
+    return (await this.getRecentMessagesPageWithDeliveryHead(chatId, limit)).page
   }
 
   async getMessagesPageBefore(
@@ -1296,10 +1497,22 @@ export class EventStore {
   }
 
   async getRecentChatHistory(chatId: string, recentLimit: number) {
-    const page = await this.getRecentMessagesPage(chatId, recentLimit)
+    const result = await this.getRecentChatHistoryWithDeliveryHead(chatId, recentLimit)
+    return {
+      messages: result.messages,
+      history: result.history,
+    }
+  }
+
+  async getRecentChatHistoryWithDeliveryHead(
+    chatId: string,
+    recentLimit: number,
+  ): Promise<RecentChatHistoryWithDeliveryHead> {
+    const { page, deliveryHead } = await this.getRecentMessagesPageWithDeliveryHead(chatId, recentLimit)
     return {
       messages: page.messages,
       history: getHistorySnapshot(page, recentLimit),
+      deliveryHead,
     }
   }
 
@@ -1451,6 +1664,7 @@ export class EventStore {
     this.clearLegacyTranscriptState()
     await this.compact()
     this.transcriptRevisions.clear()
+    this.clearTranscriptAppendJournals()
     onProgress?.(`${LOG_PREFIX} transcript migration complete`)
     return true
   }

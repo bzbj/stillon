@@ -7,6 +7,7 @@ import type {
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   SubscriptionUsageSnapshot,
+  TranscriptEntry,
 } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
@@ -48,8 +49,18 @@ function withSidebarGroupDefaults(group: {
   }
 }
 
+function transcriptTextEntry(index: number): TranscriptEntry {
+  return {
+    _id: `message-${index}`,
+    kind: "assistant_text",
+    createdAt: index,
+    text: `message ${index}`,
+  }
+}
+
 class FakeWebSocket {
   readonly sent: unknown[] = []
+  sendStatus: number | undefined
   readonly data = {
     subscriptions: new Map(),
     protectedDraftChatIds: new Set<string>(),
@@ -57,6 +68,165 @@ class FakeWebSocket {
 
   send(message: string) {
     this.sent.push(JSON.parse(message))
+    return this.sendStatus
+  }
+}
+
+function createChatStreamFixture(initialMessages: TranscriptEntry[], recentLimit = 3) {
+  const state = createEmptyState()
+  state.projectsById.set("project-1", {
+    id: "project-1",
+    localPath: "/tmp/project",
+    title: "Project",
+    createdAt: 1,
+    updatedAt: 1,
+  })
+  state.chatsById.set("chat-1", {
+    id: "chat-1",
+    projectId: "project-1",
+    title: "Chat",
+    createdAt: 1,
+    updatedAt: 1,
+    unread: false,
+    provider: "codex",
+    planMode: false,
+    sessionToken: "session-1",
+    lastTurnOutcome: null,
+  })
+
+  const messages = [...initialMessages]
+  const journal: Array<{ sequence: number; entry: TranscriptEntry }> = []
+  let journalRevision = "journal-1"
+  let historyReads = 0
+  let legacyHistoryReads = 0
+  let nextHistoryReadBarrier: {
+    notifyStarted: () => void
+    waitForRelease: Promise<void>
+  } | null = null
+
+  const readHistory = () => {
+    const page = recentLimit <= 0 ? [] : messages.slice(-recentLimit)
+    const hasOlder = messages.length > page.length
+    return {
+      messages: page,
+      history: {
+        hasOlder,
+        olderCursor: hasOlder ? `cursor-${messages.length - page.length}` : null,
+        recentLimit,
+        revision: "history-1",
+      },
+    }
+  }
+
+  const store = {
+    state,
+    getChat: (chatId: string) => {
+      const chat = state.chatsById.get(chatId)
+      return chat && !chat.deletedAt ? chat : null
+    },
+    getProject: (projectId: string) => {
+      const project = state.projectsById.get(projectId)
+      return project && !project.deletedAt ? project : null
+    },
+    getSidebarProjectOrder: () => [],
+    getRecentChatHistory: async () => {
+      legacyHistoryReads += 1
+      return readHistory()
+    },
+    getRecentChatHistoryWithDeliveryHead: async () => {
+      historyReads += 1
+      const barrier = nextHistoryReadBarrier
+      if (barrier) {
+        nextHistoryReadBarrier = null
+        barrier.notifyStarted()
+        await barrier.waitForRelease
+      }
+      return {
+        ...readHistory(),
+        deliveryHead: {
+          revision: journalRevision,
+          sequence: journal.at(-1)?.sequence ?? 0,
+        },
+      }
+    },
+    getTranscriptAppendsSince: (
+      _chatId: string,
+      head: { revision: string; sequence: number },
+    ) => {
+      const sequence = journal.at(-1)?.sequence ?? 0
+      if (
+        head.revision !== journalRevision
+        || head.sequence < 0
+        || head.sequence > sequence
+      ) {
+        return {
+          type: "reset" as const,
+          deliveryHead: { revision: journalRevision, sequence },
+        }
+      }
+      return {
+        type: "appends" as const,
+        entries: journal
+          .filter((item) => item.sequence > head.sequence)
+          .map((item) => item.entry),
+        deliveryHead: { revision: journalRevision, sequence },
+      }
+    },
+  }
+
+  const router = createWsRouter({
+    store: store as never,
+    agent: {
+      getActiveStatuses: () => new Map(),
+      getDrainingChatIds: () => new Set(),
+    } as never,
+    terminals: {
+      getSnapshot: () => null,
+      onEvent: () => () => {},
+    } as never,
+    keybindings: {
+      getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+      onChange: () => () => {},
+    } as never,
+    refreshDiscovery: async () => [],
+    getDiscoveredProjects: () => [],
+    machineDisplayName: "Local Machine",
+  })
+
+  return {
+    router,
+    state,
+    append(entry: TranscriptEntry) {
+      messages.push(entry)
+      journal.push({
+        sequence: (journal.at(-1)?.sequence ?? 0) + 1,
+        entry,
+      })
+    },
+    rotateJournal() {
+      journalRevision = `${journalRevision}-next`
+    },
+    deferNextHistoryRead() {
+      let notifyStarted = () => {}
+      let release = () => {}
+      const started = new Promise<void>((resolve) => {
+        notifyStarted = resolve
+      })
+      const waitForRelease = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      nextHistoryReadBarrier = {
+        notifyStarted,
+        waitForRelease,
+      }
+      return { started, release }
+    },
+    get historyReads() {
+      return historyReads
+    },
+    get legacyHistoryReads() {
+      return legacyHistoryReads
+    },
   }
 }
 
@@ -1052,6 +1222,425 @@ describe("ws-router", () => {
       v: PROTOCOL_VERSION,
       type: "ack",
       id: "chat-sub-1",
+    })
+  })
+
+  test("hydrates opted-in chats once, then streams ordered rolling-window appends", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+
+    const baseline = ws.sent[0] as any
+    expect(baseline.type).toBe("snapshot")
+    expect(baseline.snapshot.data.messages.map((entry: TranscriptEntry) => entry._id)).toEqual([
+      "message-2",
+      "message-3",
+      "message-4",
+    ])
+    expect(baseline.snapshot.data.stream).toMatchObject({
+      version: 1,
+      sequence: 0,
+    })
+
+    fixture.append(transcriptTextEntry(5))
+    fixture.append(transcriptTextEntry(6))
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(1)
+    expect(ws.sent).toHaveLength(2)
+    expect(ws.sent[1]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "event",
+      id: "chat-stream-1",
+      event: {
+        type: "chat.delta",
+        chatId: "chat-1",
+        baseSequence: 0,
+        stream: {
+          version: 1,
+          revision: baseline.snapshot.data.stream.revision,
+          sequence: 1,
+        },
+        transcript: {
+          type: "patch",
+          evictedIds: ["message-2", "message-3"],
+          removedIds: [],
+          replaced: [],
+          appended: [
+            transcriptTextEntry(5),
+            transcriptTextEntry(6),
+          ],
+        },
+      },
+    })
+  })
+
+  test("falls back to a baseline when an append batch is larger than the recent window", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+    const firstRevision = (ws.sent[0] as any).snapshot.data.stream.revision
+
+    fixture.append(transcriptTextEntry(5))
+    fixture.append(transcriptTextEntry(6))
+    fixture.append(transcriptTextEntry(7))
+    fixture.append(transcriptTextEntry(8))
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(2)
+    expect((ws.sent[1] as any).type).toBe("snapshot")
+    expect((ws.sent[1] as any).snapshot.data.messages.map(
+      (entry: TranscriptEntry) => entry._id,
+    )).toEqual(["message-6", "message-7", "message-8"])
+    expect((ws.sent[1] as any).snapshot.data.history.olderCursor).toBe("cursor-5")
+    expect((ws.sent[1] as any).snapshot.data.stream).toMatchObject({
+      version: 1,
+      sequence: 0,
+    })
+    expect((ws.sent[1] as any).snapshot.data.stream.revision).not.toBe(firstRevision)
+  })
+
+  test("streams metadata-only chat updates without paging or serializing the transcript", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+
+    fixture.state.chatsById.get("chat-1")!.title = "Renamed chat"
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    const eventEnvelope = ws.sent[1] as any
+    expect(fixture.historyReads).toBe(1)
+    expect(eventEnvelope.type).toBe("event")
+    expect(eventEnvelope.event.runtime.title).toBe("Renamed chat")
+    expect(eventEnvelope.event.transcript).toBeUndefined()
+
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+    expect(ws.sent).toHaveLength(2)
+    expect(fixture.historyReads).toBe(1)
+  })
+
+  test("keeps full chat snapshots for legacy subscriptions", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "legacy-chat-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+      },
+    }))
+    fixture.append(transcriptTextEntry(5))
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(0)
+    expect(fixture.legacyHistoryReads).toBe(2)
+    expect((ws.sent[0] as any).snapshot.data.stream).toBeUndefined()
+    expect((ws.sent[1] as any).type).toBe("snapshot")
+    expect((ws.sent[1] as any).snapshot.data.messages.map((entry: TranscriptEntry) => entry._id)).toEqual([
+      "message-3",
+      "message-4",
+      "message-5",
+    ])
+  })
+
+  test("uses full snapshots until duplicate transcript ids leave the recent window", async () => {
+    const duplicate = transcriptTextEntry(1)
+    const fixture = createChatStreamFixture([
+      duplicate,
+      {
+        _id: duplicate._id,
+        kind: "assistant_text",
+        createdAt: duplicate.createdAt,
+        text: "duplicate record",
+      },
+      transcriptTextEntry(2),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+
+    expect((ws.sent[0] as any).snapshot.data.stream).toBeUndefined()
+
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+    expect(ws.sent).toHaveLength(1)
+
+    fixture.append(transcriptTextEntry(3))
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(3)
+    expect((ws.sent[1] as any).type).toBe("snapshot")
+    expect((ws.sent[1] as any).snapshot.data.messages.map(
+      (entry: TranscriptEntry) => entry._id,
+    )).toEqual(["message-1", "message-2", "message-3"])
+    expect((ws.sent[1] as any).snapshot.data.stream).toMatchObject({
+      version: 1,
+      sequence: 0,
+    })
+  })
+
+  test("repeating a chat subscription id rotates the stream and sends a fresh baseline", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+    const subscribe = {
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify(subscribe))
+    await fixture.router.handleMessage(ws as never, JSON.stringify(subscribe))
+
+    const firstRevision = (ws.sent[0] as any).snapshot.data.stream.revision
+    const secondStream = (ws.sent[1] as any).snapshot.data.stream
+    expect(fixture.historyReads).toBe(2)
+    expect(secondStream.sequence).toBe(0)
+    expect(secondStream.revision).not.toBe(firstRevision)
+  })
+
+  test("falls back to a fresh full baseline when append journal coverage resets", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+    const firstRevision = (ws.sent[0] as any).snapshot.data.stream.revision
+
+    fixture.rotateJournal()
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(2)
+    expect((ws.sent[1] as any).type).toBe("snapshot")
+    expect((ws.sent[1] as any).snapshot.data.stream).toMatchObject({
+      version: 1,
+      sequence: 0,
+    })
+    expect((ws.sent[1] as any).snapshot.data.stream.revision).not.toBe(firstRevision)
+  })
+
+  test("replays the same delta sequence when the websocket drops a frame", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+
+    const baseline = ws.sent[0] as any
+    ws.sendStatus = 0
+    fixture.append(transcriptTextEntry(5))
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    const dropped = ws.sent[1] as any
+    expect(dropped.type).toBe("event")
+    expect(dropped.event).toMatchObject({
+      baseSequence: 0,
+      stream: {
+        revision: baseline.snapshot.data.stream.revision,
+        sequence: 1,
+      },
+    })
+
+    ws.sendStatus = 1
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(fixture.historyReads).toBe(1)
+    expect(ws.sent[2]).toEqual(dropped)
+
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+    expect(ws.sent).toHaveLength(3)
+  })
+
+  test("queues each broadcast pass on every socket before awaiting slow history", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const firstSocket = new FakeWebSocket()
+    const secondSocket = new FakeWebSocket()
+    fixture.router.handleOpen(firstSocket as never)
+    fixture.router.handleOpen(secondSocket as never)
+
+    const subscribe = (id: string) => JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id,
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    })
+    await fixture.router.handleMessage(firstSocket as never, subscribe("chat-stream-1"))
+    await fixture.router.handleMessage(secondSocket as never, subscribe("chat-stream-2"))
+
+    fixture.state.chatsById.get("chat-1")!.title = "Older metadata"
+    fixture.rotateJournal()
+    const barrier = fixture.deferNextHistoryRead()
+    const olderPass = fixture.router.broadcastChatStateImmediately("chat-1")
+    await barrier.started
+
+    fixture.router.handleClose(firstSocket as never)
+    fixture.state.chatsById.get("chat-1")!.title = "Newer metadata"
+    const newerPass = fixture.router.broadcastChatStateImmediately("chat-1")
+    barrier.release()
+    await Promise.all([olderPass, newerPass])
+
+    const deliveredTitles = secondSocket.sent.slice(1).map((message: any) => (
+      message.type === "snapshot"
+        ? message.snapshot.data.runtime.title
+        : message.event.runtime?.title
+    )).filter(Boolean)
+    expect(deliveredTitles).toEqual(["Older metadata", "Newer metadata"])
+  })
+
+  test("sends a null full snapshot when an active streamed chat disappears", async () => {
+    const fixture = createChatStreamFixture([
+      transcriptTextEntry(1),
+      transcriptTextEntry(2),
+      transcriptTextEntry(3),
+      transcriptTextEntry(4),
+    ])
+    const ws = new FakeWebSocket()
+    fixture.router.handleOpen(ws as never)
+
+    await fixture.router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-stream-1",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 3,
+        stream: { version: 1 },
+      },
+    }))
+    fixture.state.chatsById.get("chat-1")!.deletedAt = Date.now()
+    await fixture.router.broadcastChatStateImmediately("chat-1")
+
+    expect(ws.sent[1]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id: "chat-stream-1",
+      snapshot: {
+        type: "chat",
+        data: null,
+      },
     })
   })
 
