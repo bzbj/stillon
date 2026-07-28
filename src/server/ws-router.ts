@@ -3,13 +3,13 @@ import os from "node:os"
 import path from "node:path"
 import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
-import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
+import type { ChatDeltaEvent, ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
 import type { AppSettingsManager } from "./app-settings"
 import type { DiscoveredProject } from "./discovery"
 import { DiffStore } from "./diff-store"
-import { EventStore } from "./event-store"
+import { EventStore, type TranscriptDeliveryHead } from "./event-store"
 import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { listLocalDirectories } from "./local-directories"
@@ -19,7 +19,13 @@ import { readProjectQuickActions, writeProjectQuickActions } from "./project-qui
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { TerminalManager } from "./terminal-manager"
-import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
+import {
+  deriveChatMetadata,
+  deriveChatSnapshot,
+  deriveLocalProjectsSnapshot,
+  deriveSidebarData,
+  type ChatMetadataSnapshot,
+} from "./read-models"
 import type {
   AppSettingsPatch,
   AppSettingsSnapshot,
@@ -27,6 +33,8 @@ import type {
   AgentNetworkDetectionResult,
   AgentNetworkStatus,
   AgentProvider,
+  ChatHistorySnapshot,
+  ChatStreamCursor,
   InstalledSkillsSnapshot,
   LlmProviderSnapshot,
   LlmProviderValidationResult,
@@ -111,6 +119,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
+  chatDeliveries?: Map<string, ChatDeliveryState>
   protectedDraftChatIds?: Set<string>
 }
 
@@ -156,6 +165,23 @@ interface SnapshotComputationCache {
     signature: string
   }
   chatHistories?: Map<string, ReturnType<EventStore["getRecentChatHistory"]>>
+  chatDeliveryHistories?: Map<string, ReturnType<EventStore["getRecentChatHistoryWithDeliveryHead"]>>
+  chatMetadata?: Map<string, ChatMetadataSnapshot | null>
+  chatRuntimeInputs?: {
+    activeStatuses: ReturnType<AgentCoordinator["getActiveStatuses"]>
+    drainingChatIds: ReturnType<AgentCoordinator["getDrainingChatIds"]>
+  }
+}
+
+interface ChatDeliveryState {
+  stream: ChatStreamCursor
+  deliveryHead: TranscriptDeliveryHead
+  recentMessageIds: string[]
+  recentLimit: number
+  history: ChatHistorySnapshot
+  runtimeSignature: string
+  queueSignature: string
+  providersSignature: string
 }
 
 function getSidebarProjectOrder(store: EventStore) {
@@ -164,10 +190,18 @@ function getSidebarProjectOrder(store: EventStore) {
     : []
 }
 
-function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
+function sendWithStatus(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
   const payload = JSON.stringify(message)
-  ws.send(payload)
-  return payload.length
+  const status = ws.send(payload)
+  return {
+    accepted: status !== 0,
+    payloadBytes: Buffer.byteLength(payload, "utf8"),
+    status,
+  }
+}
+
+function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
+  return sendWithStatus(ws, message).payloadBytes
 }
 
 export function assertSafeSkillSource(source: string) {
@@ -377,6 +411,14 @@ function ensureSnapshotSignatures(ws: ServerWebSocket<ClientState>) {
   }
 
   return ws.data.snapshotSignatures
+}
+
+function ensureChatDeliveries(ws: ServerWebSocket<ClientState>) {
+  if (!ws.data.chatDeliveries) {
+    ws.data.chatDeliveries = new Map()
+  }
+
+  return ws.data.chatDeliveries
 }
 
 export function createWsRouter({
@@ -699,6 +741,330 @@ export function createWsRouter({
     return sidebar
   }
 
+  function getChatRuntimeInputs(cache?: SnapshotComputationCache) {
+    if (cache?.chatRuntimeInputs) {
+      return cache.chatRuntimeInputs
+    }
+
+    const inputs = {
+      activeStatuses: agent.getActiveStatuses(),
+      drainingChatIds: agent.getDrainingChatIds(),
+    }
+    if (cache) {
+      cache.chatRuntimeInputs = inputs
+    }
+    return inputs
+  }
+
+  function getChatMetadataCacheEntry(
+    chatId: string,
+    cache?: SnapshotComputationCache,
+  ) {
+    if (cache?.chatMetadata?.has(chatId)) {
+      return cache.chatMetadata.get(chatId) ?? null
+    }
+
+    const { activeStatuses, drainingChatIds } = getChatRuntimeInputs(cache)
+    const metadata = deriveChatMetadata(
+      store.state,
+      activeStatuses,
+      drainingChatIds,
+      chatId,
+    )
+    if (cache) {
+      cache.chatMetadata ??= new Map()
+      cache.chatMetadata.set(chatId, metadata)
+    }
+    return metadata
+  }
+
+  function getChatDeliveryHistory(
+    chatId: string,
+    recentLimit: number,
+    cache?: SnapshotComputationCache,
+  ) {
+    const cacheKey = `${chatId}:${recentLimit}`
+    let historyPromise = cache?.chatDeliveryHistories?.get(cacheKey)
+    if (!historyPromise) {
+      historyPromise = store.getRecentChatHistoryWithDeliveryHead(chatId, recentLimit)
+      if (cache) {
+        cache.chatDeliveryHistories ??= new Map()
+        cache.chatDeliveryHistories.set(cacheKey, historyPromise)
+      }
+    }
+    return historyPromise
+  }
+
+  function getChatMetadataSignatures(metadata: ChatMetadataSnapshot) {
+    return {
+      runtimeSignature: JSON.stringify(metadata.runtime),
+      queueSignature: JSON.stringify(metadata.queuedMessages),
+      providersSignature: JSON.stringify(metadata.availableProviders),
+    }
+  }
+
+  function pushNullChatStreamSnapshot(
+    ws: ServerWebSocket<ClientState>,
+    id: string,
+    topic: SubscriptionTopic,
+  ) {
+    const deliveries = ensureChatDeliveries(ws)
+    deliveries.delete(id)
+    const envelope: ServerEnvelope = {
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id,
+      snapshot: {
+        type: "chat",
+        data: null,
+      },
+    }
+    const signature = JSON.stringify(envelope.snapshot)
+    const snapshotSignatures = ensureSnapshotSignatures(ws)
+    if (snapshotSignatures.get(id) === signature) {
+      return false
+    }
+
+    const result = sendWithStatus(ws, envelope)
+    if (
+      result.accepted
+      && ws.data.subscriptions.get(id) === topic
+    ) {
+      snapshotSignatures.set(id, signature)
+    }
+    return result.accepted
+  }
+
+  async function pushChatStreamBaseline(
+    ws: ServerWebSocket<ClientState>,
+    id: string,
+    topic: Extract<SubscriptionTopic, { type: "chat" }>,
+    cache?: SnapshotComputationCache,
+  ) {
+    const metadata = getChatMetadataCacheEntry(topic.chatId, cache)
+    if (!metadata) {
+      return pushNullChatStreamSnapshot(ws, id, topic)
+    }
+
+    const recentLimit = topic.recentLimit ?? DEFAULT_CHAT_RECENT_LIMIT
+    let transcript
+    try {
+      transcript = await getChatDeliveryHistory(topic.chatId, recentLimit, cache)
+    } catch (error) {
+      if (!store.getChat(topic.chatId)) {
+        return pushNullChatStreamSnapshot(ws, id, topic)
+      }
+      throw error
+    }
+
+    if (!store.getChat(topic.chatId)) {
+      return pushNullChatStreamSnapshot(ws, id, topic)
+    }
+
+    const messageIds = transcript.messages.map((entry) => entry._id)
+    const uniqueMessageIds = new Set(messageIds)
+    const stream: ChatStreamCursor = {
+      version: 1,
+      revision: crypto.randomUUID(),
+      sequence: 0,
+    }
+    const data = {
+      ...metadata,
+      messages: transcript.messages,
+      history: transcript.history,
+      ...(uniqueMessageIds.size === messageIds.length ? { stream } : {}),
+    }
+    const envelope: ServerEnvelope = {
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id,
+      snapshot: {
+        type: "chat",
+        data,
+      },
+    }
+    const snapshotSignatures = ensureSnapshotSignatures(ws)
+    const fallbackSignature = uniqueMessageIds.size === messageIds.length
+      ? null
+      : JSON.stringify(envelope.snapshot)
+    if (
+      fallbackSignature
+      && snapshotSignatures.get(id) === fallbackSignature
+    ) {
+      return false
+    }
+
+    const result = sendWithStatus(ws, envelope)
+    if (
+      result.accepted
+      && ws.data.subscriptions.get(id) === topic
+    ) {
+      if (uniqueMessageIds.size === messageIds.length) {
+        const signatures = getChatMetadataSignatures(metadata)
+        ensureChatDeliveries(ws).set(id, {
+          stream,
+          deliveryHead: transcript.deliveryHead,
+          recentMessageIds: messageIds,
+          recentLimit: transcript.history.recentLimit,
+          history: transcript.history,
+          ...signatures,
+        })
+        snapshotSignatures.delete(id)
+      } else {
+        ensureChatDeliveries(ws).delete(id)
+        snapshotSignatures.set(id, fallbackSignature!)
+      }
+    }
+    return result.accepted
+  }
+
+  async function pushChatStreamUpdate(
+    ws: ServerWebSocket<ClientState>,
+    id: string,
+    topic: Extract<SubscriptionTopic, { type: "chat" }>,
+    cache?: SnapshotComputationCache,
+  ) {
+    const deliveries = ensureChatDeliveries(ws)
+    const current = deliveries.get(id)
+    const recentLimit = topic.recentLimit ?? DEFAULT_CHAT_RECENT_LIMIT
+    if (!current || current.recentLimit !== recentLimit) {
+      deliveries.delete(id)
+      return await pushChatStreamBaseline(ws, id, topic, cache)
+    }
+
+    const metadata = getChatMetadataCacheEntry(topic.chatId, cache)
+    if (!metadata) {
+      return pushNullChatStreamSnapshot(ws, id, topic)
+    }
+
+    let transcript
+    try {
+      transcript = store.getTranscriptAppendsSince(topic.chatId, current.deliveryHead)
+    } catch (error) {
+      if (!store.getChat(topic.chatId)) {
+        return pushNullChatStreamSnapshot(ws, id, topic)
+      }
+      throw error
+    }
+    if (transcript.type === "reset") {
+      deliveries.delete(id)
+      return await pushChatStreamBaseline(ws, id, topic, cache)
+    }
+
+    const currentIds = new Set(current.recentMessageIds)
+    const appendedIds = new Set<string>()
+    for (const entry of transcript.entries) {
+      if (currentIds.has(entry._id) || appendedIds.has(entry._id)) {
+        deliveries.delete(id)
+        return await pushChatStreamBaseline(ws, id, topic, cache)
+      }
+      appendedIds.add(entry._id)
+    }
+
+    if (
+      recentLimit > 0
+      && transcript.entries.length > recentLimit
+    ) {
+      deliveries.delete(id)
+      return await pushChatStreamBaseline(ws, id, topic, cache)
+    }
+
+    const combinedIds = [
+      ...current.recentMessageIds,
+      ...transcript.entries.map((entry) => entry._id),
+    ]
+    if (
+      recentLimit > 0
+      && !current.history.hasOlder
+      && combinedIds.length > recentLimit
+    ) {
+      deliveries.delete(id)
+      return await pushChatStreamBaseline(ws, id, topic, cache)
+    }
+
+    const nextMessageIds = recentLimit <= 0
+      ? []
+      : combinedIds.slice(-recentLimit)
+    const nextMessageIdSet = new Set(nextMessageIds)
+    const evictedIds = current.recentMessageIds.filter((messageId) => (
+      !nextMessageIdSet.has(messageId)
+    ))
+    const appended = transcript.entries.filter((entry) => (
+      nextMessageIdSet.has(entry._id)
+    ))
+
+    const signatures = getChatMetadataSignatures(metadata)
+    const runtimeChanged = signatures.runtimeSignature !== current.runtimeSignature
+    const queueChanged = signatures.queueSignature !== current.queueSignature
+    const providersChanged = signatures.providersSignature !== current.providersSignature
+    const transcriptChanged = evictedIds.length > 0 || appended.length > 0
+
+    if (
+      !runtimeChanged
+      && !queueChanged
+      && !providersChanged
+      && !transcriptChanged
+    ) {
+      if (ws.data.subscriptions.get(id) === topic) {
+        deliveries.set(id, {
+          ...current,
+          deliveryHead: transcript.deliveryHead,
+          recentMessageIds: nextMessageIds,
+        })
+      }
+      return false
+    }
+
+    const stream: ChatStreamCursor = {
+      ...current.stream,
+      sequence: current.stream.sequence + 1,
+    }
+    const event: ChatDeltaEvent = {
+      type: "chat.delta",
+      chatId: topic.chatId,
+      baseSequence: current.stream.sequence,
+      stream,
+    }
+    if (transcriptChanged) {
+      event.transcript = {
+        type: "patch",
+        evictedIds,
+        removedIds: [],
+        replaced: [],
+        appended,
+      }
+    }
+    if (runtimeChanged) {
+      event.runtime = metadata.runtime
+    }
+    if (queueChanged) {
+      event.queuedMessages = metadata.queuedMessages
+    }
+    if (providersChanged) {
+      event.availableProviders = metadata.availableProviders
+    }
+
+    const result = sendWithStatus(ws, {
+      v: PROTOCOL_VERSION,
+      type: "event",
+      id,
+      event,
+    })
+    if (
+      result.accepted
+      && ws.data.subscriptions.get(id) === topic
+    ) {
+      deliveries.set(id, {
+        ...current,
+        stream,
+        deliveryHead: transcript.deliveryHead,
+        recentMessageIds: nextMessageIds,
+        ...signatures,
+      })
+    }
+    return result.accepted
+  }
+
   async function createEnvelope(
     id: string,
     topic: SubscriptionTopic,
@@ -827,7 +1193,7 @@ export function createWsRouter({
     }
   }
 
-  async function pushSnapshots(
+  async function pushSnapshotsNow(
     ws: ServerWebSocket<ClientState>,
     options?: { skipPrune?: boolean; filter?: SnapshotBroadcastFilter; cache?: SnapshotComputationCache }
   ) {
@@ -840,6 +1206,15 @@ export function createWsRouter({
     let skippedCount = 0
     for (const [id, topic] of ws.data.subscriptions.entries()) {
       if (!shouldIncludeTopic(topic, options?.filter)) {
+        continue
+      }
+      if (topic.type === "chat" && topic.stream?.version === 1) {
+        const sent = await pushChatStreamUpdate(ws, id, topic, options?.cache)
+        if (sent) {
+          sentCount += 1
+        } else {
+          skippedCount += 1
+        }
         continue
       }
       const envelopeStartedAt = performance.now()
@@ -888,20 +1263,39 @@ export function createWsRouter({
     }
   }
 
+  const socketPushChains = new WeakMap<ServerWebSocket<ClientState>, Promise<void>>()
+
+  async function pushSnapshots(
+    ws: ServerWebSocket<ClientState>,
+    options?: { skipPrune?: boolean; filter?: SnapshotBroadcastFilter; cache?: SnapshotComputationCache }
+  ) {
+    const previous = socketPushChains.get(ws) ?? Promise.resolve()
+    const current = previous
+      .catch(() => undefined)
+      .then(() => pushSnapshotsNow(ws, options))
+    socketPushChains.set(ws, current)
+    try {
+      await current
+    } finally {
+      if (socketPushChains.get(ws) === current) {
+        socketPushChains.delete(ws)
+      }
+    }
+  }
+
   async function broadcastSnapshots() {
     const startedAt = performance.now()
-    let socketCount = 0
     const cache: SnapshotComputationCache = {}
-    for (const ws of sockets) {
-      socketCount += 1
-      await pushSnapshots(ws, { skipPrune: true, cache })
-    }
+    const connectedSockets = [...sockets]
+    await Promise.all(connectedSockets.map((ws) => (
+      pushSnapshots(ws, { skipPrune: true, cache })
+    )))
     if (isSendToStartingProfilingEnabled()) {
       console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         pruneMs: 0,
-        socketCount,
+        socketCount: connectedSockets.length,
         totalChatCount: store.state.chatsById.size,
         totalProjectCount: store.state.projectsById.size,
       }))
@@ -910,17 +1304,16 @@ export function createWsRouter({
 
   async function broadcastFilteredSnapshots(filter: SnapshotBroadcastFilter) {
     const startedAt = performance.now()
-    let socketCount = 0
     const cache: SnapshotComputationCache = {}
-    for (const ws of sockets) {
-      socketCount += 1
-      await pushSnapshots(ws, { skipPrune: true, filter, cache })
-    }
+    const connectedSockets = [...sockets]
+    await Promise.all(connectedSockets.map((ws) => (
+      pushSnapshots(ws, { skipPrune: true, filter, cache })
+    )))
     if (isSendToStartingProfilingEnabled()) {
       console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_filtered_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        socketCount,
+        socketCount: connectedSockets.length,
         includeSidebar: Boolean(filter.includeSidebar),
         chatCount: filter.chatIds?.size ?? 0,
         projectCount: filter.projectIds?.size ?? 0,
@@ -1311,7 +1704,7 @@ export function createWsRouter({
           await agent.closeChat(command.chatId)
           await store.deleteChat(command.chatId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          await broadcastFilteredSnapshots({ includeSidebar: true })
+          await broadcastChatAndSidebar(command.chatId)
           return
         }
         case "chat.markRead": {
@@ -1642,8 +2035,10 @@ export function createWsRouter({
 
       if (parsed.type === "subscribe") {
         const snapshotSignatures = ensureSnapshotSignatures(ws)
+        const chatDeliveries = ensureChatDeliveries(ws)
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)
+        chatDeliveries.delete(parsed.id)
         if (parsed.topic.type === "local-projects") {
           // Saved StillOn projects can be rendered immediately. Provider
           // history discovery continues in the background and pushes updates.
@@ -1662,8 +2057,10 @@ export function createWsRouter({
 
       if (parsed.type === "unsubscribe") {
         const snapshotSignatures = ensureSnapshotSignatures(ws)
+        const chatDeliveries = ensureChatDeliveries(ws)
         ws.data.subscriptions.delete(parsed.id)
         snapshotSignatures.delete(parsed.id)
+        chatDeliveries.delete(parsed.id)
         send(ws, { v: PROTOCOL_VERSION, type: "ack", id: parsed.id })
         return
       }

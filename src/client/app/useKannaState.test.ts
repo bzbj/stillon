@@ -10,11 +10,18 @@ import {
   getUserPromptSignature,
   isHistoryCursorExpiredError,
   reconcileHistoryPaginationSnapshot,
+  reconcileOlderHistoryEntries,
   reconcileOptimisticUserPrompts,
   resolveComposeIntent,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
+  sameTranscriptEntries,
 } from "./useKannaState"
+import {
+  applyChatStreamDelta,
+  applyChatStreamSnapshot,
+  createChatStreamState,
+} from "./chatStreamState"
 import type { ChatAttachment, ChatSnapshot, SidebarData, TranscriptEntry, UserPromptEntry } from "../../shared/types"
 
 function createSidebarData(): SidebarData {
@@ -349,6 +356,91 @@ describe("reconcileHistoryPaginationSnapshot", () => {
     expect(updated.state.recentEntries.map((entry) => entry._id)).toEqual(["message-4", "message-5", "message-6"])
   })
 
+  test("preserves pagination fall-out when the live window arrives as a delta", () => {
+    const baselineSnapshot: ChatSnapshot = {
+      ...snapshot(
+        "revision-1",
+        [transcriptEntry(3), transcriptEntry(4), transcriptEntry(5)],
+        "cursor-3",
+        true,
+      ),
+      stream: {
+        version: 1,
+        revision: "stream-1",
+        sequence: 0,
+      },
+    }
+    const baseline = applyChatStreamSnapshot(
+      createChatStreamState("chat-1"),
+      baselineSnapshot,
+    )
+    const initialPagination = reconcileHistoryPaginationSnapshot(null, baselineSnapshot)
+    const streamed = applyChatStreamDelta(baseline.state, {
+      type: "chat.delta",
+      chatId: "chat-1",
+      baseSequence: 0,
+      stream: {
+        version: 1,
+        revision: "stream-1",
+        sequence: 1,
+      },
+      transcript: {
+        type: "patch",
+        evictedIds: ["message-3"],
+        removedIds: [],
+        replaced: [],
+        appended: [transcriptEntry(6)],
+      },
+    })
+
+    expect(streamed.kind).toBe("applied")
+    const updated = reconcileHistoryPaginationSnapshot(
+      initialPagination.state,
+      streamed.state.snapshot!,
+      { explicitWindowTransition: true },
+    )
+    expect(updated.reset).toBe(false)
+    expect(updated.fallenOutEntries.map((entry) => entry._id)).toEqual(["message-3"])
+    expect(updated.state.olderCursor).toBe("cursor-3")
+    expect(updated.state.recentEntries.map((entry) => entry._id)).toEqual([
+      "message-4",
+      "message-5",
+      "message-6",
+    ])
+  })
+
+  test("keeps an explicit delta window contiguous even when a batch has no overlap", () => {
+    const initial = reconcileHistoryPaginationSnapshot(
+      null,
+      snapshot("revision-1", [transcriptEntry(1), transcriptEntry(2)], "cursor-1", true),
+    )
+    const updated = reconcileHistoryPaginationSnapshot(
+      initial.state,
+      snapshot("revision-1", [transcriptEntry(3), transcriptEntry(4)], "cursor-3", true),
+      { explicitWindowTransition: true },
+    )
+
+    expect(updated.reset).toBe(false)
+    expect(updated.fallenOutEntries.map((entry) => entry._id)).toEqual([
+      "message-1",
+      "message-2",
+    ])
+    expect(updated.state.olderCursor).toBe("cursor-1")
+  })
+
+  test("preserves evictions but purges structural removals from loaded history", () => {
+    const reconciled = reconcileOlderHistoryEntries(
+      [transcriptEntry(1), transcriptEntry(2)],
+      [transcriptEntry(3), transcriptEntry(4)],
+      ["message-2", "message-4"],
+    )
+
+    expect(reconciled.map((entry) => entry._id)).toEqual([
+      "message-1",
+      "message-3",
+    ])
+  })
+
   test("resets loaded pagination when the transcript revision changes", () => {
     const initial = reconcileHistoryPaginationSnapshot(
       null,
@@ -394,6 +486,26 @@ describe("reconcileHistoryPaginationSnapshot", () => {
     expect(populated.reset).toBe(true)
     expect(populated.state.olderCursor).toBe("cursor-200")
     expect(populated.state.hasOlder).toBe(true)
+  })
+})
+
+describe("sameTranscriptEntries", () => {
+  test("does not hide a same-id content replacement from a full-snapshot fallback", () => {
+    const previous: TranscriptEntry[] = [{
+      _id: "message-1",
+      kind: "assistant_text",
+      createdAt: 1,
+      text: "old content",
+    }]
+    const replacement: TranscriptEntry[] = [{
+      _id: "message-1",
+      kind: "assistant_text",
+      createdAt: 1,
+      text: "new content",
+    }]
+
+    expect(sameTranscriptEntries(previous, replacement)).toBe(false)
+    expect(sameTranscriptEntries(previous, [{ ...previous[0]! }])).toBe(true)
   })
 })
 

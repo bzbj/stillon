@@ -48,6 +48,7 @@
     "release:verify": "bun run ./scripts/assert-release-version.ts",
     "check": "bun ./node_modules/typescript/bin/tsc --noEmit && bun run build:client && bun run build:export-viewer",
     "audit": "bun audit --audit-level=high",
+    "benchmark:transcript-deltas": "bun run ./scripts/benchmark-transcript-deltas.ts",
     "dev": "bun run ./scripts/dev.ts",
     "dev:client": "bun ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174",
     "dev:server": "bun run ./scripts/dev-server.ts --no-open --port 5175",

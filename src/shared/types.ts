@@ -1253,12 +1253,19 @@ export interface ChatHistorySnapshot {
   revision: string
 }
 
+export interface ChatStreamCursor {
+  version: 1
+  revision: string
+  sequence: number
+}
+
 export interface ChatSnapshot {
   runtime: ChatRuntime
   queuedMessages: QueuedChatMessage[]
   messages: TranscriptEntry[]
   history: ChatHistorySnapshot
   availableProviders: ProviderCatalogEntry[]
+  stream?: ChatStreamCursor
 }
 
 export interface ChatHistoryPage {

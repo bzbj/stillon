@@ -180,13 +180,17 @@ export function deriveLocalProjectsSnapshot(
   }
 }
 
-export function deriveChatSnapshot(
+export type ChatMetadataSnapshot = Pick<
+  ChatSnapshot,
+  "runtime" | "queuedMessages" | "availableProviders"
+>
+
+export function deriveChatMetadata(
   state: StoreState,
   activeStatuses: Map<string, KannaStatus>,
   drainingChatIds: Set<string>,
   chatId: string,
-  getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">
-): ChatSnapshot | null {
+): ChatMetadataSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
   const project = state.projectsById.get(chat.projectId)
@@ -204,16 +208,30 @@ export function deriveChatSnapshot(
     sessionToken: chat.sessionToken,
   }
 
-  const transcript = getMessages(chat.id)
-
   return {
     runtime,
     queuedMessages: (state.queuedMessagesByChatId.get(chat.id) ?? []).map((entry) => ({
       ...entry,
       attachments: [...entry.attachments],
     })),
+    availableProviders: [...SERVER_PROVIDERS],
+  }
+}
+
+export function deriveChatSnapshot(
+  state: StoreState,
+  activeStatuses: Map<string, KannaStatus>,
+  drainingChatIds: Set<string>,
+  chatId: string,
+  getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">
+): ChatSnapshot | null {
+  const metadata = deriveChatMetadata(state, activeStatuses, drainingChatIds, chatId)
+  if (!metadata) return null
+  const transcript = getMessages(chatId)
+
+  return {
+    ...metadata,
     messages: transcript.messages,
     history: transcript.history,
-    availableProviders: [...SERVER_PROVIDERS],
   }
 }

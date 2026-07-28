@@ -19,7 +19,18 @@ import { processTranscriptMessages } from "../lib/parseTranscript"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
-import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath } from "../../shared/protocol"
+import {
+  applyChatStreamDelta,
+  applyChatStreamSnapshot,
+  createChatStreamState,
+} from "./chatStreamState"
+import type {
+  ChatDeltaEvent,
+  EditorOpenSettings,
+  LocalDirectoryListResult,
+  OpenExternalAction,
+  ResolvedLocalPath,
+} from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -35,11 +46,16 @@ function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: Ch
     && left.sessionToken === right.sessionToken
 }
 
-function sameTranscriptEntries(left: ChatSnapshot["messages"] | null | undefined, right: ChatSnapshot["messages"] | null | undefined) {
+export function sameTranscriptEntries(left: ChatSnapshot["messages"] | null | undefined, right: ChatSnapshot["messages"] | null | undefined) {
   if (left === right) return true
   if (!left || !right) return false
   if (left.length !== right.length) return false
-  return left.every((entry, index) => entry._id === right[index]?._id)
+  return left.every((entry, index) => {
+    const other = right[index]
+    return Boolean(other)
+      && entry._id === other._id
+      && JSON.stringify(entry) === JSON.stringify(other)
+  })
 }
 
 function sameProviders(left: ProviderCatalogEntry[] | null | undefined, right: ProviderCatalogEntry[] | null | undefined) {
@@ -70,6 +86,14 @@ function sameHistory(left: ChatSnapshot["history"] | null | undefined, right: Ch
     && left.olderCursor === right.olderCursor
     && left.recentLimit === right.recentLimit
     && left.revision === right.revision
+}
+
+function sameStream(left: ChatSnapshot["stream"], right: ChatSnapshot["stream"]) {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.version === right.version
+    && left.revision === right.revision
+    && left.sequence === right.sequence
 }
 
 function sameQueuedMessage(left: QueuedChatMessage, right: QueuedChatMessage) {
@@ -167,6 +191,7 @@ function sameChatSnapshotCore(left: ChatSnapshot | null, right: ChatSnapshot | n
   if (!left || !right) return false
   return sameRuntime(left.runtime, right.runtime)
     && sameQueuedMessages(left.queuedMessages, right.queuedMessages)
+    && sameStream(left.stream, right.stream)
     && sameTranscriptEntries(left.messages, right.messages)
     && sameHistory(left.history, right.history)
     && sameProviders(left.availableProviders, right.availableProviders)
@@ -183,6 +208,22 @@ function mergeTranscriptEntries(olderHistoryEntries: TranscriptEntry[], recentEn
   return [...deduped.values()]
 }
 
+export function reconcileOlderHistoryEntries(
+  current: TranscriptEntry[],
+  additions: TranscriptEntry[],
+  removedIds: string[],
+) {
+  if (additions.length === 0 && removedIds.length === 0) {
+    return current
+  }
+
+  const removed = new Set(removedIds)
+  return mergeTranscriptEntries(
+    current.filter((entry) => !removed.has(entry._id)),
+    additions.filter((entry) => !removed.has(entry._id)),
+  )
+}
+
 interface HistoryPaginationState {
   chatId: string
   revision: string
@@ -194,6 +235,7 @@ interface HistoryPaginationState {
 export function reconcileHistoryPaginationSnapshot(
   current: HistoryPaginationState | null,
   snapshot: ChatSnapshot,
+  options: { explicitWindowTransition?: boolean } = {},
 ) {
   const createResetResult = () => ({
     state: {
@@ -218,7 +260,8 @@ export function reconcileHistoryPaginationSnapshot(
   const nextRecentIds = new Set(snapshot.messages.map((entry) => entry._id))
   const hasOverlap = current.recentEntries.some((entry) => nextRecentIds.has(entry._id))
   if (
-    snapshot.messages.length > 0
+    !options.explicitWindowTransition
+    && snapshot.messages.length > 0
     && (
       current.recentEntries.length === 0
       || !hasOverlap
@@ -405,6 +448,10 @@ export function reconcileOptimisticUserPrompts(
   scopeId: string,
   serverEntries: TranscriptEntry[],
 ) {
+  if (optimisticPrompts.length === 0) {
+    return optimisticPrompts
+  }
+
   const matchCounts = new Map<string, number>()
   for (const entry of serverEntries) {
     if (entry.kind !== "user_prompt") continue
@@ -993,7 +1040,17 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
     setChatSnapshot(null)
     setChatReady(false)
-    const unsubscribe = socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId, recentLimit: INITIAL_CHAT_RECENT_LIMIT }, (snapshot) => {
+    let streamState = createChatStreamState(activeChatId)
+    let subscription: ReturnType<KannaSocket["subscribe"]> | null = null
+
+    const commitSnapshot = (
+      snapshot: ChatSnapshot | null,
+      options: {
+        forceHistoryReset?: boolean
+        evictedEntries?: TranscriptEntry[]
+        removedIds?: string[]
+      } = {},
+    ) => {
       if (subscriptionId !== chatSubscriptionDebugRef.current) {
         return
       }
@@ -1018,8 +1075,11 @@ export function useKannaState(activeChatId: string | null): KannaState {
         setHasOlderHistory(false)
       } else {
         const reconciledHistory = reconcileHistoryPaginationSnapshot(
-          historyPaginationRef.current,
+          options.forceHistoryReset ? null : historyPaginationRef.current,
           snapshot,
+          {
+            explicitWindowTransition: options.evictedEntries !== undefined,
+          },
         )
         historyPaginationRef.current = reconciledHistory.state
         if (reconciledHistory.reset) {
@@ -1027,10 +1087,15 @@ export function useKannaState(activeChatId: string | null): KannaState {
           historyLoadInFlightRef.current = false
           setOlderHistoryEntries([])
           setIsHistoryLoading(false)
-        } else if (reconciledHistory.fallenOutEntries.length > 0) {
-          setOlderHistoryEntries((current) => (
-            mergeTranscriptEntries(current, reconciledHistory.fallenOutEntries)
-          ))
+        } else {
+          const entriesToPreserve = options.evictedEntries
+            ?? reconciledHistory.fallenOutEntries
+          const removedIds = options.removedIds ?? []
+          if (entriesToPreserve.length > 0 || removedIds.length > 0) {
+            setOlderHistoryEntries((current) => (
+              reconcileOlderHistoryEntries(current, entriesToPreserve, removedIds)
+            ))
+          }
         }
         setHasOlderHistory(reconciledHistory.state.hasOlder)
       }
@@ -1051,7 +1116,52 @@ export function useKannaState(activeChatId: string | null): KannaState {
       })
       setChatReady(true)
       setCommandError(null)
+    }
+
+    subscription = socket.subscribe<ChatSnapshot | null, ChatDeltaEvent>({
+      type: "chat",
+      chatId: activeChatId,
+      recentLimit: INITIAL_CHAT_RECENT_LIMIT,
+      stream: { version: 1 },
+    }, (snapshot) => {
+      const transition = applyChatStreamSnapshot(streamState, snapshot)
+      streamState = transition.state
+      if (transition.kind === "resync_required") {
+        if (transition.reason !== "resync_pending") {
+          subscription?.resubscribe()
+        }
+        return
+      }
+      commitSnapshot(transition.state.snapshot, {
+        forceHistoryReset: transition.transcriptReset,
+      })
+    }, (event) => {
+      if (event.type !== "chat.delta") {
+        return
+      }
+
+      const transition = applyChatStreamDelta(streamState, event)
+      streamState = transition.state
+      if (transition.kind === "resync_required") {
+        if (transition.reason !== "resync_pending") {
+          subscription?.resubscribe()
+        }
+        return
+      }
+      if (transition.kind === "duplicate") {
+        return
+      }
+      commitSnapshot(transition.state.snapshot, {
+        forceHistoryReset: transition.transcriptReset,
+        evictedEntries: transition.transcriptChange === "patch"
+          ? transition.evictedEntries
+          : undefined,
+        removedIds: transition.transcriptChange === "patch"
+          ? transition.removedIds
+          : undefined,
+      })
     })
+
     return () => {
       logKannaState("unsubscribing from chat", {
         subscriptionId,
@@ -1059,7 +1169,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
         sidebarProjectGroups: sidebarProjectGroups.length,
         sidebarChatCount: sidebarProjectGroups.reduce((count, group) => count + group.chats.length, 0),
       })
-      unsubscribe()
+      subscription?.()
     }
   }, [activeChatId, historyRefreshEpoch, socket])
 

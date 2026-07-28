@@ -161,6 +161,141 @@ describe("KannaSocket", () => {
     restoreGlobalProperty("WebSocket", originalWebSocketDescriptor)
   })
 
+  test("sends a subscription created while connecting exactly once on open", () => {
+    const socket = new KannaSocket("ws://localhost/ws")
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    const handle = socket.subscribe(
+      { type: "chat", chatId: "chat-1", stream: { version: 1 } },
+      () => undefined,
+    )
+
+    expect(ws.sent).toEqual([])
+
+    ws.open()
+
+    expect(ws.sent).toEqual([{
+      v: 1,
+      type: "subscribe",
+      id: handle.id,
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        stream: { version: 1 },
+      },
+    }])
+    handle()
+    socket.dispose()
+  })
+
+  test("does not queue stale subscription controls while disconnected", () => {
+    const socket = new KannaSocket("ws://localhost/ws")
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    const handle = socket.subscribe({ type: "sidebar" }, () => undefined)
+
+    expect(handle.resubscribe()).toBe(false)
+    handle()
+    handle()
+    ws.open()
+
+    expect(ws.sent).toEqual([])
+    expect(handle.resubscribe()).toBe(false)
+    socket.dispose()
+  })
+
+  test("resubscribes with the same id only while open", () => {
+    const socket = new KannaSocket("ws://localhost/ws")
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    const handle = socket.subscribe({ type: "sidebar" }, () => undefined)
+    ws.open()
+
+    expect(handle.resubscribe()).toBe(true)
+    expect(ws.sent.map((message) => [message.type, message.id])).toEqual([
+      ["subscribe", handle.id],
+      ["subscribe", handle.id],
+    ])
+
+    handle()
+
+    expect(ws.sent.at(-1)).toEqual({
+      v: 1,
+      type: "unsubscribe",
+      id: handle.id,
+    })
+    expect(handle.resubscribe()).toBe(false)
+    socket.dispose()
+  })
+
+  test("dispatches snapshots and events by subscription id", () => {
+    const snapshots: Array<{ marker: string }> = []
+    const events: Array<{ marker: string }> = []
+    const socket = new KannaSocket("ws://localhost/ws")
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    const handle = socket.subscribe<{ marker: string }, { marker: string }>(
+      { type: "chat", chatId: "chat-1", stream: { version: 1 } },
+      (value) => snapshots.push(value),
+      (value) => events.push(value),
+    )
+    ws.open()
+
+    ws.receive({
+      v: 1,
+      type: "snapshot",
+      id: handle.id,
+      snapshot: {
+        type: "chat",
+        data: { marker: "full" },
+      },
+    })
+    ws.receive({
+      v: 1,
+      type: "event",
+      id: handle.id,
+      event: { marker: "delta" },
+    })
+    ws.receive({
+      v: 1,
+      type: "event",
+      id: "unrelated",
+      event: { marker: "ignored" },
+    })
+
+    expect(snapshots).toEqual([{ marker: "full" }])
+    expect(events).toEqual([{ marker: "delta" }])
+    handle()
+    socket.dispose()
+  })
+
+  test("sends one same-id subscription after reconnect", () => {
+    const socket = new KannaSocket("ws://localhost/ws")
+    socket.start()
+    const firstWs = FakeWebSocket.instances[0]!
+    const handle = socket.subscribe({ type: "sidebar" }, () => undefined)
+    firstWs.open()
+
+    expect(firstWs.sent).toHaveLength(1)
+    expect(firstWs.sent[0]?.id).toBe(handle.id)
+
+    firstWs.close()
+    timers.runTimeout((socket as any).reconnectTimer)
+    const secondWs = FakeWebSocket.instances[1]!
+
+    expect(secondWs.sent).toEqual([])
+    secondWs.open()
+
+    expect(secondWs.sent).toEqual([{
+      v: 1,
+      type: "subscribe",
+      id: handle.id,
+      topic: { type: "sidebar" },
+    }])
+    handle()
+    socket.dispose()
+  })
+
   test("does not ping when the connection is already fresh", async () => {
     const socket = new KannaSocket("ws://localhost/ws")
     socket.start()

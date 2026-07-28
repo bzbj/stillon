@@ -14,6 +14,12 @@ type EventListener<T> = (value: T) => void
 export type SocketStatus = "connecting" | "connected" | "disconnected"
 type StatusListener = (status: SocketStatus) => void
 
+export interface SubscriptionHandle {
+  (): void
+  readonly id: string
+  resubscribe: () => boolean
+}
+
 const STALE_CONNECTION_MS = 25_000
 const HEARTBEAT_INTERVAL_MS = 15_000
 const PING_TIMEOUT_MS = 4_000
@@ -111,18 +117,36 @@ export class KannaSocket {
     topic: SubscriptionTopic,
     listener: SnapshotListener<TSnapshot>,
     eventListener?: EventListener<TEvent>
-  ) {
+  ): SubscriptionHandle {
     const id = generateUUID()
     this.subscriptions.set(id, {
       topic,
       listener: listener as SnapshotListener<unknown>,
       eventListener: eventListener as EventListener<unknown> | undefined,
     })
-    this.enqueue({ v: 1, type: "subscribe", id, topic })
-    return () => {
-      this.subscriptions.delete(id)
-      this.enqueue({ v: 1, type: "unsubscribe", id })
+    this.sendSubscriptionControl({ v: 1, type: "subscribe", id, topic })
+
+    const handle = (() => {
+      if (!this.subscriptions.delete(id)) {
+        return
+      }
+      this.sendSubscriptionControl({ v: 1, type: "unsubscribe", id })
+    }) as SubscriptionHandle
+    Object.defineProperty(handle, "id", {
+      configurable: false,
+      enumerable: true,
+      value: id,
+      writable: false,
+    })
+    handle.resubscribe = () => {
+      const subscription = this.subscriptions.get(id)
+      if (!subscription || this.ws?.readyState !== WebSocket.OPEN) {
+        return false
+      }
+      this.sendNow({ v: 1, type: "subscribe", id, topic: subscription.topic })
+      return true
     }
+    return handle
   }
 
   subscribeTerminal(
@@ -132,18 +156,12 @@ export class KannaSocket {
       onEvent?: EventListener<TerminalEvent>
     }
   ) {
-    const id = generateUUID()
     const topic: SubscriptionTopic = { type: "terminal", terminalId }
-    this.subscriptions.set(id, {
+    return this.subscribe<TerminalSnapshot | null, TerminalEvent>(
       topic,
-      listener: handlers.onSnapshot as SnapshotListener<unknown>,
-      eventListener: handlers.onEvent as EventListener<unknown> | undefined,
-    })
-    this.enqueue({ v: 1, type: "subscribe", id, topic })
-    return () => {
-      this.subscriptions.delete(id)
-      this.enqueue({ v: 1, type: "unsubscribe", id })
-    }
+      handlers.onSnapshot,
+      handlers.onEvent,
+    )
   }
 
   command<TResult = unknown>(command: ClientCommand) {
@@ -396,6 +414,14 @@ export class KannaSocket {
       return
     }
     this.outboundQueue.push(envelope)
+  }
+
+  private sendSubscriptionControl(
+    envelope: Extract<ClientEnvelope, { type: "subscribe" | "unsubscribe" }>,
+  ) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.sendNow(envelope)
+    }
   }
 
   private sendNow(envelope: ClientEnvelope) {

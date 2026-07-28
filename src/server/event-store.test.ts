@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Buffer } from "node:buffer"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -90,6 +91,7 @@ describe("EventStore", () => {
 
     const store = new EventStore(dataDir)
     await store.initialize()
+    const legacyHistory = await store.getRecentChatHistoryWithDeliveryHead(chatId, 200)
 
     const progress: string[] = []
     const migrated = await store.migrateLegacyTranscripts((message) => {
@@ -108,6 +110,9 @@ describe("EventStore", () => {
     expect(migratedSnapshot.messages).toBeUndefined()
     expect(await readFile(messagesLogPath, "utf8")).toBe("")
     expect(await readFile(join(dataDir, "transcripts", `${chatId}.jsonl`), "utf8")).toContain('"kind":"assistant_text"')
+    const deliveryAfterMigration = store.getTranscriptAppendsSince(chatId, legacyHistory.deliveryHead)
+    expect(deliveryAfterMigration.type).toBe("reset")
+    expect(deliveryAfterMigration.deliveryHead.revision).not.toBe(legacyHistory.deliveryHead.revision)
   })
 
   test("appends new transcript entries only to the per-chat transcript file", async () => {
@@ -164,6 +169,137 @@ describe("EventStore", () => {
     expect(oldestPage.messages.map((message) => message._id)).toEqual(["user_prompt-201"])
     expect(oldestPage.hasOlder).toBe(false)
     expect(oldestPage.olderCursor).toBeNull()
+  })
+
+  test("captures recent history and its delivery head atomically while preserving append order", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const first = entry("user_prompt", 301, { content: "first" })
+    const second = entry("assistant_text", 302, { content: "second" })
+    const third = entry("assistant_text", 303, { content: "third" })
+    await store.appendMessage(chat.id, first)
+
+    const historyPromise = store.getRecentChatHistoryWithDeliveryHead(chat.id, 200)
+    const secondAppend = store.appendMessage(chat.id, second)
+    const thirdAppend = store.appendMessage(chat.id, third)
+    const [history] = await Promise.all([historyPromise, secondAppend, thirdAppend])
+
+    expect(history.messages.map((message) => message._id)).toEqual([first._id])
+    expect(history.deliveryHead.sequence).toBe(1)
+    expect(store.getTranscriptAppendsSince(chat.id, history.deliveryHead)).toEqual({
+      type: "appends",
+      entries: [second, third],
+      deliveryHead: {
+        revision: history.deliveryHead.revision,
+        sequence: 3,
+      },
+    })
+  })
+
+  test("bounds retained appends globally by count while preserving per-chat coverage", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir, {
+      transcriptAppendJournal: {
+        maxEntries: 2,
+        maxBytes: 1024 * 1024,
+      },
+    })
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const firstChat = await store.createChat(project.id)
+    const secondChat = await store.createChat(project.id)
+    const firstBase = await store.getRecentChatHistoryWithDeliveryHead(firstChat.id, 200)
+    const secondBase = await store.getRecentChatHistoryWithDeliveryHead(secondChat.id, 200)
+    const firstEntry = entry("user_prompt", 311, { content: "first chat, first entry" })
+    const secondEntry = entry("assistant_text", 312, { content: "second chat" })
+    const thirdEntry = entry("assistant_text", 313, { content: "first chat, second entry" })
+
+    await store.appendMessage(firstChat.id, firstEntry)
+    const firstAfterOne = store.getTranscriptAppendsSince(firstChat.id, firstBase.deliveryHead)
+    expect(firstAfterOne.type).toBe("appends")
+    await store.appendMessage(secondChat.id, secondEntry)
+    await store.appendMessage(firstChat.id, thirdEntry)
+
+    expect(store.getTranscriptAppendsSince(firstChat.id, firstBase.deliveryHead).type).toBe("reset")
+    if (firstAfterOne.type !== "appends") throw new Error("Expected retained append")
+    expect(store.getTranscriptAppendsSince(firstChat.id, firstAfterOne.deliveryHead)).toMatchObject({
+      type: "appends",
+      entries: [thirdEntry],
+    })
+    expect(store.getTranscriptAppendsSince(secondChat.id, secondBase.deliveryHead)).toMatchObject({
+      type: "appends",
+      entries: [secondEntry],
+    })
+  })
+
+  test("uses UTF-8 bytes for the global append journal budget", async () => {
+    const dataDir = await createTempDataDir()
+    const unicodeEntry = entry("assistant_text", 321, { content: "🙂🙂🙂🙂" })
+    const payload = `${JSON.stringify(unicodeEntry)}\n`
+    expect(Buffer.byteLength(payload, "utf8")).toBeGreaterThan(payload.length)
+    const store = new EventStore(dataDir, {
+      transcriptAppendJournal: {
+        maxEntries: 10,
+        maxBytes: payload.length,
+      },
+    })
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const base = await store.getRecentChatHistoryWithDeliveryHead(chat.id, 200)
+    await store.appendMessage(chat.id, unicodeEntry)
+
+    expect(store.getTranscriptAppendsSince(chat.id, base.deliveryHead)).toMatchObject({
+      type: "reset",
+      deliveryHead: { sequence: 1 },
+    })
+  })
+
+  test("resets delivery after restart because the append journal is process-local", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    await store.appendMessage(chat.id, entry("user_prompt", 331, { content: "persisted" }))
+    const history = await store.getRecentChatHistoryWithDeliveryHead(chat.id, 200)
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    const result = reloaded.getTranscriptAppendsSince(chat.id, history.deliveryHead)
+
+    expect(result.type).toBe("reset")
+    expect(result.deliveryHead.sequence).toBe(0)
+    expect(result.deliveryHead.revision).not.toBe(history.deliveryHead.revision)
+  })
+
+  test("does not advance delivery sequence when the JSONL append fails", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const history = await store.getRecentChatHistoryWithDeliveryHead(chat.id, 200)
+    const transcriptsPath = join(dataDir, "transcripts")
+    await rm(transcriptsPath, { recursive: true, force: true })
+    await writeFile(transcriptsPath, "blocks transcript directory recreation", "utf8")
+
+    await expect(
+      store.appendMessage(chat.id, entry("assistant_text", 341, { content: "must fail" })),
+    ).rejects.toThrow()
+    expect(store.getTranscriptAppendsSince(chat.id, history.deliveryHead)).toEqual({
+      type: "appends",
+      entries: [],
+      deliveryHead: history.deliveryHead,
+    })
   })
 
   test("persists queued messages across restart and removes promoted entries", async () => {
