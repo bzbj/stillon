@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
+import {
+  CHAT_HISTORY_PAGE_ENTRY_LIMIT,
+  INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
+} from "../../shared/transcript-history"
 import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
@@ -417,9 +421,6 @@ export function reconcileOptimisticUserPrompts(
     return (matchCounts.get(prompt.signature) ?? 0) < prompt.requiredMatchCount
   })
 }
-
-const INITIAL_CHAT_RECENT_LIMIT = 200
-const CHAT_HISTORY_PAGE_SIZE = 500
 
 export function getNewestRemainingChatId(projectGroups: SidebarData["projectGroups"], activeChatId: string): string | null {
   const projectGroup = projectGroups.find((group) => group.chats.some((chat) => chat.chatId === activeChatId))
@@ -993,7 +994,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
     setChatSnapshot(null)
     setChatReady(false)
-    const unsubscribe = socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId, recentLimit: INITIAL_CHAT_RECENT_LIMIT }, (snapshot) => {
+    const unsubscribe = socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId, recentLimit: INITIAL_CHAT_HISTORY_ENTRY_LIMIT }, (snapshot) => {
       if (subscriptionId !== chatSubscriptionDebugRef.current) {
         return
       }
@@ -1338,7 +1339,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
         type: "chat.loadHistory",
         chatId: activeChatId,
         beforeCursor: requestCursor,
-        limit: CHAT_HISTORY_PAGE_SIZE,
+        limit: CHAT_HISTORY_PAGE_ENTRY_LIMIT,
       })
       const current = historyPaginationRef.current
       if (

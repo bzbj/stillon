@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import type { ServerWebSocket } from "bun"
+import { INITIAL_CHAT_HISTORY_ENTRY_LIMIT } from "../shared/transcript-history"
 import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
@@ -36,8 +37,18 @@ import type {
   SubscriptionUsageSnapshot,
 } from "../shared/types"
 
-const DEFAULT_CHAT_RECENT_LIMIT = 200
 const SKILL_AGENT_ALIASES = ["universal", "claude-code"] as const
+
+export function normalizeInitialChatHistoryEntryLimit(requestedLimit: number | undefined) {
+  if (requestedLimit === undefined || !Number.isFinite(requestedLimit)) {
+    return INITIAL_CHAT_HISTORY_ENTRY_LIMIT
+  }
+  if (requestedLimit <= 0) return 0
+  return Math.min(
+    INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
+    Math.floor(requestedLimit),
+  )
+}
 
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
@@ -167,7 +178,7 @@ function getSidebarProjectOrder(store: EventStore) {
 function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
   const payload = JSON.stringify(message)
   ws.send(payload)
-  return payload.length
+  return Buffer.byteLength(payload, "utf8")
 }
 
 export function assertSafeSkillSource(source: string) {
@@ -798,7 +809,7 @@ export function createWsRouter({
       }
     }
 
-    const recentLimit = topic.recentLimit ?? DEFAULT_CHAT_RECENT_LIMIT
+    const recentLimit = normalizeInitialChatHistoryEntryLimit(topic.recentLimit)
     const cacheKey = `${topic.chatId}:${recentLimit}`
     let transcriptPromise = cache?.chatHistories?.get(cacheKey)
     if (!transcriptPromise) {
