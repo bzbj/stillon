@@ -6,6 +6,11 @@ StillOn owns the local origin and its HTTP/WebSocket behavior; it does not
 create tunnels, configure DNS or TLS, or administer Cloudflare, VPNs, or other
 edge services.
 
+Remote PWA installation and the offline app shell require a browser-facing
+HTTPS origin. Plain HTTP can still carry ordinary StillOn traffic over a
+trusted private tunnel, but browsers do not enable service workers for remote
+non-loopback HTTP origins.
+
 ## Choose an ingress model
 
 Keep the default loopback listener when a reverse proxy or tunnel runs on the
@@ -41,6 +46,12 @@ The proxy must:
   public deployment); and
 - forward client addressing with `X-Forwarded-For` when login rate limiting
   should distinguish users behind the proxy.
+
+Production app-shell files carry `Cache-Control: no-transform` because their
+bytes are integrity checked by the browser service worker. Configure the
+ingress to honor that directive, and disable HTML/JavaScript/CSS rewriting
+(for example auto-minification or script injection) if it does not. Ordinary
+compression such as Brotli or gzip is compatible.
 
 Enable `--trust-proxy` only when the proxy is the sole route to StillOn. In
 that mode StillOn trusts `X-Forwarded-Proto` for HTTPS redirects, origin

@@ -92,7 +92,7 @@ describe("password auth", () => {
     try {
       const response = await fetch(`http://localhost:${server.port}/chat/demo`, { headers: { Accept: "text/html" } })
       expect(response.status).toBe(200)
-      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(response.headers.get("cache-control")).toBe("no-store, no-transform")
       expect(response.headers.get("content-type")).toContain("text/html")
       expect(await response.text()).toContain('id="root"')
     } finally {

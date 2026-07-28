@@ -4,6 +4,10 @@ StillOn 是 local-first，而不是 local-only。默认监听 `127.0.0.1`；操�
 这一本地服务从其他设备访问。StillOn 负责本机 origin 以及 HTTP/WebSocket 行为，
 不负责创建隧道、配置 DNS/TLS，也不管理 Cloudflare、VPN 或其他边缘服务。
 
+远程安装 PWA 以及使用离线 app shell，需要浏览器侧为 HTTPS origin。可信私有
+隧道中的普通 HTTP 仍可承载 StillOn 的常规流量，但浏览器不会为非 loopback
+的远程 HTTP origin 启用 Service Worker。
+
 ## 选择入口方式
 
 若反向代理或隧道运行在同一台机器上，保持默认的 loopback 监听：
@@ -36,6 +40,11 @@ http://127.0.0.1:3210
 - 为 `/ws` 转发 WebSocket upgrade；
 - 设置 `X-Forwarded-Proto` 为浏览器侧协议（通常公网部署为 `https`）；
 - 如需按真实用户进行登录限流，转发 `X-Forwarded-For`。
+
+生产环境的 app shell 文件会带上 `Cache-Control: no-transform`，因为浏览器里的
+Service Worker 会校验文件字节。入口代理应遵守该指令；若不能遵守，请关闭
+HTML/JavaScript/CSS 重写（例如自动压缩代码或注入脚本）。Brotli、gzip 等普通
+传输压缩不受影响。
 
 只有当该代理是访问 StillOn 的唯一途径时，才启用 `--trust-proxy`。该模式下
 StillOn 会信任 `X-Forwarded-Proto` 来处理 HTTPS 跳转、Origin 校验和 Secure

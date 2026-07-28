@@ -6,6 +6,7 @@ import {
   rewritePreviewResponseText,
   rewriteRootRelativeReferences,
 } from "./browser-preview-proxy"
+import { PREVIEW_DOCUMENT_CSP, PREVIEW_IFRAME_SANDBOX } from "../shared/preview-security"
 
 describe("browser preview proxy", () => {
   test("parses preview proxy targets", () => {
@@ -87,6 +88,7 @@ describe("browser preview proxy", () => {
               "X-Frame-Options": "DENY",
               "Content-Security-Policy": "frame-ancestors 'none'",
               "Set-Cookie": "preview_token=private",
+              "Service-Worker-Allowed": "/",
             },
           })
         }) as unknown as typeof fetch,
@@ -102,10 +104,41 @@ describe("browser preview proxy", () => {
     expect(forwardedHeaders.get("x-forwarded-for")).toBeNull()
     expect(forwardedHeaders.get("origin")).toBe("http://127.0.0.1:5173")
     expect(response!.headers.get("x-frame-options")).toBeNull()
-    expect(response!.headers.get("content-security-policy")).toBeNull()
+    expect(response!.headers.get("content-security-policy")).toBe(PREVIEW_DOCUMENT_CSP)
+    expect(response!.headers.get("content-security-policy")).toContain("allow-same-origin")
     expect(response!.headers.get("content-length")).toBeNull()
     expect(response!.headers.get("set-cookie")).toBeNull()
+    expect(response!.headers.get("service-worker-allowed")).toBeNull()
     expect(await response!.text()).toBe('<script src="/api/browser-proxy/5173/src/main.ts"></script>')
+  })
+
+  test("keeps origin-bound APIs available to trusted local previews", () => {
+    expect(PREVIEW_IFRAME_SANDBOX).toContain("allow-scripts")
+    expect(PREVIEW_IFRAME_SANDBOX).toContain("allow-same-origin")
+    expect(PREVIEW_DOCUMENT_CSP).toBe(`sandbox ${PREVIEW_IFRAME_SANDBOX}`)
+  })
+
+  test("rejects preview service-worker script requests before contacting upstream", async () => {
+    let didFetch = false
+    const response = await handleBrowserPreviewProxy(
+      new Request("https://stillon.example.com/api/browser-proxy/5173/sw.js", {
+        headers: {
+          "Service-Worker": "script",
+        },
+      }),
+      new URL("https://stillon.example.com/api/browser-proxy/5173/sw.js"),
+      {
+        isAllowedPort: async () => true,
+        fetchImpl: (async () => {
+          didFetch = true
+          return new Response("self.skipWaiting()")
+        }) as unknown as typeof fetch,
+      },
+    )
+
+    expect(response?.status).toBe(403)
+    expect(response?.headers.get("cache-control")).toBe("no-store")
+    expect(didFetch).toBe(false)
   })
 
   test("rejects unavailable preview ports before proxying", async () => {

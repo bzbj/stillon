@@ -120,3 +120,40 @@ The user data directory (`~/.stillon/`) is deliberately outside every
 runtime release directory, so upgrades and rollbacks retain the same history.
 StillOn can migrate a prior `~/.kanna/` data root on first launch, but it never
 uses Kanna's command or environment variables after the data migration.
+
+### Recover a bad browser app shell
+
+StillOn's production client uses a service worker for its public app shell.
+It never stores authentication responses, API responses, transcripts, uploads,
+previews, or local files. Each browser origin has an independent registration
+and cache.
+
+Updates wait for an explicit **Reload now** action. Activation applies to the
+whole browser origin, so any other open StillOn tabs reload once as well; this
+keeps every tab on the same hashed JavaScript graph and service-worker cache.
+
+Browser previews remain same-origin so local development apps can use storage
+and other origin-bound APIs. StillOn strips preview service-worker headers,
+rejects preview service-worker script requests, and never puts preview
+responses in the app-shell cache. Only preview local development servers you
+trust; a separate preview origin is the stronger isolation boundary.
+
+If a broken client remains after an update:
+
+1. Deploy or roll back to a known-good runtime and verify `/health`.
+2. Reopen the exact StillOn browser origin while online. If the update notice
+   appears, choose **Reload now**.
+3. If the old client remains, close every tab, window, and installed app for
+   that origin, then reopen it.
+4. If updates consistently fail behind an ingress, verify that it honors
+   `Cache-Control: no-transform` and disable HTML/JavaScript/CSS rewriting.
+5. If necessary, use the browser's per-site settings or developer tools to
+   unregister the StillOn service worker and remove Cache Storage entries whose
+   names start with `stillon-app-shell-`, then reload.
+6. As a last resort, clear site data for that exact origin and authenticate
+   again.
+
+Clearing site data also removes the authentication cookie and browser-local
+preferences. It does not delete projects or chat history in StillOn's
+server-side data directory. Never delete that directory to recover a browser
+service worker.
