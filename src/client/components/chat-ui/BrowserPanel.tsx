@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type F
 import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
 import { buildProjectFileContentUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
+import { PREVIEW_IFRAME_SANDBOX } from "../../../shared/preview-security"
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../../shared/protocol"
 import type { KannaSocket } from "../../app/socket"
 import {
@@ -552,7 +553,7 @@ function BrowserPanelImpl({
                   key={`${previewAddress}-${iframeVersion}`}
                   src={previewAddress}
                   title="Browser panel"
-                  sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                  sandbox={PREVIEW_IFRAME_SANDBOX}
                   className="h-full w-full origin-top-left border-0 bg-background"
                   style={{
                     width: `${100 / zoom}%`,

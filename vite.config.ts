@@ -1,5 +1,6 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
+import { pwaAppShellPlugin } from "./scripts/pwa-app-shell-build"
 import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
 
@@ -32,7 +33,7 @@ const backendTargetHost = getBackendTargetHost()
 const backendPort = getBackendPort()
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pwaAppShellPlugin()],
   server: {
     host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
@@ -57,6 +58,7 @@ export default defineConfig({
   build: {
     outDir: "dist/client",
     emptyOutDir: true,
+    manifest: true,
     // @pierre/diffs lazily loads a few syntax grammars that are close to 780 kB.
     // Keep the warning threshold above that expected on-demand ceiling so it
     // remains useful for unexpectedly large application chunks.

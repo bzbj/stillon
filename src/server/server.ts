@@ -1,6 +1,6 @@
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
-import { APP_NAME, LOG_PREFIX } from "../shared/branding"
+import { LOG_PREFIX } from "../shared/branding"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
@@ -31,6 +31,7 @@ import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
+import { serveStatic } from "./static-files"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -843,42 +844,4 @@ async function handleProjectUploadDelete(req: Request, url: URL, store: EventSto
   })
 
   return Response.json({ ok: deleted })
-}
-
-async function serveStatic(distDir: string, pathname: string) {
-  const requestedPath = pathname === "/" ? "/index.html" : pathname
-  const filePath = path.join(distDir, requestedPath)
-  const indexPath = path.join(distDir, "index.html")
-
-  const file = Bun.file(filePath)
-  if (await file.exists()) {
-    return new Response(file, {
-      headers: getStaticHeaders(requestedPath),
-    })
-  }
-
-  const indexFile = Bun.file(indexPath)
-  if (await indexFile.exists()) {
-    return new Response(indexFile, {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    })
-  }
-
-  return new Response(
-    `${APP_NAME} client bundle not found. Run \`bun run build\` inside workbench/ first.`,
-    { status: 503 }
-  )
-}
-
-function getStaticHeaders(requestedPath: string) {
-  if (requestedPath.endsWith(".html")) {
-    return {
-      "Cache-Control": "no-store",
-    }
-  }
-
-  return undefined
 }

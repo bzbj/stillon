@@ -17,8 +17,7 @@ import { useKannaState } from "./useKannaState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 
 const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
-const AUTH_STATUS_RETRY_DELAY_MS = 500
-
+const AUTH_STATUS_TIMEOUT_MS = 4_000
 const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
 const SettingsPage = lazy(() => import("./SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })))
 
@@ -83,8 +82,9 @@ interface AuthStatusResponse {
   authenticated: boolean
 }
 
-type AppAuthState =
+export type AppAuthState =
   | { status: "checking" }
+  | { status: "offline" }
   | { status: "ready" }
   | { status: "locked"; error: string | null }
 
@@ -98,6 +98,70 @@ export function getAppAuthStateFromStatus(payload: Partial<AuthStatusResponse>):
 
 export function shouldRetryAuthStatusRequest(responseOk: boolean | null) {
   return responseOk !== true
+}
+
+export function getAppAuthStateFromStatusFailure(): AppAuthState {
+  return { status: "offline" }
+}
+
+export async function fetchAuthStatus(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = AUTH_STATUS_TIMEOUT_MS,
+) {
+  const controller = new AbortController()
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort(new DOMException("Authentication status timed out", "TimeoutError"))
+  }, timeoutMs)
+
+  try {
+    return await fetchImpl("/auth/status", {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    })
+  } finally {
+    globalThis.clearTimeout(timeoutId)
+  }
+}
+
+export function OfflineScreen({ onRetry }: { onRetry: () => Promise<void> }) {
+  const [retrying, setRetrying] = useState(false)
+
+  async function retry() {
+    if (retrying) return
+    setRetrying(true)
+    try {
+      await onRetry()
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-6 py-10">
+      <Card className="w-full max-w-md rounded-3xl border border-border bg-card shadow-sm">
+        <CardHeader className="space-y-3 px-6 pt-6 pb-4">
+          <CardTitle className="font-logo text-xl text-slate-600 dark:text-slate-100">{APP_NAME}</CardTitle>
+          <CardDescription className="leading-6">
+            Still On is offline. Reconnect to this computer to continue.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-6 pb-6">
+          <Button
+            type="button"
+            disabled={retrying}
+            className="h-11 w-full"
+            onClick={() => void retry()}
+          >
+            {retrying ? "Checking…" : "Retry"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
 
 export function getAppPageTitle(machineName: string | null | undefined, notificationCount = 0) {
@@ -175,49 +239,39 @@ function PasswordScreen({
 
 function useAppAuthState() {
   const [state, setState] = useState<AppAuthState>({ status: "checking" })
-  const retryTimeoutRef = useRef<number | null>(null)
+  const refreshRequestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
-    if (retryTimeoutRef.current !== null) {
-      window.clearTimeout(retryTimeoutRef.current)
-      retryTimeoutRef.current = null
-    }
-
+    const requestId = ++refreshRequestIdRef.current
     setState((current) => current.status === "ready" ? current : { status: "checking" })
 
-    let response: Response
     try {
-      response = await fetch("/auth/status", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-        },
-      })
+      const response = await fetchAuthStatus()
+
+      if (requestId !== refreshRequestIdRef.current) return
+      if (shouldRetryAuthStatusRequest(response.ok)) {
+        setState(getAppAuthStateFromStatusFailure())
+        return
+      }
+
+      const payload = await response.json() as Partial<AuthStatusResponse>
+      if (requestId !== refreshRequestIdRef.current) return
+      setState(getAppAuthStateFromStatus(payload))
     } catch {
-      retryTimeoutRef.current = window.setTimeout(() => {
-        void refresh()
-      }, AUTH_STATUS_RETRY_DELAY_MS)
-      return
+      if (requestId !== refreshRequestIdRef.current) return
+      setState(getAppAuthStateFromStatusFailure())
     }
-
-    if (shouldRetryAuthStatusRequest(response.ok)) {
-      retryTimeoutRef.current = window.setTimeout(() => {
-        void refresh()
-      }, AUTH_STATUS_RETRY_DELAY_MS)
-      return
-    }
-
-    const payload = await response.json() as Partial<AuthStatusResponse>
-    setState(getAppAuthStateFromStatus(payload))
   }, [])
 
   useEffect(() => {
+    const handleOnline = () => {
+      void refresh()
+    }
+    window.addEventListener("online", handleOnline)
     void refresh()
     return () => {
-      if (retryTimeoutRef.current !== null) {
-        window.clearTimeout(retryTimeoutRef.current)
-      }
+      refreshRequestIdRef.current += 1
+      window.removeEventListener("online", handleOnline)
     }
   }, [refresh])
 
@@ -241,6 +295,7 @@ function useAppAuthState() {
 
   return {
     state,
+    refresh,
     submitPassword,
   }
 }
@@ -441,6 +496,10 @@ export function App() {
 
   if (auth.state.status === "locked") {
     return <PasswordScreen error={auth.state.error} onSubmit={auth.submitPassword} />
+  }
+
+  if (auth.state.status === "offline") {
+    return <OfflineScreen onRetry={auth.refresh} />
   }
 
   return (

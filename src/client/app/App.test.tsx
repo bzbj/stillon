@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { getAppAuthStateFromStatus, getAppPageTitle, shouldPlayChatNotificationSound, shouldRedirectToChangelog, shouldRetryAuthStatusRequest } from "./App"
+import { renderToStaticMarkup } from "react-dom/server"
+import { fetchAuthStatus, getAppAuthStateFromStatus, getAppAuthStateFromStatusFailure, getAppPageTitle, OfflineScreen, shouldPlayChatNotificationSound, shouldRedirectToChangelog, shouldRetryAuthStatusRequest } from "./App"
 import { getChatNotificationSnapshot, getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
 import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth, getConnectionStatusPresentation } from "./KannaSidebar"
 import { isBrowserUnfocused, shouldPlayChatSound } from "../lib/chatSounds"
@@ -73,6 +74,30 @@ describe("auth boot helpers", () => {
     expect(shouldRetryAuthStatusRequest(null)).toBe(true)
     expect(shouldRetryAuthStatusRequest(false)).toBe(true)
     expect(shouldRetryAuthStatusRequest(true)).toBe(false)
+  })
+
+  test("uses a non-sensitive offline shell when auth status is unreachable", () => {
+    expect(getAppAuthStateFromStatusFailure()).toEqual({ status: "offline" })
+    const html = renderToStaticMarkup(<OfflineScreen onRetry={async () => undefined} />)
+    expect(html).toContain("Still On is offline")
+    expect(html).toContain("Retry")
+    expect(html).not.toContain("transcript")
+  })
+
+  test("bounds an unresponsive auth status probe", async () => {
+    let observedAbort = false
+    const fetchImpl = ((_input: RequestInfo | URL, init?: RequestInit) => (
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal
+        signal?.addEventListener("abort", () => {
+          observedAbort = true
+          reject(signal.reason)
+        }, { once: true })
+      })
+    )) as unknown as typeof fetch
+
+    await expect(fetchAuthStatus(fetchImpl, 5)).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(observedAbort).toBe(true)
   })
 })
 

@@ -1,5 +1,6 @@
 import { listLocalHttpServers } from "./local-http-servers"
 import { BROWSER_PREVIEW_PROXY_PREFIX, isLoopbackPreviewHost } from "../shared/browser-preview-proxy"
+import { PREVIEW_DOCUMENT_CSP } from "../shared/preview-security"
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -145,6 +146,14 @@ function buildResponseHeaders(upstreamHeaders: Headers, port: number) {
   headers.delete("cross-origin-embedder-policy")
   headers.delete("set-cookie")
   headers.delete("set-cookie2")
+  headers.delete("service-worker-allowed")
+
+  const contentType = upstreamHeaders.get("content-type")?.toLowerCase() ?? ""
+  if (contentType.includes("text/html")) {
+    headers.set("Content-Security-Policy", PREVIEW_DOCUMENT_CSP)
+    headers.set("Permissions-Policy", "accelerometer=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
+    headers.set("Referrer-Policy", "no-referrer")
+  }
 
   const location = headers.get("location")
   if (location) {
@@ -166,6 +175,20 @@ export async function handleBrowserPreviewProxy(
 ) {
   const target = parseBrowserPreviewProxyTarget(url.pathname)
   if (!target) return null
+
+  if (
+    req.headers.get("service-worker")?.toLowerCase() === "script"
+    || req.headers.get("sec-fetch-dest")?.toLowerCase() === "serviceworker"
+  ) {
+    return new Response("Service workers are not available in browser previews.", {
+      status: 403,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+  }
 
   if (url.pathname === `${BROWSER_PREVIEW_PROXY_PREFIX}/${target.port}`) {
     return new Response(null, {
