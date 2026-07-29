@@ -1120,6 +1120,8 @@ export function ChatPage() {
         <Suspense fallback={<ChatTranscriptLoadingFallback />}>
           <ChatTranscriptViewport
             activeChatId={state.activeChatId}
+            toolResultStore={state.toolResultStore}
+            refreshToolResultTranscript={state.refreshToolResultTranscript}
             listRef={transcriptListRef}
             messages={state.messages}
             queuedMessages={state.queuedMessages}

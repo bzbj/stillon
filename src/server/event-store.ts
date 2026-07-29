@@ -4,7 +4,15 @@ import { homedir } from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
-import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { ToolResultBodyResult } from "../shared/protocol"
+import type {
+  AgentProvider,
+  ChatHistoryPage,
+  ChatHistorySnapshot,
+  QueuedChatMessage,
+  ToolResultEntry,
+  TranscriptEntry,
+} from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
   type ChatEvent,
@@ -1193,6 +1201,95 @@ export class EventStore {
       entries.push(entry)
     }
     return entries
+  }
+
+  async loadToolResult(
+    chatId: string,
+    resultId: string,
+    requestedRevision: string,
+  ): Promise<ToolResultBodyResult> {
+    if (!this.getChat(chatId)) {
+      return {
+        status: "missing",
+        chatId,
+        resultId,
+        revision: requestedRevision,
+      }
+    }
+
+    const currentRevision = this.getTranscriptRevision(chatId)
+    if (currentRevision !== requestedRevision) {
+      return {
+        status: "stale",
+        chatId,
+        resultId,
+        requestedRevision,
+        currentRevision,
+      }
+    }
+
+    let result: ToolResultEntry | null = null
+    try {
+      for await (const entry of this.iterateMessages(chatId)) {
+        if (entry._id !== resultId) continue
+        if (entry.kind !== "tool_result" || result) {
+          return {
+            status: "missing",
+            chatId,
+            resultId,
+            revision: requestedRevision,
+          }
+        }
+        result = entry
+      }
+    } catch (error) {
+      if (!this.getChat(chatId)) {
+        return {
+          status: "missing",
+          chatId,
+          resultId,
+          revision: requestedRevision,
+        }
+      }
+      throw error
+    }
+
+    if (!this.getChat(chatId)) {
+      return {
+        status: "missing",
+        chatId,
+        resultId,
+        revision: requestedRevision,
+      }
+    }
+
+    const finalRevision = this.getTranscriptRevision(chatId)
+    if (finalRevision !== requestedRevision) {
+      return {
+        status: "stale",
+        chatId,
+        resultId,
+        requestedRevision,
+        currentRevision: finalRevision,
+      }
+    }
+
+    if (!result || result.deferredContent) {
+      return {
+        status: "missing",
+        chatId,
+        resultId,
+        revision: requestedRevision,
+      }
+    }
+
+    return {
+      status: "ok",
+      chatId,
+      resultId,
+      revision: requestedRevision,
+      entry: result,
+    }
   }
 
   async hasMessages(chatId: string) {

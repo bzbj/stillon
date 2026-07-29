@@ -4,6 +4,7 @@ import type { ProcessedToolCall, AskUserQuestionItem, AskUserQuestionOption } fr
 import type { AskUserQuestionAnswerMap } from "../../../shared/types"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
+import { hasToolResult } from "../../../shared/tools"
 import { useTranscriptRenderOptions } from "./render-context"
 
 interface Props {
@@ -150,7 +151,7 @@ function getQuestionKey(question: AskUserQuestionItem): string {
 export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   const renderOptions = useTranscriptRenderOptions()
   const questions = message.input.questions
-  const isComplete = !!message.result
+  const isComplete = hasToolResult(message)
   const savedAnswers = parseAnswersFromResult(message.result)
   const isDiscarded = message.result?.discarded === true
 

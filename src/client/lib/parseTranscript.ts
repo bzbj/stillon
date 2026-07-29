@@ -90,6 +90,14 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
       case "tool_result": {
         const pendingCall = pendingToolCalls.get(entry.toolId)
         if (pendingCall) {
+          pendingCall.hydrated.isError = entry.isError
+          if (entry.deferredContent) {
+            delete pendingCall.hydrated.result
+            delete pendingCall.hydrated.rawResult
+            pendingCall.hydrated.deferredResult = entry.deferredContent
+            break
+          }
+
           const rawResult = (
             pendingCall.normalized.toolKind === "ask_user_question" ||
             pendingCall.normalized.toolKind === "exit_plan_mode"
@@ -97,9 +105,9 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
             ? getStructuredToolResultFromDebug(entry) ?? entry.content
             : entry.content
 
+          delete pendingCall.hydrated.deferredResult
           pendingCall.hydrated.result = hydrateToolResult(pendingCall.normalized, rawResult) as never
           pendingCall.hydrated.rawResult = rawResult
-          pendingCall.hydrated.isError = entry.isError
         }
         break
       }

@@ -7,6 +7,7 @@ import type {
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   SubscriptionUsageSnapshot,
+  TranscriptEntry,
 } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
@@ -1055,6 +1056,101 @@ describe("ws-router", () => {
     })
   })
 
+  test("projects oversized tool results only for opt-in chat subscriptions", async () => {
+    const state = createEmptyState()
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      localPath: "/tmp/project",
+      title: "Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.chatsById.set("chat-1", {
+      id: "chat-1",
+      projectId: "project-1",
+      title: "Chat",
+      createdAt: 1,
+      updatedAt: 1,
+      unread: false,
+      provider: null,
+      planMode: false,
+      sessionToken: null,
+      lastTurnOutcome: null,
+    })
+    const sentinel = "full-result-sentinel-".repeat(3_000)
+    const resultEntry: TranscriptEntry = {
+      _id: "result-large",
+      kind: "tool_result",
+      toolId: "tool-large",
+      content: sentinel,
+      debugRaw: JSON.stringify({ duplicated: sentinel }),
+      createdAt: 1,
+    }
+    const store = {
+      state,
+      getRecentChatHistory: async () => ({
+        messages: [resultEntry],
+        history: {
+          hasOlder: false,
+          olderCursor: null,
+          recentLimit: 200,
+          revision: "revision-1",
+        },
+      }),
+    }
+    const router = createWsRouter({
+      store: store as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const rawSocket = new FakeWebSocket()
+    const boundedSocket = new FakeWebSocket()
+    router.handleOpen(rawSocket as never)
+    router.handleOpen(boundedSocket as never)
+
+    await router.handleMessage(rawSocket as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-raw",
+      topic: { type: "chat", chatId: "chat-1", recentLimit: 200 },
+    }))
+    await router.handleMessage(boundedSocket as never, JSON.stringify({
+      v: 1,
+      type: "subscribe",
+      id: "chat-bounded",
+      topic: {
+        type: "chat",
+        chatId: "chat-1",
+        recentLimit: 200,
+        toolResults: { version: 1 },
+      },
+    }))
+
+    const rawMessage = (rawSocket.sent[0] as any).snapshot.data.messages[0]
+    const boundedMessage = (boundedSocket.sent[0] as any).snapshot.data.messages[0]
+    expect(rawMessage.content).toBe(sentinel)
+    expect(rawMessage.debugRaw).toContain(sentinel)
+    expect(boundedMessage.content).toBeNull()
+    expect(boundedMessage.debugRaw).toBeUndefined()
+    expect(boundedMessage.deferredContent).toMatchObject({
+      resultId: "result-large",
+      revision: "revision-1",
+      contentKind: "text",
+      truncated: true,
+    })
+    expect(JSON.stringify(boundedMessage)).not.toContain(sentinel)
+  })
+
   test("reuses one sidebar derivation across sockets in the same broadcast pass", async () => {
     const state = createEmptyState()
     state.projectsById.set("project-1", {
@@ -1443,6 +1539,122 @@ describe("ws-router", () => {
         hasOlder: false,
         olderCursor: null,
         revision: "revision-1",
+      },
+    })
+  })
+
+  test("projects opt-in history pages and routes scoped full-result loads", async () => {
+    const state = createEmptyState()
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      localPath: "/tmp/project",
+      title: "Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.chatsById.set("chat-1", {
+      id: "chat-1",
+      projectId: "project-1",
+      title: "Chat",
+      createdAt: 1,
+      updatedAt: 1,
+      unread: false,
+      provider: null,
+      planMode: false,
+      sessionToken: null,
+      lastTurnOutcome: null,
+    })
+    const fullContent = "history-result-".repeat(4_000)
+    const fullEntry: TranscriptEntry = {
+      _id: "history-result",
+      kind: "tool_result",
+      toolId: "tool-history",
+      content: fullContent,
+      createdAt: 1,
+    }
+    const lookupCalls: unknown[][] = []
+    const router = createWsRouter({
+      store: {
+        state,
+        getChat: () => state.chatsById.get("chat-1") ?? null,
+        getMessagesPageBefore: async () => ({
+          messages: [fullEntry],
+          hasOlder: false,
+          olderCursor: null,
+          revision: "revision-1",
+        }),
+        loadToolResult: async (...args: unknown[]) => {
+          lookupCalls.push(args)
+          return {
+            status: "ok",
+            chatId: "chat-1",
+            resultId: "history-result",
+            revision: "revision-1",
+            entry: fullEntry,
+          }
+        },
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+
+    await router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "command",
+      id: "history-bounded",
+      command: {
+        type: "chat.loadHistory",
+        chatId: "chat-1",
+        beforeCursor: "cursor-1",
+        limit: 100,
+        toolResults: { version: 1 },
+      },
+    }))
+    await router.handleMessage(ws as never, JSON.stringify({
+      v: 1,
+      type: "command",
+      id: "tool-result-full",
+      command: {
+        type: "chat.loadToolResult",
+        chatId: "chat-1",
+        resultId: "history-result",
+        revision: "revision-1",
+      },
+    }))
+
+    const bounded = (ws.sent[0] as any).result.messages[0]
+    expect(bounded.content).toBeNull()
+    expect(bounded.deferredContent).toMatchObject({
+      resultId: "history-result",
+      revision: "revision-1",
+    })
+    expect(JSON.stringify(bounded)).not.toContain(fullContent)
+    expect(lookupCalls).toEqual([[
+      "chat-1",
+      "history-result",
+      "revision-1",
+    ]])
+    expect(ws.sent[1]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "tool-result-full",
+      result: {
+        status: "ok",
+        chatId: "chat-1",
+        resultId: "history-result",
+        revision: "revision-1",
+        entry: fullEntry,
       },
     })
   })

@@ -16,10 +16,17 @@ import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
 import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
 import { processTranscriptMessages } from "../lib/parseTranscript"
+import { ToolResultSessionStore } from "../lib/toolResultSessionStore"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
-import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath } from "../../shared/protocol"
+import type {
+  EditorOpenSettings,
+  LocalDirectoryListResult,
+  OpenExternalAction,
+  ResolvedLocalPath,
+  ToolResultBodyResult,
+} from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -39,7 +46,12 @@ function sameTranscriptEntries(left: ChatSnapshot["messages"] | null | undefined
   if (left === right) return true
   if (!left || !right) return false
   if (left.length !== right.length) return false
-  return left.every((entry, index) => entry._id === right[index]?._id)
+  return left.every((entry, index) => {
+    const other = right[index]
+    if (!other || entry._id !== other._id) return false
+    if (entry.kind !== "tool_result" || other.kind !== "tool_result") return true
+    return JSON.stringify(entry.deferredContent) === JSON.stringify(other.deferredContent)
+  })
 }
 
 function sameProviders(left: ProviderCatalogEntry[] | null | undefined, right: ProviderCatalogEntry[] | null | undefined) {
@@ -660,6 +672,7 @@ export function getActiveChatSnapshot(chatSnapshot: ChatSnapshot | null, activeC
 
 export interface KannaState {
   socket: KannaSocket
+  toolResultStore: ToolResultSessionStore
   activeChatId: string | null
   activeProjectId: string | null
   sidebarData: SidebarData
@@ -703,6 +716,7 @@ export interface KannaState {
   openAddProjectModal: () => void
   closeAddProjectModal: () => void
   loadOlderHistory: () => Promise<void>
+  refreshToolResultTranscript: () => void
   handleCreateChat: (projectId: string) => Promise<void>
   handleForkChat: (chat: SidebarChatRow) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
@@ -792,6 +806,18 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const historyPaginationRef = useRef<HistoryPaginationState | null>(null)
   const historyRequestTokenRef = useRef(0)
   const historyLoadInFlightRef = useRef(false)
+  const toolResultStoreRef = useRef<ToolResultSessionStore | null>(null)
+  if (!toolResultStoreRef.current) {
+    toolResultStoreRef.current = new ToolResultSessionStore(async (request) => (
+      await socket.command<ToolResultBodyResult>({
+        type: "chat.loadToolResult",
+        chatId: request.chatId,
+        resultId: request.resultId,
+        revision: request.revision,
+      })
+    ))
+  }
+  const toolResultStore = toolResultStoreRef.current
   const draftChatIds = useChatInputStore(useShallow((state) => Object.keys(state.drafts).sort()))
   const attachmentDraftChatIds = useChatInputStore(
     useShallow((state) => Object.keys(state.attachmentDrafts).sort())
@@ -827,6 +853,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
+
+  useEffect(() => () => {
+    toolResultStore.dispose()
+  }, [toolResultStore])
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
@@ -993,7 +1023,12 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
     setChatSnapshot(null)
     setChatReady(false)
-    const unsubscribe = socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId, recentLimit: INITIAL_CHAT_RECENT_LIMIT }, (snapshot) => {
+    const unsubscribe = socket.subscribe<ChatSnapshot | null>({
+      type: "chat",
+      chatId: activeChatId,
+      recentLimit: INITIAL_CHAT_RECENT_LIMIT,
+      toolResults: { version: 1 },
+    }, (snapshot) => {
       if (subscriptionId !== chatSubscriptionDebugRef.current) {
         return
       }
@@ -1339,6 +1374,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
         chatId: activeChatId,
         beforeCursor: requestCursor,
         limit: CHAT_HISTORY_PAGE_SIZE,
+        toolResults: { version: 1 },
       })
       const current = historyPaginationRef.current
       if (
@@ -1383,6 +1419,16 @@ export function useKannaState(activeChatId: string | null): KannaState {
       }
     }
   }, [activeChatId, socket])
+
+  const refreshToolResultTranscript = useCallback(() => {
+    historyPaginationRef.current = null
+    historyRequestTokenRef.current += 1
+    historyLoadInFlightRef.current = false
+    setOlderHistoryEntries([])
+    setIsHistoryLoading(false)
+    setHasOlderHistory(false)
+    setHistoryRefreshEpoch((value) => value + 1)
+  }, [])
 
   const createChatForProject = useCallback(async (projectId: string) => {
     const chatPreferences = useChatPreferencesStore.getState()
@@ -2008,6 +2054,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   return {
     socket,
+    toolResultStore,
     activeChatId,
     activeProjectId,
     sidebarData: resolvedSidebarData,
@@ -2051,6 +2098,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     openAddProjectModal,
     closeAddProjectModal,
     loadOlderHistory,
+    refreshToolResultTranscript,
     handleCreateChat,
     handleForkChat,
     handleOpenLocalProject,

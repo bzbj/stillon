@@ -15,6 +15,7 @@ import type {
   SidebarData,
   StandaloneTranscriptAttachmentMode,
   StandaloneTranscriptExportResult,
+  ToolResultEntry,
   EditorPreset,
 } from "./types"
 
@@ -62,7 +63,12 @@ export type SubscriptionTopic =
   | { type: "local-projects" }
   | { type: "keybindings" }
   | { type: "app-settings" }
-  | { type: "chat"; chatId: string; recentLimit?: number }
+  | {
+      type: "chat"
+      chatId: string
+      recentLimit?: number
+      toolResults?: { version: 1 }
+    }
   | { type: "project-git"; projectId: string }
   | { type: "terminal"; terminalId: string }
 
@@ -83,6 +89,28 @@ export interface TerminalSnapshot {
 export type TerminalEvent =
   | { type: "terminal.output"; terminalId: string; data: string }
   | { type: "terminal.exit"; terminalId: string; exitCode: number; signal?: number }
+
+export type ToolResultBodyResult =
+  | {
+      status: "ok"
+      chatId: string
+      resultId: string
+      revision: string
+      entry: ToolResultEntry
+    }
+  | {
+      status: "missing"
+      chatId: string
+      resultId: string
+      revision: string
+    }
+  | {
+      status: "stale"
+      chatId: string
+      resultId: string
+      requestedRevision: string
+      currentRevision: string
+    }
 
 export type ClientCommand =
   | { type: "project.open"; localPath: string }
@@ -231,7 +259,19 @@ export type ClientCommand =
       theme: "light" | "dark"
       attachmentMode: StandaloneTranscriptAttachmentMode
     }
-  | { type: "chat.loadHistory"; chatId: string; beforeCursor: string; limit: number }
+  | {
+      type: "chat.loadHistory"
+      chatId: string
+      beforeCursor: string
+      limit: number
+      toolResults?: { version: 1 }
+    }
+  | {
+      type: "chat.loadToolResult"
+      chatId: string
+      resultId: string
+      revision: string
+    }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
   | {
       type: "message.enqueue"
@@ -278,7 +318,12 @@ export type ServerSnapshot =
 export type ServerEnvelope =
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
   | { v: 1; type: "event"; id: string; event: TerminalEvent }
-  | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult }
+  | {
+      v: 1
+      type: "ack"
+      id: string
+      result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult | ToolResultBodyResult
+    }
   | { v: 1; type: "error"; id?: string; message: string }
 
 export function isClientEnvelope(value: unknown): value is ClientEnvelope {

@@ -93,6 +93,26 @@ Use a file readable only by the account that runs the service, especially if a
 proxy URL includes credentials. After editing it, rerun the same `service
 install --env-file …` command to restart the service with the new settings.
 
+## Transcript tool-result payloads
+
+StillOn keeps small tool results inline and sends oversized results as a
+bounded preview. The browser retrieves a complete oversized result only when
+its inner tool row is expanded. Persisted transcripts and standalone exports
+remain complete.
+
+The defaults suit most installations:
+
+```dotenv
+STILLON_TOOL_RESULT_INLINE_BYTES=32768
+STILLON_TOOL_RESULT_PREVIEW_BYTES=2048
+```
+
+Both values are UTF-8 byte limits for each tool result. The inline threshold
+is capped at 64 MiB and the preview threshold at 64 KiB; invalid values use the
+safe defaults. Changing either value requires restarting StillOn. Keeping the
+defaults is recommended unless a measured workload justifies a different
+tradeoff between initial session payload and expansion round trips.
+
 ## Verify, update, and roll back
 
 Check the native service and local health endpoint after each deployment:

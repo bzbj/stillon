@@ -10,6 +10,7 @@ import { processTranscriptMessages } from "../client/lib/parseTranscript"
 import { syncThemeMetadata } from "../client/hooks/useTheme"
 import type { AskUserQuestionItem } from "../client/components/messages/types"
 import { APP_NAME } from "../shared/branding"
+import { assertCompleteStandaloneTranscript } from "../shared/standalone-transcript"
 import type { AskUserQuestionAnswerMap, StandaloneTranscriptBundle } from "../shared/types"
 import "../index.css"
 
@@ -36,7 +37,9 @@ function StandaloneTranscriptApp() {
           throw new Error(`Transcript request failed with status ${response.status}`)
         }
 
-        return await response.json() as StandaloneTranscriptBundle
+        const bundle = await response.json() as StandaloneTranscriptBundle
+        assertCompleteStandaloneTranscript(bundle)
+        return bundle
       })
       .then((bundle) => {
         if (cancelled) return

@@ -1,10 +1,11 @@
-import { useMemo } from "react"
+import { useId, useMemo } from "react"
 import { ChevronRight } from "lucide-react"
 import { ToolCallMessage } from "./ToolCallMessage"
 import { MetaRow, MetaLabel } from "./shared"
 import { AnimatedShinyText } from "../ui/animated-shiny-text"
 import type { ProcessedToolCall } from "./types"
 import type { HydratedTranscriptMessage } from "../../../shared/types"
+import { hasToolResult } from "../../../shared/tools"
 
 interface ToolCategory {
   key: string
@@ -66,11 +67,12 @@ interface Props {
 
 export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, onExpandedChange }: Props) {
   const label = useMemo(() => getToolGroupLabel(messages), [messages])
+  const contentId = useId()
 
   // Check if any tool in the group is still in progress
   const anyInProgress = messages.some(msg => {
     const processed = msg as ProcessedToolCall
-    return processed.result === undefined
+    return !hasToolResult(processed)
   })
 
   const showLoadingState = anyInProgress && isLoading
@@ -79,6 +81,9 @@ export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, o
     <MetaRow className="w-full">
       <div className="flex flex-col w-full">
         <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={contentId}
           onClick={() => onExpandedChange(!expanded)}
           className={`group cursor-pointer grid grid-cols-[auto_1fr] items-center gap-1 text-sm ${!expanded && !showLoadingState ? "hover:opacity-60 transition-opacity" : ""}`}
         >
@@ -94,7 +99,7 @@ export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, o
           </div>
         </button>
         {expanded && (
-          <div className="my-4 flex flex-col gap-3">
+          <div id={contentId} className="my-4 flex flex-col gap-3">
             {messages.map(msg => (
               <ToolCallMessage
                 key={msg.id}
@@ -105,6 +110,7 @@ export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, o
             ))}
             {messages.length > 5 && (
               <button
+                type="button"
                 onClick={() => onExpandedChange(false)}
                 className="cursor-pointer grid grid-cols-[auto_1fr] items-center gap-1 text-xs hover:opacity-80 transition-opacity"
               >

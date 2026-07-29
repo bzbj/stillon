@@ -1,4 +1,5 @@
 import type { HydratedTranscriptMessage } from "../../shared/types"
+import { hasToolResult } from "../../shared/tools"
 import type { ProcessedToolCall } from "../components/messages/types"
 
 const SPECIAL_TOOL_NAMES = ["AskUserQuestion", "ExitPlanMode", "TodoWrite"] as const
@@ -9,7 +10,7 @@ function findLatestUnresolvedToolId(messages: HydratedTranscriptMessage[], toolN
     const message = messages[index]
     if (message.kind !== "tool") continue
     const toolCall = message as ProcessedToolCall
-    if (toolCall.toolName === toolName && !toolCall.result) {
+    if (toolCall.toolName === toolName && !hasToolResult(toolCall)) {
       return toolCall.id
     }
   }

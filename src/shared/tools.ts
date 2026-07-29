@@ -269,7 +269,16 @@ function normalizeReadBlocks(value: unknown): Array<ReadStructuredTextBlock | Re
   return normalized
 }
 
-export function hydrateToolResult(tool: NormalizedToolCall, raw: unknown): HydratedToolCall["result"] {
+export function hasToolResult(
+  tool: Pick<HydratedToolCall, "result" | "deferredResult">,
+) {
+  return tool.result !== undefined || tool.deferredResult !== undefined
+}
+
+export function hydrateToolResult(
+  tool: Pick<NormalizedToolCall, "toolKind">,
+  raw: unknown,
+): HydratedToolCall["result"] {
   const parsed = parseJsonValue(raw)
 
   switch (tool.toolKind) {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { processTranscriptMessages } from "./parseTranscript"
 import { getLatestToolIds } from "../app/derived"
+import { hasToolResult } from "../../shared/tools"
 import type { TranscriptEntry } from "../../shared/types"
 
 function entry(partial: Omit<TranscriptEntry, "_id" | "createdAt">): TranscriptEntry {
@@ -35,6 +36,93 @@ describe("processTranscriptMessages", () => {
     expect(messages[0]?.kind).toBe("tool")
     if (messages[0]?.kind !== "tool") throw new Error("unexpected message")
     expect(messages[0].result).toBe("/Users/example/Projects/stillon\n")
+  })
+
+  test("preserves deferred result metadata without treating the preview as a full result", () => {
+    const messages = processTranscriptMessages([
+      entry({
+        kind: "tool_call",
+        tool: {
+          kind: "tool",
+          toolKind: "bash",
+          toolName: "Bash",
+          toolId: "tool-deferred",
+          input: { command: "large-command" },
+        },
+      }),
+      entry({
+        kind: "tool_result",
+        toolId: "tool-deferred",
+        content: null,
+        deferredContent: {
+          version: 1,
+          resultId: "result-deferred",
+          revision: "revision-1",
+          byteLength: 1_000_000,
+          contentKind: "text",
+          preview: "bounded preview",
+          previewByteLength: 15,
+          truncated: true,
+        },
+      }),
+    ])
+
+    expect(messages[0]?.kind).toBe("tool")
+    if (messages[0]?.kind !== "tool") throw new Error("unexpected message")
+    expect(messages[0].result).toBeUndefined()
+    expect(messages[0].rawResult).toBeUndefined()
+    expect(messages[0].deferredResult).toMatchObject({
+      resultId: "result-deferred",
+      revision: "revision-1",
+      preview: "bounded preview",
+    })
+    expect(hasToolResult(messages[0])).toBe(true)
+  })
+
+  test("keeps last-result-wins semantics across inline and deferred entries", () => {
+    const call = entry({
+      kind: "tool_call",
+      tool: {
+        kind: "tool",
+        toolKind: "bash",
+        toolName: "Bash",
+        toolId: "tool-replaced",
+        input: { command: "pwd" },
+      },
+    })
+    const deferred = entry({
+      kind: "tool_result",
+      toolId: "tool-replaced",
+      content: null,
+      deferredContent: {
+        version: 1,
+        resultId: "result-deferred",
+        revision: "revision-1",
+        byteLength: 100_000,
+        contentKind: "text",
+        preview: "preview",
+        previewByteLength: 7,
+        truncated: true,
+      },
+    })
+    const inline = entry({
+      kind: "tool_result",
+      toolId: "tool-replaced",
+      content: false,
+    })
+
+    const deferredLast = processTranscriptMessages([call, inline, deferred])[0]
+    expect(deferredLast?.kind).toBe("tool")
+    if (deferredLast?.kind !== "tool") throw new Error("unexpected message")
+    expect(deferredLast.result).toBeUndefined()
+    expect(deferredLast.deferredResult?.resultId).toBe("result-deferred")
+
+    const inlineLast = processTranscriptMessages([call, deferred, inline])[0]
+    expect(inlineLast?.kind).toBe("tool")
+    if (inlineLast?.kind !== "tool") throw new Error("unexpected message")
+    expect(inlineLast.deferredResult).toBeUndefined()
+    expect(inlineLast.result).toBe(false)
+    expect(hasToolResult(inlineLast)).toBe(true)
   })
 
   test("hydrates ask-user-question results with typed answers", () => {
