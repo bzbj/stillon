@@ -18,7 +18,7 @@ import {
 import { Button, buttonVariants } from "../ui/button"
 import { Textarea } from "../ui/textarea"
 import { ScrollArea } from "../ui/scroll-area"
-import { cn } from "../../lib/utils"
+import { cn, generateUUID } from "../../lib/utils"
 import { useIsStandalone } from "../../hooks/useIsStandalone"
 import { useChatInputStore } from "../../stores/chatInputStore"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
@@ -241,6 +241,24 @@ interface ComposerAttachment extends ChatAttachment {
   status: ComposerAttachmentStatus
   previewUrl?: string
   uploadProgress?: number
+}
+
+export function createPendingComposerAttachment(file: File) {
+  const isImage = file.type.startsWith("image/")
+
+  return {
+    id: generateUUID(),
+    kind: isImage ? "image" as const : "file" as const,
+    displayName: file.name,
+    absolutePath: "",
+    relativePath: "",
+    contentUrl: "",
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    status: "uploading" as const,
+    uploadProgress: 0,
+    previewUrl: isImage ? URL.createObjectURL(file) : undefined,
+  }
 }
 
 export function getComposerUploadState(args: {
@@ -628,23 +646,12 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!file) break
 
       activeUploadsRef.current += 1
-      const tempId = crypto.randomUUID()
-      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined
+      const pendingAttachment = createPendingComposerAttachment(file)
+      const tempId = pendingAttachment.id
+      const previewUrl = pendingAttachment.previewUrl
       const generation = uploadGenerationRef.current
 
-      setAttachments((current) => [...current, {
-        id: tempId,
-        kind: file.type.startsWith("image/") ? "image" : "file",
-        displayName: file.name,
-        absolutePath: "",
-        relativePath: "",
-        contentUrl: "",
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        status: "uploading",
-        uploadProgress: 0,
-        previewUrl,
-      }])
+      setAttachments((current) => [...current, pendingAttachment])
 
       void (async () => {
         try {
