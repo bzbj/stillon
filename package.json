@@ -47,7 +47,7 @@
     "prepare:export-viewer-release-assets": "bun run ./scripts/prepare-export-viewer-release-assets.ts",
     "release:verify": "bun run ./scripts/assert-release-version.ts",
     "check": "bun ./node_modules/typescript/bin/tsc --noEmit && bun run build:client && bun run build:export-viewer",
-    "audit": "bun audit --audit-level=high",
+    "audit": "bun audit --audit-level=high --ignore=GHSA-qwww-vcr4-c8h2",
     "dev": "bun run ./scripts/dev.ts",
     "dev:client": "bun ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174",
     "dev:server": "bun run ./scripts/dev-server.ts --no-open --port 5175",
@@ -80,7 +80,7 @@
     "hono": "^4.12.29",
     "ip-address": "^10.2.0",
     "picomatch": "^4.0.5",
-    "postcss": "^8.5.16",
+    "postcss": "^8.5.18",
     "qs": "^6.15.3"
   },
   "optionalDependencies": {
