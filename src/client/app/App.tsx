@@ -81,16 +81,20 @@ function RouteLoadingFallback({ page }: { page: "chat" | "settings" }) {
 interface AuthStatusResponse {
   enabled: boolean
   authenticated: boolean
+  cacheScope?: string
 }
 
 type AppAuthState =
   | { status: "checking" }
-  | { status: "ready" }
+  | { status: "ready"; cacheScope: string | null }
   | { status: "locked"; error: string | null }
 
 export function getAppAuthStateFromStatus(payload: Partial<AuthStatusResponse>): AppAuthState {
   if (!payload.enabled || payload.authenticated) {
-    return { status: "ready" }
+    const cacheScope = typeof payload.cacheScope === "string"
+      ? payload.cacheScope.trim() || null
+      : null
+    return { status: "ready", cacheScope }
   }
 
   return { status: "locked", error: null }
@@ -257,11 +261,11 @@ export function shouldPlayChatNotificationSound(
   return Boolean(appSettings) && shouldPlayChatSound(preference, doc)
 }
 
-function KannaLayout() {
+function KannaLayout({ cacheScope }: { cacheScope: string | null }) {
   const location = useLocation()
   const navigate = useNavigate()
   const params = useParams()
-  const state = useKannaState(params.chatId ?? null)
+  const state = useKannaState(params.chatId ?? null, cacheScope)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
@@ -269,6 +273,7 @@ function KannaLayout() {
   const machineName = state.machineName
   const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
   const previousSidebarDataRef = useRef<ReturnType<typeof useKannaState>["sidebarData"] | null>(null)
+  const previousSidebarSnapshotStatusRef = useRef(state.sidebarSnapshotStatus)
   const handleSidebarCreateChat = useCallback((projectId: string) => {
     void state.handleCreateChat(projectId)
   }, [state.handleCreateChat])
@@ -315,6 +320,7 @@ function KannaLayout() {
       machineName={machineName}
       connectionStatus={state.connectionStatus}
       ready={state.sidebarReady}
+      snapshotStatus={state.sidebarSnapshotStatus}
       open={state.sidebarOpen}
       collapsed={state.sidebarCollapsed}
       showMobileOpenButton={showMobileOpenButton}
@@ -368,6 +374,7 @@ function KannaLayout() {
     state.sidebarData,
     state.sidebarOpen,
     state.sidebarReady,
+    state.sidebarSnapshotStatus,
   ])
 
   useEffect(() => {
@@ -400,14 +407,17 @@ function KannaLayout() {
   }, [appPageTitle])
 
   useEffect(() => {
-    const burstCount = getChatSoundBurstCount(previousSidebarDataRef.current, state.sidebarData)
+    const burstCount = previousSidebarSnapshotStatusRef.current === "authoritative"
+      ? getChatSoundBurstCount(previousSidebarDataRef.current, state.sidebarData)
+      : 0
     previousSidebarDataRef.current = state.sidebarData
+    previousSidebarSnapshotStatusRef.current = state.sidebarSnapshotStatus
 
     if (burstCount <= 0) return
     if (!shouldPlayChatNotificationSound(state.appSettings, chatSoundPreference)) return
 
     void playChatNotificationSound(chatSoundId, burstCount).catch(() => undefined)
-  }, [chatSoundId, chatSoundPreference, state.appSettings, state.sidebarData])
+  }, [chatSoundId, chatSoundPreference, state.appSettings, state.sidebarData, state.sidebarSnapshotStatus])
 
   return (
     <div className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
@@ -447,7 +457,7 @@ export function App() {
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
-          <Route element={<KannaLayout />}>
+          <Route element={<KannaLayout cacheScope={auth.state.cacheScope} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route

@@ -43,6 +43,7 @@ interface Props {
   onHideProject?: (projectId: string) => void
   onReorderGroups?: (newOrder: string[]) => void
   isConnected?: boolean
+  actionsEnabled?: boolean
   startingLocalPath?: string | null
 }
 
@@ -62,6 +63,7 @@ interface SortableProjectGroupProps {
   onRenameProject?: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => void
   onHideProject?: (projectId: string) => void
   isConnected?: boolean
+  actionsEnabled: boolean
   startingLocalPath?: string | null
 }
 
@@ -210,13 +212,14 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   onRenameProject,
   onHideProject,
   isConnected,
+  actionsEnabled,
   startingLocalPath,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, title } = group
   const isExpanded = expandedGroups.has(groupKey)
   const isEmptyProject = group.chats.length === 0
   const hasMore = group.olderChats.length > 0
-  const hasProjectMenu = Boolean(onHideProject && onCopyPath && onOpenExternalPath)
+  const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath && onOpenExternalPath)
 
   const {
     attributes,
@@ -238,7 +241,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       ref={setActivatorNodeRef}
       className={cn(
         "sticky top-0 bg-background dark:bg-card z-10 relative p-[10px] flex items-center justify-between",
-        "md:cursor-grab md:active:cursor-grabbing md:select-none md:touch-none",
+        isReorderEnabled && "md:cursor-grab md:active:cursor-grabbing md:select-none md:touch-none",
         isDragging && "cursor-grabbing"
       )}
       onClick={() => onToggleSection(groupKey)}
@@ -397,9 +400,11 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   onHideProject,
   onReorderGroups,
   isConnected,
+  actionsEnabled = true,
   startingLocalPath,
 }: Props) {
-  const isReorderEnabled = useSidebarReorderEnabled()
+  const supportsSidebarReorder = useSidebarReorderEnabled()
+  const isReorderEnabled = actionsEnabled && supportsSidebarReorder
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor)
@@ -480,7 +485,8 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           onOpenExternalPath={onOpenExternalPath}
           onRenameProject={onRenameProject}
           onHideProject={onHideProject}
-          isConnected={isConnected}
+          isConnected={actionsEnabled && isConnected}
+          actionsEnabled={actionsEnabled}
           startingLocalPath={startingLocalPath}
         />
         ))}

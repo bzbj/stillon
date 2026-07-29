@@ -60,7 +60,19 @@ function SidebarIdentity({ machineName }: { machineName: string | null }) {
   )
 }
 
-export function getConnectionStatusPresentation(connectionStatus: SocketStatus, ready: boolean) {
+export function getConnectionStatusPresentation(
+  connectionStatus: SocketStatus,
+  ready: boolean,
+  snapshotStatus: "empty" | "cached" | "authoritative" = ready ? "authoritative" : "empty"
+) {
+  if (!ready && snapshotStatus === "cached") {
+    return {
+      label: "Last known",
+      description: "Showing a saved sidebar while this machine reconnects",
+      dotClassName: "bg-amber-400 animate-pulse",
+    }
+  }
+
   if (connectionStatus === "connected" && ready) {
     return {
       label: "Still On",
@@ -90,6 +102,7 @@ interface KannaSidebarProps {
   machineName: string | null
   connectionStatus: SocketStatus
   ready: boolean
+  snapshotStatus: "empty" | "cached" | "authoritative"
   open: boolean
   collapsed: boolean
   showMobileOpenButton: boolean
@@ -121,6 +134,7 @@ function KannaSidebarImpl({
   machineName,
   connectionStatus,
   ready,
+  snapshotStatus,
   open,
   collapsed,
   showMobileOpenButton,
@@ -157,6 +171,7 @@ function KannaSidebarImpl({
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
+  const actionsEnabled = connectionStatus === "connected" && ready
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const visibleChats = useMemo(
     () => getVisibleSidebarChats(data.projectGroups, collapsedSections, expandedGroups),
@@ -247,6 +262,7 @@ function KannaSidebarImpl({
         nowMs={nowMs}
         shortcutHint={visibleIndex ? getSidebarNumberJumpHint(resolvedKeybindings, visibleIndex) : null}
         showShortcutHint={showNumberJumpHints}
+        actionsEnabled={actionsEnabled}
         onSelectChat={(chatId) => {
           navigate(`/chat/${chatId}`)
           onClose()
@@ -259,7 +275,7 @@ function KannaSidebarImpl({
         onDeleteChat={() => onDeleteChat(chat)}
       />
     )
-  }, [activeChatId, navigate, nowMs, onArchiveChat, onClose, onDeleteChat, onForkChat, onOpenExternalPath, onRenameChat, onShareChat, resolvedKeybindings, showNumberJumpHints, visibleIndexByChatId])
+  }, [actionsEnabled, activeChatId, navigate, nowMs, onArchiveChat, onClose, onDeleteChat, onForkChat, onOpenExternalPath, onRenameChat, onShareChat, resolvedKeybindings, showNumberJumpHints, visibleIndexByChatId])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -274,7 +290,7 @@ function KannaSidebarImpl({
       setShowNumberJumpHints(shouldShowSidebarNumberJumpHints(resolvedKeybindings, event))
 
       if (isSidebarModifierShortcut(resolvedKeybindings, "createChatInCurrentProject", event)) {
-        if (!currentProjectId) {
+        if (!actionsEnabled || !currentProjectId) {
           return
         }
 
@@ -323,7 +339,7 @@ function KannaSidebarImpl({
       window.removeEventListener("keyup", handleKeyUp)
       window.removeEventListener("blur", clearHints)
     }
-  }, [currentProjectId, navigate, onClose, onCreateChat, onOpenAddProjectModal, resolvedKeybindings])
+  }, [actionsEnabled, currentProjectId, navigate, onClose, onCreateChat, onOpenAddProjectModal, resolvedKeybindings])
 
   useEffect(() => {
     if (!activeChatId || !scrollContainerRef.current) return
@@ -387,7 +403,7 @@ function KannaSidebarImpl({
   const isSettingsActive = location.pathname.startsWith("/settings")
   const isUtilityPageActive = isLocalProjectsActive || isSettingsActive
   const isConnecting = connectionStatus === "connecting" || !ready
-  const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready)
+  const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready, snapshotStatus)
 
   return (
     <>
@@ -490,6 +506,15 @@ function KannaSidebarImpl({
           }}
         >
           <div className="p-[7px]">
+            {!ready && snapshotStatus === "cached" ? (
+              <div
+                role="status"
+                className="mx-1 mb-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                Last-known conversations · {connectionStatus === "disconnected" ? "offline" : "updating…"}
+              </div>
+            ) : null}
+
             {!hasVisibleChats && isConnecting ? (
               <div className="space-y-5 px-1 pt-3">
                 {[0, 1, 2].map((section) => (
@@ -537,7 +562,8 @@ function KannaSidebarImpl({
               onOpenExternalPath={onOpenExternalPath}
               onRenameProject={onRenameProject}
               onHideProject={onHideProject}
-              isConnected={connectionStatus === "connected"}
+              isConnected={actionsEnabled}
+              actionsEnabled={actionsEnabled}
             />
           </div>
         </div>
@@ -628,10 +654,12 @@ function KannaSidebarImpl({
                   type="button"
                   className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/0 px-3 py-2 text-left transition-colors hover:border-border hover:bg-muted"
                   onClick={() => {
+                    if (!actionsEnabled) return
                     onOpenArchivedChat(chat.chatId)
                     setArchivedProjectId(null)
                     onClose()
                   }}
+                  disabled={!actionsEnabled}
                 >
                   <span className="min-w-0 truncate text-sm">{chat.title}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">
