@@ -113,6 +113,7 @@ describe("writeStandaloneTranscriptExport", () => {
     expect(bundle.viewerVersion).toBeDefined()
     expect(bundle.theme).toBe("dark")
     expect(bundle.attachmentMode).toBe("metadata")
+    expect(bundle.toolResultContent).toBe("complete")
     expect(bundle.localPath).toBe("/workspace")
     expect(bundle.messages[0].attachments[0].contentUrl).toBe("")
     expect(bundle.messages[0].attachments[0].absolutePath).toBe("")
@@ -220,5 +221,42 @@ describe("writeStandaloneTranscriptExport", () => {
     expect(path.basename(result.transcriptJsonPath)).toBe("transcript.json")
     expect(JSON.parse(result.transcriptJson).title).toBe("Release Review")
     expect(JSON.stringify(JSON.parse(result.transcriptJson))).not.toContain(projectDir)
+  })
+
+  test("rejects deferred tool results before writing or uploading an export", async () => {
+    let pathChecks = 0
+    const messages: TranscriptEntry[] = [{
+      _id: "result-deferred",
+      kind: "tool_result",
+      toolId: "tool-1",
+      content: null,
+      createdAt: 1,
+      deferredContent: {
+        version: 1,
+        resultId: "result-deferred",
+        revision: "revision-1",
+        byteLength: 100_000,
+        contentKind: "text",
+        preview: "preview",
+        previewByteLength: 7,
+        truncated: true,
+      },
+    }]
+
+    await expect(writeStandaloneTranscriptExport({
+      chatId: "chat-1",
+      title: "Incomplete",
+      localPath: "/tmp/project",
+      theme: "light",
+      attachmentMode: "metadata",
+      messages,
+    }, {
+      pathExists: async () => {
+        pathChecks += 1
+        return true
+      },
+    })).rejects.toThrow("complete tool-result content")
+
+    expect(pathChecks).toBe(0)
   })
 })

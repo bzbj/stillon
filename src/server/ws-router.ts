@@ -19,6 +19,10 @@ import { readProjectQuickActions, writeProjectQuickActions } from "./project-qui
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { TerminalManager } from "./terminal-manager"
+import {
+  projectToolResultEntries,
+  resolveToolResultProjectionOptions,
+} from "./tool-result-projection"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import type {
   AppSettingsPatch,
@@ -38,6 +42,7 @@ import type {
 
 const DEFAULT_CHAT_RECENT_LIMIT = 200
 const SKILL_AGENT_ALIASES = ["universal", "claude-code"] as const
+const MAX_TOOL_RESULT_LOOKUP_ID_LENGTH = 512
 
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
@@ -156,6 +161,10 @@ interface SnapshotComputationCache {
     signature: string
   }
   chatHistories?: Map<string, ReturnType<EventStore["getRecentChatHistory"]>>
+  projectedChatHistories?: Map<
+    string,
+    Awaited<ReturnType<EventStore["getRecentChatHistory"]>>
+  >
 }
 
 function getSidebarProjectOrder(store: EventStore) {
@@ -184,6 +193,17 @@ export function assertSafeSkillId(skillId: string) {
     throw new Error("Skill id is invalid.")
   }
   return normalized
+}
+
+function assertToolResultLookupValue(value: unknown, label: string) {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || value.length > MAX_TOOL_RESULT_LOOKUP_ID_LENGTH
+  ) {
+    throw new Error(`${label} is invalid.`)
+  }
+  return value
 }
 
 export function getGlobalSkillLockPath() {
@@ -394,6 +414,7 @@ export function createWsRouter({
   isDiscoveryInProgress,
   machineDisplayName,
 }: CreateWsRouterArgs) {
+  const toolResultProjectionOptions = resolveToolResultProjectionOptions()
   const getCurrentMachineDisplayName = typeof machineDisplayName === "function"
     ? machineDisplayName
     : () => machineDisplayName
@@ -808,7 +829,27 @@ export function createWsRouter({
         cache.chatHistories.set(cacheKey, transcriptPromise)
       }
     }
-    const transcript = await transcriptPromise
+    const rawTranscript = await transcriptPromise
+    let transcript = rawTranscript
+    if (topic.toolResults?.version === 1) {
+      const cachedProjection = cache?.projectedChatHistories?.get(cacheKey)
+      if (cachedProjection) {
+        transcript = cachedProjection
+      } else {
+        transcript = {
+          ...rawTranscript,
+          messages: projectToolResultEntries(
+            rawTranscript.messages,
+            rawTranscript.history.revision,
+            toolResultProjectionOptions,
+          ),
+        }
+        if (cache) {
+          cache.projectedChatHistories ??= new Map()
+          cache.projectedChatHistories.set(cacheKey, transcript)
+        }
+      }
+    }
 
     return {
       v: PROTOCOL_VERSION,
@@ -1542,7 +1583,25 @@ export function createWsRouter({
           const chat = store.getChat(command.chatId)
           if (!chat) throw new Error("Chat not found")
           const page = await store.getMessagesPageBefore(command.chatId, command.beforeCursor, command.limit)
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: page })
+          const result = command.toolResults?.version === 1
+            ? {
+                ...page,
+                messages: projectToolResultEntries(
+                  page.messages,
+                  page.revision,
+                  toolResultProjectionOptions,
+                ),
+              }
+            : page
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "chat.loadToolResult": {
+          const chatId = assertToolResultLookupValue(command.chatId, "Chat ID")
+          const resultId = assertToolResultLookupValue(command.resultId, "Tool result ID")
+          const revision = assertToolResultLookupValue(command.revision, "Transcript revision")
+          const result = await store.loadToolResult(chatId, resultId, revision)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
         case "chat.respondTool": {

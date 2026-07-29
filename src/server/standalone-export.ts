@@ -10,6 +10,7 @@ import type {
   TranscriptEntry,
 } from "../shared/types"
 import { APP_VERSION } from "../shared/branding"
+import { assertCompleteToolResultContent } from "../shared/standalone-transcript"
 import { getProjectExportDir } from "./paths"
 
 const STANDALONE_TRANSCRIPT_BUNDLE_VERSION = 1 as const
@@ -79,6 +80,8 @@ export async function writeStandaloneTranscriptExport(
   args: WriteStandaloneTranscriptExportArgs,
   deps: StandaloneExportDeps = {},
 ): Promise<StandaloneTranscriptExportCommandResult> {
+  assertCompleteToolResultContent(args.messages)
+
   const viewerDistDir = deps.viewerDistDir ?? getStandaloneViewerDistDir()
   const ensureDir = deps.mkdir ?? mkdir
   const writeFileImpl = deps.writeFile ?? writeFile
@@ -123,6 +126,7 @@ export async function writeStandaloneTranscriptExport(
     viewerVersion: APP_VERSION,
     theme: args.theme,
     attachmentMode: args.attachmentMode,
+    toolResultContent: "complete",
     messages: prepared.messages,
   }
 

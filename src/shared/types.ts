@@ -114,6 +114,7 @@ export interface StandaloneTranscriptBundle {
   viewerVersion: string
   theme: StandaloneTranscriptTheme
   attachmentMode: StandaloneTranscriptAttachmentMode
+  toolResultContent?: "complete"
   messages: TranscriptEntry[]
 }
 
@@ -852,11 +853,32 @@ export type NormalizedToolCall =
   | McpGenericToolCall
   | UnknownToolCall
 
+export type ToolResultContentKind = "text" | "json" | "binary"
+
+export interface ToolResultBinaryItem {
+  kind: "image" | "binary"
+  mimeType?: string
+  byteLength?: number
+}
+
+export interface DeferredToolResultContent {
+  version: 1
+  resultId: string
+  revision: string
+  byteLength: number
+  contentKind: ToolResultContentKind
+  preview: string
+  previewByteLength: number
+  truncated: true
+  binaryItems?: ToolResultBinaryItem[]
+}
+
 export interface ToolResultEntry extends TranscriptEntryBase {
   kind: "tool_result"
   toolId: string
   content: unknown
   isError?: boolean
+  deferredContent?: DeferredToolResultContent
 }
 
 export interface UserPromptEntry extends TranscriptEntryBase {
@@ -1126,6 +1148,7 @@ export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {
   result?: TResult
   rawResult?: unknown
   isError?: boolean
+  deferredResult?: DeferredToolResultContent
   timestamp: string
 }
 

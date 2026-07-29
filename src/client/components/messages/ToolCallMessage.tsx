@@ -1,11 +1,15 @@
 import { UserRound, X } from "lucide-react"
 import type { ProcessedToolCall } from "./types"
 import { MetaRow, MetaLabel, MetaCodeBlock, ExpandableRow, VerticalLineContainer, getToolIcon } from "./shared"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { stripWorkspacePath } from "../../lib/pathUtils"
 import { AnimatedShinyText } from "../ui/animated-shiny-text"
 import { formatBashCommandTitle, toTitleCase } from "../../lib/formatters"
 import { FileContentView } from "./FileContentView"
+import { hasToolResult, hydrateToolResult } from "../../../shared/tools"
+import type { DeferredToolResultContent } from "../../../shared/types"
+import { useToolResultHydration } from "./tool-result-hydration"
+import type { ToolResultLoadState } from "../../lib/toolResultSessionStore"
 
 interface Props {
   message: ProcessedToolCall
@@ -83,9 +87,94 @@ export function ReadResultImages({ images }: { images: ReadonlyArray<ReadImageBl
   )
 }
 
+function formatByteLength(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+function DeferredResultPanel({
+  descriptor,
+  state,
+  onRetry,
+  onRefresh,
+}: {
+  descriptor: DeferredToolResultContent
+  state: ToolResultLoadState | { status: "unavailable" } | null
+  onRetry: () => void
+  onRefresh: () => void
+}) {
+  const status = state?.status ?? "unavailable"
+  return (
+    <div
+      className="flex flex-col gap-2"
+      aria-busy={status === "loading"}
+    >
+      <MetaCodeBlock label="Result preview" copyable={false}>
+        {descriptor.preview || "No textual preview is available."}
+      </MetaCodeBlock>
+      <div
+        className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+      >
+        <span role="status" aria-live="polite">
+          {status === "preview" ? "Loading the full result on demand…" : null}
+          {status === "loading" ? "Loading full result…" : null}
+          {state?.status === "error"
+            ? `Could not load the full result: ${state.message}`
+            : null}
+          {status === "missing"
+            ? "The full result is no longer available in this transcript."
+            : null}
+          {status === "stale"
+            ? "The transcript changed before this result was loaded."
+            : null}
+          {status === "unavailable"
+            ? "The full result was not included in this readonly transcript."
+            : null}
+        </span>
+        {status === "error" ? (
+          <button
+            type="button"
+            className="rounded-md border border-border px-2 py-1 text-foreground hover:bg-muted"
+            onClick={onRetry}
+          >
+            Retry
+          </button>
+        ) : null}
+        {status === "stale" ? (
+          <button
+            type="button"
+            className="rounded-md border border-border px-2 py-1 text-foreground hover:bg-muted"
+            onClick={onRefresh}
+          >
+            Refresh transcript
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function ToolCallMessage({ message, isLoading = false, localPath }: Props) {
-  const hasResult = message.result !== undefined
+  const [expanded, setExpanded] = useState(false)
+  const deferred = message.deferredResult
+  const hydration = useToolResultHydration(deferred)
+  const hydratedEntry = hydration.state?.status === "ready"
+    ? hydration.state.entry
+    : null
+  const hydratedResult = useMemo(() => (
+    hydratedEntry
+      ? hydrateToolResult(message, hydratedEntry.content)
+      : message.result
+  ), [hydratedEntry, message])
+  const hydratedRawResult = hydratedEntry?.content ?? message.rawResult
+  const hasResult = hasToolResult(message)
+  const hasFullResult = hydratedEntry !== null || message.result !== undefined
   const showLoadingState = !hasResult && isLoading
+  const previewLine = deferred?.preview
+    .split(/\r?\n/u)
+    .find((line) => line.trim().length > 0)
+    ?.trim()
 
   const name = useMemo(() => {
     if (message.toolKind === "skill") {
@@ -144,24 +233,44 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
   const isEditTool = message.toolKind === "edit_file"
   const isDeleteTool = message.toolKind === "delete_file"
   const isReadTool = message.toolKind === "read_file"
+  const hidesSuccessfulResult = (
+    (isWriteTool || isEditTool || isDeleteTool)
+    && !message.isError
+  )
+  const shouldHydrateDeferredResult = Boolean(deferred && !hidesSuccessfulResult)
+
+  useEffect(() => {
+    if (!expanded || !shouldHydrateDeferredResult || !hydration.request) {
+      return
+    }
+    const release = hydration.retain()
+    void hydration.load()
+    return release
+  }, [
+    expanded,
+    hydration.load,
+    hydration.request,
+    hydration.retain,
+    shouldHydrateDeferredResult,
+  ])
 
   const resultText = useMemo(() => {
-    if (typeof message.result === "string") return message.result
-    if (!message.result) return ""
-    if (typeof message.result === "object" && message.result !== null && "content" in message.result) {
-      const content = (message.result as { content?: unknown }).content
+    if (typeof hydratedResult === "string") return hydratedResult
+    if (hydratedResult === undefined) return ""
+    if (typeof hydratedResult === "object" && hydratedResult !== null && "content" in hydratedResult) {
+      const content = (hydratedResult as { content?: unknown }).content
       if (typeof content === "string") return content
     }
-    return JSON.stringify(message.result, null, 2)
-  }, [message.result])
+    return JSON.stringify(hydratedResult, null, 2) ?? String(hydratedResult)
+  }, [hydratedResult])
 
   const readImages = useMemo(() => {
     if (!isReadTool) {
       return [] as ReadImageBlock[]
     }
 
-    if (message.result && typeof message.result === "object" && "blocks" in message.result) {
-      const blocks = (message.result as { blocks?: unknown }).blocks
+    if (hydratedResult && typeof hydratedResult === "object" && "blocks" in hydratedResult) {
+      const blocks = (hydratedResult as { blocks?: unknown }).blocks
       if (Array.isArray(blocks)) {
         const hydratedBlocks = extractReadImageBlocks(blocks)
         if (hydratedBlocks.length > 0) {
@@ -170,8 +279,8 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
       }
     }
 
-    return extractReadImageBlocks(message.rawResult)
-  }, [isReadTool, message.rawResult, message.result])
+    return extractReadImageBlocks(hydratedRawResult)
+  }, [hydratedRawResult, hydratedResult, isReadTool])
 
   const inputText = useMemo(() => {
     switch (message.toolKind) {
@@ -188,6 +297,7 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
   return (
     <MetaRow className="w-full">
       <ExpandableRow
+        onExpandedChange={setExpanded}
         expandedContent={
           <VerticalLineContainer className="my-4 text-sm">
             <div className="flex flex-col gap-2">
@@ -219,7 +329,17 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
                   {inputText}
                 </MetaCodeBlock>
               )}
-              {hasResult && isReadTool && !message.isError && (
+              {deferred && shouldHydrateDeferredResult && !hasFullResult ? (
+                <DeferredResultPanel
+                  descriptor={deferred}
+                  state={hydration.state}
+                  onRetry={() => {
+                    void hydration.load({ force: true })
+                  }}
+                  onRefresh={hydration.refreshTranscript}
+                />
+              ) : null}
+              {hasFullResult && isReadTool && !message.isError && (
                 readImages.length > 0 ? (
                   <div>
                     <span className="font-medium text-muted-foreground">Image</span>
@@ -238,7 +358,7 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
                   content={message.input.content}
                 />
               )}
-              {hasResult && !isReadTool && !(isWriteTool && !message.isError) && !(isEditTool && !message.isError) && !(isDeleteTool && !message.isError) && (
+              {hasFullResult && !isReadTool && !hidesSuccessfulResult && (
                 <MetaCodeBlock label={message.isError ? "Error" : "Result"} copyText={resultText}>
                   {resultText}
                 </MetaCodeBlock>
@@ -261,13 +381,28 @@ export function ToolCallMessage({ message, isLoading = false, localPath }: Props
             return <Icon className="size-4 text-muted-icon" />
           })()}
         </div>
-        <MetaLabel className="text-left transition-opacity duration-200 truncate">
-          <AnimatedShinyText
-            animate={showLoadingState}
-            shimmerWidth={Math.max(20, ((description || name)?.length ?? 33) * 3)}
-          >
-            {description || name}
-          </AnimatedShinyText>
+        <MetaLabel className="min-w-0 text-left transition-opacity duration-200">
+          <span className="block truncate">
+            <AnimatedShinyText
+              animate={showLoadingState}
+              shimmerWidth={Math.max(20, ((description || name)?.length ?? 33) * 3)}
+            >
+              {description || name}
+            </AnimatedShinyText>
+            {deferred ? (
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                {deferred.contentKind} · {formatByteLength(deferred.byteLength)}
+              </span>
+            ) : null}
+          </span>
+          {previewLine ? (
+            <span
+              className="mt-0.5 block truncate text-xs font-normal text-muted-foreground"
+              title={deferred?.preview}
+            >
+              {previewLine}
+            </span>
+          ) : null}
         </MetaLabel>
 
 

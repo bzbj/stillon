@@ -7,6 +7,7 @@ import { Button } from "../ui/button"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { cn } from "../../lib/utils"
 import { useTranscriptRenderOptions } from "./render-context"
+import { hasToolResult } from "../../../shared/tools"
 
 interface Props {
   message: Extract<ProcessedToolCall, { toolKind: "exit_plan_mode" }>
@@ -16,7 +17,7 @@ interface Props {
 
 export function ExitPlanModeMessage({ message, onConfirm, isLatest }: Props) {
   const renderOptions = useTranscriptRenderOptions()
-  const isComplete = !!message.result
+  const isComplete = hasToolResult(message)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showEditInput, setShowEditInput] = useState(false)

@@ -5,6 +5,7 @@ import { AnimatedShinyText } from "../../components/ui/animated-shiny-text"
 import { DrainingIndicator } from "../../components/messages/DrainingIndicator"
 import { QueuedUserMessage } from "../../components/messages/QueuedUserMessage"
 import { OpenLocalLinkProvider, type OpenLocalLinkTarget } from "../../components/messages/shared"
+import { ToolResultHydrationProvider } from "../../components/messages/tool-result-hydration"
 import { ProcessingMessage } from "../../components/messages/ProcessingMessage"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../components/ui/context-menu"
 import { OpenExternalContextMenuContent } from "../../components/open-external-menu"
@@ -17,6 +18,7 @@ import {
   useStableResolvedRows,
 } from "../KannaTranscript"
 import type { KannaState } from "../useKannaState"
+import type { ToolResultSessionStore } from "../../lib/toolResultSessionStore"
 import {
   CHAT_NAVBAR_OFFSET_PX,
   EMPTY_STATE_TEXT,
@@ -26,6 +28,8 @@ import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../sha
 
 interface ChatTranscriptViewportProps {
   activeChatId: string | null
+  toolResultStore?: ToolResultSessionStore | null
+  refreshToolResultTranscript?: () => void
   listRef: React.RefObject<LegendListRef | null>
   messages: KannaState["messages"]
   queuedMessages: KannaState["queuedMessages"]
@@ -61,6 +65,8 @@ interface ChatTranscriptViewportProps {
 
 export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   activeChatId,
+  toolResultStore,
+  refreshToolResultTranscript,
   listRef,
   messages,
   queuedMessages,
@@ -270,27 +276,33 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   return (
     <>
-      <OpenLocalLinkProvider onOpenLocalLink={handleOpenLocalLinkClick} resolveLocalLink={resolveProjectFileLink}>
-        <LegendList<ResolvedTranscriptRow>
-          ref={listRef}
-          data={resolvedRows}
-          extraData={toolGroupExpanded}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          estimatedItemSize={96}
-          initialScrollAtEnd
-          maintainScrollAtEnd
-          maintainScrollAtEndThreshold={0.1}
-          maintainVisibleContentPosition
-          onScroll={handleScroll}
-          onStartReached={handleStartReached}
-          onStartReachedThreshold={0.1}
-          className="h-full flex-1 overflow-x-hidden overscroll-y-contain px-3 scroll-pt-[72px] [scrollbar-gutter:auto]"
-          contentContainerStyle={{ paddingBottom: transcriptPaddingBottom + 10 }}
-          ListHeaderComponent={listHeader}
-          ListFooterComponent={listFooter}
-        />
-      </OpenLocalLinkProvider>
+      <ToolResultHydrationProvider
+        chatId={activeChatId}
+        store={toolResultStore}
+        refreshTranscript={refreshToolResultTranscript}
+      >
+        <OpenLocalLinkProvider onOpenLocalLink={handleOpenLocalLinkClick} resolveLocalLink={resolveProjectFileLink}>
+          <LegendList<ResolvedTranscriptRow>
+            ref={listRef}
+            data={resolvedRows}
+            extraData={toolGroupExpanded}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            estimatedItemSize={96}
+            initialScrollAtEnd
+            maintainScrollAtEnd
+            maintainScrollAtEndThreshold={0.1}
+            maintainVisibleContentPosition
+            onScroll={handleScroll}
+            onStartReached={handleStartReached}
+            onStartReachedThreshold={0.1}
+            className="h-full flex-1 overflow-x-hidden overscroll-y-contain px-3 scroll-pt-[72px] [scrollbar-gutter:auto]"
+            contentContainerStyle={{ paddingBottom: transcriptPaddingBottom + 10 }}
+            ListHeaderComponent={listHeader}
+            ListFooterComponent={listFooter}
+          />
+        </OpenLocalLinkProvider>
+      </ToolResultHydrationProvider>
 
       <ContextMenu onOpenChange={(open) => {
         if (!open) {

@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useMemo, useRef, useState } from "react"
 import type { AskUserQuestionItem, ProcessedToolCall } from "../components/messages/types"
 import type { AskUserQuestionAnswerMap, ChatAttachment, HydratedTranscriptMessage } from "../../shared/types"
+import { hasToolResult } from "../../shared/tools"
 import { UserMessage } from "../components/messages/UserMessage"
 import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
@@ -247,6 +248,7 @@ function sameMessage(left: HydratedTranscriptMessage, right: HydratedTranscriptM
         && JSON.stringify(left.input) === JSON.stringify(right.input)
         && JSON.stringify(left.result) === JSON.stringify(right.result)
         && JSON.stringify(left.rawResult) === JSON.stringify(right.rawResult)
+        && JSON.stringify(left.deferredResult) === JSON.stringify(right.deferredResult)
     case "result":
       return right.kind === "result"
         && left.success === right.success
@@ -530,7 +532,9 @@ export function buildResolvedTranscriptRows(
         id: getTranscriptRenderItemId(item),
         startIndex: item.startIndex,
         messages: item.messages,
-        isLoading: isLoading && item.messages.some((message) => message.kind === "tool" && message.result === undefined),
+        isLoading: isLoading && item.messages.some((message) => (
+          message.kind === "tool" && !hasToolResult(message)
+        )),
         localPath,
       })
       continue
@@ -543,7 +547,7 @@ export function buildResolvedTranscriptRows(
       id: getTranscriptRenderItemId(item),
       message: item.message,
       index: item.index,
-      isLoading: item.message.kind === "tool" && item.message.result === undefined && isLoading,
+      isLoading: item.message.kind === "tool" && !hasToolResult(item.message) && isLoading,
       localPath,
       isFirstSystem: renderState.isFirstSystem,
       isFirstAccount: renderState.isFirstAccount,

@@ -166,6 +166,102 @@ describe("EventStore", () => {
     expect(oldestPage.olderCursor).toBeNull()
   })
 
+  test("loads complete tool results only within the requested chat and revision", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const otherChat = await store.createChat(project.id)
+    const toolResult: TranscriptEntry = {
+      _id: "result-large",
+      kind: "tool_result",
+      toolId: "tool-large",
+      content: { output: "complete body" },
+      debugRaw: JSON.stringify({ private: "complete debug body" }),
+      createdAt: 300,
+    }
+    await store.appendMessage(chat.id, toolResult)
+    await store.appendMessage(otherChat.id, {
+      ...toolResult,
+      _id: "other-result",
+    })
+
+    const history = await store.getRecentMessagesPage(chat.id, 10)
+    const loaded = await store.loadToolResult(
+      chat.id,
+      toolResult._id,
+      history.revision,
+    )
+    expect(loaded).toEqual({
+      status: "ok",
+      chatId: chat.id,
+      resultId: toolResult._id,
+      revision: history.revision,
+      entry: toolResult,
+    })
+
+    expect(await store.loadToolResult(
+      otherChat.id,
+      toolResult._id,
+      (await store.getRecentMessagesPage(otherChat.id, 10)).revision,
+    )).toMatchObject({
+      status: "missing",
+      resultId: toolResult._id,
+    })
+    expect(await store.loadToolResult(
+      chat.id,
+      "missing-result",
+      history.revision,
+    )).toEqual({
+      status: "missing",
+      chatId: chat.id,
+      resultId: "missing-result",
+      revision: history.revision,
+    })
+
+    await store.appendMessage(chat.id, entry("assistant_text", 301, {
+      content: "append does not rotate the revision",
+    }))
+    expect(await store.loadToolResult(
+      chat.id,
+      toolResult._id,
+      history.revision,
+    )).toMatchObject({
+      status: "ok",
+      resultId: toolResult._id,
+      revision: history.revision,
+    })
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    const stale = await reloaded.loadToolResult(
+      chat.id,
+      toolResult._id,
+      history.revision,
+    )
+    expect(stale).toMatchObject({
+      status: "stale",
+      resultId: toolResult._id,
+      requestedRevision: history.revision,
+    })
+    if (stale.status !== "stale") throw new Error("expected stale result")
+    expect(stale.currentRevision).not.toBe(history.revision)
+
+    await store.deleteChat(chat.id)
+    expect(await store.loadToolResult(
+      chat.id,
+      toolResult._id,
+      history.revision,
+    )).toEqual({
+      status: "missing",
+      chatId: chat.id,
+      resultId: toolResult._id,
+      revision: history.revision,
+    })
+  })
+
   test("persists queued messages across restart and removes promoted entries", async () => {
     const dataDir = await createTempDataDir()
     const store = new EventStore(dataDir)

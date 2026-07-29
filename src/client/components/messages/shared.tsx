@@ -5,6 +5,7 @@ import {
   isValidElement,
   useCallback,
   useContext,
+  useId,
   useState,
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -160,32 +161,58 @@ interface ExpandableRowProps {
   children: ReactNode
   expandedContent: ReactNode
   defaultExpanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
 }
 
-export function ExpandableRow({ children, expandedContent, defaultExpanded = false }: ExpandableRowProps) {
+export function ExpandableRow({
+  children,
+  expandedContent,
+  defaultExpanded = false,
+  onExpandedChange,
+}: ExpandableRowProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const contentId = useId()
+
+  const handleToggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    onExpandedChange?.(next)
+  }
 
   return (
     <div className="flex flex-col w-full">
 
       <button
-        onClick={() => setExpanded(!expanded)}
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        onClick={handleToggle}
         className={`group/expandable-row cursor-pointer grid grid-cols-[auto_1fr] items-center gap-1 text-sm ${!expanded ? "hover:opacity-60 transition-opacity" : ""}`}
       >
         <div className="grid grid-cols-[auto_1fr] items-center gap-1.5">
           {children}
         </div>
         <ChevronRight
-          className={`h-4.5 w-4.5 text-muted-icon translate-y-[0.5px] transition-all duration-200 opacity-0 group-hover/expandable-row:opacity-100 ${expanded ? "rotate-90 opacity-100" : ""}`}
+          className={`h-4.5 w-4.5 text-muted-icon translate-y-[0.5px] transition-all duration-200 opacity-0 group-hover/expandable-row:opacity-100 group-focus-visible/expandable-row:opacity-100 ${expanded ? "rotate-90 opacity-100" : ""}`}
         />
       </button>
-      {expanded && expandedContent}
+      {expanded ? <div id={contentId}>{expandedContent}</div> : null}
     </div>
   )
 }
 
 // Code block for expanded content
-export function MetaCodeBlock({ label, children, copyText }: { label: ReactNode; children: ReactNode; copyText?: string }) {
+export function MetaCodeBlock({
+  label,
+  children,
+  copyText,
+  copyable = true,
+}: {
+  label: ReactNode
+  children: ReactNode
+  copyText?: string
+  copyable?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   const textContent = copyText ?? extractText(children)
 
@@ -202,18 +229,22 @@ export function MetaCodeBlock({ label, children, copyText }: { label: ReactNode;
         <pre className="my-1 text-xs font-mono whitespace-no-wrap break-all bg-muted border border-border  rounded-lg p-2 max-h-64 overflow-auto w-full">
           {children}
         </pre>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "absolute top-[4px] right-[4px] z-10 h-6.5 w-6.5 rounded-sm text-muted-foreground opacity-0 group-hover/codeblock:opacity-100 transition-opacity",
-            !copied && "hover:text-foreground",
-            copied && "hover:!bg-transparent hover:!border-transparent"
-          )}
-          onClick={handleCopy}
-        >
-          {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-4 w-4" />}
-        </Button>
+        {copyable ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={copied ? "Copied" : "Copy"}
+            className={cn(
+              "absolute top-[4px] right-[4px] z-10 h-6.5 w-6.5 rounded-sm text-muted-foreground opacity-0 group-hover/codeblock:opacity-100 group-focus-within/codeblock:opacity-100 transition-opacity",
+              !copied && "hover:text-foreground",
+              copied && "hover:!bg-transparent hover:!border-transparent"
+            )}
+            onClick={handleCopy}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-4 w-4" />}
+          </Button>
+        ) : null}
       </div>
     </div>
   )
