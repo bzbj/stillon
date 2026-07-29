@@ -11,6 +11,7 @@ import {
   isHistoryCursorExpiredError,
   reconcileHistoryPaginationSnapshot,
   reconcileOptimisticUserPrompts,
+  reconcileSidebarProjectSelection,
   resolveComposeIntent,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
@@ -135,6 +136,27 @@ describe("applySidebarProjectOrder", () => {
     const reordered = applySidebarProjectOrder(sidebarData.projectGroups, ["project-1", "project-2"])
 
     expect(reordered).toBe(sidebarData.projectGroups)
+  })
+})
+
+describe("reconcileSidebarProjectSelection", () => {
+  test("preserves a selected project that still exists in the authoritative snapshot", () => {
+    const groups = createSidebarData().projectGroups
+
+    expect(reconcileSidebarProjectSelection("project-2", "chat-1", groups)).toBe("project-2")
+  })
+
+  test("follows the active chat when the cached selection was deleted", () => {
+    const groups = createSidebarData().projectGroups
+
+    expect(reconcileSidebarProjectSelection("deleted-project", "chat-4", groups)).toBe("project-2")
+  })
+
+  test("falls back once without duplicating or retaining a deleted selection", () => {
+    const groups = createSidebarData().projectGroups.slice(0, 1)
+
+    expect(reconcileSidebarProjectSelection("project-2", "deleted-chat", groups)).toBe("project-1")
+    expect(reconcileSidebarProjectSelection("project-2", "deleted-chat", [])).toBeNull()
   })
 })
 

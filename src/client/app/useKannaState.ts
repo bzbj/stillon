@@ -16,6 +16,17 @@ import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
 import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
 import { processTranscriptMessages } from "../lib/parseTranscript"
+import {
+  clearSidebarSnapshotsForScope,
+  createSidebarSnapshotIdentity,
+  createSidebarSnapshotScope,
+  getBrowserSidebarSnapshotOrigin,
+  getBrowserSidebarSnapshotStorage,
+  getSidebarSnapshotStorageKey,
+  loadSidebarSnapshot,
+  persistSidebarSnapshot,
+  removeSidebarSnapshot,
+} from "../lib/sidebarSnapshotCache"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
@@ -463,6 +474,25 @@ export function applySidebarProjectOrder(
     : nextProjectGroups
 }
 
+export function reconcileSidebarProjectSelection(
+  currentProjectId: string | null,
+  activeChatId: string | null,
+  projectGroups: SidebarData["projectGroups"]
+) {
+  if (currentProjectId && projectGroups.some((group) => group.groupKey === currentProjectId)) {
+    return currentProjectId
+  }
+
+  if (activeChatId) {
+    const activeProject = projectGroups.find((group) => (
+      group.chats.some((chat) => chat.chatId === activeChatId)
+    ))
+    if (activeProject) return activeProject.groupKey
+  }
+
+  return projectGroups[0]?.groupKey ?? null
+}
+
 export function shouldMarkActiveChatRead(doc: Pick<Document, "visibilityState" | "hasFocus"> = document) {
   return doc.visibilityState === "visible" && doc.hasFocus()
 }
@@ -672,6 +702,7 @@ export interface KannaState {
   llmProvider: LlmProviderSnapshot | null
   connectionStatus: SocketStatus
   sidebarReady: boolean
+  sidebarSnapshotStatus: "empty" | "cached" | "authoritative"
   localProjectsReady: boolean
   commandError: string | null
   startingLocalPath: string | null
@@ -750,13 +781,31 @@ export interface KannaState {
   handleCopyStandaloneShareLink: () => Promise<boolean>
 }
 
-export function useKannaState(activeChatId: string | null): KannaState {
+export function useKannaState(activeChatId: string | null, cacheScope: string | null): KannaState {
   const navigate = useNavigate()
   const socket = useKannaSocket()
   const dialog = useAppDialog()
   const { resolvedTheme } = useTheme()
 
-  const [sidebarData, setSidebarData] = useState<SidebarData>({ projectGroups: [] })
+  const [sidebarBootstrap] = useState(() => {
+    const machineName = readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
+    const identity = createSidebarSnapshotIdentity({
+      origin: getBrowserSidebarSnapshotOrigin(),
+      authScope: cacheScope,
+      machineName,
+    })
+    const snapshot = identity
+      ? loadSidebarSnapshot(identity, getBrowserSidebarSnapshotStorage())
+      : null
+    return { identity, machineName, snapshot }
+  })
+  const [sidebarData, setSidebarData] = useState<SidebarData>(
+    sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
+  )
+  const [sidebarSnapshotStatus, setSidebarSnapshotStatus] = useState<"empty" | "cached" | "authoritative">(
+    sidebarBootstrap.snapshot ? "cached" : "empty"
+  )
+  const sidebarSnapshotStatusRef = useRef(sidebarSnapshotStatus)
   const [optimisticSidebarProjectOrder, setOptimisticSidebarProjectOrder] = useState<string[] | null>(null)
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
@@ -767,9 +816,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [projectDiffSnapshots, setProjectDiffSnapshots] = useState<Record<string, ChatDiffSnapshot | null>>({})
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettingsSnapshot | null>(null)
-  const [machineName, setMachineName] = useState<string | null>(() => (
-    readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
-  ))
+  const [machineName, setMachineName] = useState<string | null>(sidebarBootstrap.machineName)
+  const [confirmedMachineName, setConfirmedMachineName] = useState<string | null>(null)
   const [llmProvider, setLlmProvider] = useState<LlmProviderSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("connecting")
   const [sidebarReady, setSidebarReady] = useState(false)
@@ -802,6 +850,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     projectId: null,
     diffs: null,
   })
+  const activeChatIdRef = useRef(activeChatId)
+  activeChatIdRef.current = activeChatId
   const editorLabel = getEditorPresetLabel(useTerminalPreferencesStore((store) => store.editorPreset))
   const sidebarProjectGroups = useMemo(
     () => applySidebarProjectOrder(sidebarData.projectGroups, optimisticSidebarProjectOrder),
@@ -820,17 +870,43 @@ export function useKannaState(activeChatId: string | null): KannaState {
   )
 
   const applyAppSettingsSnapshot = useCallback((snapshot: AppSettingsSnapshot) => {
+    const confirmedIdentity = createSidebarSnapshotIdentity({
+      origin: getBrowserSidebarSnapshotOrigin(),
+      authScope: cacheScope,
+      machineName: snapshot.machineName,
+    })
+    const bootstrapIdentity = sidebarBootstrap.identity
+    const identityChanged = Boolean(
+      bootstrapIdentity
+      && (!confirmedIdentity
+        || getSidebarSnapshotStorageKey(bootstrapIdentity) !== getSidebarSnapshotStorageKey(confirmedIdentity))
+    )
+    if (identityChanged) {
+      removeSidebarSnapshot(bootstrapIdentity, getBrowserSidebarSnapshotStorage())
+      if (sidebarSnapshotStatusRef.current === "cached") {
+        sidebarSnapshotStatusRef.current = "empty"
+        setSidebarData({ projectGroups: [] })
+        setSidebarSnapshotStatus("empty")
+      }
+    }
+
     setAppSettings(snapshot)
     setMachineName(snapshot.machineName)
+    setConfirmedMachineName(snapshot.machineName)
     persistMachineIdentityName(snapshot.machineName, getBrowserMachineIdentityStorage())
     syncRuntimeStoresFromAppSettings(snapshot)
-  }, [])
+  }, [cacheScope, sidebarBootstrap.identity])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
       setSidebarData(snapshot)
+      sidebarSnapshotStatusRef.current = "authoritative"
+      setSidebarSnapshotStatus("authoritative")
+      setSelectedProjectId((current) => (
+        reconcileSidebarProjectSelection(current, activeChatIdRef.current, snapshot.projectGroups)
+      ))
       setOptimisticSidebarProjectOrder((current) => (
         current && applySidebarProjectOrder(snapshot.projectGroups, current) === snapshot.projectGroups
           ? null
@@ -840,6 +916,26 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(null)
     })
   }, [socket])
+
+  useEffect(() => {
+    if (sidebarSnapshotStatus !== "authoritative" || !confirmedMachineName) return
+    const identity = createSidebarSnapshotIdentity({
+      origin: getBrowserSidebarSnapshotOrigin(),
+      authScope: cacheScope,
+      machineName: confirmedMachineName,
+    })
+    if (!identity) return
+
+    const timeoutId = window.setTimeout(() => {
+      persistSidebarSnapshot(
+        identity,
+        sidebarData,
+        getBrowserSidebarSnapshotStorage()
+      )
+    }, 250)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [cacheScope, confirmedMachineName, sidebarData, sidebarSnapshotStatus])
 
   useEffect(() => {
     if (connectionStatus !== "connected") return
@@ -1064,12 +1160,11 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [activeChatId, historyRefreshEpoch, socket])
 
   useEffect(() => {
-    if (selectedProjectId) return
-    const firstGroup = sidebarProjectGroups[0]
-    if (firstGroup) {
-      setSelectedProjectId(firstGroup.groupKey)
-    }
-  }, [selectedProjectId, sidebarProjectGroups])
+    if (!sidebarReady) return
+    setSelectedProjectId((current) => (
+      reconcileSidebarProjectSelection(current, activeChatId, sidebarProjectGroups)
+    ))
+  }, [activeChatId, sidebarProjectGroups, sidebarReady])
 
   useEffect(() => {
     if (!activeChatId) return
@@ -1122,9 +1217,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
   )
   const activeProjectId = useMemo(
     () => activeChatSnapshot?.runtime.projectId
-      ?? getProjectIdForChat(sidebarProjectGroups, activeChatId)
+      ?? (sidebarReady ? getProjectIdForChat(sidebarProjectGroups, activeChatId) : null)
       ?? selectedProjectId,
-    [activeChatId, activeChatSnapshot?.runtime.projectId, selectedProjectId, sidebarProjectGroups]
+    [activeChatId, activeChatSnapshot?.runtime.projectId, selectedProjectId, sidebarProjectGroups, sidebarReady]
   )
   const chatDiffSnapshot = useMemo(() => {
     const currentDiffs = activeProjectId ? (projectDiffSnapshots[activeProjectId] ?? null) : null
@@ -1209,11 +1304,11 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const navbarLocalPath =
     runtime?.localPath
     ?? fallbackLocalProjectPath
-    ?? sidebarProjectGroups[0]?.localPath
+    ?? (sidebarReady ? sidebarProjectGroups[0]?.localPath : undefined)
   const hasSelectedProject = Boolean(
     selectedProjectId
     ?? runtime?.projectId
-    ?? sidebarProjectGroups[0]?.groupKey
+    ?? (sidebarReady ? sidebarProjectGroups[0]?.groupKey : null)
     ?? fallbackLocalProjectPath
   )
 
@@ -1480,12 +1575,16 @@ export function useKannaState(activeChatId: string | null): KannaState {
         throw new Error(`Sign out failed with status ${response.status}`)
       }
 
+      clearSidebarSnapshotsForScope(createSidebarSnapshotScope({
+        origin: getBrowserSidebarSnapshotOrigin(),
+        authScope: cacheScope,
+      }), getBrowserSidebarSnapshotStorage())
       setCommandError(null)
       window.location.reload()
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [])
+  }, [cacheScope])
 
   const handleSend = useCallback(async (
     content: string,
@@ -1558,7 +1657,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
 
     try {
-      let projectId = selectedProjectId ?? sidebarProjectGroups[0]?.groupKey ?? null
+      let projectId = selectedProjectId
+        ?? (sidebarReady ? sidebarProjectGroups[0]?.groupKey : null)
       if (!activeChatId && !projectId && fallbackLocalProjectPath) {
         const project = await socket.command<{ projectId: string }>({
           type: "project.open",
@@ -1621,7 +1721,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(error instanceof Error ? error.message : String(error))
       throw error
     }
-  }, [activeChatId, fallbackLocalProjectPath, isProcessing, navigate, optimisticUserPrompts, selectedProjectId, serverTranscriptEntries, sidebarProjectGroups, socket])
+  }, [activeChatId, fallbackLocalProjectPath, isProcessing, navigate, optimisticUserPrompts, selectedProjectId, serverTranscriptEntries, sidebarProjectGroups, sidebarReady, socket])
 
   const handleSteerQueuedMessage = useCallback(async (queuedMessageId: string) => {
     if (!activeChatId) return
@@ -1795,7 +1895,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [socket])
 
   const handleOpenExternal = useCallback(async (action: OpenExternalAction, editor?: EditorOpenSettings) => {
-    const localPath = runtime?.localPath ?? localProjects?.projects[0]?.localPath ?? sidebarProjectGroups[0]?.localPath
+    const localPath = runtime?.localPath
+      ?? localProjects?.projects[0]?.localPath
+      ?? (sidebarReady ? sidebarProjectGroups[0]?.localPath : undefined)
     if (!localPath) return
     try {
       await openExternal({
@@ -1806,7 +1908,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [localProjects?.projects, openExternal, runtime?.localPath, sidebarProjectGroups])
+  }, [localProjects?.projects, openExternal, runtime?.localPath, sidebarProjectGroups, sidebarReady])
 
   const handleCopyPath = useCallback(async (localPath: string) => {
     try {
@@ -1938,7 +2040,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const handleCompose = useCallback(() => {
     const intent = resolveComposeIntent({
       selectedProjectId,
-      sidebarProjectId: sidebarProjectGroups[0]?.groupKey,
+      sidebarProjectId: sidebarReady ? sidebarProjectGroups[0]?.groupKey : null,
       fallbackLocalProjectPath,
     })
     if (intent) {
@@ -1947,7 +2049,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
 
     navigate("/")
-  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, startChatFromIntent])
+  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, sidebarReady, startChatFromIntent])
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -2020,6 +2122,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     llmProvider,
     connectionStatus,
     sidebarReady,
+    sidebarSnapshotStatus,
     localProjectsReady,
     commandError,
     startingLocalPath,

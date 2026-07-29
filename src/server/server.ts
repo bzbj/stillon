@@ -298,7 +298,18 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             if (url.pathname === "/auth/status") {
               return auth
                 ? auth.handleStatus(req)
-                : Response.json({ enabled: false, authenticated: true })
+                : Response.json(
+                    {
+                      enabled: false,
+                      authenticated: true,
+                      cacheScope: "public",
+                    },
+                    {
+                      headers: {
+                        "Cache-Control": "no-store",
+                      },
+                    },
+                  )
             }
 
           if (url.pathname === "/auth/logout") {

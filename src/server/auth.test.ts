@@ -154,6 +154,64 @@ describe("password auth", () => {
     }
   })
 
+  test("returns a stable opaque cache scope only for the authenticated session", async () => {
+    const { server } = await startPasswordServer()
+
+    try {
+      const unauthenticatedStatus = await fetch(`http://localhost:${server.port}/auth/status`)
+      expect(await unauthenticatedStatus.json()).toEqual({
+        enabled: true,
+        authenticated: false,
+      })
+
+      const loginResponse = await fetch(`http://localhost:${server.port}/auth/login`, {
+        method: "POST",
+        body: JSON.stringify({ password: "secret", next: "/" }),
+        headers: {
+          "Content-Type": "application/json",
+          Origin: `http://localhost:${server.port}`,
+        },
+      })
+      const cookie = extractCookie(loginResponse)
+      const firstStatus = await fetch(`http://localhost:${server.port}/auth/status`, {
+        headers: { Cookie: cookie },
+      })
+      const firstPayload = await firstStatus.json() as {
+        enabled: boolean
+        authenticated: boolean
+        cacheScope?: string
+      }
+      const secondStatus = await fetch(`http://localhost:${server.port}/auth/status`, {
+        headers: { Cookie: cookie },
+      })
+      const secondPayload = await secondStatus.json() as typeof firstPayload
+
+      expect(firstPayload).toMatchObject({
+        enabled: true,
+        authenticated: true,
+      })
+      expect(firstPayload.cacheScope).toMatch(/^[A-Za-z0-9_-]{32}$/)
+      expect(secondPayload.cacheScope).toBe(firstPayload.cacheScope)
+
+      await fetch(`http://localhost:${server.port}/auth/logout`, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: `http://localhost:${server.port}`,
+        },
+      })
+      const signedOutStatus = await fetch(`http://localhost:${server.port}/auth/status`, {
+        headers: { Cookie: cookie },
+      })
+      expect(await signedOutStatus.json()).toEqual({
+        enabled: true,
+        authenticated: false,
+      })
+    } finally {
+      await server.stop()
+    }
+  })
+
   test("accepts a one-character application password", async () => {
     const { server } = await startPasswordServer({ password: "x" })
 

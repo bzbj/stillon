@@ -52,6 +52,11 @@ describe("connection status presentation", () => {
       dotClassName: expect.stringContaining("emerald"),
     })
     expect(getConnectionStatusPresentation("connecting", false)).toMatchObject({ label: "Reconnecting…" })
+    expect(getConnectionStatusPresentation("connected", false, "cached")).toMatchObject({
+      label: "Last known",
+      description: expect.stringContaining("saved sidebar"),
+      dotClassName: expect.stringContaining("amber"),
+    })
     expect(getConnectionStatusPresentation("disconnected", true)).toMatchObject({
       label: "Out of Reach",
       dotClassName: expect.stringContaining("rose"),
@@ -61,8 +66,23 @@ describe("connection status presentation", () => {
 
 describe("auth boot helpers", () => {
   test("maps disabled or authenticated auth status to ready", () => {
-    expect(getAppAuthStateFromStatus({ enabled: false, authenticated: true })).toEqual({ status: "ready" })
-    expect(getAppAuthStateFromStatus({ enabled: true, authenticated: true })).toEqual({ status: "ready" })
+    expect(getAppAuthStateFromStatus({
+      enabled: false,
+      authenticated: true,
+      cacheScope: "public",
+    })).toEqual({ status: "ready", cacheScope: "public" })
+    expect(getAppAuthStateFromStatus({
+      enabled: true,
+      authenticated: true,
+      cacheScope: "session-a",
+    })).toEqual({ status: "ready", cacheScope: "session-a" })
+  })
+
+  test("keeps the app usable but disables snapshot access when a ready response has no scope", () => {
+    expect(getAppAuthStateFromStatus({ enabled: true, authenticated: true })).toEqual({
+      status: "ready",
+      cacheScope: null,
+    })
   })
 
   test("maps enabled but unauthenticated auth status to locked", () => {

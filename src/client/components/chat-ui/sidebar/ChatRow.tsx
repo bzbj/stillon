@@ -17,6 +17,7 @@ interface Props {
   nowMs: number
   shortcutHint?: string | null
   showShortcutHint?: boolean
+  actionsEnabled?: boolean
   onSelectChat: (chatId: string) => void
   onRenameChat: (chatId: string) => void
   onShareChat: (chatId: string) => void
@@ -32,6 +33,7 @@ function ChatRowImpl({
   nowMs,
   shortcutHint = null,
   showShortcutHint = false,
+  actionsEnabled = true,
   onSelectChat,
   onRenameChat,
   onShareChat,
@@ -84,7 +86,7 @@ function ChatRowImpl({
           chat.status !== 'idle' || activeChatId === normalizedChatId || chat.unread ? <span className="">{chat.title}</span> : <span className="text-slate-500 dark:text-slate-400">{chat.title}</span>
         }
       </span>
-      <div className={cn("relative h-7 mr-[2px] shrink-0", chat.canFork ? "w-12" : "w-6")}>
+      <div className={cn("relative h-7 mr-[2px] shrink-0", actionsEnabled && chat.canFork ? "w-12" : "w-6")}>
         {trailingLabel ? (
           showShortcutKeycap ? (
             <span className="hidden md:flex absolute inset-0 items-center justify-end pr-0.5 text-[11px] text-foreground transition-opacity group-hover:opacity-0">
@@ -98,46 +100,48 @@ function ChatRowImpl({
             </span>
           )
         ) : null}
-        <div
-          className={cn(
-            "absolute inset-0 flex items-center justify-end gap-0 opacity-100 mr-[3px]",
-            trailingLabel
-              ? "md:opacity-0 md:group-hover:opacity-100"
-              : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
-          )}
-        >
-          {chat.canFork ? (
+        {actionsEnabled ? (
+          <div
+            className={cn(
+              "absolute inset-0 flex items-center justify-end gap-0 opacity-100 mr-[3px]",
+              trailingLabel
+                ? "md:opacity-0 md:group-hover:opacity-100"
+                : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            )}
+          >
+            {chat.canFork ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 cursor-pointer rounded-sm hover:!bg-transparent !border-0"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onForkChat(chat.chatId)
+                }}
+                title="Fork chat"
+              >
+                <Split className="size-3.5" />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
               className="h-6 w-6 cursor-pointer rounded-sm hover:!bg-transparent !border-0"
               onClick={(event) => {
                 event.stopPropagation()
-                onForkChat(chat.chatId)
+                onArchiveChat(chat.chatId)
               }}
-              title="Fork chat"
+              title="Archive chat"
             >
-              <Split className="size-3.5" />
+              <Archive className="size-3.5" />
             </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 cursor-pointer rounded-sm hover:!bg-transparent !border-0"
-            onClick={(event) => {
-              event.stopPropagation()
-              onArchiveChat(chat.chatId)
-            }}
-            title="Archive chat"
-          >
-            <Archive className="size-3.5" />
-          </Button>
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
 
-  return (
+  return actionsEnabled ? (
     <ChatRowMenu
       canFork={chat.canFork}
       onRename={() => onRenameChat(chat.chatId)}
@@ -149,7 +153,7 @@ function ChatRowImpl({
     >
       {row}
     </ChatRowMenu>
-  )
+  ) : row
 }
 
 export const ChatRow = memo(ChatRowImpl)

@@ -7,6 +7,7 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 10
 export interface AuthStatusPayload {
   enabled: boolean
   authenticated: boolean
+  cacheScope?: string
 }
 
 export interface AuthManager {
@@ -112,7 +113,7 @@ export interface AuthManagerOptions {
 }
 
 export function createAuthManager(password: string, options: AuthManagerOptions = {}): AuthManager {
-  const sessions = new Set<string>()
+  const sessions = new Map<string, { cacheScope: string }>()
   const failedLoginAttempts = new Map<string, number[]>()
   const expectedPassword = Buffer.from(password)
   const trustProxy = options.trustProxy ?? false
@@ -160,9 +161,13 @@ export function createAuthManager(password: string, options: AuthManagerOptions 
     return parseCookies(req.headers.get("cookie")).get(SESSION_COOKIE_NAME) ?? null
   }
 
-  function isAuthenticated(req: Request) {
+  function getSession(req: Request) {
     const sessionToken = getSessionToken(req)
-    return Boolean(sessionToken && sessions.has(sessionToken))
+    return sessionToken ? sessions.get(sessionToken) ?? null : null
+  }
+
+  function isAuthenticated(req: Request) {
+    return Boolean(getSession(req))
   }
 
   function validateOrigin(req: Request) {
@@ -175,7 +180,9 @@ export function createAuthManager(password: string, options: AuthManagerOptions 
 
   function createSessionCookie(req: Request) {
     const sessionToken = randomBytes(32).toString("base64url")
-    sessions.add(sessionToken)
+    sessions.set(sessionToken, {
+      cacheScope: randomBytes(24).toString("base64url"),
+    })
     return buildCookie(SESSION_COOKIE_NAME, sessionToken, req, trustProxy)
   }
 
@@ -196,10 +203,19 @@ export function createAuthManager(password: string, options: AuthManagerOptions 
   }
 
   function handleStatus(req: Request) {
-    return Response.json({
-      enabled: true,
-      authenticated: isAuthenticated(req),
-    } satisfies AuthStatusPayload)
+    const session = getSession(req)
+    return Response.json(
+      {
+        enabled: true,
+        authenticated: Boolean(session),
+        ...(session ? { cacheScope: session.cacheScope } : {}),
+      } satisfies AuthStatusPayload,
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    )
   }
 
   function redirectToApp(req: Request) {

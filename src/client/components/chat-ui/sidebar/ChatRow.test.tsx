@@ -116,4 +116,26 @@ describe("ChatRow", () => {
     expect(html).toContain("Fork chat")
     expect(html).toContain("Archive chat")
   })
+
+  test("keeps a cached row navigable while withholding every server action", () => {
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={{ ...baseChat, canFork: true }}
+        activeChatId={null}
+        nowMs={60_000}
+        actionsEnabled={false}
+        onSelectChat={() => undefined}
+        onRenameChat={() => undefined}
+        onShareChat={() => undefined}
+        onOpenInFinder={() => undefined}
+        onForkChat={() => undefined}
+        onArchiveChat={() => undefined}
+        onDeleteChat={() => undefined}
+      />
+    )
+
+    expect(html).toContain('data-chat-id="chat-1"')
+    expect(html).not.toContain("Fork chat")
+    expect(html).not.toContain("Archive chat")
+  })
 })

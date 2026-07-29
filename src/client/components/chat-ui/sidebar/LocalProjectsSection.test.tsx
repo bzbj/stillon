@@ -33,10 +33,12 @@ function renderSection(
     expandedGroups = new Set<string>(),
     collapsedSections = new Set<string>(),
     onNewLocalChat,
+    actionsEnabled = true,
   }: {
     expandedGroups?: Set<string>
     collapsedSections?: Set<string>
     onNewLocalChat?: (localPath: string) => void
+    actionsEnabled?: boolean
   } = {}
 ) {
   return renderToStaticMarkup(createElement(
@@ -52,6 +54,7 @@ function renderSection(
       renderChatRow: (chat: SidebarChatRow) => createElement("div", { key: chat.chatId }, chat.title),
       onNewLocalChat,
       isConnected: true,
+      actionsEnabled,
     })
   ))
 }
@@ -180,6 +183,27 @@ describe("LocalProjectsSection", () => {
     })
 
     expect(html).not.toContain("New Chat")
+  })
+
+  test("disables new-chat actions while rows come from an unconfirmed cache", () => {
+    const projectGroups: SidebarProjectGroup[] = [{
+      groupKey: "project-a",
+      title: "Project A",
+      realTitle: "Project A",
+      localPath: "/tmp/project-a",
+      chats: [],
+      previewChats: [],
+      olderChats: [],
+      defaultCollapsed: false,
+    }]
+
+    const html = renderSection(projectGroups, {
+      actionsEnabled: false,
+      onNewLocalChat: () => undefined,
+    })
+
+    expect(html).toContain("New Chat")
+    expect(html).toContain("disabled")
   })
 
   test("starts the downward reorder preview when dragged top plus 20px crosses the target center", () => {
