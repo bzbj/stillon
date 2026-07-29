@@ -17,6 +17,7 @@ import {
   buildUninstallSkillCommand,
   createWsRouter,
   listInstalledSkills,
+  normalizeInitialChatHistoryEntryLimit,
   parseInstalledSkillsLock,
 } from "./ws-router"
 
@@ -118,6 +119,17 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
   warning: null,
   filePathDisplay: "~/.kanna/data/settings.json",
 }
+
+describe("normalizeInitialChatHistoryEntryLimit", () => {
+  test("uses 40 by default and clamps older or malformed clients", () => {
+    expect(normalizeInitialChatHistoryEntryLimit(undefined)).toBe(40)
+    expect(normalizeInitialChatHistoryEntryLimit(200)).toBe(40)
+    expect(normalizeInitialChatHistoryEntryLimit(12.9)).toBe(12)
+    expect(normalizeInitialChatHistoryEntryLimit(0)).toBe(0)
+    expect(normalizeInitialChatHistoryEntryLimit(-1)).toBe(0)
+    expect(normalizeInitialChatHistoryEntryLimit(Number.NaN)).toBe(40)
+  })
+})
 
 describe("skills helpers", () => {
   test("parses installed global skills from a lock payload", () => {
@@ -1053,6 +1065,76 @@ describe("ws-router", () => {
       type: "ack",
       id: "chat-sub-1",
     })
+  })
+
+  test("applies the normalized initial history limit before reading a chat", async () => {
+    const state = createEmptyState()
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      localPath: "/tmp/project",
+      title: "Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.chatsById.set("chat-1", {
+      id: "chat-1",
+      projectId: "project-1",
+      title: "Chat",
+      createdAt: 1,
+      updatedAt: 1,
+      unread: false,
+      provider: null,
+      planMode: false,
+      sessionToken: null,
+      lastTurnOutcome: null,
+    })
+    const appliedLimits: number[] = []
+    const router = createWsRouter({
+      store: {
+        state,
+        getRecentChatHistory: async (_chatId: string, recentLimit: number) => {
+          appliedLimits.push(recentLimit)
+          return {
+            messages: [],
+            history: {
+              hasOlder: false,
+              olderCursor: null,
+              recentLimit,
+              revision: "revision-1",
+            },
+          }
+        },
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "subscribe",
+        id: "chat-sub-1",
+        topic: { type: "chat", chatId: "chat-1", recentLimit: 200 },
+      }),
+    )
+
+    expect(appliedLimits).toEqual([40])
+    expect((ws.sent[0] as {
+      snapshot: { data: { history: { recentLimit: number } } }
+    }).snapshot.data.history.recentLimit).toBe(40)
   })
 
   test("reuses one sidebar derivation across sockets in the same broadcast pass", async () => {

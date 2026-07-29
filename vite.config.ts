@@ -1,7 +1,27 @@
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
+import { precompressStaticAssets } from "./scripts/precompress-static-assets"
+
+const CLIENT_OUT_DIR = "dist/client"
+
+function precompressStaticAssetsPlugin(): Plugin {
+  return {
+    name: "stillon-precompress-static-assets",
+    apply: "build",
+    async closeBundle() {
+      const summary = await precompressStaticAssets(CLIENT_OUT_DIR)
+      const originalKiB = Math.round(summary.originalBytes / 1_024)
+      const brotliKiB = Math.round(summary.brotliBytes / 1_024)
+      const gzipKiB = Math.round(summary.gzipBytes / 1_024)
+      console.log(
+        `[stillon] precompressed ${summary.assets.length} static assets `
+        + `(${originalKiB} KiB raw, ${brotliKiB} KiB br, ${gzipKiB} KiB gzip)`,
+      )
+    },
+  }
+}
 
 function getAllowedHosts() {
   const defaults = ["localhost", "127.0.0.1"]
@@ -32,7 +52,7 @@ const backendTargetHost = getBackendTargetHost()
 const backendPort = getBackendPort()
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), precompressStaticAssetsPlugin()],
   server: {
     host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
@@ -55,8 +75,19 @@ export default defineConfig({
     allowedHosts: getAllowedHosts(),
   },
   build: {
-    outDir: "dist/client",
+    outDir: CLIENT_OUT_DIR,
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // A fixed hexadecimal hash shape lets the server distinguish
+        // immutable build artifacts from mutable files without I/O or a
+        // runtime manifest lookup.
+        hashCharacters: "hex",
+        entryFileNames: "assets/[name]-[hash:12].js",
+        chunkFileNames: "assets/[name]-[hash:12].js",
+        assetFileNames: "assets/[name]-[hash:12].[ext]",
+      },
+    },
     // @pierre/diffs lazily loads a few syntax grammars that are close to 780 kB.
     // Keep the warning threshold above that expected on-demand ceiling so it
     // remains useful for unexpectedly large application chunks.

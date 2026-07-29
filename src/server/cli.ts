@@ -1,26 +1,27 @@
 import process from "node:process"
+import { APP_VERSION } from "../shared/branding"
 import { openUrl, runCli } from "./cli-runtime"
-import { startStillOnServer } from "./server"
-import { manageService } from "./service"
-
-// Read version from package.json at the package root
-const pkg = await Bun.file(new URL("../../package.json", import.meta.url)).json()
-const VERSION: string = pkg.version ?? "0.0.0"
 
 const argv = process.argv.slice(2)
 
 const result = await runCli(argv, {
-  version: VERSION,
+  version: APP_VERSION,
   bunVersion: Bun.version,
-  startServer: startStillOnServer,
+  startServer: async (options) => {
+    const { startStillOnServer } = await import("./server")
+    return startStillOnServer(options)
+  },
   openUrl,
   log: console.log,
   warn: console.warn,
-  manageService: (action, options) => manageService(action, {
-    ...options,
-    log: console.log,
-    warn: console.warn,
-  }),
+  manageService: async (action, options) => {
+    const { manageService } = await import("./service")
+    return manageService(action, {
+      ...options,
+      log: console.log,
+      warn: console.warn,
+    })
+  },
 })
 
 if (result.kind === "exited") {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import type { TranscriptEntry } from "../shared/types"
 import type { SnapshotFile } from "./events"
 import { EventStore } from "./event-store"
+import { getTranscriptMessagesSerializedBytes } from "./transcript-window"
 
 const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const tempDirs: string[] = []
@@ -32,6 +33,31 @@ function entry(kind: "user_prompt" | "assistant_text", createdAt: number, extra:
     return { ...base, kind, content: String(extra.content ?? "") }
   }
   return { ...base, kind, text: String(extra.content ?? extra.text ?? "") }
+}
+
+function toolCall(createdAt: number, toolId: string): TranscriptEntry {
+  return {
+    _id: `tool-call-${createdAt}`,
+    kind: "tool_call",
+    createdAt,
+    tool: {
+      kind: "tool",
+      toolKind: "unknown_tool",
+      toolName: "Example",
+      toolId,
+      input: { payload: {} },
+    },
+  }
+}
+
+function toolResult(createdAt: number, toolId: string, content: unknown): TranscriptEntry {
+  return {
+    _id: `tool-result-${createdAt}`,
+    kind: "tool_result",
+    createdAt,
+    toolId,
+    content,
+  }
 }
 
 describe("EventStore", () => {
@@ -108,6 +134,56 @@ describe("EventStore", () => {
     expect(migratedSnapshot.messages).toBeUndefined()
     expect(await readFile(messagesLogPath, "utf8")).toBe("")
     expect(await readFile(join(dataDir, "transcripts", `${chatId}.jsonl`), "utf8")).toContain('"kind":"assistant_text"')
+  })
+
+  test("uses the same byte and tool-safe boundary before and after legacy migration", async () => {
+    const dataDir = await createTempDataDir()
+    const chatId = "chat-1"
+    const entries = [
+      entry("user_prompt", 100, { content: "oldest" }),
+      toolCall(101, "tool-a"),
+      toolResult(102, "tool-a", "界".repeat(2_000)),
+      entry("assistant_text", 103, { text: "newest" }),
+    ]
+    const snapshot: SnapshotFile = {
+      v: 2,
+      generatedAt: 10,
+      projects: [{
+        id: "project-1",
+        localPath: "/tmp/project",
+        title: "Project",
+        createdAt: 1,
+        updatedAt: 5,
+      }],
+      chats: [{
+        id: chatId,
+        projectId: "project-1",
+        title: "Chat",
+        createdAt: 1,
+        updatedAt: 5,
+        unread: false,
+        provider: null,
+        planMode: false,
+        sessionToken: null,
+        lastTurnOutcome: null,
+      }],
+      messages: [{ chatId, entries }],
+    }
+    await writeFile(join(dataDir, "snapshot.json"), JSON.stringify(snapshot), "utf8")
+
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const byteBudget = getTranscriptMessagesSerializedBytes([entries[3]!])
+    const legacyPage = await store.getRecentMessagesPage(chatId, 40, byteBudget)
+
+    await store.migrateLegacyTranscripts()
+    const filePage = await store.getRecentMessagesPage(chatId, 40, byteBudget)
+
+    expect(legacyPage.messages.map((message) => message._id)).toEqual(["assistant_text-103"])
+    expect(filePage.messages.map((message) => message._id)).toEqual(
+      legacyPage.messages.map((message) => message._id),
+    )
+    expect(filePage.hasOlder).toBe(legacyPage.hasOlder)
   })
 
   test("appends new transcript entries only to the per-chat transcript file", async () => {

@@ -1,6 +1,10 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { open, type FileHandle } from "node:fs/promises"
 import type { TranscriptEntry } from "../shared/types"
+import {
+  ReverseTranscriptWindowSelector,
+  getTranscriptEntrySerializedBytes,
+} from "./transcript-window"
 
 const DEFAULT_BLOCK_SIZE = 64 * 1024
 const DEFAULT_MAX_RECORD_BYTES = 64 * 1024 * 1024
@@ -22,6 +26,7 @@ interface HistoryCursorPayload {
 interface ScannedTranscriptRecord {
   entry: TranscriptEntry
   startOffset: number
+  serializedBytes: number
 }
 
 export interface TranscriptPageReadResult {
@@ -31,6 +36,9 @@ export interface TranscriptPageReadResult {
   revision: string
   snapshotEnd: number
   bytesRead: number
+  serializedBytes: number
+  budgetExceeded: boolean
+  toolBoundaryFallback: boolean
 }
 
 export interface TranscriptPagerOptions {
@@ -113,6 +121,7 @@ export class TranscriptPager {
     revision: string,
     limit: number,
     capturedSnapshotEnd?: number,
+    maxSerializedBytes?: number,
   ): Promise<TranscriptPageReadResult> {
     const normalizedLimit = normalizePageLimit(limit)
     if (normalizedLimit === 0) {
@@ -123,6 +132,9 @@ export class TranscriptPager {
         revision,
         snapshotEnd: 0,
         bytesRead: 0,
+        serializedBytes: 2,
+        budgetExceeded: false,
+        toolBoundaryFallback: false,
       }
     }
 
@@ -138,6 +150,9 @@ export class TranscriptPager {
           revision,
           snapshotEnd: 0,
           bytesRead: 0,
+          serializedBytes: 2,
+          budgetExceeded: false,
+          toolBoundaryFallback: false,
         }
       }
       throw error
@@ -160,6 +175,7 @@ export class TranscriptPager {
         beforeOffset: snapshotEnd,
         snapshotEnd,
         limit: normalizedLimit,
+        maxSerializedBytes,
         bytesRead: 0,
       })
     } finally {
@@ -183,6 +199,9 @@ export class TranscriptPager {
         revision,
         snapshotEnd: 0,
         bytesRead: 0,
+        serializedBytes: 2,
+        budgetExceeded: false,
+        toolBoundaryFallback: false,
       }
     }
 
@@ -244,9 +263,13 @@ export class TranscriptPager {
     beforeOffset: number
     snapshotEnd: number
     limit: number
+    maxSerializedBytes?: number
     bytesRead: number
   }): Promise<TranscriptPageReadResult> {
-    const records: ScannedTranscriptRecord[] = []
+    const selector = new ReverseTranscriptWindowSelector<number>({
+      maxEntries: args.limit,
+      maxSerializedBytes: args.maxSerializedBytes,
+    })
     const pendingParts: Buffer[] = []
     let pendingBytes = 0
     let position = args.beforeOffset
@@ -256,13 +279,25 @@ export class TranscriptPager {
     const consumeRecord = (raw: Buffer, startOffset: number) => {
       const entry = parseTranscriptRecord(raw, startOffset, this.maxRecordBytes)
       if (entry) {
-        records.push({ entry, startOffset })
+        const shouldStop = selector.push({
+          entry,
+          position: startOffset,
+          serializedBytes: getTranscriptEntrySerializedBytes(entry),
+        })
+        if (!shouldStop && startOffset > 0 && selector.isAtCapacity()) {
+          // The selected record's start offset proves older bytes exist. Avoid
+          // assembling a potentially huge 41st record just to set hasOlder.
+          selector.stopBeforeOlderRecords()
+          return true
+        }
+        return shouldStop
       }
+      return false
     }
 
     // Scan raw bytes so UTF-8 code points split across filesystem blocks are
     // decoded only after a complete newline-delimited record is assembled.
-    scan: while (position > 0 && records.length <= args.limit) {
+    scan: while (position > 0) {
       const requestedBytes = Math.min(this.blockSize, position)
       const blockStart = position - requestedBytes
       const blockBuffer = Buffer.allocUnsafe(requestedBytes)
@@ -284,13 +319,13 @@ export class TranscriptPager {
           ? Buffer.concat([firstPart, ...pendingParts.slice().reverse()], firstPart.byteLength + pendingBytes)
           : firstPart
 
-        consumeRecord(raw, lineStartOffset)
+        const shouldStop = consumeRecord(raw, lineStartOffset)
         pendingParts.length = 0
         pendingBytes = 0
         lineEndOffset = blockStart + index
         segmentEnd = index
 
-        if (records.length > args.limit) {
+        if (shouldStop) {
           break scan
         }
       }
@@ -299,19 +334,36 @@ export class TranscriptPager {
         const prefix = Buffer.from(block.subarray(0, segmentEnd))
         pendingParts.push(prefix)
         pendingBytes += prefix.byteLength
+        if (selector.canFallbackToolBoundaryBeforeCanonicalRecord(pendingBytes)) {
+          selector.fallbackToolBoundaryBeforeOlderRecord()
+          break scan
+        }
+        if (selector.canRejectCanonicalOlderRecord(pendingBytes)) {
+          // EventStore writes canonical one-line JSON. Once even the bytes
+          // assembled so far cannot fit beside the committed suffix, defer
+          // this entire record without parsing or retaining its full body.
+          selector.stopBeforeOlderRecords()
+          break scan
+        }
         if (pendingBytes > this.maxRecordBytes) {
           throw new Error(`Transcript record ending at byte ${lineEndOffset} exceeds the ${this.maxRecordBytes}-byte safety limit.`)
         }
       }
     }
 
-    if (position === 0 && pendingParts.length > 0 && records.length <= args.limit) {
+    if (position === 0 && pendingParts.length > 0) {
       const raw = Buffer.concat(pendingParts.slice().reverse(), pendingBytes)
       consumeRecord(raw, 0)
     }
 
-    const selectedRecords = records.slice(0, args.limit)
-    const hasOlder = records.length > args.limit
+    selector.finish()
+    const selection = selector.result()
+    const selectedRecords: ScannedTranscriptRecord[] = selection.records.map((record) => ({
+      entry: record.entry,
+      startOffset: record.position,
+      serializedBytes: record.serializedBytes,
+    }))
+    const hasOlder = selection.hasOlder
     const messages = selectedRecords
       .map((record) => record.entry)
       .reverse()
@@ -351,6 +403,9 @@ export class TranscriptPager {
       revision: args.revision,
       snapshotEnd: args.snapshotEnd,
       bytesRead,
+      serializedBytes: selection.serializedBytes,
+      budgetExceeded: selection.budgetExceeded,
+      toolBoundaryFallback: selection.toolBoundaryFallback,
     }
   }
 
