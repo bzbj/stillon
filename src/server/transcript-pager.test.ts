@@ -9,6 +9,7 @@ import {
   TranscriptPager,
   createTranscriptRevision,
 } from "./transcript-pager"
+import { getTranscriptMessagesSerializedBytes } from "./transcript-window"
 
 const tempDirs: string[] = []
 
@@ -24,6 +25,31 @@ function entry(index: number, text = `message-${index}`): TranscriptEntry {
     kind: "assistant_text",
     createdAt: index,
     text,
+  }
+}
+
+function toolCall(index: number, toolId: string): TranscriptEntry {
+  return {
+    _id: `tool-call-${index}`,
+    kind: "tool_call",
+    createdAt: index,
+    tool: {
+      kind: "tool",
+      toolKind: "unknown_tool",
+      toolName: "Example",
+      toolId,
+      input: { payload: {} },
+    },
+  }
+}
+
+function toolResult(index: number, toolId: string, content: unknown): TranscriptEntry {
+  return {
+    _id: `tool-result-${index}`,
+    kind: "tool_result",
+    createdAt: index,
+    toolId,
+    content,
   }
 }
 
@@ -73,6 +99,264 @@ describe("TranscriptPager", () => {
     expect(page.messages).toHaveLength(10)
     expect(page.bytesRead).toBeLessThan(4 * 1024)
     expect(page.bytesRead).toBeLessThan(payload.length / 100)
+  })
+
+  test("does not assemble a huge excluded record just to detect older history", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "x".repeat(2 * 1024 * 1024)),
+      entry(2, "newest"),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 1024, cursorSecret: Buffer.alloc(32, 13) })
+    const byteBudget = getTranscriptMessagesSerializedBytes([entries[1]!]) + 1024
+    const page = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      createTranscriptRevision(),
+      40,
+      undefined,
+      byteBudget,
+    )
+
+    expect(page.messages.map((message) => message._id)).toEqual(["message-2"])
+    expect(page.hasOlder).toBe(true)
+    expect(page.bytesRead).toBeLessThan(4 * 1024)
+  })
+
+  test("selects the largest recent suffix within an exact UTF-8 byte budget", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "oldest"),
+      entry(2, "界".repeat(2_000)),
+      entry(3, "recent-3"),
+      entry(4, "recent-4"),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 128, cursorSecret: Buffer.alloc(32, 8) })
+    const exactBudget = getTranscriptMessagesSerializedBytes(entries.slice(2))
+    const page = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      createTranscriptRevision(),
+      40,
+      undefined,
+      exactBudget,
+    )
+
+    expect(page.messages.map((message) => message._id)).toEqual(["message-3", "message-4"])
+    expect(page.serializedBytes).toBe(exactBudget)
+    expect(page.budgetExceeded).toBe(false)
+    expect(page.hasOlder).toBe(true)
+  })
+
+  test("returns one oversized newest entry so pagination always makes progress", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "older"),
+      entry(2, "界".repeat(4_000)),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 128, cursorSecret: Buffer.alloc(32, 9) })
+    const revision = createTranscriptRevision()
+    const recent = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      revision,
+      40,
+      undefined,
+      256,
+    )
+
+    expect(recent.messages.map((message) => message._id)).toEqual(["message-2"])
+    expect(recent.serializedBytes).toBeGreaterThan(256)
+    expect(recent.budgetExceeded).toBe(true)
+    expect(recent.hasOlder).toBe(true)
+
+    const older = await pager.readBefore(
+      transcriptPath,
+      "chat-1",
+      revision,
+      recent.olderCursor!,
+      60,
+    )
+    expect(older.messages.map((message) => message._id)).toEqual(["message-1"])
+  })
+
+  test("keeps oversized and parallel tool call/result units intact", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "older"),
+      toolCall(2, "tool-a"),
+      toolCall(3, "tool-b"),
+      toolResult(4, "tool-a", "x".repeat(2_000)),
+      toolResult(5, "tool-b", "done"),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 128, cursorSecret: Buffer.alloc(32, 10) })
+    const page = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      createTranscriptRevision(),
+      2,
+      undefined,
+      256,
+    )
+
+    expect(page.messages.map((message) => message._id)).toEqual([
+      "tool-call-2",
+      "tool-call-3",
+      "tool-result-4",
+      "tool-result-5",
+    ])
+    expect(page.budgetExceeded).toBe(true)
+    expect(page.hasOlder).toBe(true)
+  })
+
+  test("bounds an unresolved newest tool result instead of scanning the full transcript", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      ...Array.from({ length: 1_000 }, (_, index) => entry(index + 1, "x".repeat(80))),
+      toolResult(1_001, "missing-tool", "orphan"),
+    ]
+    const payload = toJsonl(entries)
+    await writeFile(transcriptPath, payload, "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 1024, cursorSecret: Buffer.alloc(32, 14) })
+    const revision = createTranscriptRevision()
+    let page = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      revision,
+      40,
+      undefined,
+      512 * 1024,
+    )
+
+    expect(page.messages.map((message) => message._id)).toEqual(["tool-result-1001"])
+    expect(page.toolBoundaryFallback).toBe(true)
+    expect(page.hasOlder).toBe(true)
+    expect(page.bytesRead).toBeLessThan(payload.length / 2)
+
+    let reconstructed = [...page.messages]
+    while (page.hasOlder) {
+      page = await pager.readBefore(
+        transcriptPath,
+        "chat-1",
+        revision,
+        page.olderCursor!,
+        60,
+      )
+      reconstructed = [...page.messages, ...reconstructed]
+    }
+    expect(reconstructed.map((message) => message._id)).toEqual(
+      entries.map((message) => message._id),
+    )
+  })
+
+  test("applies the hard tool-boundary byte limit before parsing a huge older record", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "x".repeat(20 * 1024 * 1024)),
+      toolResult(2, "missing-tool", "orphan"),
+    ]
+    const payload = toJsonl(entries)
+    await writeFile(transcriptPath, payload, "utf8")
+
+    const pager = new TranscriptPager({
+      blockSize: 64 * 1024,
+      cursorSecret: Buffer.alloc(32, 15),
+    })
+    const page = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      createTranscriptRevision(),
+      40,
+      undefined,
+      512 * 1024,
+    )
+
+    expect(page.messages.map((message) => message._id)).toEqual(["tool-result-2"])
+    expect(page.toolBoundaryFallback).toBe(true)
+    expect(page.hasOlder).toBe(true)
+    expect(page.bytesRead).toBeLessThan(17 * 1024 * 1024)
+    expect(page.bytesRead).toBeLessThan(payload.length)
+  })
+
+  test("leaves an older tool unit whole for the next page", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1, "oldest"),
+      toolCall(2, "tool-a"),
+      toolResult(3, "tool-a", "x".repeat(2_000)),
+      entry(4, "newest"),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 128, cursorSecret: Buffer.alloc(32, 11) })
+    const revision = createTranscriptRevision()
+    const recentBudget = getTranscriptMessagesSerializedBytes([entries[3]!])
+    const recent = await pager.readRecent(
+      transcriptPath,
+      "chat-1",
+      revision,
+      40,
+      undefined,
+      recentBudget,
+    )
+    const older = await pager.readBefore(
+      transcriptPath,
+      "chat-1",
+      revision,
+      recent.olderCursor!,
+      1,
+    )
+
+    expect(recent.messages.map((message) => message._id)).toEqual(["message-4"])
+    expect(older.messages.map((message) => message._id)).toEqual([
+      "tool-call-2",
+      "tool-result-3",
+    ])
+    expect(older.hasOlder).toBe(true)
+  })
+
+  test("reconstructs tool-safe pages without gaps or duplicates", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const entries = [
+      entry(1),
+      toolCall(2, "tool-a"),
+      toolCall(3, "tool-b"),
+      toolResult(4, "tool-a", "a"),
+      toolResult(5, "tool-b", "b"),
+      entry(6),
+      toolCall(7, "pending"),
+    ]
+    await writeFile(transcriptPath, toJsonl(entries), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 64, cursorSecret: Buffer.alloc(32, 12) })
+    const revision = createTranscriptRevision()
+    let page = await pager.readRecent(transcriptPath, "chat-1", revision, 2)
+    let reconstructed = [...page.messages]
+
+    while (page.hasOlder) {
+      page = await pager.readBefore(
+        transcriptPath,
+        "chat-1",
+        revision,
+        page.olderCursor!,
+        2,
+      )
+      reconstructed = [...page.messages, ...reconstructed]
+    }
+
+    expect(reconstructed.map((message) => message._id)).toEqual(
+      entries.map((message) => message._id),
+    )
+    expect(new Set(reconstructed.map((message) => message._id)).size).toBe(entries.length)
   })
 
   test("keeps an older cursor valid when new records are appended", async () => {

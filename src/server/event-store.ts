@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
+import { INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT } from "../shared/transcript-history"
 import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
@@ -20,9 +21,14 @@ import {
 import { resolveLocalPath } from "./paths"
 import {
   HistoryCursorExpiredError,
+  MAX_HISTORY_PAGE_SIZE,
   TranscriptPager,
   createTranscriptRevision,
 } from "./transcript-pager"
+import {
+  getTranscriptMessagesSerializedBytes,
+  selectTranscriptWindowFromEntries,
+} from "./transcript-window"
 
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
 const STALE_EMPTY_CHAT_MAX_AGE_MS = 30 * 60 * 1000
@@ -1133,17 +1139,25 @@ export class EventStore {
     limit: number,
     revision: string,
     beforeIndex?: number,
+    maxSerializedBytes?: number,
   ): ChatHistoryPage {
     if (entries.length === 0) {
       return { messages: [], hasOlder: false, olderCursor: null, revision }
     }
 
     const endIndex = beforeIndex === undefined ? entries.length : Math.max(0, Math.min(beforeIndex, entries.length))
-    const startIndex = Math.max(0, endIndex - limit)
+    const normalizedLimit = Math.min(
+      MAX_HISTORY_PAGE_SIZE,
+      Math.max(1, Math.floor(limit)),
+    )
+    const selection = selectTranscriptWindowFromEntries(entries, endIndex, {
+      maxEntries: normalizedLimit,
+      maxSerializedBytes,
+    })
     return {
-      messages: cloneTranscriptEntries(entries.slice(startIndex, endIndex)),
-      hasOlder: startIndex > 0,
-      olderCursor: startIndex > 0 ? encodeHistoryCursor(startIndex) : null,
+      messages: cloneTranscriptEntries(selection.messages),
+      hasOlder: selection.hasOlder,
+      olderCursor: selection.hasOlder ? encodeHistoryCursor(selection.startIndex) : null,
       revision,
     }
   }
@@ -1215,7 +1229,11 @@ export class EventStore {
     return this.getQueuedMessages(chatId).find((entry) => entry.id === queuedMessageId) ?? null
   }
 
-  async getRecentMessagesPage(chatId: string, limit: number): Promise<ChatHistoryPage> {
+  async getRecentMessagesPage(
+    chatId: string,
+    limit: number,
+    maxSerializedBytes?: number,
+  ): Promise<ChatHistoryPage> {
     this.requireChat(chatId)
     const revision = this.getTranscriptRevision(chatId)
     if (limit <= 0) {
@@ -1224,7 +1242,25 @@ export class EventStore {
 
     const legacyEntries = this.legacyMessagesByChatId.get(chatId)
     if (legacyEntries) {
-      return this.getMessagesPageFromEntries(legacyEntries, limit, revision)
+      const startedAt = performance.now()
+      const page = this.getMessagesPageFromEntries(
+        legacyEntries,
+        limit,
+        revision,
+        undefined,
+        maxSerializedBytes,
+      )
+      const serializedBytes = getTranscriptMessagesSerializedBytes(page.messages)
+      logSendToStartingProfile("event_store.transcript_recent_page", {
+        chatId,
+        source: "legacy",
+        messageCount: page.messages.length,
+        serializedBytes,
+        maxSerializedBytes: maxSerializedBytes ?? null,
+        budgetExceeded: maxSerializedBytes !== undefined && serializedBytes > maxSerializedBytes,
+        elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+      })
+      return page
     }
 
     const snapshotEnd = await this.captureTranscriptEnd(chatId)
@@ -1235,11 +1271,17 @@ export class EventStore {
       revision,
       limit,
       snapshotEnd,
+      maxSerializedBytes,
     )
     logSendToStartingProfile("event_store.transcript_recent_page", {
       chatId,
+      source: "jsonl",
       messageCount: page.messages.length,
       bytesRead: page.bytesRead,
+      serializedBytes: page.serializedBytes,
+      maxSerializedBytes: maxSerializedBytes ?? null,
+      budgetExceeded: page.budgetExceeded,
+      toolBoundaryFallback: page.toolBoundaryFallback,
       snapshotBytes: page.snapshotEnd,
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     })
@@ -1284,6 +1326,9 @@ export class EventStore {
       chatId,
       messageCount: page.messages.length,
       bytesRead: page.bytesRead,
+      serializedBytes: page.serializedBytes,
+      budgetExceeded: page.budgetExceeded,
+      toolBoundaryFallback: page.toolBoundaryFallback,
       snapshotBytes: page.snapshotEnd,
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     })
@@ -1296,7 +1341,11 @@ export class EventStore {
   }
 
   async getRecentChatHistory(chatId: string, recentLimit: number) {
-    const page = await this.getRecentMessagesPage(chatId, recentLimit)
+    const page = await this.getRecentMessagesPage(
+      chatId,
+      recentLimit,
+      INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT,
+    )
     return {
       messages: page.messages,
       history: getHistorySnapshot(page, recentLimit),

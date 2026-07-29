@@ -59,6 +59,42 @@ interface ChatTranscriptViewportProps {
   headerOffsetPx?: number
 }
 
+export interface HistoryAutoLoadGate {
+  previousScrollTop: number | null
+  armed: boolean
+}
+
+export function updateHistoryAutoLoadGate(
+  gate: HistoryAutoLoadGate,
+  scrollTop: number,
+  canArm = true,
+): HistoryAutoLoadGate {
+  const movedTowardHistory = (
+    canArm
+    && gate.previousScrollTop !== null
+    && scrollTop < gate.previousScrollTop - 1
+  )
+  return {
+    previousScrollTop: scrollTop,
+    armed: canArm && (gate.armed || movedTowardHistory),
+  }
+}
+
+export function consumeHistoryAutoLoadGate(
+  gate: HistoryAutoLoadGate,
+  options: { hasOlderHistory: boolean; isHistoryLoading: boolean },
+) {
+  const shouldLoad = (
+    gate.armed
+    && options.hasOlderHistory
+    && !options.isHistoryLoading
+  )
+  return {
+    gate: shouldLoad ? { ...gate, armed: false } : gate,
+    shouldLoad,
+  }
+}
+
 export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   activeChatId,
   listRef,
@@ -94,6 +130,10 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   headerOffsetPx = CHAT_NAVBAR_OFFSET_PX,
 }: ChatTranscriptViewportProps) {
   const previousRowCountRef = useRef(0)
+  const historyAutoLoadGateRef = useRef<HistoryAutoLoadGate>({
+    previousScrollTop: null,
+    armed: false,
+  })
   const localLinkMenuTriggerRef = useRef<HTMLSpanElement | null>(null)
   const [toolGroupExpanded, setToolGroupExpanded] = useState<Record<string, boolean>>({})
   const [localLinkMenuTarget, setLocalLinkMenuTarget] = useState<OpenLocalLinkTarget | null>(null)
@@ -108,6 +148,10 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   useEffect(() => {
     setToolGroupExpanded({})
+    historyAutoLoadGateRef.current = {
+      previousScrollTop: null,
+      armed: false,
+    }
   }, [activeChatId])
 
   useEffect(() => {
@@ -147,6 +191,11 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
       : listRef.current?.getScrollableNode?.()
 
     if (currentTarget instanceof HTMLElement) {
+      historyAutoLoadGateRef.current = updateHistoryAutoLoadGate(
+        historyAutoLoadGateRef.current,
+        currentTarget.scrollTop,
+        !isHistoryLoading,
+      )
       const distanceFromEnd = currentTarget.scrollHeight - currentTarget.clientHeight - currentTarget.scrollTop
       onIsAtEndChange(distanceFromEnd <= 4)
       return
@@ -156,7 +205,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     if (state) {
       onIsAtEndChange(state.isAtEnd)
     }
-  }, [listRef, onIsAtEndChange])
+  }, [isHistoryLoading, listRef, onIsAtEndChange])
 
   useEffect(() => {
     let cleanup: (() => void) | undefined
@@ -184,11 +233,23 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   }, [activeChatId, handleScroll, listRef, resolvedRows.length])
 
   const handleStartReached = useCallback(() => {
-    if (isHistoryLoading || !hasOlderHistory) {
-      return
+    const result = consumeHistoryAutoLoadGate(historyAutoLoadGateRef.current, {
+      hasOlderHistory,
+      isHistoryLoading,
+    })
+    historyAutoLoadGateRef.current = result.gate
+    if (result.shouldLoad) {
+      void loadOlderHistory()
+    }
+  }, [hasOlderHistory, isHistoryLoading, loadOlderHistory])
+
+  const handleExplicitLoadOlderHistory = useCallback(() => {
+    historyAutoLoadGateRef.current = {
+      ...historyAutoLoadGateRef.current,
+      armed: false,
     }
     void loadOlderHistory()
-  }, [hasOlderHistory, isHistoryLoading, loadOlderHistory])
+  }, [loadOlderHistory])
 
   const handleOpenLocalLinkClick = useCallback((target: OpenLocalLinkTarget) => {
     if (target.trigger !== "contextmenu") {
@@ -241,6 +302,16 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
               Loading more messages...
             </AnimatedShinyText>
           </span>
+        </div>
+      ) : hasOlderHistory ? (
+        <div className="flex justify-center pb-4">
+          <button
+            type="button"
+            className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={handleExplicitLoadOlderHistory}
+          >
+            Load earlier messages
+          </button>
         </div>
       ) : null}
     </div>

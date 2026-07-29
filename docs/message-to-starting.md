@@ -43,6 +43,38 @@ The optimistic user message does not control `Starting...`.
 
 Any latency in that chain increases the gap between the optimistic prompt and the loading row.
 
+## Transcript history budgets
+
+Chat subscriptions use a bounded recent window so opening a long session does
+not serialize and hydrate its whole tail before the UI becomes interactive:
+
+- Initial target window: **40 entries** and **512 KiB** for the UTF-8 encoding
+  of `JSON.stringify(messages)`.
+- Older-history request made by the bundled client: **60 entries**. The server
+  continues to accept up to 500 for compatibility with older clients.
+- The server clamps an initial `recentLimit` from older clients to 40, so the
+  byte/count policy does not depend on the browser bundle being current.
+
+A tool call and its result are an atomic pagination unit. Normal page boundaries
+do not return a result without its matching call. The newest single entry or
+atomic tool unit is always returned even when it alone exceeds the 40-entry or
+512 KiB targets; this explicit soft-budget exception guarantees pagination
+makes progress.
+
+Tool-boundary resolution itself is bounded to 200 additional records and
+16 MiB beyond the newest record. If a malformed or unusually distant tool pair
+exceeds that safety bound, the server returns the newest record with a cursor
+instead of scanning the full transcript; continued paging restores the older
+context. The profile marks this rare `toolBoundaryFallback`. Strictly
+bounding oversized tool-result bodies is tracked separately and will use lazy
+loading.
+
+The byte budget applies only to the `messages` array. The surrounding chat
+runtime, provider metadata, snapshot envelope, and WebSocket framing add a
+small amount beyond it. Signed history cursors retain a fixed transcript
+snapshot boundary, so repeated older-page requests reconstruct the captured
+history without gaps or duplicates while live entries continue to append.
+
 ## Instrumentation added
 
 ### Client
@@ -90,6 +122,11 @@ Reload after setting it. Logs appear in the browser console with the prefix:
 - `chat_send.ready_for_ack`
 - `ws.snapshot_sent`
 - `ws.chat_send_ack`
+
+The transcript page profile also reports disk `bytesRead`, UTF-8
+`serializedBytes`, `maxSerializedBytes`, and whether the soft budget was
+exceeded. WebSocket `payloadBytes` is measured as UTF-8 bytes rather than
+JavaScript string length.
 
 Enable server profiling before starting StillOn:
 
