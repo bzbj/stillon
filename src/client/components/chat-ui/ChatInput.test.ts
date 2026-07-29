@@ -4,11 +4,13 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { PROVIDERS } from "../../../shared/types"
 import {
   ChatInput,
+  createPendingComposerAttachment,
   getClipboardImageFiles,
   getUploadNetworkError,
   getUploadResponseError,
   isDesktopLikeInputDevice,
   trimTrailingPastedNewlines,
+  uploadProjectAttachment,
   willExceedAttachmentLimit,
 } from "./ChatInput"
 
@@ -87,6 +89,100 @@ describe("upload errors", () => {
 
   test("turns browser network failures into an actionable message", () => {
     expect(getUploadNetworkError(new TypeError("Failed to fetch"))).toContain("could not reach the upload endpoint")
+  })
+})
+
+describe("attachment uploads without crypto.randomUUID", () => {
+  test("creates the pending attachment and sends the upload request", async () => {
+    const randomUuidDescriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, "randomUUID")
+    const xhrDescriptor = Object.getOwnPropertyDescriptor(globalThis, "XMLHttpRequest")
+
+    class FakeXMLHttpRequest {
+      static latest: FakeXMLHttpRequest | null = null
+
+      method = ""
+      url = ""
+      body: XMLHttpRequestBodyInit | Document | null = null
+      status = 200
+      responseText = JSON.stringify({
+        attachments: [{
+          id: "uploaded-attachment",
+          kind: "file",
+          displayName: "notes.txt",
+          absolutePath: "/project/.stillon/uploads/notes.txt",
+          relativePath: "./.stillon/uploads/notes.txt",
+          contentUrl: "/api/projects/project-1/uploads/notes.txt/content",
+          mimeType: "text/plain",
+          size: 5,
+        }],
+      })
+      upload = { addEventListener: () => undefined }
+      private listeners = new Map<string, () => void>()
+
+      constructor() {
+        FakeXMLHttpRequest.latest = this
+      }
+
+      open(method: string, url: string) {
+        this.method = method
+        this.url = url
+      }
+
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        this.listeners.set(type, () => {
+          if (typeof listener === "function") {
+            listener(new Event(type))
+          } else {
+            listener.handleEvent(new Event(type))
+          }
+        })
+      }
+
+      getResponseHeader(name: string) {
+        return name.toLowerCase() === "content-type" ? "application/json" : null
+      }
+
+      send(body: XMLHttpRequestBodyInit | Document | null) {
+        this.body = body
+        queueMicrotask(() => this.listeners.get("load")?.())
+      }
+    }
+
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      configurable: true,
+      value: undefined,
+    })
+    Object.defineProperty(globalThis, "XMLHttpRequest", {
+      configurable: true,
+      value: FakeXMLHttpRequest,
+    })
+
+    try {
+      const file = new File(["hello"], "notes.txt", { type: "text/plain" })
+      const pendingAttachment = createPendingComposerAttachment(file)
+      const upload = uploadProjectAttachment({ projectId: "project-1", file })
+
+      expect(pendingAttachment.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(FakeXMLHttpRequest.latest?.method).toBe("POST")
+      expect(FakeXMLHttpRequest.latest?.url).toBe("/api/projects/project-1/uploads")
+      expect(FakeXMLHttpRequest.latest?.body).toBeInstanceOf(FormData)
+      await expect(upload).resolves.toMatchObject({
+        id: "uploaded-attachment",
+        displayName: "notes.txt",
+      })
+    } finally {
+      if (randomUuidDescriptor) {
+        Object.defineProperty(globalThis.crypto, "randomUUID", randomUuidDescriptor)
+      } else {
+        delete (globalThis.crypto as Crypto & { randomUUID?: Crypto["randomUUID"] }).randomUUID
+      }
+
+      if (xhrDescriptor) {
+        Object.defineProperty(globalThis, "XMLHttpRequest", xhrDescriptor)
+      } else {
+        delete (globalThis as typeof globalThis & { XMLHttpRequest?: typeof XMLHttpRequest }).XMLHttpRequest
+      }
+    }
   })
 })
 
