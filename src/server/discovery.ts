@@ -1,10 +1,21 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import type { Dirent, Stats } from "node:fs"
+import type { Dirent } from "node:fs"
 import { open, readFile, readdir, stat } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import type { AgentProvider } from "../shared/types"
 import { resolveLocalPath } from "./paths"
+import {
+  canonicalizeProviderSourcePath,
+  PROVIDER_DISCOVERY_PARSER_VERSIONS,
+  type CodexConfigIndexEntry,
+  type CodexSessionIndexEntry,
+  type CodexSessionListIndexEntry,
+  type ClaudeProjectIndexEntry,
+  type ProviderDiscoveryIndex,
+  type ProviderDiscoveryIndexEntry,
+  type ProviderSourceFingerprint,
+} from "./provider-discovery-index"
 
 const DISCOVERY_UPDATE_BATCH_SIZE = 25
 const SESSION_METADATA_READ_CHUNK_BYTES = 16 * 1024
@@ -31,8 +42,32 @@ export interface ProjectDiscoveryAdapter {
   scan(homeDir?: string): ProviderDiscoveredProject[]
   scanIncrementally?(
     homeDir?: string,
-    options?: { signal?: AbortSignal }
+    options?: ProjectDiscoveryScanOptions
   ): AsyncIterable<ProviderDiscoveredProject>
+}
+
+export interface ProjectDiscoveryStats {
+  sourcesInspected: number
+  sourceBytesInspected: number
+  cacheHits: number
+  cacheMisses: number
+  sourcesParsed: number
+}
+
+export function createProjectDiscoveryStats(): ProjectDiscoveryStats {
+  return {
+    sourcesInspected: 0,
+    sourceBytesInspected: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    sourcesParsed: 0,
+  }
+}
+
+export interface ProjectDiscoveryScanOptions {
+  signal?: AbortSignal
+  cache?: ProviderDiscoveryIndex
+  stats?: ProjectDiscoveryStats
 }
 
 export interface IncrementalProjectDiscoveryOptions {
@@ -43,6 +78,51 @@ export interface IncrementalProjectDiscoveryOptions {
     progress: { complete: boolean }
   ) => void | Promise<void>
   updateBatchSize?: number
+  cache?: ProviderDiscoveryIndex
+  stats?: ProjectDiscoveryStats
+}
+
+interface InspectedProviderSource extends ProviderSourceFingerprint {
+  sourcePath: string
+}
+
+async function inspectProviderSource(
+  sourcePath: string,
+  expectedType: "file" | "directory",
+  stats?: ProjectDiscoveryStats,
+): Promise<InspectedProviderSource | null> {
+  let sourceStats
+  try {
+    sourceStats = await stat(sourcePath)
+  } catch (error) {
+    if (isMissingPathError(error)) return null
+    throw error
+  }
+  if (
+    (expectedType === "file" && !sourceStats.isFile())
+    || (expectedType === "directory" && !sourceStats.isDirectory())
+  ) {
+    return null
+  }
+  if (stats) {
+    stats.sourcesInspected += 1
+    stats.sourceBytesInspected += sourceStats.size
+  }
+  return {
+    sourcePath: canonicalizeProviderSourcePath(sourcePath),
+    sizeBytes: sourceStats.size,
+    mtimeMs: sourceStats.mtimeMs,
+  }
+}
+
+function noteCacheResult(stats: ProjectDiscoveryStats | undefined, hit: boolean) {
+  if (!stats) return
+  if (hit) {
+    stats.cacheHits += 1
+  } else {
+    stats.cacheMisses += 1
+    stats.sourcesParsed += 1
+  }
 }
 
 function resolveEncodedClaudePath(folderName: string) {
@@ -220,48 +300,87 @@ export class ClaudeProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
 
   async *scanIncrementally(
     homeDir: string = homedir(),
-    options: { signal?: AbortSignal } = {}
+    options: ProjectDiscoveryScanOptions = {}
   ): AsyncIterable<ProviderDiscoveredProject> {
     const projectsDir = path.join(homeDir, ".claude", "projects")
     let directoryEntries: Dirent[]
     try {
       directoryEntries = await readdir(projectsDir, { withFileTypes: true })
     } catch (error) {
-      if (isMissingPathError(error)) return
+      if (isMissingPathError(error)) {
+        options.cache?.replaceProviderEntries(this.provider, [])
+        return
+      }
       throw error
     }
 
     const entries: Array<{
       entry: Dirent
-      markerStat: Stats
+      source: InspectedProviderSource
     }> = []
     for (const entry of directoryEntries) {
       if (!entry.isDirectory()) continue
-      try {
-        entries.push({
-          entry,
-          markerStat: await stat(path.join(projectsDir, entry.name)),
-        })
-      } catch (error) {
-        if (!isMissingPathError(error)) throw error
-      }
+      const source = await inspectProviderSource(
+        path.join(projectsDir, entry.name),
+        "directory",
+        options.stats,
+      )
+      if (source) entries.push({ entry, source })
     }
-    entries.sort((left, right) => right.markerStat.mtimeMs - left.markerStat.mtimeMs)
+    entries.sort((left, right) => right.source.mtimeMs - left.source.mtimeMs)
 
-    for (const { entry, markerStat } of entries) {
+    const nextCacheEntries: ClaudeProjectIndexEntry[] = []
+    for (const { entry, source } of entries) {
       options.signal?.throwIfAborted()
-      const resolvedPath = resolveEncodedClaudePath(entry.name)
-      if (!resolvedPath) continue
-      const normalizedPath = await normalizeExistingDirectoryAsync(resolvedPath)
-      if (!normalizedPath) continue
+      const cached = options.cache?.getMatchingEntry(
+        this.provider,
+        source.sourcePath,
+        source,
+        "claude-project",
+      )
+      let project: DiscoveredProject | null = null
+      let reused = false
+      if (cached?.project) {
+        const normalizedPath = await normalizeExistingDirectoryAsync(cached.project.localPath)
+        if (normalizedPath) {
+          reused = true
+          project = {
+            localPath: normalizedPath,
+            title: path.basename(normalizedPath) || normalizedPath,
+            modifiedAt: source.mtimeMs,
+          }
+        }
+      }
 
-      yield {
+      noteCacheResult(options.stats, reused)
+      if (!reused) {
+        const resolvedPath = resolveEncodedClaudePath(entry.name)
+        const normalizedPath = resolvedPath
+          ? await normalizeExistingDirectoryAsync(resolvedPath)
+          : null
+        if (normalizedPath) {
+          project = {
+            localPath: normalizedPath,
+            title: path.basename(normalizedPath) || normalizedPath,
+            modifiedAt: source.mtimeMs,
+          }
+        }
+      }
+
+      nextCacheEntries.push({
         provider: this.provider,
-        localPath: normalizedPath,
-        title: path.basename(normalizedPath) || normalizedPath,
-        modifiedAt: markerStat.mtimeMs,
+        kind: "claude-project",
+        sourcePath: source.sourcePath,
+        sizeBytes: source.sizeBytes,
+        mtimeMs: source.mtimeMs,
+        parserVersion: PROVIDER_DISCOVERY_PARSER_VERSIONS["claude-project"],
+        project,
+      })
+      if (project) {
+        yield { provider: this.provider, ...project }
       }
     }
+    options.cache?.replaceProviderEntries(this.provider, nextCacheEntries)
   }
 }
 
@@ -277,13 +396,9 @@ function parseJsonRecord(line: string): Record<string, unknown> | null {
   }
 }
 
-function readCodexSessionIndex(indexPath: string) {
+function parseCodexSessionIndexContent(content: string) {
   const updatedAtById = new Map<string, number>()
-  if (!existsSync(indexPath)) {
-    return updatedAtById
-  }
-
-  for (const line of readFileSync(indexPath, "utf8").split("\n")) {
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue
     const record = parseJsonRecord(line)
     if (!record) continue
@@ -299,6 +414,13 @@ function readCodexSessionIndex(indexPath: string) {
   }
 
   return updatedAtById
+}
+
+function readCodexSessionIndex(indexPath: string) {
+  if (!existsSync(indexPath)) {
+    return new Map<string, number>()
+  }
+  return parseCodexSessionIndexContent(readFileSync(indexPath, "utf8"))
 }
 
 function collectCodexSessionFiles(directory: string): string[] {
@@ -320,20 +442,23 @@ function collectCodexSessionFiles(directory: string): string[] {
   return files
 }
 
-function readCodexConfiguredProjects(configPath: string) {
+function parseCodexConfiguredProjectsContent(content: string, configMtime: number) {
   const projects = new Map<string, number>()
-  if (!existsSync(configPath)) {
-    return projects
-  }
-
-  const configMtime = statSync(configPath).mtimeMs
-  for (const line of readFileSync(configPath, "utf8").split("\n")) {
+  for (const line of content.split("\n")) {
     const match = line.match(/^\[projects\."(.+)"\]$/)
     if (!match?.[1]) continue
     projects.set(match[1], configMtime)
   }
 
   return projects
+}
+
+function readCodexConfiguredProjects(configPath: string) {
+  if (!existsSync(configPath)) {
+    return new Map<string, number>()
+  }
+  const configMtime = statSync(configPath).mtimeMs
+  return parseCodexConfiguredProjectsContent(readFileSync(configPath, "utf8"), configMtime)
 }
 
 function readCodexSessionMetadata(sessionsDir: string) {
@@ -363,56 +488,6 @@ function readCodexSessionMetadata(sessionsDir: string) {
   }
 
   return metadataById
-}
-
-async function readCodexSessionIndexAsync(indexPath: string) {
-  const updatedAtById = new Map<string, number>()
-  let content
-  try {
-    content = await readFile(indexPath, "utf8")
-  } catch (error) {
-    if (isMissingPathError(error)) return updatedAtById
-    throw error
-  }
-
-  for (const line of content.split("\n")) {
-    if (!line.trim()) continue
-    const record = parseJsonRecord(line)
-    if (!record) continue
-
-    const id = typeof record.id === "string" ? record.id : null
-    const updatedAt = typeof record.updated_at === "string" ? Date.parse(record.updated_at) : Number.NaN
-    if (!id || Number.isNaN(updatedAt)) continue
-
-    const existing = updatedAtById.get(id)
-    if (existing === undefined || updatedAt > existing) {
-      updatedAtById.set(id, updatedAt)
-    }
-  }
-
-  return updatedAtById
-}
-
-async function readCodexConfiguredProjectsAsync(configPath: string) {
-  const projects = new Map<string, number>()
-  let configStat
-  let content
-  try {
-    [configStat, content] = await Promise.all([
-      stat(configPath),
-      readFile(configPath, "utf8"),
-    ])
-  } catch (error) {
-    if (isMissingPathError(error)) return projects
-    throw error
-  }
-  for (const line of content.split("\n")) {
-    const match = line.match(/^\[projects\."(.+)"\]$/)
-    if (!match?.[1]) continue
-    projects.set(match[1], configStat.mtimeMs)
-  }
-
-  return projects
 }
 
 async function *collectCodexSessionFilesIncrementally(
@@ -473,6 +548,109 @@ async function readFirstLine(filePath: string, signal?: AbortSignal) {
   } finally {
     await handle.close()
   }
+}
+
+async function readCodexSessionListCached(
+  indexPath: string,
+  options: ProjectDiscoveryScanOptions,
+  nextEntries: ProviderDiscoveryIndexEntry[],
+) {
+  const source = await inspectProviderSource(indexPath, "file", options.stats)
+  if (!source) return new Map<string, number>()
+
+  const cached = options.cache?.getMatchingEntry(
+    "codex",
+    source.sourcePath,
+    source,
+    "codex-index",
+  )
+  noteCacheResult(options.stats, Boolean(cached))
+  let updatedAtById: Map<string, number>
+  if (cached) {
+    updatedAtById = new Map(cached.updatedAtById)
+    nextEntries.push(cached)
+    return updatedAtById
+  }
+
+  let content
+  try {
+    content = await readFile(source.sourcePath, "utf8")
+  } catch (error) {
+    if (isMissingPathError(error)) return new Map<string, number>()
+    throw error
+  }
+  updatedAtById = parseCodexSessionIndexContent(content)
+  const entry: CodexSessionListIndexEntry = {
+    provider: "codex",
+    kind: "codex-index",
+    sourcePath: source.sourcePath,
+    sizeBytes: source.sizeBytes,
+    mtimeMs: source.mtimeMs,
+    parserVersion: PROVIDER_DISCOVERY_PARSER_VERSIONS["codex-index"],
+    updatedAtById: [...updatedAtById.entries()],
+  }
+  nextEntries.push(entry)
+  return updatedAtById
+}
+
+async function readCodexConfigCached(
+  configPath: string,
+  options: ProjectDiscoveryScanOptions,
+) {
+  const source = await inspectProviderSource(configPath, "file", options.stats)
+  if (!source) return null
+
+  const cached = options.cache?.getMatchingEntry(
+    "codex",
+    source.sourcePath,
+    source,
+    "codex-config",
+  )
+  noteCacheResult(options.stats, Boolean(cached))
+  if (cached) {
+    return {
+      source,
+      configuredProjects: new Map(cached.configuredProjects),
+    }
+  }
+
+  let content
+  try {
+    content = await readFile(source.sourcePath, "utf8")
+  } catch (error) {
+    if (isMissingPathError(error)) return null
+    throw error
+  }
+  return {
+    source,
+    configuredProjects: parseCodexConfiguredProjectsContent(content, source.mtimeMs),
+  }
+}
+
+function parseCodexSessionMetadata(
+  firstLine: string | null,
+  fileModifiedAt: number,
+): CodexSessionIndexEntry["session"] {
+  if (!firstLine?.trim()) return null
+  const record = parseJsonRecord(firstLine)
+  if (!record || record.type !== "session_meta") return null
+  const payload = record.payload
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null
+
+  const payloadRecord = payload as Record<string, unknown>
+  const sessionId = typeof payloadRecord.id === "string" ? payloadRecord.id : null
+  const cwd = typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : null
+  if (!sessionId || !cwd || !path.isAbsolute(cwd)) return null
+
+  const recordTimestamp = typeof record.timestamp === "string"
+    ? Date.parse(record.timestamp)
+    : Number.NaN
+  const payloadTimestamp = typeof payloadRecord.timestamp === "string"
+    ? Date.parse(payloadRecord.timestamp)
+    : Number.NaN
+  const metadataModifiedAt = [recordTimestamp, payloadTimestamp, fileModifiedAt]
+    .find((value) => !Number.isNaN(value)) ?? fileModifiedAt
+  return { id: sessionId, cwd, metadataModifiedAt }
 }
 
 export class CodexProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
@@ -538,71 +716,107 @@ export class CodexProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
 
   async *scanIncrementally(
     homeDir: string = homedir(),
-    options: { signal?: AbortSignal } = {}
+    options: ProjectDiscoveryScanOptions = {}
   ): AsyncIterable<ProviderDiscoveredProject> {
     const indexPath = path.join(homeDir, ".codex", "session_index.jsonl")
     const sessionsDir = path.join(homeDir, ".codex", "sessions")
     const configPath = path.join(homeDir, ".codex", "config.toml")
-    const [updatedAtById, configuredProjects] = await Promise.all([
-      readCodexSessionIndexAsync(indexPath),
-      readCodexConfiguredProjectsAsync(configPath),
+    const nextCacheEntries: ProviderDiscoveryIndexEntry[] = []
+    const [updatedAtById, cachedConfig] = await Promise.all([
+      readCodexSessionListCached(indexPath, options, nextCacheEntries),
+      readCodexConfigCached(configPath, options),
     ])
-
-    for (const [configuredPath, modifiedAt] of [...configuredProjects.entries()]
-      .sort((left, right) => right[1] - left[1])) {
-      options.signal?.throwIfAborted()
-      if (!path.isAbsolute(configuredPath)) continue
-      const normalizedPath = await normalizeExistingDirectoryAsync(configuredPath)
-      if (!normalizedPath) continue
-
-      yield {
-        provider: this.provider,
-        localPath: normalizedPath,
-        title: path.basename(normalizedPath) || normalizedPath,
-        modifiedAt,
+    const normalizedProjectPaths = new Map<string, Promise<string | null>>()
+    const normalizeProjectPath = (localPath: string) => {
+      let pending = normalizedProjectPaths.get(localPath)
+      if (!pending) {
+        pending = normalizeExistingDirectoryAsync(localPath)
+        normalizedProjectPaths.set(localPath, pending)
       }
+      return pending
+    }
+
+    if (cachedConfig) {
+      const configProjects: DiscoveredProject[] = []
+      for (const [configuredPath, modifiedAt] of [...cachedConfig.configuredProjects.entries()]
+        .sort((left, right) => right[1] - left[1])) {
+        options.signal?.throwIfAborted()
+        if (!path.isAbsolute(configuredPath)) continue
+        const normalizedPath = await normalizeProjectPath(configuredPath)
+        if (!normalizedPath) continue
+
+        const project = {
+          localPath: normalizedPath,
+          title: path.basename(normalizedPath) || normalizedPath,
+          modifiedAt,
+        }
+        configProjects.push(project)
+        yield { provider: this.provider, ...project }
+      }
+      const configEntry: CodexConfigIndexEntry = {
+        provider: this.provider,
+        kind: "codex-config",
+        sourcePath: cachedConfig.source.sourcePath,
+        sizeBytes: cachedConfig.source.sizeBytes,
+        mtimeMs: cachedConfig.source.mtimeMs,
+        parserVersion: PROVIDER_DISCOVERY_PARSER_VERSIONS["codex-config"],
+        configuredProjects: [...cachedConfig.configuredProjects.entries()],
+        projects: configProjects,
+      }
+      nextCacheEntries.push(configEntry)
     }
 
     for await (const sessionFile of collectCodexSessionFilesIncrementally(sessionsDir, options.signal)) {
       options.signal?.throwIfAborted()
-      let fileStat
-      let firstLine
-      try {
-        [fileStat, firstLine] = await Promise.all([
-          stat(sessionFile),
-          readFirstLine(sessionFile, options.signal),
-        ])
-      } catch (error) {
-        if (isMissingPathError(error)) continue
-        throw error
+      const source = await inspectProviderSource(sessionFile, "file", options.stats)
+      if (!source) continue
+      const cached = options.cache?.getMatchingEntry(
+        this.provider,
+        source.sourcePath,
+        source,
+        "codex-session",
+      )
+      noteCacheResult(options.stats, Boolean(cached))
+
+      let session = cached?.session ?? null
+      if (!cached) {
+        let firstLine
+        try {
+          firstLine = await readFirstLine(source.sourcePath, options.signal)
+        } catch (error) {
+          if (isMissingPathError(error)) continue
+          throw error
+        }
+        session = parseCodexSessionMetadata(firstLine, source.mtimeMs)
       }
-      if (!firstLine?.trim()) continue
 
-      const record = parseJsonRecord(firstLine)
-      if (!record || record.type !== "session_meta") continue
-      const payload = record.payload
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
-
-      const payloadRecord = payload as Record<string, unknown>
-      const sessionId = typeof payloadRecord.id === "string" ? payloadRecord.id : null
-      const cwd = typeof payloadRecord.cwd === "string" ? payloadRecord.cwd : null
-      if (!sessionId || !cwd || !path.isAbsolute(cwd)) continue
-
-      const normalizedPath = await normalizeExistingDirectoryAsync(cwd)
-      if (!normalizedPath) continue
-
-      const recordTimestamp = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : Number.NaN
-      const payloadTimestamp = typeof payloadRecord.timestamp === "string" ? Date.parse(payloadRecord.timestamp) : Number.NaN
-      const metadataModifiedAt = [recordTimestamp, payloadTimestamp, fileStat.mtimeMs]
-        .find((value) => !Number.isNaN(value)) ?? fileStat.mtimeMs
-
-      yield {
+      let project: DiscoveredProject | null = null
+      if (session) {
+        const normalizedPath = await normalizeProjectPath(session.cwd)
+        if (normalizedPath) {
+          project = {
+            localPath: normalizedPath,
+            title: path.basename(normalizedPath) || normalizedPath,
+            modifiedAt: updatedAtById.get(session.id) ?? session.metadataModifiedAt,
+          }
+        }
+      }
+      const entry: CodexSessionIndexEntry = {
         provider: this.provider,
-        localPath: normalizedPath,
-        title: path.basename(normalizedPath) || normalizedPath,
-        modifiedAt: updatedAtById.get(sessionId) ?? metadataModifiedAt,
+        kind: "codex-session",
+        sourcePath: source.sourcePath,
+        sizeBytes: source.sizeBytes,
+        mtimeMs: source.mtimeMs,
+        parserVersion: PROVIDER_DISCOVERY_PARSER_VERSIONS["codex-session"],
+        session,
+        project,
+      }
+      nextCacheEntries.push(entry)
+      if (project) {
+        yield { provider: this.provider, ...project }
       }
     }
+    options.cache?.replaceProviderEntries(this.provider, nextCacheEntries)
   }
 }
 
@@ -627,7 +841,11 @@ export async function discoverProjectsIncrementally(
   adapters: ProjectDiscoveryAdapter[] = DEFAULT_PROJECT_DISCOVERY_ADAPTERS,
   options: IncrementalProjectDiscoveryOptions = {}
 ): Promise<DiscoveredProject[]> {
-  let projects = mergeDiscoveredProjects(options.initialProjects ?? [])
+  const providers = new Set(adapters.map((adapter) => adapter.provider))
+  const cachedProjects = options.cache?.listProjects(providers)
+    .map(({ provider: _provider, ...project }) => project) ?? []
+  let authoritativeProjects = mergeDiscoveredProjects(options.initialProjects ?? [])
+  let projects = mergeDiscoveredProjects([...cachedProjects, ...authoritativeProjects])
   let pendingUpdates = 0
   const updateBatchSize = Math.max(1, options.updateBatchSize ?? DISCOVERY_UPDATE_BATCH_SIZE)
 
@@ -639,18 +857,26 @@ export async function discoverProjectsIncrementally(
     await options.onUpdate(projects.map((project) => ({ ...project })), { complete })
   }
 
-  // Saved StillOn projects are available before any provider history is read.
+  // Saved StillOn projects and the last-known provider index are available
+  // before any provider source is opened. The latter stays visible until the
+  // complete scan replaces it with the authoritative set.
   await publish(true)
 
   for (const adapter of adapters) {
     options.signal?.throwIfAborted()
+    const cacheRevision = options.cache?.getProviderRevision(adapter.provider)
     const discovered = adapter.scanIncrementally
-      ? adapter.scanIncrementally(homeDir, { signal: options.signal })
+      ? adapter.scanIncrementally(homeDir, {
+        signal: options.signal,
+        cache: options.cache,
+        stats: options.stats,
+      })
       : adapter.scan(homeDir)
 
     for await (const { provider: _provider, ...project } of discovered) {
       options.signal?.throwIfAborted()
-      const nextProjects = mergeDiscoveredProjects([...projects, project])
+      authoritativeProjects = mergeDiscoveredProjects([...authoritativeProjects, project])
+      const nextProjects = mergeDiscoveredProjects([...cachedProjects, ...authoritativeProjects])
       const changed = nextProjects.length !== projects.length
         || nextProjects.some((entry, index) => (
           entry.localPath !== projects[index]?.localPath
@@ -663,8 +889,20 @@ export async function discoverProjectsIncrementally(
       pendingUpdates += 1
       await publish()
     }
+    options.signal?.throwIfAborted()
+    if (
+      options.cache
+      && options.cache.getProviderRevision(adapter.provider) === cacheRevision
+    ) {
+      // An adapter without cache integration still authoritatively scanned its
+      // provider, so stale persisted entries for that provider must not survive.
+      options.cache.replaceProviderEntries(adapter.provider, [])
+    }
   }
 
+  options.signal?.throwIfAborted()
+  projects = authoritativeProjects
   await publish(true, true)
+  await options.cache?.persist()
   return projects
 }

@@ -31,6 +31,10 @@ import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
+import {
+  getProviderDiscoveryIndexPath,
+  ProviderDiscoveryIndex,
+} from "./provider-discovery-index"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -127,7 +131,16 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     title: project.title,
     modifiedAt: project.updatedAt,
   }))
-  let discoveredProjects: DiscoveredProject[] = savedDiscoveryProjects()
+  const providerDiscoveryIndex = await ProviderDiscoveryIndex.load({
+    filePath: getProviderDiscoveryIndexPath(store.dataDir),
+  })
+  let discoveredProjects: DiscoveredProject[] = mergeIncrementalDiscoveryUpdate({
+    currentProjects: [],
+    discoveredProjects: providerDiscoveryIndex.listProjects()
+      .map(({ provider: _provider, ...project }) => project),
+    savedProjects: savedDiscoveryProjects(),
+    complete: true,
+  })
   let discoveryRefresh: Promise<DiscoveredProject[]> | null = null
   let discoveryCompletedAt: number | null = null
   let forceDiscoveryRefreshPending = false
@@ -162,6 +175,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       {
         initialProjects: savedDiscoveryProjects(),
         signal: discoveryAbortController.signal,
+        cache: providerDiscoveryIndex,
         onUpdate: (projects, progress) => {
           // Keep already-visible projects stable during a refresh, then replace
           // them with the authoritative result once the scan completes.
