@@ -59,6 +59,8 @@ export const PROVIDER_ICONS: Record<AgentProvider, IconComponent> = {
   codex: OpenAIIcon,
 }
 
+export const INPUT_POPOVER_MENU_CLASS = "w-64 max-h-[calc(var(--radix-popover-content-available-height)-0.5rem)] overflow-y-auto overscroll-contain p-1"
+
 export function PopoverMenuItem({
   onClick,
   selected,
@@ -133,7 +135,10 @@ export function InputPopover({
           {trigger}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="center" className="w-64 p-1">
+      <PopoverContent
+        align="center"
+        className={INPUT_POPOVER_MENU_CLASS}
+      >
         <div className="space-y-1">{typeof children === "function" ? children(() => setOpen(false)) : children}</div>
       </PopoverContent>
     </Popover>

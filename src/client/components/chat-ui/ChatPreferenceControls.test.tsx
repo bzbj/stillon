@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { PROVIDERS } from "../../../shared/types"
-import { ChatPreferenceControls } from "./ChatPreferenceControls"
+import { ChatPreferenceControls, INPUT_POPOVER_MENU_CLASS } from "./ChatPreferenceControls"
 
 describe("ChatPreferenceControls", () => {
   test("renders codex-specific controls without a run or plan mode selector", () => {
@@ -79,5 +79,11 @@ describe("ChatPreferenceControls", () => {
 
     expect(html).toContain("Fable")
     expect(html).toContain("High")
+  })
+
+  test("keeps a long model menu within the available viewport height and scrollable", () => {
+    expect(INPUT_POPOVER_MENU_CLASS).toContain("max-h-[calc(var(--radix-popover-content-available-height)-0.5rem)]")
+    expect(INPUT_POPOVER_MENU_CLASS).toContain("overflow-y-auto")
+    expect(INPUT_POPOVER_MENU_CLASS).toContain("overscroll-contain")
   })
 })
