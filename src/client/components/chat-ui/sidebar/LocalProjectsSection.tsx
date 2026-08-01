@@ -150,6 +150,26 @@ function EmptyProjectChatButton({
   )
 }
 
+function ProjectUnreadIndicator({ projectTitle }: { projectTitle: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={`${projectTitle} has unread sessions`}
+      title="Unread sessions"
+      className="relative flex size-3.5 shrink-0 items-center justify-center"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute size-2.5 rounded-full bg-emerald-400/80 motion-safe:animate-ping"
+      />
+      <span
+        aria-hidden="true"
+        className="size-2.5 rounded-full bg-emerald-400 ring-2 ring-muted/20 dark:ring-muted/50"
+      />
+    </span>
+  )
+}
+
 export function getProjectGroupReorderPreviewTargetId({
   activeId,
   groupIds,
@@ -216,8 +236,10 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   startingLocalPath,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, title } = group
+  const projectTitle = title || getPathBasename(localPath)
   const isExpanded = expandedGroups.has(groupKey)
   const isEmptyProject = group.chats.length === 0
+  const hasUnreadChat = group.chats.some((chat) => chat.unread)
   const hasMore = group.olderChats.length > 0
   const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath && onOpenExternalPath)
 
@@ -247,7 +269,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       onClick={() => onToggleSection(groupKey)}
       {...(isReorderEnabled ? listeners : undefined)}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span className="relative size-3.5 shrink-0 cursor-pointer">
           <ChevronRight className={`translate-y-[1px] size-3.5 shrink-0 text-slate-400 transition-all duration-200 ${!collapsedSections.has(groupKey) && 'rotate-90'}`} />
           
@@ -262,14 +284,20 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="truncate max-w-[150px] whitespace-nowrap text-sm ">
-              {title || getPathBasename(localPath)}
+            <span
+              className={cn(
+                "truncate whitespace-nowrap text-sm",
+                hasUnreadChat ? "max-w-[128px]" : "max-w-[150px]"
+              )}
+            >
+              {projectTitle}
             </span>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={4}>
             {localPath}
           </TooltipContent>
         </Tooltip>
+        {hasUnreadChat ? <ProjectUnreadIndicator projectTitle={projectTitle} /> : null}
       </div>
       {(hasProjectMenu || onNewLocalChat) && (
         <div className="absolute right-2 flex items-center gap-[1px] opacity-100 md:opacity-0 md:group-hover/section:opacity-100">
