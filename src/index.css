@@ -1,22 +1,6 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/*
- * Smiley Sans (得意黑), used exclusively for the user-selected machine name.
- * Source: https://github.com/atelier-anchor/smiley-sans
- * License: SIL Open Font License 1.1 (public/fonts/LICENSE-Smiley-Sans.txt)
- *
- * Its intentional slant is part of the released glyph design. Registering it
- * as a normal CSS face prevents browsers from adding a second synthetic slant.
- */
-@font-face {
-  font-family: "Smiley Sans";
-  src: url("./assets/fonts/smiley-sans-oblique.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 @font-face {
   font-family: "Body";
   src: url("./assets/fonts/body-regular.woff2") format("woff2");
@@ -170,10 +154,11 @@
   }
 
   .font-machine-identity {
-    font-family: "Smiley Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", "Body", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     font-synthesis: none;
-    font-weight: 400;
-    letter-spacing: normal;
+    font-style: normal;
+    font-weight: 600;
+    letter-spacing: 0.01em;
     line-height: 1.3;
   }
 
