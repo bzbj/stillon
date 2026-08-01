@@ -4,8 +4,8 @@ import { homedir } from "node:os"
 import path from "node:path"
 import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
-import { INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT } from "../shared/transcript-history"
-import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import { CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT, INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT } from "../shared/transcript-history"
+import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, ChatToolDetails, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
   type ChatEvent,
@@ -29,6 +29,7 @@ import {
   getTranscriptMessagesSerializedBytes,
   selectTranscriptWindowFromEntries,
 } from "./transcript-window"
+import { compactHistoricalToolEntries, getHistoricalTransportBudgetBytes } from "./transcript-history-transport"
 
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
 const STALE_EMPTY_CHAT_MAX_AGE_MS = 30 * 60 * 1000
@@ -1151,11 +1152,13 @@ export class EventStore {
       Math.max(1, Math.floor(limit)),
     )
     const selection = selectTranscriptWindowFromEntries(entries, endIndex, {
-      maxEntries: normalizedLimit,
+      maxEntries: CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT,
+      maxVisibleRows: normalizedLimit,
       maxSerializedBytes,
+      getSerializedBytes: getHistoricalTransportBudgetBytes,
     })
     return {
-      messages: cloneTranscriptEntries(selection.messages),
+      messages: cloneTranscriptEntries(compactHistoricalToolEntries(selection.messages)),
       hasOlder: selection.hasOlder,
       olderCursor: selection.hasOlder ? encodeHistoryCursor(selection.startIndex) : null,
       revision,
@@ -1207,6 +1210,19 @@ export class EventStore {
       entries.push(entry)
     }
     return entries
+  }
+
+  async getToolDetails(chatId: string, toolIds: string[]): Promise<ChatToolDetails> {
+    this.requireChat(chatId)
+    const requested = new Set(toolIds.filter((toolId) => typeof toolId === "string" && toolId).slice(0, 100))
+    if (requested.size === 0) return { messages: [] }
+    const entries = await this.readAllMessages(chatId)
+    return {
+      messages: entries.filter((entry) => (
+        (entry.kind === "tool_call" && requested.has(entry.tool.toolId))
+        || (entry.kind === "tool_result" && requested.has(entry.toolId))
+      )),
+    }
   }
 
   async hasMessages(chatId: string) {

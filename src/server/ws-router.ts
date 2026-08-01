@@ -1556,6 +1556,13 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: page })
           return
         }
+        case "chat.loadToolDetails": {
+          const chat = store.getChat(command.chatId)
+          if (!chat) throw new Error("Chat not found")
+          const result = await store.getToolDetails(command.chatId, command.toolIds)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
         case "chat.respondTool": {
           await agent.respondTool(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })

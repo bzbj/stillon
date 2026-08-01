@@ -63,6 +63,24 @@ afterEach(async () => {
 })
 
 describe("TranscriptPager", () => {
+  test("fills the visible-row budget through a tool-heavy tail", async () => {
+    const transcriptPath = await createTranscriptPath()
+    const readable = Array.from({ length: 39 }, (_, index) => entry(index + 1))
+    const tools = Array.from({ length: 100 }, (_, index) => [
+      toolCall(1000 + index * 2, `tool-${index}`),
+      toolResult(1001 + index * 2, `tool-${index}`, "large output".repeat(100)),
+    ]).flat()
+    await writeFile(transcriptPath, toJsonl([...readable, ...tools]), "utf8")
+
+    const pager = new TranscriptPager({ blockSize: 256, cursorSecret: Buffer.alloc(32, 19) })
+    const page = await pager.readRecent(transcriptPath, "chat-1", createTranscriptRevision(), 40, undefined, 512 * 1024)
+
+    expect(page.messages.filter((message) => message.kind === "assistant_text")).toHaveLength(39)
+    expect(page.messages.filter((message) => message.kind === "tool_summary")).toHaveLength(100)
+    expect(page.hasOlder).toBe(false)
+    expect(page.serializedBytes).toBeLessThan(512 * 1024)
+  })
+
   test("reads recent and older pages in transcript order", async () => {
     const transcriptPath = await createTranscriptPath()
     const entries = Array.from({ length: 7 }, (_, index) => entry(index + 1))
@@ -186,7 +204,7 @@ describe("TranscriptPager", () => {
     expect(older.messages.map((message) => message._id)).toEqual(["message-1"])
   })
 
-  test("keeps oversized and parallel tool call/result units intact", async () => {
+  test("keeps tool units cursor-safe while transporting completed tools as summaries", async () => {
     const transcriptPath = await createTranscriptPath()
     const entries = [
       entry(1, "older"),
@@ -210,10 +228,8 @@ describe("TranscriptPager", () => {
     expect(page.messages.map((message) => message._id)).toEqual([
       "tool-call-2",
       "tool-call-3",
-      "tool-result-4",
-      "tool-result-5",
     ])
-    expect(page.budgetExceeded).toBe(true)
+    expect(page.messages.every((message) => message.kind === "tool_summary")).toBe(true)
     expect(page.hasOlder).toBe(true)
   })
 
@@ -319,8 +335,8 @@ describe("TranscriptPager", () => {
     expect(recent.messages.map((message) => message._id)).toEqual(["message-4"])
     expect(older.messages.map((message) => message._id)).toEqual([
       "tool-call-2",
-      "tool-result-3",
     ])
+    expect(older.messages[0]?.kind).toBe("tool_summary")
     expect(older.hasOlder).toBe(true)
   })
 
@@ -353,10 +369,14 @@ describe("TranscriptPager", () => {
       reconstructed = [...page.messages, ...reconstructed]
     }
 
-    expect(reconstructed.map((message) => message._id)).toEqual(
-      entries.map((message) => message._id),
-    )
-    expect(new Set(reconstructed.map((message) => message._id)).size).toBe(entries.length)
+    expect(reconstructed.map((message) => message._id)).toEqual([
+      "message-1",
+      "tool-call-2",
+      "tool-call-3",
+      "message-6",
+      "tool-call-7",
+    ])
+    expect(new Set(reconstructed.map((message) => message._id)).size).toBe(reconstructed.length)
   })
 
   test("keeps an older cursor valid when new records are appended", async () => {

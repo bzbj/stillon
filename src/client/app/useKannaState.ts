@@ -5,7 +5,7 @@ import {
   CHAT_HISTORY_PAGE_ENTRY_LIMIT,
   INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
 } from "../../shared/transcript-history"
-import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
+import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -196,6 +196,30 @@ function mergeTranscriptEntries(olderHistoryEntries: TranscriptEntry[], recentEn
     deduped.set(entry._id, entry)
   }
   return [...deduped.values()]
+}
+
+export function hydrateTranscriptToolSummaries(entries: TranscriptEntry[], details: TranscriptEntry[]) {
+  if (details.length === 0) return entries
+  const byToolId = new Map<string, TranscriptEntry[]>()
+  for (const detail of details) {
+    const toolId = detail.kind === "tool_call" ? detail.tool.toolId : detail.kind === "tool_result" ? detail.toolId : null
+    if (!toolId) continue
+    const current = byToolId.get(toolId) ?? []
+    current.push(detail)
+    byToolId.set(toolId, current)
+  }
+  return entries.flatMap((entry) => (
+    entry.kind === "tool_summary" && byToolId.has(entry.toolId)
+      ? byToolId.get(entry.toolId)!
+      : [entry]
+  ))
+}
+
+export function hasReadableTranscriptContext(entries: TranscriptEntry[]) {
+  return entries.some((entry) => (
+    !entry.hidden
+    && (entry.kind === "user_prompt" || entry.kind === "assistant_text" || entry.kind === "compact_summary")
+  ))
 }
 
 interface HistoryPaginationState {
@@ -735,6 +759,7 @@ export interface KannaState {
   openAddProjectModal: () => void
   closeAddProjectModal: () => void
   loadOlderHistory: () => Promise<void>
+  loadToolDetails: (toolIds: string[]) => Promise<void>
   handleCreateChat: (projectId: string) => Promise<void>
   handleForkChat: (chat: SidebarChatRow) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
@@ -811,6 +836,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [olderHistoryEntries, setOlderHistoryEntries] = useState<TranscriptEntry[]>([])
+  const [toolDetailEntries, setToolDetailEntries] = useState<TranscriptEntry[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [hasOlderHistory, setHasOlderHistory] = useState(false)
   const [historyRefreshEpoch, setHistoryRefreshEpoch] = useState(0)
@@ -1285,8 +1311,8 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
     [optimisticScopeId, optimisticUserPrompts]
   )
   const transcriptEntries = useMemo(
-    () => [...serverTranscriptEntries, ...optimisticTranscriptEntries],
-    [optimisticTranscriptEntries, serverTranscriptEntries]
+    () => [...hydrateTranscriptToolSummaries(serverTranscriptEntries, toolDetailEntries), ...optimisticTranscriptEntries],
+    [optimisticTranscriptEntries, serverTranscriptEntries, toolDetailEntries]
   )
   const messages = useMemo(() => processTranscriptMessages(transcriptEntries), [transcriptEntries])
   const previousPrompt = useMemo(() => getPreviousPrompt(messages), [messages])
@@ -1479,6 +1505,17 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
       }
     }
   }, [activeChatId, socket])
+
+  useEffect(() => {
+    if (
+      hasOlderHistory
+      && !isHistoryLoading
+      && !commandError
+      && !hasReadableTranscriptContext(serverTranscriptEntries)
+    ) {
+      void loadOlderHistory()
+    }
+  }, [commandError, hasOlderHistory, isHistoryLoading, loadOlderHistory, serverTranscriptEntries])
 
   const createChatForProject = useCallback(async (projectId: string) => {
     const chatPreferences = useChatPreferencesStore.getState()
@@ -2109,6 +2146,25 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
     }
   }, [activeChatId, socket])
 
+  const loadToolDetails = useCallback(async (toolIds: string[]) => {
+    if (!activeChatId || toolIds.length === 0) return
+    try {
+      const result = await socket.command<ChatToolDetails>({
+        type: "chat.loadToolDetails",
+        chatId: activeChatId,
+        toolIds,
+      })
+      setToolDetailEntries((current) => mergeTranscriptEntries(current, result.messages))
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }, [activeChatId, socket])
+
+  useEffect(() => {
+    setToolDetailEntries([])
+  }, [activeChatId])
+
   return {
     socket,
     activeChatId,
@@ -2155,6 +2211,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
     openAddProjectModal,
     closeAddProjectModal,
     loadOlderHistory,
+    loadToolDetails,
     handleCreateChat,
     handleForkChat,
     handleOpenLocalProject,

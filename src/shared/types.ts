@@ -1099,6 +1099,14 @@ export interface InterruptedEntry extends TranscriptEntryBase {
   kind: "interrupted"
 }
 
+export interface ToolSummaryEntry extends TranscriptEntryBase {
+  kind: "tool_summary"
+  toolId: string
+  toolKind: NormalizedToolCall["toolKind"]
+  toolName: string
+  isError?: boolean
+}
+
 export type TranscriptEntry =
   | UserPromptEntry
   | SystemInitEntry
@@ -1113,6 +1121,7 @@ export type TranscriptEntry =
   | CompactSummaryEntry
   | ContextClearedEntry
   | InterruptedEntry
+  | ToolSummaryEntry
 
 export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {
   id: string
@@ -1232,6 +1241,7 @@ export type HydratedTranscriptMessage =
   | ({ kind: "context_cleared"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "interrupted"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "unknown"; json: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "tool_summary"; toolId: string; toolKind: NormalizedToolCall["toolKind"]; toolName: string; isError?: boolean; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ id: string; messageId?: string; hidden?: boolean } & HydratedToolCall)
 
 export interface ChatRuntime {
@@ -1266,6 +1276,10 @@ export interface ChatHistoryPage {
   hasOlder: boolean
   olderCursor: string | null
   revision: string
+}
+
+export interface ChatToolDetails {
+  messages: TranscriptEntry[]
 }
 
 export interface KannaSnapshot {

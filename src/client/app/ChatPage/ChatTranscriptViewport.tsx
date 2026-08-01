@@ -39,6 +39,7 @@ interface ChatTranscriptViewportProps {
   isDraining: boolean
   commandError: string | null
   loadOlderHistory: () => Promise<void>
+  loadToolDetails: KannaState["loadToolDetails"]
   onStopDraining: () => void
   onSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
@@ -110,6 +111,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   isDraining,
   commandError,
   loadOlderHistory,
+  loadToolDetails,
   onStopDraining,
   onSteerQueuedMessage,
   onRemoveQueuedMessage,
@@ -178,7 +180,16 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
             [groupId]: next,
           }
     ))
-  }, [])
+    if (next) {
+      const row = resolvedRows.find((candidate) => candidate.id === groupId)
+      if (row?.kind === "tool-group") {
+        const toolIds = row.messages
+          .filter((message) => message.kind === "tool_summary")
+          .map((message) => message.toolId)
+        if (toolIds.length > 0) void loadToolDetails(toolIds)
+      }
+    }
+  }, [loadToolDetails, resolvedRows])
 
   const handleScroll = useCallback((event?: unknown) => {
     const currentTarget = (

@@ -1,9 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { open, type FileHandle } from "node:fs/promises"
 import type { TranscriptEntry } from "../shared/types"
+import { CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT } from "../shared/transcript-history"
+import { compactHistoricalToolEntries, getHistoricalTransportBudgetBytes } from "./transcript-history-transport"
 import {
   ReverseTranscriptWindowSelector,
-  getTranscriptEntrySerializedBytes,
+  getTranscriptMessagesSerializedBytes,
 } from "./transcript-window"
 
 const DEFAULT_BLOCK_SIZE = 64 * 1024
@@ -267,7 +269,8 @@ export class TranscriptPager {
     bytesRead: number
   }): Promise<TranscriptPageReadResult> {
     const selector = new ReverseTranscriptWindowSelector<number>({
-      maxEntries: args.limit,
+      maxEntries: CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT,
+      maxVisibleRows: args.limit,
       maxSerializedBytes: args.maxSerializedBytes,
     })
     const pendingParts: Buffer[] = []
@@ -282,7 +285,7 @@ export class TranscriptPager {
         const shouldStop = selector.push({
           entry,
           position: startOffset,
-          serializedBytes: getTranscriptEntrySerializedBytes(entry),
+          serializedBytes: getHistoricalTransportBudgetBytes(entry),
         })
         if (!shouldStop && startOffset > 0 && selector.isAtCapacity()) {
           // The selected record's start offset proves older bytes exist. Avoid
@@ -364,9 +367,9 @@ export class TranscriptPager {
       serializedBytes: record.serializedBytes,
     }))
     const hasOlder = selection.hasOlder
-    const messages = selectedRecords
+    const messages = compactHistoricalToolEntries(selectedRecords
       .map((record) => record.entry)
-      .reverse()
+      .reverse())
 
     let olderCursor: string | null = null
     if (hasOlder && selectedRecords.length > 0) {
@@ -403,7 +406,7 @@ export class TranscriptPager {
       revision: args.revision,
       snapshotEnd: args.snapshotEnd,
       bytesRead,
-      serializedBytes: selection.serializedBytes,
+      serializedBytes: getTranscriptMessagesSerializedBytes(messages),
       budgetExceeded: selection.budgetExceeded,
       toolBoundaryFallback: selection.toolBoundaryFallback,
     }

@@ -166,6 +166,7 @@ function StandaloneTranscriptApp() {
             isDraining={false}
             commandError={null}
             loadOlderHistory={noopPromise}
+            loadToolDetails={noopPromise}
             onStopDraining={noop}
             onSteerQueuedMessage={noopPromise}
             onRemoveQueuedMessage={noopPromise}

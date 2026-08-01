@@ -232,6 +232,7 @@ export type ClientCommand =
       attachmentMode: StandaloneTranscriptAttachmentMode
     }
   | { type: "chat.loadHistory"; chatId: string; beforeCursor: string; limit: number }
+  | { type: "chat.loadToolDetails"; chatId: string; toolIds: string[] }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
   | {
       type: "message.enqueue"

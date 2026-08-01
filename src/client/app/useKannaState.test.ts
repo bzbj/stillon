@@ -8,6 +8,8 @@ import {
   getPreviousPrompt,
   getTranscriptPaddingBottom,
   getUserPromptSignature,
+  hasReadableTranscriptContext,
+  hydrateTranscriptToolSummaries,
   isHistoryCursorExpiredError,
   reconcileHistoryPaginationSnapshot,
   reconcileOptimisticUserPrompts,
@@ -17,6 +19,21 @@ import {
   shouldAutoFollowTranscript,
 } from "./useKannaState"
 import type { ChatAttachment, ChatSnapshot, SidebarData, TranscriptEntry, UserPromptEntry } from "../../shared/types"
+
+test("hydrates a compact tool summary only when its details are requested", () => {
+  const summary: TranscriptEntry = { _id: "call", kind: "tool_summary", createdAt: 1, toolId: "tool-1", toolKind: "bash", toolName: "Bash" }
+  const call: TranscriptEntry = { _id: "call", kind: "tool_call", createdAt: 1, tool: { kind: "tool", toolKind: "bash", toolName: "Bash", toolId: "tool-1", input: { command: "pwd" } } }
+  const result: TranscriptEntry = { _id: "result", kind: "tool_result", createdAt: 2, toolId: "tool-1", content: "ok" }
+
+  expect(hydrateTranscriptToolSummaries([summary], [])).toEqual([summary])
+  expect(hydrateTranscriptToolSummaries([summary], [call, result])).toEqual([call, result])
+})
+
+test("requires readable conversation context before stopping automatic history continuation", () => {
+  const summary: TranscriptEntry = { _id: "call", kind: "tool_summary", createdAt: 1, toolId: "tool-1", toolKind: "bash", toolName: "Bash" }
+  expect(hasReadableTranscriptContext([summary])).toBe(false)
+  expect(hasReadableTranscriptContext([summary, { _id: "answer", kind: "assistant_text", createdAt: 2, text: "Done" }])).toBe(true)
+})
 
 function createSidebarData(): SidebarData {
   return {

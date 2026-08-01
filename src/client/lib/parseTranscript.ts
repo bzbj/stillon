@@ -87,6 +87,16 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
         messages.push(toolCall)
         break
       }
+      case "tool_summary":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "tool_summary",
+          toolId: entry.toolId,
+          toolKind: entry.toolKind,
+          toolName: entry.toolName,
+          isError: entry.isError,
+        })
+        break
       case "tool_result": {
         const pendingCall = pendingToolCalls.get(entry.toolId)
         if (pendingCall) {
