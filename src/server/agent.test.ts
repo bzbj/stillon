@@ -8,7 +8,7 @@ import {
   normalizeClaudeUsageSnapshot,
 } from "./agent"
 import type { HarnessTurn } from "./harness-types"
-import type { ChatAttachment, TranscriptEntry } from "../shared/types"
+import type { ChatAttachment, ChatTurnPreferences, TranscriptEntry } from "../shared/types"
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(entry: T): TranscriptEntry {
   return {
@@ -572,6 +572,12 @@ describe("AgentCoordinator codex integration", () => {
 
     expect(sessionCalls).toEqual([{ chatId: "chat-1", sessionToken: null, serviceTier: "fast" }])
     expect(turnCalls).toEqual([{ effort: "xhigh", serviceTier: "fast" }])
+    expect(store.chat.lastTurnPreferences).toEqual({
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "xhigh", fastMode: true },
+      permissionMode: "full",
+    })
   })
 
   test("approving synthetic codex ExitPlanMode starts a hidden follow-up turn and can clear context", async () => {
@@ -1310,7 +1316,9 @@ describe("AgentCoordinator claude integration", () => {
       chatId: "chat-1",
       provider: "claude",
       content: "start background task",
-      model: "claude-opus-4-1",
+      model: "claude-opus-4-8",
+      modelOptions: { claude: { reasoningEffort: "low", contextWindow: "1m" } },
+      permissionMode: "bypassPermissions",
     })
     await waitFor(() => store.turnFinishedCount === 1)
 
@@ -1319,7 +1327,9 @@ describe("AgentCoordinator claude integration", () => {
       chatId: "chat-1",
       provider: "claude",
       content: "check task output",
-      model: "claude-opus-4-1",
+      model: "claude-opus-4-8",
+      modelOptions: { claude: { reasoningEffort: "low", contextWindow: "1m" } },
+      permissionMode: "bypassPermissions",
     })
     await waitFor(() => store.turnFinishedCount === 2)
 
@@ -1329,6 +1339,12 @@ describe("AgentCoordinator claude integration", () => {
     expect(startSessionCalls[0]?.environment.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
     expect(prompts).toEqual(["start background task", "check task output"])
     expect(store.chat.sessionToken).toBe("claude-session-1")
+    expect(store.chat.lastTurnPreferences).toEqual({
+      provider: "claude",
+      model: "claude-opus-4-8",
+      modelOptions: { reasoningEffort: "low", contextWindow: "1m" },
+      permissionMode: "bypassPermissions",
+    })
 
     events.close()
   })
@@ -1532,6 +1548,7 @@ function createFakeStore() {
     projectId: "project-1",
     title: "New Chat",
     provider: null as "claude" | "codex" | null,
+    lastTurnPreferences: null as ChatTurnPreferences | null,
     planMode: false,
     sessionToken: null as string | null,
     pendingForkSessionToken: null as string | null,
@@ -1562,6 +1579,10 @@ function createFakeStore() {
     },
     async setChatProvider(_chatId: string, provider: "claude" | "codex") {
       chat.provider = provider
+    },
+    async setChatTurnPreferences(_chatId: string, preferences: ChatTurnPreferences) {
+      chat.provider = preferences.provider
+      chat.lastTurnPreferences = preferences
     },
     async setPlanMode(_chatId: string, planMode: boolean) {
       chat.planMode = planMode

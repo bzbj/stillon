@@ -1168,6 +1168,7 @@ export function ChatPage() {
           canCancel={state.canCancel}
           projectId={projectId}
           activeProvider={state.runtime?.provider ?? null}
+          preferencesReady={state.composerPreferencesReady}
           availableProviders={state.availableProviders}
           contextWindowSnapshot={contextWindowSnapshot}
           onSubmit={handleChatSubmit}

@@ -4,6 +4,7 @@ import type {
   AgentPermissionMode,
   AgentProvider,
   ChatAttachment,
+  ChatTurnPreferences,
   ClaudePermissionMode,
   ContextWindowUsageSnapshot,
   CodexPermissionMode,
@@ -834,23 +835,37 @@ export class AgentCoordinator {
     if (provider === "claude") {
       const model = normalizeServerModel(provider, options.model)
       const modelOptions = normalizeClaudeModelOptions(model, options.modelOptions, options.effort)
+      const permissionMode = normalizeClaudePermissionMode(options.permissionMode)
       return {
         model: resolveClaudeApiModelId(model, modelOptions.contextWindow),
         effort: modelOptions.reasoningEffort,
         serviceTier: undefined,
         planMode: false,
-        permissionMode: normalizeClaudePermissionMode(options.permissionMode),
+        permissionMode,
+        preferences: {
+          provider: "claude",
+          model,
+          modelOptions,
+          permissionMode,
+        } satisfies ChatTurnPreferences,
       }
     }
 
     const model = normalizeServerModel(provider, options.model)
     const modelOptions = normalizeCodexModelOptions(model, options.modelOptions, options.effort)
+    const permissionMode = normalizeCodexPermissionMode(options.permissionMode)
     return {
       model,
       effort: modelOptions.reasoningEffort,
       serviceTier: codexServiceTierFromModelOptions(modelOptions),
       planMode: false,
-      permissionMode: normalizeCodexPermissionMode(options.permissionMode),
+      permissionMode,
+      preferences: {
+        provider: "codex",
+        model,
+        modelOptions,
+        permissionMode,
+      } satisfies ChatTurnPreferences,
     }
   }
 
@@ -882,6 +897,7 @@ export class AgentCoordinator {
       serviceTier: settings.serviceTier,
       planMode: settings.planMode,
       permissionMode: settings.permissionMode,
+      preferences: settings.preferences,
       appendUserPrompt: true,
       steered: options?.steered,
     })
@@ -907,6 +923,7 @@ export class AgentCoordinator {
     serviceTier?: "fast"
     planMode: boolean
     permissionMode: AgentPermissionMode
+    preferences?: ChatTurnPreferences
     appendUserPrompt: boolean
     steered?: boolean
     profile?: SendToStartingProfile | null
@@ -931,7 +948,14 @@ export class AgentCoordinator {
       throw new Error("Chat is already running")
     }
 
-    if (!chat.provider) {
+    if (args.preferences) {
+      await this.store.setChatTurnPreferences(args.chatId, args.preferences)
+      logSendToStartingProfile(args.profile, "start_turn.preferences_set", {
+        chatId: args.chatId,
+        provider: args.preferences.provider,
+        model: args.preferences.model,
+      })
+    } else if (!chat.provider) {
       await this.store.setChatProvider(args.chatId, args.provider)
       logSendToStartingProfile(args.profile, "start_turn.provider_set", {
         chatId: args.chatId,
@@ -1254,6 +1278,7 @@ export class AgentCoordinator {
       serviceTier: settings.serviceTier,
       planMode: settings.planMode,
       permissionMode: settings.permissionMode,
+      preferences: settings.preferences,
       appendUserPrompt: true,
       profile,
     })

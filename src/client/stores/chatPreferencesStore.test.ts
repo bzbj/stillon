@@ -397,6 +397,87 @@ describe("chat preference store", () => {
     })
   })
 
+  test("hydrates a routed chat from its last server turn preferences", () => {
+    const store = useChatPreferencesStore.getState()
+
+    store.initializeComposerForChat("chat-a")
+    store.syncComposerForChatFromServer("chat-a", {
+      provider: "claude",
+      model: "claude-opus-4-8",
+      modelOptions: { reasoningEffort: "max", contextWindow: "1m" },
+      permissionMode: "bypassPermissions",
+    })
+
+    expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
+      provider: "claude",
+      model: "claude-opus-4-8",
+      modelOptions: { reasoningEffort: "max", contextWindow: "1m" },
+      permissionMode: "bypassPermissions",
+    })
+
+    store.syncProviderDefaults("codex", {
+      ...INITIAL_STATE.providerDefaults,
+      claude: {
+        model: "claude-sonnet-4-6",
+        modelOptions: { reasoningEffort: "low", contextWindow: "200k" },
+        permissionMode: "default",
+      },
+    })
+    expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
+      provider: "claude",
+      model: "claude-opus-4-8",
+      modelOptions: { reasoningEffort: "max", contextWindow: "1m" },
+      permissionMode: "bypassPermissions",
+    })
+  })
+
+  test("applies later server changes while the local composer still matches its server baseline", () => {
+    const store = useChatPreferencesStore.getState()
+    store.syncComposerForChatFromServer("chat-a", {
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "high", fastMode: false },
+      permissionMode: "full",
+    })
+    store.syncComposerForChatFromServer("chat-a", {
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: true },
+      permissionMode: "auto",
+    })
+
+    expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: true },
+      permissionMode: "auto",
+    })
+  })
+
+  test("does not overwrite an unsent local selection with a later server update", () => {
+    const store = useChatPreferencesStore.getState()
+    store.syncComposerForChatFromServer("chat-a", {
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "high", fastMode: false },
+      permissionMode: "full",
+    })
+    store.setChatComposerModelOptions("chat-a", { reasoningEffort: "ultra" })
+    store.syncComposerForChatFromServer("chat-a", {
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: true },
+      permissionMode: "auto",
+    })
+
+    expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      modelOptions: { reasoningEffort: "ultra", fastMode: false },
+      permissionMode: "full",
+    })
+  })
+
   test("initializeComposerForChat with last_used copies the provided source state", () => {
     useChatPreferencesStore.setState({
       ...INITIAL_STATE,

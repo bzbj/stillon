@@ -1,4 +1,4 @@
-import type { AgentProvider, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, ChatTurnPreferences, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 
 export interface ProjectRecord extends ProjectSummary {
   sidebarTitle?: string
@@ -15,6 +15,7 @@ export interface ChatRecord {
   archivedAt?: number
   unread: boolean
   provider: AgentProvider | null
+  lastTurnPreferences?: ChatTurnPreferences | null
   planMode: boolean
   sessionToken: string | null
   pendingForkSessionToken?: string | null
@@ -100,6 +101,13 @@ export type ChatEvent =
       timestamp: number
       chatId: string
       provider: AgentProvider
+    }
+  | {
+      v: 2
+      type: "chat_turn_preferences_set"
+      timestamp: number
+      chatId: string
+      preferences: ChatTurnPreferences
     }
   | {
       v: 2
