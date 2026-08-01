@@ -67,7 +67,7 @@ interface TranscriptMessageRenderState {
 }
 
 function isCollapsibleToolCall(message: HydratedTranscriptMessage) {
-  if (message.kind !== "tool") return false
+  if (message.kind !== "tool" && message.kind !== "tool_summary") return false
   const toolName = (message as ProcessedToolCall).toolName
   return !SPECIAL_TOOL_NAMES.has(toolName)
 }
@@ -94,6 +94,8 @@ function getTranscriptMessageRenderState(
         break
       case "tool":
         shouldRender = message.toolKind !== "todo_write" || isLatestTodoWrite
+        break
+      case "tool_summary":
         break
       case "result":
         shouldRender = !hideResult && (!message.success || message.durationMs > 60000)
@@ -167,7 +169,7 @@ export function buildTranscriptRenderItems(
         index += 1
       }
 
-      if (group.length >= 2) {
+      if (group.length >= 2 || group.some((entry) => entry.kind === "tool_summary")) {
         result.push({ type: "tool-group", messages: group, startIndex })
       } else {
         result.push({ type: "single", message, index: startIndex })
@@ -247,6 +249,12 @@ function sameMessage(left: HydratedTranscriptMessage, right: HydratedTranscriptM
         && JSON.stringify(left.input) === JSON.stringify(right.input)
         && JSON.stringify(left.result) === JSON.stringify(right.result)
         && JSON.stringify(left.rawResult) === JSON.stringify(right.rawResult)
+    case "tool_summary":
+      return right.kind === "tool_summary"
+        && left.toolId === right.toolId
+        && left.toolKind === right.toolKind
+        && left.toolName === right.toolName
+        && left.isError === right.isError
     case "result":
       return right.kind === "result"
         && left.success === right.success
@@ -411,6 +419,9 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
           break
         }
         rendered = <ToolCallMessage key={message.id} message={message} isLoading={isLoading} localPath={localPath} />
+        break
+      case "tool_summary":
+        rendered = null
         break
       case "result":
         rendered = hideResult ? null : <ResultMessage key={message.id} message={message} />

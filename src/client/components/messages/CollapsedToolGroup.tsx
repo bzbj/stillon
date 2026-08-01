@@ -69,6 +69,7 @@ export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, o
 
   // Check if any tool in the group is still in progress
   const anyInProgress = messages.some(msg => {
+    if (msg.kind === "tool_summary") return false
     const processed = msg as ProcessedToolCall
     return processed.result === undefined
   })
@@ -95,7 +96,9 @@ export function CollapsedToolGroup({ messages, isLoading, localPath, expanded, o
         </button>
         {expanded && (
           <div className="my-4 flex flex-col gap-3">
-            {messages.map(msg => (
+            {messages.some((message) => message.kind === "tool_summary") ? (
+              <MetaLabel className="pl-7 text-left">Loading tool details…</MetaLabel>
+            ) : messages.map(msg => (
               <ToolCallMessage
                 key={msg.id}
                 message={msg as ProcessedToolCall}

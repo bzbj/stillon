@@ -1,4 +1,5 @@
 import type { TranscriptEntry } from "../shared/types"
+import { countVisibleTranscriptRows } from "./transcript-history-transport"
 
 const EMPTY_JSON_ARRAY_BYTES = 2
 const DEFAULT_MAX_TOOL_BOUNDARY_ADDITIONAL_ENTRIES = 200
@@ -6,9 +7,11 @@ const DEFAULT_MAX_TOOL_BOUNDARY_ADDITIONAL_BYTES = 16 * 1024 * 1024
 
 export interface TranscriptWindowBudget {
   maxEntries: number
+  maxVisibleRows?: number
   maxSerializedBytes?: number
   maxToolBoundaryAdditionalEntries?: number
   maxToolBoundaryAdditionalBytes?: number
+  getSerializedBytes?: (entry: TranscriptEntry) => number
 }
 
 export interface TranscriptWindowRecord<TPosition> {
@@ -59,6 +62,7 @@ export function getTranscriptMessagesSerializedBytes(entries: ReadonlyArray<Tran
 export class ReverseTranscriptWindowSelector<TPosition> {
   private readonly maxEntries: number
   private readonly maxSerializedBytes: number
+  private readonly maxVisibleRows: number
   private readonly maxToolBoundaryAdditionalEntries: number
   private readonly maxToolBoundaryAdditionalBytes: number
   private readonly selectedRecords: Array<TranscriptWindowRecord<TPosition>> = []
@@ -74,6 +78,7 @@ export class ReverseTranscriptWindowSelector<TPosition> {
   constructor(budget: TranscriptWindowBudget) {
     this.maxEntries = normalizeEntryLimit(budget.maxEntries)
     this.maxSerializedBytes = normalizeSerializedByteLimit(budget.maxSerializedBytes)
+    this.maxVisibleRows = normalizeEntryLimit(budget.maxVisibleRows ?? budget.maxEntries)
     this.maxToolBoundaryAdditionalEntries = normalizeEntryLimit(
       budget.maxToolBoundaryAdditionalEntries
         ?? DEFAULT_MAX_TOOL_BOUNDARY_ADDITIONAL_ENTRIES,
@@ -240,10 +245,18 @@ export class ReverseTranscriptWindowSelector<TPosition> {
   private selectedWindowIsAtCapacity() {
     return (
       this.selectedRecords.length >= this.maxEntries
+      || this.visibleRowCount() >= this.maxVisibleRows
       || serializedArrayBytes(
         this.selectedEntryBytes,
         this.selectedRecords.length,
       ) >= this.maxSerializedBytes
+    )
+  }
+
+  private visibleRowCount() {
+    // Evaluate every committed atomic tool unit as the client will render it.
+    return countVisibleTranscriptRows(
+      this.selectedRecords.map((record) => record.entry).reverse(),
     )
   }
 
@@ -299,7 +312,7 @@ export function selectTranscriptWindowFromEntries(
     if (selector.push({
       entry,
       position: index,
-      serializedBytes: getTranscriptEntrySerializedBytes(entry),
+      serializedBytes: budget.getSerializedBytes?.(entry) ?? getTranscriptEntrySerializedBytes(entry),
     })) {
       break
     }

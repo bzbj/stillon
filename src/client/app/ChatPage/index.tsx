@@ -1133,6 +1133,7 @@ export function ChatPage() {
             isDraining={state.isDraining}
             commandError={state.commandError}
             loadOlderHistory={state.loadOlderHistory}
+            loadToolDetails={state.loadToolDetails}
             onStopDraining={state.handleStopDraining}
             onSteerQueuedMessage={state.handleSteerQueuedMessage}
             onRemoveQueuedMessage={state.handleRemoveQueuedMessage}

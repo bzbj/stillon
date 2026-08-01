@@ -1,8 +1,6 @@
 /**
- * Initial chat snapshots are intentionally small because every subscription
- * serializes, transfers, parses, and hydrates this window before the chat is
- * interactive. The server also clamps older clients to this requested entry
- * ceiling; one newest atomic tool unit can exceed it to preserve continuity.
+ * Visible rows in the initial chat snapshot. Hidden protocol records cost zero
+ * and a consecutive run of ordinary tools costs one collapsed row.
  */
 export const INITIAL_CHAT_HISTORY_ENTRY_LIMIT = 40
 
@@ -14,7 +12,10 @@ export const INITIAL_CHAT_HISTORY_ENTRY_LIMIT = 40
 export const INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT = 512 * 1024
 
 /**
- * Follow-up pages are explicit, incremental requests. Keeping them modest
- * avoids replacing the initial-window win with one very large older page.
+ * Visible rows in each follow-up page.
  */
 export const CHAT_HISTORY_PAGE_ENTRY_LIMIT = 60
+
+export const CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT = 500
+
+export const SPECIAL_TRANSCRIPT_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode", "TodoWrite"])

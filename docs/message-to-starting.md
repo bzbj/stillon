@@ -48,16 +48,19 @@ Any latency in that chain increases the gap between the optimistic prompt and th
 Chat subscriptions use a bounded recent window so opening a long session does
 not serialize and hydrate its whole tail before the UI becomes interactive:
 
-- Initial target window: **40 entries** and **512 KiB** for the UTF-8 encoding
+- Initial target window: **40 visible rows** and **512 KiB** for the UTF-8 encoding
   of `JSON.stringify(messages)`.
-- Older-history request made by the bundled client: **60 entries**. The server
-  continues to accept up to 500 for compatibility with older clients.
-- The server clamps an initial `recentLimit` from older clients to 40, so the
+- Older-history request made by the bundled client: **60 visible rows**. The
+  server continues to accept larger legacy requests within its raw-entry safety
+  ceiling.
+- The server clamps an initial `recentLimit` from older clients to 40 visible rows, so the
   byte/count policy does not depend on the browser bundle being current.
 
 A tool call and its result are an atomic pagination unit. Normal page boundaries
-do not return a result without its matching call. The newest single entry or
-atomic tool unit is always returned even when it alone exceeds the 40-entry or
+do not return a result without its matching call. Consecutive ordinary tools
+count as one collapsed visible row, and their completed details are transferred
+only when expanded. The newest single entry or atomic tool unit is always
+returned even when it alone exceeds the visible-row or
 512 KiB targets; this explicit soft-budget exception guarantees pagination
 makes progress.
 
