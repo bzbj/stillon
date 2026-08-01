@@ -2,7 +2,7 @@ import type { ChatBranchListEntry, ChatDiffSnapshot } from "../../../shared/type
 import type { ResolvedTranscriptRow } from "../KannaTranscript"
 import type { ContextWindowSnapshot } from "../../lib/contextWindow"
 
-export const EMPTY_STATE_TEXT = "What are we building?"
+export const EMPTY_STATE_TEXT = "What are we working on?"
 export const EMPTY_STATE_TYPING_INTERVAL_MS = 19
 export const CHAT_NAVBAR_OFFSET_PX = 72
 export const DIFF_REFRESH_INTERVAL_MS = 5_000
