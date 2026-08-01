@@ -12,14 +12,14 @@ import {
 const nowMs = 1_000_000
 const hourMs = 60 * 60 * 1_000
 
-function createChat(chatId: string, lastMessageAt: number): SidebarChatRow {
+function createChat(chatId: string, lastMessageAt: number, unread = false): SidebarChatRow {
   return {
     _id: chatId,
     _creationTime: 1,
     chatId,
     title: chatId,
     status: "idle",
-    unread: false,
+    unread,
     localPath: "/tmp/project-a",
     provider: "codex",
     lastMessageAt,
@@ -163,6 +163,75 @@ describe("LocalProjectsSection", () => {
 
     expect(html).toContain("Renamed Sidebar Project")
     expect(html).not.toContain(">project-a<")
+  })
+
+  test("shows the project unread marker while unread sessions are hidden by a collapsed project", () => {
+    const recentReadChat = createChat("recent-read", nowMs - hourMs)
+    const olderUnreadChat = createChat("older-unread", nowMs - 25 * hourMs, true)
+    const projectGroups: SidebarProjectGroup[] = [{
+      groupKey: "project-a",
+      title: "Project A",
+      realTitle: "Project A",
+      localPath: "/tmp/project-a",
+      chats: [recentReadChat, olderUnreadChat],
+      previewChats: [recentReadChat],
+      olderChats: [olderUnreadChat],
+      defaultCollapsed: false,
+    }]
+
+    const html = renderSection(projectGroups, {
+      collapsedSections: new Set(["project-a"]),
+    })
+
+    expect(html).toContain('aria-label="Project A has unread sessions"')
+    expect(html).not.toContain("recent-read")
+    expect(html).not.toContain("older-unread")
+  })
+
+  test("keeps one project unread marker when the project is expanded with multiple unread sessions", () => {
+    const firstUnreadChat = createChat("unread-1", nowMs - hourMs, true)
+    const secondUnreadChat = createChat("unread-2", nowMs - 2 * hourMs, true)
+    const projectGroups: SidebarProjectGroup[] = [{
+      groupKey: "project-a",
+      title: "Project A",
+      realTitle: "Project A",
+      localPath: "/tmp/project-a",
+      chats: [firstUnreadChat, secondUnreadChat],
+      previewChats: [firstUnreadChat, secondUnreadChat],
+      olderChats: [],
+      defaultCollapsed: false,
+    }]
+
+    const html = renderSection(projectGroups)
+
+    expect(html.match(/aria-label="Project A has unread sessions"/g)).toHaveLength(1)
+    expect(html).toContain("unread-1")
+    expect(html).toContain("unread-2")
+  })
+
+  test("removes the project unread marker after every session becomes read", () => {
+    const unreadChat = createChat("chat-1", nowMs - hourMs, true)
+    const projectGroups: SidebarProjectGroup[] = [{
+      groupKey: "project-a",
+      title: "Project A",
+      realTitle: "Project A",
+      localPath: "/tmp/project-a",
+      chats: [unreadChat],
+      previewChats: [unreadChat],
+      olderChats: [],
+      defaultCollapsed: false,
+    }]
+
+    const unreadHtml = renderSection(projectGroups)
+    const readChat = { ...unreadChat, unread: false }
+    const readHtml = renderSection([{
+      ...projectGroups[0]!,
+      chats: [readChat],
+      previewChats: [readChat],
+    }])
+
+    expect(unreadHtml).toContain('aria-label="Project A has unread sessions"')
+    expect(readHtml).not.toContain('aria-label="Project A has unread sessions"')
   })
 
   test("hides the faux new chat row when the empty project is collapsed", () => {
