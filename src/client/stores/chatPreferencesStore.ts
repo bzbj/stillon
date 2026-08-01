@@ -15,6 +15,7 @@ import {
   supportsClaudeMaxReasoningEffort,
   type AgentProvider,
   type ChatProviderPreferences,
+  type ChatTurnPreferences,
   type ClaudeModelOptions,
   type ClaudePermissionMode,
   type CodexModelOptions,
@@ -414,6 +415,7 @@ interface ChatPreferencesState {
   defaultProvider: DefaultProviderPreference
   providerDefaults: ChatProviderPreferences
   chatStates: Record<string, ComposerState>
+  serverChatStates: Record<string, ComposerState>
   legacyComposerState: ComposerState | null
   setDefaultProvider: (provider: DefaultProviderPreference) => void
   syncProviderDefaults: (defaultProvider: DefaultProviderPreference, providerDefaults: ChatProviderPreferences) => void
@@ -425,6 +427,7 @@ interface ChatPreferencesState {
   setProviderDefaultPermissionMode: (provider: AgentProvider, permissionMode: ClaudePermissionMode | CodexPermissionMode) => void
   getComposerState: (chatId: string) => ComposerState
   initializeComposerForChat: (chatId: string, options?: { sourceState?: ComposerState | null }) => void
+  syncComposerForChatFromServer: (chatId: string, preferences: ChatTurnPreferences) => void
   setComposerState: (chatId: string, composerState: ComposerState) => void
   setChatComposerProvider: (chatId: string, provider: AgentProvider) => void
   setChatComposerModel: (chatId: string, model: string) => void
@@ -472,6 +475,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     defaultProvider: "last_used",
     providerDefaults: createDefaultProviderDefaults(),
     chatStates: {},
+    serverChatStates: {},
     legacyComposerState: null,
     setDefaultProvider: (defaultProvider) => set({ defaultProvider }),
     syncProviderDefaults: (defaultProvider, providerDefaults) =>
@@ -489,7 +493,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         const chatStates = Object.fromEntries(
           Object.entries(state.chatStates).map(([chatId, composerState]) => [
             chatId,
-            sameComposerState(composerState, oldNewChatFallback) ? nextNewChatFallback : composerState,
+            !state.serverChatStates[chatId] && sameComposerState(composerState, oldNewChatFallback)
+              ? nextNewChatFallback
+              : composerState,
           ])
         )
 
@@ -571,6 +577,33 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
               ...state.chatStates,
               [chatId]: composerState,
             },
+          }
+        }),
+      syncComposerForChatFromServer: (chatId, preferences) =>
+        set((state) => {
+          const serverComposerState = normalizeComposerState(preferences, state.providerDefaults)
+          const currentComposerState = state.chatStates[chatId]
+          const previousServerState = state.serverChatStates[chatId]
+          const currentFallback = createComposerStateForNewChat({
+            defaultProvider: state.defaultProvider,
+            providerDefaults: state.providerDefaults,
+            legacyComposerState: state.legacyComposerState,
+          })
+          const shouldUpdateComposer = !currentComposerState
+            || (previousServerState && sameComposerState(currentComposerState, previousServerState))
+            || (!previousServerState && sameComposerState(currentComposerState, currentFallback))
+
+          return {
+            serverChatStates: {
+              ...state.serverChatStates,
+              [chatId]: cloneComposerState(serverComposerState),
+            },
+            chatStates: shouldUpdateComposer
+              ? {
+                ...state.chatStates,
+                [chatId]: cloneComposerState(serverComposerState),
+              }
+              : state.chatStates,
           }
         }),
       setComposerState: (chatId, composerState) =>

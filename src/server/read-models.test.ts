@@ -114,6 +114,12 @@ describe("read models", () => {
       updatedAt: 1,
       unread: false,
       provider: "claude",
+      lastTurnPreferences: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        modelOptions: { reasoningEffort: "high", contextWindow: "1m" },
+        permissionMode: "acceptEdits",
+      },
       planMode: true,
       sessionToken: "session-1",
       lastTurnOutcome: null,
@@ -143,6 +149,12 @@ describe("read models", () => {
       })
     )
     expect(chat?.runtime.provider).toBe("claude")
+    expect(chat?.runtime.lastTurnPreferences).toEqual({
+      provider: "claude",
+      model: "claude-sonnet-4-6",
+      modelOptions: { reasoningEffort: "high", contextWindow: "1m" },
+      permissionMode: "acceptEdits",
+    })
     expect(chat?.queuedMessages.map((message) => message.content)).toEqual(["follow up"])
     expect(chat?.history.recentLimit).toBe(200)
     expect(chat?.availableProviders.length).toBeGreaterThan(1)

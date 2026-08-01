@@ -46,6 +46,7 @@ function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: Ch
     && left.status === right.status
     && left.isDraining === right.isDraining
     && left.provider === right.provider
+    && JSON.stringify(left.lastTurnPreferences) === JSON.stringify(right.lastTurnPreferences)
     && left.planMode === right.planMode
     && left.sessionToken === right.sessionToken
 }
@@ -723,6 +724,7 @@ export interface KannaState {
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
+  composerPreferencesReady: boolean
   machineName: string | null
   llmProvider: LlmProviderSnapshot | null
   connectionStatus: SocketStatus
@@ -1121,6 +1123,12 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
         return
       }
       if (snapshot?.runtime.chatId) {
+        if (snapshot.runtime.lastTurnPreferences) {
+          useChatPreferencesStore.getState().syncComposerForChatFromServer(
+            snapshot.runtime.chatId,
+            snapshot.runtime.lastTurnPreferences,
+          )
+        }
         const matchingTrace = [...sendToStartingProfilesRef.current.values()]
           .filter((trace) => trace.serverChatId === snapshot.runtime.chatId)
           .sort((left, right) => right.startedAt - left.startedAt)[0]
@@ -1318,6 +1326,9 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
   const previousPrompt = useMemo(() => getPreviousPrompt(messages), [messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
   const runtime = activeChatSnapshot?.runtime ?? null
+  const composerPreferencesReady = activeChatId
+    ? chatReady && Boolean(runtime?.lastTurnPreferences || appSettings)
+    : Boolean(appSettings)
   const queuedMessages = activeChatSnapshot?.queuedMessages ?? []
   const optimisticRuntimeStatus = optimisticProcessing?.scopeId === optimisticScopeId && (!runtime || runtime.status === "idle")
     ? "starting"
@@ -2175,6 +2186,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
     chatDiffSnapshot,
     keybindings,
     appSettings,
+    composerPreferencesReady,
     machineName,
     llmProvider,
     connectionStatus,

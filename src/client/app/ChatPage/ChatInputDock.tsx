@@ -15,6 +15,7 @@ interface ChatInputDockProps {
   canCancel: boolean
   projectId: string | null
   activeProvider: "claude" | "codex" | null
+  preferencesReady: boolean
   availableProviders: KannaState["availableProviders"]
   contextWindowSnapshot: ContextWindowSnapshot | null
   onSubmit: KannaState["handleSend"]
@@ -33,6 +34,7 @@ export const ChatInputDock = memo(function ChatInputDock({
   canCancel,
   projectId,
   activeProvider,
+  preferencesReady,
   availableProviders,
   contextWindowSnapshot,
   onSubmit,
@@ -48,11 +50,12 @@ export const ChatInputDock = memo(function ChatInputDock({
           key={activeChatId ?? "new-chat"}
           onSubmit={onSubmit}
           onCancel={onCancel}
-          disabled={!hasSelectedProject}
+          disabled={!hasSelectedProject || !preferencesReady}
           canCancel={canCancel}
           chatId={activeChatId}
           projectId={projectId}
           activeProvider={activeProvider}
+          preferencesReady={preferencesReady}
           availableProviders={availableProviders}
           contextWindowSnapshot={contextWindowSnapshot}
           previousPrompt={previousPrompt}

@@ -714,6 +714,33 @@ describe("EventStore", () => {
     expect(await store.readAllMessages(forked.id)).toEqual(await store.readAllMessages(source.id))
   })
 
+  test("persists normalized turn preferences across compaction and reload", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    await store.setChatTurnPreferences(chat.id, {
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: true },
+      permissionMode: "auto",
+    })
+    await store.compact()
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+
+    expect(reloaded.getChat(chat.id)?.provider).toBe("codex")
+    expect(reloaded.getChat(chat.id)?.lastTurnPreferences).toEqual({
+      provider: "codex",
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: true },
+      permissionMode: "auto",
+    })
+  })
+
   test("reopening a removed project restores its existing chats", async () => {
     const dataDir = await createTempDataDir()
     const store = new EventStore(dataDir)

@@ -331,6 +331,7 @@ interface Props {
   projectId?: string | null
   inputElementRef?: React.Ref<HTMLTextAreaElement>
   activeProvider: AgentProvider | null
+  preferencesReady?: boolean
   availableProviders: ProviderCatalogEntry[]
   contextWindowSnapshot?: ContextWindowSnapshot | null
   previousPrompt?: string | null
@@ -389,6 +390,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   projectId,
   inputElementRef,
   activeProvider,
+  preferencesReady = true,
   availableProviders,
   contextWindowSnapshot = null,
   previousPrompt = null,
@@ -432,6 +434,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const providerPrefs = getEffectiveComposerState(composerState, activeProvider, providerDefaults)
   const selectedProvider = providerLocked ? activeProvider : composerState.provider
   const activeContextWindow = useMemo(() => {
+    if (!preferencesReady) return null
     if (providerPrefs.provider !== "claude") {
       return contextWindowSnapshot
     }
@@ -441,7 +444,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       normalizeClaudeContextWindow(providerPrefs.model, claudeModelOptions.contextWindow),
     )
     return overrideContextWindowMaxTokens(contextWindowSnapshot, stagedMaxTokens)
-  }, [contextWindowSnapshot, providerPrefs.model, providerPrefs.modelOptions, providerPrefs.provider])
+  }, [contextWindowSnapshot, preferencesReady, providerPrefs.model, providerPrefs.modelOptions, providerPrefs.provider])
   const uploadedAttachments = attachments.filter((attachment) => attachment.status === "uploaded")
   const {
     hasPendingUploads,
@@ -558,8 +561,9 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [chatId])
 
   useEffect(() => {
+    if (!preferencesReady) return
     initializeComposerForChat(composerChatId)
-  }, [composerChatId, initializeComposerForChat])
+  }, [composerChatId, initializeComposerForChat, preferencesReady])
 
   useEffect(() => {
     uploadGenerationRef.current += 1
@@ -1039,7 +1043,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
         <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
           <div className="min-w-3" />
-          <ChatPreferenceControls
+          {preferencesReady ? <ChatPreferenceControls
             availableProviders={availableProviders}
             selectedProvider={selectedProvider}
             providerLocked={providerLocked}
@@ -1083,7 +1087,12 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
               setEffectivePermissionMode(change.permissionMode)
             }}
             className="max-w-[840px] mx-auto"
-          />
+          /> : (
+            <div
+              aria-label="Loading chat preferences"
+              className="h-8 w-56 shrink-0 animate-pulse rounded-full bg-muted"
+            />
+          )}
           {activeContextWindow ? (
             <div className="flex items-center md:hidden mx-[13px]">
               <ContextWindowMeter usage={activeContextWindow} />

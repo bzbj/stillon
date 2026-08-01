@@ -5,7 +5,7 @@ import path from "node:path"
 import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import { CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT, INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT } from "../shared/transcript-history"
-import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, ChatToolDetails, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, ChatToolDetails, ChatTurnPreferences, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
   type ChatEvent,
@@ -53,6 +53,22 @@ function normalizeSidebarProjectOrder(value: unknown) {
   return projectIds
 }
 
+function cloneChatTurnPreferences(preferences: ChatTurnPreferences): ChatTurnPreferences {
+  return preferences.provider === "claude"
+    ? { ...preferences, modelOptions: { ...preferences.modelOptions } }
+    : { ...preferences, modelOptions: { ...preferences.modelOptions } }
+}
+
+function sameChatTurnPreferences(left: ChatTurnPreferences | null | undefined, right: ChatTurnPreferences) {
+  return left?.provider === right.provider
+    && left.model === right.model
+    && left.permissionMode === right.permissionMode
+    && left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
+    && (left.provider === "claude"
+      ? right.provider === "claude" && left.modelOptions.contextWindow === right.modelOptions.contextWindow
+      : right.provider === "codex" && left.modelOptions.fastMode === right.modelOptions.fastMode)
+}
+
 function isSendToStartingProfilingEnabled() {
   return process.env.STILLON_PROFILE_SEND_TO_STARTING === "1"
 }
@@ -91,6 +107,7 @@ function getReplayEventPriority(event: StoreEvent) {
       return 1
     case "chat_renamed":
     case "chat_provider_set":
+    case "chat_turn_preferences_set":
     case "chat_plan_mode_set":
       return 2
     case "message_appended":
@@ -244,6 +261,9 @@ export class EventStore {
           ...chat,
           unread: chat.unread ?? false,
           pendingForkSessionToken: chat.pendingForkSessionToken ?? null,
+          lastTurnPreferences: chat.lastTurnPreferences
+            ? cloneChatTurnPreferences(chat.lastTurnPreferences)
+            : null,
         })
       }
       this.legacySidebarProjectOrder = normalizeSidebarProjectOrder(parsed.sidebarProjectOrder)
@@ -490,6 +510,7 @@ export class EventStore {
           updatedAt: event.timestamp,
           unread: false,
           provider: null,
+          lastTurnPreferences: null,
           planMode: false,
           sessionToken: null,
           pendingForkSessionToken: null,
@@ -532,6 +553,14 @@ export class EventStore {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
         chat.provider = event.provider
+        chat.updatedAt = event.timestamp
+        break
+      }
+      case "chat_turn_preferences_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.provider = event.preferences.provider
+        chat.lastTurnPreferences = cloneChatTurnPreferences(event.preferences)
         chat.updatedAt = event.timestamp
         break
       }
@@ -808,7 +837,11 @@ export class EventStore {
       title: getForkedChatTitle(sourceChat.title),
     }
     await this.append(this.chatsLogPath, createEvent)
-    await this.setChatProvider(chatId, sourceChat.provider)
+    if (sourceChat.lastTurnPreferences) {
+      await this.setChatTurnPreferences(chatId, sourceChat.lastTurnPreferences)
+    } else {
+      await this.setChatProvider(chatId, sourceChat.provider)
+    }
     await this.setPlanMode(chatId, sourceChat.planMode)
     await this.setPendingForkSessionToken(chatId, sourceSessionToken)
 
@@ -945,6 +978,19 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
       provider,
+    }
+    await this.append(this.chatsLogPath, event)
+  }
+
+  async setChatTurnPreferences(chatId: string, preferences: ChatTurnPreferences) {
+    const chat = this.requireChat(chatId)
+    if (chat.provider === preferences.provider && sameChatTurnPreferences(chat.lastTurnPreferences, preferences)) return
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_turn_preferences_set",
+      timestamp: Date.now(),
+      chatId,
+      preferences: cloneChatTurnPreferences(preferences),
     }
     await this.append(this.chatsLogPath, event)
   }
@@ -1416,7 +1462,12 @@ export class EventStore {
       projects: this.listProjects().map((project) => ({ ...project })),
       chats: [...this.state.chatsById.values()]
         .filter((chat) => !chat.deletedAt)
-        .map((chat) => ({ ...chat })),
+        .map((chat) => ({
+          ...chat,
+          lastTurnPreferences: chat.lastTurnPreferences
+            ? cloneChatTurnPreferences(chat.lastTurnPreferences)
+            : null,
+        })),
       queuedMessages: [...this.state.queuedMessagesByChatId.entries()]
         .map(([chatId, entries]) => ({
           chatId,

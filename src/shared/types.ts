@@ -256,6 +256,20 @@ export type ChatProviderPreferences = {
   codex: ProviderPreference<CodexModelOptions, CodexPermissionMode>
 }
 
+export type ChatTurnPreferences =
+  | {
+      provider: "claude"
+      model: string
+      modelOptions: ClaudeModelOptions
+      permissionMode: ClaudePermissionMode
+    }
+  | {
+      provider: "codex"
+      model: string
+      modelOptions: CodexModelOptions
+      permissionMode: CodexPermissionMode
+    }
+
 export type ModelOptions = Partial<{
   [K in AgentProvider]: Partial<ProviderModelOptionsByProvider[K]>
 }>
@@ -1252,6 +1266,7 @@ export interface ChatRuntime {
   status: KannaStatus
   isDraining: boolean
   provider: AgentProvider | null
+  lastTurnPreferences: ChatTurnPreferences | null
   planMode: boolean
   sessionToken: string | null
 }
