@@ -28,7 +28,7 @@ import {
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { APP_NAME, getKeybindingsFilePathDisplay, SDK_CLIENT_APP } from "../../shared/branding"
+import { APP_NAME, getKeybindingsFilePathDisplay, RELEASE_EDITION, SDK_CLIENT_APP } from "../../shared/branding"
 import {
   DEFAULT_KEYBINDINGS,
   DEFAULT_OPENAI_SDK_MODEL,
@@ -3122,7 +3122,9 @@ export function SettingsPage() {
               </div>
               <div>
                 <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">App Version</div>
-                <div className="text-foreground/80">{appVersion}</div>
+                <div className="text-foreground/80">
+                  {appVersion} <span className="text-muted-foreground">· {RELEASE_EDITION} Edition</span>
+                </div>
               </div>
             </div>
           </div>
