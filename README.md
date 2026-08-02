@@ -44,6 +44,43 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 The repository does not yet ship signed desktop installers. Install from source and review the [public-release readiness notes](docs/public-release-readiness.md) before exposing a machine outside your own network.
 Versioned releases are explicit GitHub source releases; see the [release guide](docs/releasing.md).
 
+## Before you install
+
+StillOn is the browser workspace around your local coding agents; it is not an
+AI provider, account manager, VPN, power manager, or public tunnel. It assumes
+that the provider layer already works for the same operating system user that
+will run StillOn.
+
+Before installing StillOn:
+
+- install [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) and/or
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
+  and make the commands available on `PATH`;
+- launch every CLI you intend to use directly from a terminal and finish its
+  authentication flow;
+- verify that the required subscription, workspace entitlement, API billing,
+  or enterprise provider access is active; and
+- provide any outbound route those CLIs need, such as a system VPN, corporate
+  gateway, or local HTTP/SOCKS proxy; see
+  [agent egress](docs/production-runtime.md#agent-egress-system-vpn-and-local-proxy).
+
+A working Claude Code login is required for Claude sessions, and a working
+Codex login is required for Codex sessions. Install and verify both CLIs for the
+full dual-provider experience; if you only use one provider, only that
+provider's CLI is required. StillOn does not create provider accounts, purchase
+plans, resolve regional availability, or start and reconnect a VPN for you.
+
+The full operating chain looks like this:
+
+| Layer | Operator responsibility |
+| --- | --- |
+| Agent provider | Working Codex/Claude Code CLI, authentication, account or API billing, and outbound network access |
+| Local workspace | StillOn built and healthy at `http://127.0.0.1:3210` |
+| Process lifetime | StillOn's native per-user service enabled and verified for the host platform |
+| Host availability | Power connected as appropriate, system sleep disabled, and network kept online |
+| External ingress | A deliberately chosen private network, tunnel, proxy, TLS, and access policy |
+| Remote client | A trusted browser that can reach the selected ingress |
+
 ## Quickstart
 
 Install [Bun](https://bun.sh) v1.3.5 or newer, then:
@@ -56,7 +93,9 @@ bun run build
 bun run start
 ```
 
-Open [localhost:3210](http://localhost:3210). A working Claude Code login is required for Claude sessions; Codex CLI is optional.
+Open [localhost:3210](http://localhost:3210). This confirms local access only.
+StillOn needs a working, authenticated CLI for each provider you enable, as
+described above.
 
 To install the command globally from this checkout:
 
@@ -68,6 +107,102 @@ stillon
 The supported command is `stillon`. Existing `kanna` launchers should be
 replaced rather than kept as aliases; this avoids accidentally starting a
 previous application after a migration.
+
+## Turn local access into remote access
+
+A successful installation intentionally stops at
+`http://127.0.0.1:3210`. Reaching StillOn from another computer, phone, or
+tablet requires **all three** of the following layers.
+
+### 1. Keep the StillOn process running
+
+Use StillOn's native per-user service. PM2 or a second process manager is not
+needed for the standard installation:
+
+```bash
+stillon service install
+stillon service status
+```
+
+The integration uses a LaunchAgent on macOS, a systemd user service on Linux,
+and a Task Scheduler task on Windows. It starts with the user session and has
+platform-appropriate restart behavior after an unexpected exit. Running two
+supervisors at once can instead create port conflicts. See
+[Background service](#background-service) for status, logs, uninstall, Linux
+linger, fixed-port, and service environment-file details.
+
+### 2. Keep the host awake and online
+
+Connect a laptop to power when appropriate, let the display turn off, but
+configure the operating system so the computer itself does not sleep. Also
+check what closing the laptop lid does on the specific machine.
+
+- **macOS:** Prefer Apple's **System Settings → Battery → Options → Prevent
+  automatic sleeping on power adapter when the display is off**. For more
+  flexible manual sessions or triggers, [Amphetamine](https://apps.apple.com/app/amphetamine/id937984704)
+  is a useful optional helper. Test closed-display behavior on the actual Mac;
+  power, peripherals, macOS version, and thermal conditions can affect it.
+- **Windows:** For unattended use, configure **Settings → System → Power &
+  battery → Screen, sleep & hibernate timeouts**, and review the lid-close
+  action. [PowerToys Awake](https://learn.microsoft.com/windows/powertoys/awake)
+  is convenient for temporary sessions, but Microsoft documents that it only
+  works while a user is signed in and does not keep the PC awake at the lock
+  screen. Do not use Awake as the only power policy for an unattended host.
+
+Preventing sleep increases power use. Keep the machine ventilated, locked, and
+physically secure.
+
+### 3. Choose a secure external ingress
+
+Do not forward port `3210` directly from a home router or cloud firewall to the
+public Internet. Remote StillOn access effectively grants development-account
+level access to local files, Git, terminals, and agent processes.
+
+For personal use, the recommended path is
+[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve):
+
+1. Install Tailscale on the StillOn host and each client, then restrict access
+   through the tailnet's users, devices, and grants/ACLs.
+2. Keep StillOn on `127.0.0.1`, install its service with `--trust-proxy`, and
+   proxy the loopback origin through Tailscale Serve:
+
+   ```bash
+   stillon service install --trust-proxy
+   tailscale serve --bg http://127.0.0.1:3210
+   ```
+
+3. Use the private HTTPS URL reported by Tailscale and verify both normal HTTP
+   navigation and an active StillOn chat from the remote device.
+
+For a stable hostname on your own domain or access beyond a single tailnet, use
+[Cloudflare Tunnel with a self-hosted Cloudflare Access application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/):
+
+1. Create the Access application and a narrow allow policy **before**
+   publishing the tunnel hostname.
+2. Run `cloudflared` independently and route the hostname to
+   `http://127.0.0.1:3210`; keep StillOn on loopback and install its service
+   with `--trust-proxy`.
+3. Confirm the proxy preserves the public `Host`, sends
+   `X-Forwarded-Proto: https`, and supports WebSocket upgrades for `/ws`.
+
+Cloudflare Tunnel broadens reach; it does not turn StillOn into a general
+multi-user service. Keep access limited to people who should have control of
+the host's development account. StillOn's optional `--password` is a local
+convenience barrier, not a replacement for Tailscale policy or Cloudflare
+Access.
+
+Installation agents must prioritize a local-only installation and verify that
+the user can open `http://127.0.0.1:3210`. Once that succeeds, the installation
+task is complete. The agent may then explain process supervision, power
+settings, and external-access options as optional follow-up work, but it must
+not treat an installation request as permission to configure any of them.
+
+The user decides whether follow-up work is wanted, which approach to use, and
+whether an agent should help implement it. Unless the user makes a separate,
+explicit request, leave process supervision, power settings, VPN/proxy
+configuration, DNS, and external ingress unchanged. If external access is
+requested later, see [External ingress](docs/external-ingress.md) for the exact
+proxy and security contract.
 
 ## Windows
 
