@@ -218,10 +218,19 @@ bun run test
 bun run start -- --no-open
 ```
 
+`bun run start` is the foreground validation step. Closing that PowerShell
+session stops StillOn. After the build, health check, and first use succeed,
+the recommended way to keep a Windows source deployment running is the
+optional per-user background service described below. It is not required for
+installation or foreground use.
+
 The server listens on `http://127.0.0.1:3210` by default. Codex and Claude
 Code should be installed for the current Windows user and available on `PATH`;
 StillOn resolves their `.cmd` shims on Windows. The optional background service
-uses Task Scheduler and starts at sign-in.
+uses Task Scheduler, starts at sign-in, and runs through `conhost.exe
+--headless` so it does not leave a PowerShell window open. See
+[Windows background service](docs/windows-background-service.md) for its
+install, supervision, update, and rollback behavior.
 
 Windows terminal sessions use the configured local shell. Unix-specific PTY
 signals do not have direct Windows equivalents, so advanced terminal signal
@@ -229,14 +238,23 @@ handling has narrower automated coverage than macOS and Linux.
 
 ## Background service
 
-After installing the `stillon` command globally, you can opt in to a native
-per-user background service:
+The native per-user background service is optional. After foreground
+validation succeeds, it is the recommended persistent startup method. If the
+`stillon` command is installed globally, manage it with:
 
 ```bash
 stillon service install
 stillon service status
 stillon service logs
 stillon service uninstall
+```
+
+A pinned source runtime does not need a global install. Invoke its entrypoint
+directly; on Windows, for example:
+
+```powershell
+bun C:\path\to\stillon-runtime\bin\stillon service install --port 3210
+bun C:\path\to\stillon-runtime\bin\stillon service status
 ```
 
 Use `stillon service install --port 4000` to choose a fixed port. Pass
@@ -258,7 +276,16 @@ run.
 | --- | --- | --- |
 | macOS | Per-user LaunchAgent | Starts at login and is kept alive by `launchd` |
 | Linux | systemd user service | Starts with the user manager and restarts after exit |
-| Windows | Per-user Task Scheduler task | Starts at sign-in with bounded failure retries |
+| Windows | Headless per-user Task Scheduler task | Starts at sign-in; supervises StillOn indefinitely with capped backoff |
+
+On Windows, Task Scheduler launches `conhost.exe --headless`, which hosts a
+non-interactive PowerShell supervisor without creating a visible console
+window. If Bun exits, the supervisor restarts it after 5, 10, 20, 40, and 60
+seconds, then continues retrying every 60 seconds. A run lasting at least five
+minutes resets the sequence to 5 seconds. Task Scheduler's separate five
+one-minute retries remain as a fallback when the task action itself is
+reported failed. The task uses an interactive user token, so it starts after
+sign-in rather than before login.
 
 On Linux, a user service normally stops when the user manager exits. To keep it
 running after logout and start the user manager at boot, an administrator can

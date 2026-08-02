@@ -43,6 +43,23 @@ Install the native service by invoking the entrypoint in this runtime:
   --env-file "$HOME/.config/stillon/production.env"
 ```
 
+On Windows, use the same pinned-runtime approach from PowerShell; no global
+`stillon` install is required:
+
+```powershell
+$RuntimeRoot = "C:\path\to\stillon-runtime"
+bun "$RuntimeRoot\bin\stillon" service install `
+  --port 3210 `
+  --env-file "$env:LOCALAPPDATA\StillOn\production.env"
+bun "$RuntimeRoot\bin\stillon" service status
+```
+
+This optional service is the recommended way to keep a validated Windows
+source deployment running. It uses a headless Task Scheduler supervisor and
+indefinite capped-backoff restarts; see
+[Windows background service](windows-background-service.md) for the exact
+lifecycle and operational commands.
+
 The installation records the runtime root as the service working directory.
 It also loads the given environment file through Bun before StillOn begins, so
 it does not accidentally inherit a `.env` file from an unrelated checkout.

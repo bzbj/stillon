@@ -10,6 +10,8 @@ export const WINDOWS_TASK_NAME = "StillOn"
 export const WINDOWS_SCHEDULER_COMMAND = "schtasks.exe"
 export const WINDOWS_RESTART_INTERVAL = "PT1M"
 export const WINDOWS_RESTART_COUNT = 5
+export const WINDOWS_SUPERVISOR_RESTART_DELAYS_SECONDS = [5, 10, 20, 40, 60] as const
+export const WINDOWS_SUPERVISOR_STABLE_RUNTIME_SECONDS = 300
 export const WINDOWS_LOG_TAIL_LINES = 200
 export const WINDOWS_LOG_TAIL_BYTES = 128 * 1024
 
@@ -75,24 +77,56 @@ export function assertNoWindowsServiceSecrets(args: string[]) {
   throw new Error(`${flagName} cannot be persisted in a Windows scheduled task`)
 }
 
+/**
+ * Task Scheduler owns sign-in startup, while this PowerShell process owns
+ * normal runtime supervision. It deliberately stays alive across every Bun
+ * exit so Task Scheduler's bounded retry policy does not cap service uptime.
+ */
 export function buildWindowsServicePowerShell(
   launch: ServiceLaunchSpec,
   servicePaths: WindowsServicePaths = getWindowsServicePaths(launch),
 ) {
   assertNoWindowsServiceSecrets(launch.args)
   const argumentLiterals = launch.args.map(quotePowerShellLiteral).join(", ")
+  const restartDelays = WINDOWS_SUPERVISOR_RESTART_DELAYS_SECONDS.join(", ")
 
   return [
     "$ErrorActionPreference = 'Stop'",
     "$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'",
-    `$env:HOME = ${quotePowerShellLiteral(launch.homeDirectory)}`,
-    `$env:USERPROFILE = ${quotePowerShellLiteral(launch.homeDirectory)}`,
-    `$env:Path = ${quotePowerShellLiteral(launch.pathEnvironment)}`,
-    `Set-Location -LiteralPath ${quotePowerShellLiteral(launch.workingDirectory)}`,
-    `$arguments = @(${argumentLiterals})`,
-    `& ${quotePowerShellLiteral(launch.executable)} @arguments 1>> ${quotePowerShellLiteral(servicePaths.stdoutLog)} 2>> ${quotePowerShellLiteral(servicePaths.stderrLog)}`,
-    "$serviceExitCode = $LASTEXITCODE",
-    "exit $serviceExitCode",
+    "$createdNew = $false",
+    "$mutex = [System.Threading.Mutex]::new($true, 'Local\\StillOn.Service', [ref]$createdNew)",
+    "if (-not $createdNew) {",
+    "  $mutex.Dispose()",
+    "  exit 0",
+    "}",
+    "try {",
+    `  $env:HOME = ${quotePowerShellLiteral(launch.homeDirectory)}`,
+    `  $env:USERPROFILE = ${quotePowerShellLiteral(launch.homeDirectory)}`,
+    `  $env:Path = ${quotePowerShellLiteral(launch.pathEnvironment)}`,
+    `  Set-Location -LiteralPath ${quotePowerShellLiteral(launch.workingDirectory)}`,
+    `  $arguments = @(${argumentLiterals})`,
+    `  $restartDelays = @(${restartDelays})`,
+    "  $failureCount = 0",
+    "  while ($true) {",
+    "    $startedAt = Get-Date",
+    `    & ${quotePowerShellLiteral(launch.executable)} @arguments 1>> ${quotePowerShellLiteral(servicePaths.stdoutLog)} 2>> ${quotePowerShellLiteral(servicePaths.stderrLog)}`,
+    "    $serviceExitCode = $LASTEXITCODE",
+    "    $runtimeSeconds = [math]::Round(((Get-Date) - $startedAt).TotalSeconds)",
+    `    if ($runtimeSeconds -ge ${WINDOWS_SUPERVISOR_STABLE_RUNTIME_SECONDS}) {`,
+    "      $failureCount = 0",
+    "    }",
+    "    $delayIndex = [math]::Min($failureCount, $restartDelays.Count - 1)",
+    "    $delaySeconds = $restartDelays[$delayIndex]",
+    "    $failureCount += 1",
+    `    Add-Content -LiteralPath ${quotePowerShellLiteral(servicePaths.stderrLog)} -Value "[stillon] process exited with code $serviceExitCode after $runtimeSeconds seconds; restarting in $delaySeconds seconds." -Encoding utf8`,
+    "    Start-Sleep -Seconds $delaySeconds",
+    "  }",
+    "} finally {",
+    "  if ($createdNew) {",
+    "    $mutex.ReleaseMutex()",
+    "  }",
+    "  $mutex.Dispose()",
+    "}",
   ].join("\r\n")
 }
 
@@ -130,7 +164,7 @@ export function buildWindowsTaskXml(
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Run StillOn in the current user session.</Description>
+    <Description>Run and supervise StillOn headlessly in the current user session.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -172,8 +206,8 @@ export function buildWindowsTaskXml(
   </Settings>
   <Actions Context="CurrentUser">
     <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless powershell.exe -NoLogo -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
       <WorkingDirectory>${escapeWindowsTaskXml(launch.workingDirectory)}</WorkingDirectory>
     </Exec>
   </Actions>

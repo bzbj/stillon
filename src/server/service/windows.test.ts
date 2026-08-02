@@ -11,6 +11,8 @@ import type {
 import {
   WINDOWS_RESTART_COUNT,
   WINDOWS_RESTART_INTERVAL,
+  WINDOWS_SUPERVISOR_RESTART_DELAYS_SECONDS,
+  WINDOWS_SUPERVISOR_STABLE_RUNTIME_SECONDS,
   WINDOWS_LOG_TAIL_BYTES,
   WINDOWS_LOG_TAIL_LINES,
   WINDOWS_SCHEDULER_COMMAND,
@@ -130,7 +132,7 @@ describe("Windows service configuration", () => {
     })
   })
 
-  test("builds a current-user task with bounded restarts and encoded log capture", () => {
+  test("builds a headless current-user task with an infinite supervisor", () => {
     const launch = createLaunch({
       args: ["script's path.ts", "--label", "value & more"],
     })
@@ -140,15 +142,24 @@ describe("Windows service configuration", () => {
     expect(xml).toContain("<LogonTrigger>")
     expect(xml).toContain("<UserId>DOMAIN\\Alice &amp; Bob</UserId>")
     expect(xml).toContain("<LogonType>InteractiveToken</LogonType>")
-    expect(xml).toContain("<Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive")
+    expect(xml).toContain("<Command>conhost.exe</Command>")
+    expect(xml).toContain("<Arguments>--headless powershell.exe -NoLogo -WindowStyle Hidden -NoProfile -NonInteractive")
     expect(xml).toContain(`<Interval>${WINDOWS_RESTART_INTERVAL}</Interval>`)
     expect(xml).toContain(`<Count>${WINDOWS_RESTART_COUNT}</Count>`)
     expect(xml).toContain("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>")
     expect(xml).toContain("<WorkingDirectory>C:\\Users\\Alice\\StillOn &amp; Friends</WorkingDirectory>")
     expect(powerShell).toContain("$arguments = @('script''s path.ts', '--label', 'value & more')")
     expect(powerShell).toContain("$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'")
+    expect(powerShell).toContain("[System.Threading.Mutex]::new($true, 'Local\\StillOn.Service'")
+    expect(powerShell).toContain(`$restartDelays = @(${WINDOWS_SUPERVISOR_RESTART_DELAYS_SECONDS.join(", ")})`)
+    expect(powerShell).toContain("while ($true)")
+    expect(powerShell).toContain(`if ($runtimeSeconds -ge ${WINDOWS_SUPERVISOR_STABLE_RUNTIME_SECONDS})`)
+    expect(powerShell).toContain("$delayIndex = [math]::Min($failureCount, $restartDelays.Count - 1)")
+    expect(powerShell).toContain("Start-Sleep -Seconds $delaySeconds")
+    expect(powerShell).not.toContain("exit $serviceExitCode")
     expect(powerShell).toContain("1>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.out.log'")
     expect(powerShell).toContain("2>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log'")
+    expect(powerShell).toContain("restarting in $delaySeconds seconds")
     expect(powerShell).toContain("$env:Path = 'C:\\Program Files\\Bun;C:\\Windows\\System32'")
     expect(xml).not.toContain("script's path.ts")
   })
