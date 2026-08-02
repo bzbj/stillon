@@ -221,10 +221,28 @@ bun run test
 bun run start -- --no-open
 ```
 
-The server listens on `http://127.0.0.1:3210` by default. Codex and Claude
+The last command is a foreground validation run and stops when that terminal
+closes. The server listens on `http://127.0.0.1:3210` by default. Codex and Claude
 Code should be installed for the current Windows user and available on `PATH`;
-StillOn resolves their `.cmd` shims on Windows. The optional background service
-uses Task Scheduler and starts at sign-in.
+StillOn resolves their `.cmd` shims on Windows.
+
+After the build and local health check succeed, the recommended persistent
+Windows setup is the optional native background service. Invoke it directly
+from the selected source runtime; a global install is not required:
+
+```powershell
+bun .\bin\stillon service install --port 3210
+bun .\bin\stillon service status
+Invoke-RestMethod http://127.0.0.1:3210/health
+```
+
+This creates the per-user Task Scheduler task `\StillOn`. It starts after that
+user signs in, launches its PowerShell watchdog through `conhost.exe --headless`
+without a visible console window, and restarts StillOn indefinitely after an
+unexpected exit. The restart delays are 5, 10, 20, 40, and 60 seconds, then 60
+seconds for every later attempt. A run lasting at least five minutes resets the
+backoff. See [Production runtime installs](docs/production-runtime.md#windows-persistent-startup)
+for pinned updates and rollback.
 
 Windows terminal sessions use the configured local shell. Unix-specific PTY
 signals do not have direct Windows equivalents, so advanced terminal signal
@@ -261,7 +279,14 @@ run.
 | --- | --- | --- |
 | macOS | Per-user LaunchAgent | Starts at login and is kept alive by `launchd` |
 | Linux | systemd user service | Starts with the user manager and restarts after exit |
-| Windows | Per-user Task Scheduler task | Starts at sign-in with bounded failure retries |
+| Windows | Per-user Task Scheduler task | Starts headless at sign-in with an infinite backoff watchdog |
+
+On Windows, the generated PowerShell watchdog restarts Bun/StillOn forever
+with 5, 10, 20, 40, and 60 second delays, capped at 60 seconds. Task Scheduler
+also retries task actions reported as failed once per minute, up to five times.
+The task uses an interactive user token, so it starts after sign-in rather than
+before login. `stillon service logs` includes stdout, stderr, and watchdog
+lifecycle messages under `%LOCALAPPDATA%\StillOn\`.
 
 On Linux, a user service normally stops when the user manager exits. To keep it
 running after logout and start the user manager at boot, an administrator can

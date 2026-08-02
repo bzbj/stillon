@@ -34,7 +34,7 @@ https://github.com/bzbj/stillon
    - 如果我还没有具体任务，建议使用这条无副作用的开场消息：`请确认你已连接 StillOn。在不修改任何文件、不执行命令的前提下，用一句话说明你可以怎样帮助我。`
    - 如果你能操作浏览器，就在 StillOn 中发送并确认收到回复；如果不能，就告诉我精确的点击路径，等我确认结果。没有收到回复时，说明具体阻塞点和安全的下一步，不要声称首次配置已完成。
 9. 如果本次安装是替换 Kanna，在 StillOn 的本机健康检查和我选择的 provider 首次检查通过前，保留 Kanna 及其数据不动。仅在检查通过后，再单独说明切换或关停选项并征得确认；Kanna 绝不能成为 StillOn 的运行时依赖。
-10. 只有在说明影响并征得确认后，才提供可选的“按用户启动的后台服务”。若我已确认 agent 出站连接需要一个已经运行的本地代理，只能通过专用服务环境文件和 `stillon service install --env-file <absolute-path>` 配置；这不构成配置入站访问或管理代理本身的授权。
+10. 只有在说明影响并征得确认后，才提供可选的“按用户启动的后台服务”。在 Windows 上，使用所选 runtime 自带的 `service install` 命令；不要另外发明第二个任务计划程序任务、PowerShell 启动器、PM2 进程或其他 supervisor。Windows 原生任务已经会在登录后无窗口启动，并通过无限退避 watchdog 保持 StillOn 运行。若我已确认 agent 出站连接需要一个已经运行的本地代理，只能通过专用服务环境文件和 `stillon service install --env-file <absolute-path>` 配置；这不构成配置入站访问或管理代理本身的授权。
 
 安全约束：
 - 默认保持 StillOn 仅绑定 localhost。

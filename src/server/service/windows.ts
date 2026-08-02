@@ -10,6 +10,8 @@ export const WINDOWS_TASK_NAME = "StillOn"
 export const WINDOWS_SCHEDULER_COMMAND = "schtasks.exe"
 export const WINDOWS_RESTART_INTERVAL = "PT1M"
 export const WINDOWS_RESTART_COUNT = 5
+export const WINDOWS_WATCHDOG_RESTART_DELAYS_SECONDS = [5, 10, 20, 40, 60] as const
+export const WINDOWS_WATCHDOG_STABLE_RUN_SECONDS = 300
 export const WINDOWS_LOG_TAIL_LINES = 200
 export const WINDOWS_LOG_TAIL_BYTES = 128 * 1024
 
@@ -18,6 +20,7 @@ export interface WindowsServicePaths {
   taskXml: string
   stdoutLog: string
   stderrLog: string
+  watchdogLog: string
 }
 
 function pathImplementationFor(basePath: string) {
@@ -41,6 +44,7 @@ export function getWindowsServicePaths(launch: ServiceLaunchSpec): WindowsServic
     taskXml: pathImplementation.join(directory, "service-task.xml"),
     stdoutLog: pathImplementation.join(directory, "service.out.log"),
     stderrLog: pathImplementation.join(directory, "service.err.log"),
+    watchdogLog: pathImplementation.join(directory, "service.watchdog.log"),
   }
 }
 
@@ -81,18 +85,43 @@ export function buildWindowsServicePowerShell(
 ) {
   assertNoWindowsServiceSecrets(launch.args)
   const argumentLiterals = launch.args.map(quotePowerShellLiteral).join(", ")
+  const restartDelays = WINDOWS_WATCHDOG_RESTART_DELAYS_SECONDS.join(", ")
 
   return [
     "$ErrorActionPreference = 'Stop'",
     "$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'",
+    "function Write-WatchdogLog([string] $Message) {",
+    "    $timestamp = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss.fffK'",
+    `    Add-Content -LiteralPath ${quotePowerShellLiteral(servicePaths.watchdogLog)} -Value "$timestamp $Message" -Encoding utf8`,
+    "}",
     `$env:HOME = ${quotePowerShellLiteral(launch.homeDirectory)}`,
     `$env:USERPROFILE = ${quotePowerShellLiteral(launch.homeDirectory)}`,
     `$env:Path = ${quotePowerShellLiteral(launch.pathEnvironment)}`,
     `Set-Location -LiteralPath ${quotePowerShellLiteral(launch.workingDirectory)}`,
     `$arguments = @(${argumentLiterals})`,
-    `& ${quotePowerShellLiteral(launch.executable)} @arguments 1>> ${quotePowerShellLiteral(servicePaths.stdoutLog)} 2>> ${quotePowerShellLiteral(servicePaths.stderrLog)}`,
-    "$serviceExitCode = $LASTEXITCODE",
-    "exit $serviceExitCode",
+    `$restartDelays = @(${restartDelays})`,
+    "$failureCount = 0",
+    "Write-WatchdogLog 'Watchdog started.'",
+    "while ($true) {",
+    "    $startedAt = Get-Date",
+    "    try {",
+    `        & ${quotePowerShellLiteral(launch.executable)} @arguments 1>> ${quotePowerShellLiteral(servicePaths.stdoutLog)} 2>> ${quotePowerShellLiteral(servicePaths.stderrLog)}`,
+    "        $serviceExitCode = $LASTEXITCODE",
+    "    } catch {",
+    "        $serviceExitCode = -1",
+    "        Write-WatchdogLog \"StillOn launch failed: $($_.Exception.Message)\"",
+    "    }",
+    "    $runtimeSeconds = [math]::Round(((Get-Date) - $startedAt).TotalSeconds)",
+    "    Write-WatchdogLog \"StillOn exited with code $serviceExitCode after $runtimeSeconds seconds.\"",
+    `    if ($runtimeSeconds -ge ${WINDOWS_WATCHDOG_STABLE_RUN_SECONDS}) {`,
+    "        $failureCount = 0",
+    "    }",
+    "    $delayIndex = [math]::Min($failureCount, $restartDelays.Count - 1)",
+    "    $delaySeconds = $restartDelays[$delayIndex]",
+    "    $failureCount += 1",
+    "    Write-WatchdogLog \"Restarting in $delaySeconds seconds.\"",
+    "    Start-Sleep -Seconds $delaySeconds",
+    "}",
   ].join("\r\n")
 }
 
@@ -172,8 +201,8 @@ export function buildWindowsTaskXml(
   </Settings>
   <Actions Context="CurrentUser">
     <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless powershell.exe -NoLogo -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedPowerShell}</Arguments>
       <WorkingDirectory>${escapeWindowsTaskXml(launch.workingDirectory)}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -316,12 +345,13 @@ export const windowsServiceBackend: ServiceBackend = {
 
   async logs(context) {
     const servicePaths = getWindowsServicePaths(context.launch)
-    const [stdout, stderr] = await Promise.all([
+    const [stdout, stderr, watchdog] = await Promise.all([
       readRecentLogFile(servicePaths.stdoutLog),
       readRecentLogFile(servicePaths.stderrLog),
+      readRecentLogFile(servicePaths.watchdogLog),
     ])
 
-    if (stdout === null && stderr === null) {
+    if (stdout === null && stderr === null && watchdog === null) {
       context.warn(`No StillOn service logs found in ${servicePaths.directory}.`)
       return
     }
@@ -330,6 +360,8 @@ export const windowsServiceBackend: ServiceBackend = {
     context.log(stdout?.trimEnd() || "(empty)")
     context.log(`StillOn stderr (${servicePaths.stderrLog}):`)
     context.log(stderr?.trimEnd() || "(empty)")
+    context.log(`StillOn watchdog (${servicePaths.watchdogLog}):`)
+    context.log(watchdog?.trimEnd() || "(empty)")
   },
 
   async uninstall(context) {

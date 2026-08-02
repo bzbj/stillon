@@ -49,6 +49,41 @@ it does not accidentally inherit a `.env` file from an unrelated checkout.
 Ensure the service PATH includes the command-line agents you intend StillOn to
 run (for example `codex`, `claude`, and `opencode`).
 
+### Windows persistent startup
+
+On Windows, first build the selected runtime and verify it in the foreground.
+Then install the per-user background task directly from that runtime without a
+global command installation:
+
+```powershell
+$RuntimeRoot = "C:\path\to\stillon-runtime"
+$EnvironmentFile = "C:\path\to\stillon.env"
+
+bun "$RuntimeRoot\bin\stillon" service install `
+  --port 3210 `
+  --env-file $EnvironmentFile
+bun "$RuntimeRoot\bin\stillon" service status
+Invoke-RestMethod http://127.0.0.1:3210/health
+```
+
+The command creates the per-user Task Scheduler task `\StillOn`. It runs with
+an interactive user token, so it starts after that user signs in, not before
+login. Its action uses `conhost.exe --headless` to host a generated PowerShell
+watchdog without displaying a PowerShell or Windows Terminal window.
+
+The watchdog restarts Bun/StillOn indefinitely after an exit, waiting 5, 10,
+20, 40, and 60 seconds and then continuing every 60 seconds. If a run lasts at
+least five minutes, the next failure starts again at the five-second delay.
+Task Scheduler's own one-minute, five-attempt failure policy remains as an
+outer fallback when the task action itself is reported failed. Other task
+settings prevent duplicate starts, start a missed task when available, and
+remove the execution time limit.
+
+The task remains pinned to `$RuntimeRoot`. Install from a newly built runtime
+to update, or rerun the same command from a known-good runtime to roll back.
+Use `service logs` to inspect server and watchdog logs under
+`%LOCALAPPDATA%\StillOn\`, and `service uninstall` to stop and remove the task.
+
 Keep the service on loopback when an independently managed proxy or tunnel
 runs on the same machine. See [External ingress](external-ingress.md) for the
 required `Host`, forwarding, and WebSocket contract; StillOn does not create
