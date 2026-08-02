@@ -137,11 +137,14 @@ Connect a laptop to power when appropriate, let the display turn off, but
 configure the operating system so the computer itself does not sleep. Also
 check what closing the laptop lid does on the specific machine.
 
-- **macOS:** Prefer Apple's **System Settings → Battery → Options → Prevent
-  automatic sleeping on power adapter when the display is off**. For more
-  flexible manual sessions or triggers, [Amphetamine](https://apps.apple.com/app/amphetamine/id937984704)
-  is a useful optional helper. Test closed-display behavior on the actual Mac;
-  power, peripherals, macOS version, and thermal conditions can affect it.
+- **macOS:** For any Mac that will run StillOn continuously, we recommend
+  installing [Amphetamine](https://apps.apple.com/app/amphetamine/id937984704)
+  and configuring an indefinite or trigger-based keep-awake session. It can
+  let the display sleep while keeping the Mac awake and supports closed-display
+  sessions. Also enable Apple's **System Settings → Battery → Options → Prevent
+  automatic sleeping on power adapter when the display is off** as the baseline
+  power setting. Test closed-display behavior on the actual Mac; power,
+  peripherals, macOS version, and thermal conditions can affect it.
 - **Windows:** For unattended use, configure **Settings → System → Power &
   battery → Screen, sleep & hibernate timeouts**, and review the lid-close
   action. [PowerToys Awake](https://learn.microsoft.com/windows/powertoys/awake)
