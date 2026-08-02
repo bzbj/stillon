@@ -280,8 +280,8 @@ run.
 
 On Windows, the generated PowerShell watchdog restarts Bun/StillOn forever
 with 5, 10, 20, 40, and 60 second delays, capped at 60 seconds. Task Scheduler
-also retries supervisor-level failures once per minute, up to five times. The
-task uses an interactive user token, so it starts after sign-in rather than
+also retries task actions reported as failed once per minute, up to five times.
+The task uses an interactive user token, so it starts after sign-in rather than
 before login. `stillon service logs` includes stdout, stderr, and watchdog
 lifecycle messages under `%LOCALAPPDATA%\StillOn\`.
 

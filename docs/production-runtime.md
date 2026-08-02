@@ -75,9 +75,9 @@ The watchdog restarts Bun/StillOn indefinitely after an exit, waiting 5, 10,
 20, 40, and 60 seconds and then continuing every 60 seconds. If a run lasts at
 least five minutes, the next failure starts again at the five-second delay.
 Task Scheduler's own one-minute, five-attempt failure policy remains as an
-outer fallback if the PowerShell supervisor itself cannot stay running. Other
-task settings prevent duplicate starts, start a missed task when available,
-and remove the execution time limit.
+outer fallback when the task action itself is reported failed. Other task
+settings prevent duplicate starts, start a missed task when available, and
+remove the execution time limit.
 
 The task remains pinned to `$RuntimeRoot`. Install from a newly built runtime
 to update, or rerun the same command from a known-good runtime to roll back.
