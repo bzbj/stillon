@@ -11,6 +11,8 @@ import type {
 import {
   WINDOWS_RESTART_COUNT,
   WINDOWS_RESTART_INTERVAL,
+  WINDOWS_WATCHDOG_RESTART_DELAYS_SECONDS,
+  WINDOWS_WATCHDOG_STABLE_RUN_SECONDS,
   WINDOWS_LOG_TAIL_BYTES,
   WINDOWS_LOG_TAIL_LINES,
   WINDOWS_SCHEDULER_COMMAND,
@@ -110,6 +112,7 @@ describe("Windows service configuration", () => {
       taskXml: "C:\\Users\\Alice\\AppData\\Local\\StillOn\\service-task.xml",
       stdoutLog: "C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.out.log",
       stderrLog: "C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log",
+      watchdogLog: "C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.watchdog.log",
     })
 
     expect(getWindowsServicePaths(createLaunch({ localAppDataDirectory: undefined }))).toEqual({
@@ -117,6 +120,7 @@ describe("Windows service configuration", () => {
       taskXml: "C:\\Users\\Alice\\.stillon\\service-task.xml",
       stdoutLog: "C:\\Users\\Alice\\.stillon\\service.out.log",
       stderrLog: "C:\\Users\\Alice\\.stillon\\service.err.log",
+      watchdogLog: "C:\\Users\\Alice\\.stillon\\service.watchdog.log",
     })
 
     expect(getWindowsServicePaths(createLaunch({
@@ -127,10 +131,11 @@ describe("Windows service configuration", () => {
       taskXml: "/tmp/stillon-service-test/StillOn/service-task.xml",
       stdoutLog: "/tmp/stillon-service-test/StillOn/service.out.log",
       stderrLog: "/tmp/stillon-service-test/StillOn/service.err.log",
+      watchdogLog: "/tmp/stillon-service-test/StillOn/service.watchdog.log",
     })
   })
 
-  test("builds a current-user task with bounded restarts and encoded log capture", () => {
+  test("builds a headless current-user task with an infinite watchdog", () => {
     const launch = createLaunch({
       args: ["script's path.ts", "--label", "value & more"],
     })
@@ -140,7 +145,8 @@ describe("Windows service configuration", () => {
     expect(xml).toContain("<LogonTrigger>")
     expect(xml).toContain("<UserId>DOMAIN\\Alice &amp; Bob</UserId>")
     expect(xml).toContain("<LogonType>InteractiveToken</LogonType>")
-    expect(xml).toContain("<Arguments>-NoLogo -WindowStyle Hidden -NoProfile -NonInteractive")
+    expect(xml).toContain("<Command>conhost.exe</Command>")
+    expect(xml).toContain("<Arguments>--headless powershell.exe -NoLogo -WindowStyle Hidden -NoProfile -NonInteractive")
     expect(xml).toContain(`<Interval>${WINDOWS_RESTART_INTERVAL}</Interval>`)
     expect(xml).toContain(`<Count>${WINDOWS_RESTART_COUNT}</Count>`)
     expect(xml).toContain("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>")
@@ -149,7 +155,14 @@ describe("Windows service configuration", () => {
     expect(powerShell).toContain("$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'")
     expect(powerShell).toContain("1>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.out.log'")
     expect(powerShell).toContain("2>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log'")
+    expect(powerShell).toContain("Add-Content -LiteralPath 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.watchdog.log'")
     expect(powerShell).toContain("$env:Path = 'C:\\Program Files\\Bun;C:\\Windows\\System32'")
+    expect(powerShell).toContain(`$restartDelays = @(${WINDOWS_WATCHDOG_RESTART_DELAYS_SECONDS.join(", ")})`)
+    expect(powerShell).toContain("while ($true)")
+    expect(powerShell).toContain(`if ($runtimeSeconds -ge ${WINDOWS_WATCHDOG_STABLE_RUN_SECONDS})`)
+    expect(powerShell).toContain("$delayIndex = [math]::Min($failureCount, $restartDelays.Count - 1)")
+    expect(powerShell).toContain("Start-Sleep -Seconds $delaySeconds")
+    expect(powerShell).not.toContain("exit $serviceExitCode")
     expect(xml).not.toContain("script's path.ts")
   })
 
@@ -346,6 +359,7 @@ describe("windowsServiceBackend", () => {
     await Promise.all([
       writeFile(servicePaths.stdoutLog, "server listening\n", "utf8"),
       writeFile(servicePaths.stderrLog, "restarted once\n", "utf8"),
+      writeFile(servicePaths.watchdogLog, "Restarting in 5 seconds.\n", "utf8"),
     ])
     const { context, logs } = createContext(launch, () => commandResult())
 
@@ -356,6 +370,8 @@ describe("windowsServiceBackend", () => {
       "server listening",
       `StillOn stderr (${servicePaths.stderrLog}):`,
       "restarted once",
+      `StillOn watchdog (${servicePaths.watchdogLog}):`,
+      "Restarting in 5 seconds.",
     ])
   })
 
@@ -370,12 +386,14 @@ describe("windowsServiceBackend", () => {
     ])
     await writeFile(servicePaths.stdoutLog, utf16Log)
     await writeFile(servicePaths.stderrLog, "", "utf8")
+    await writeFile(servicePaths.watchdogLog, "", "utf8")
     const { context, logs } = createContext(launch, () => commandResult())
 
     await windowsServiceBackend.logs(context)
 
     expect(logs[1]).toBe("server listening\nsecond line")
     expect(logs[3]).toBe("(empty)")
+    expect(logs[5]).toBe("(empty)")
   })
 
   test("bounds log snapshots to recent lines and bytes", async () => {
@@ -386,17 +404,20 @@ describe("windowsServiceBackend", () => {
     const lines = Array.from({ length: WINDOWS_LOG_TAIL_LINES + 20 }, (_, index) => `line-${index}`)
     await writeFile(servicePaths.stdoutLog, `${lines.join("\n")}\n`, "utf8")
     await writeFile(servicePaths.stderrLog, `ignored-${"x".repeat(WINDOWS_LOG_TAIL_BYTES + 10)}`, "utf8")
+    await writeFile(servicePaths.watchdogLog, "watchdog ready\n", "utf8")
     const { context, logs } = createContext(launch, () => commandResult())
 
     await windowsServiceBackend.logs(context)
 
     const stdoutSnapshot = logs[1] ?? ""
     const stderrSnapshot = logs[3] ?? ""
+    const watchdogSnapshot = logs[5] ?? ""
     expect(stdoutSnapshot.split("\n")).toHaveLength(WINDOWS_LOG_TAIL_LINES)
     expect(stdoutSnapshot).not.toContain("line-19\n")
     expect(stdoutSnapshot).toStartWith("line-20\n")
     expect(stdoutSnapshot).toEndWith(`line-${WINDOWS_LOG_TAIL_LINES + 19}`)
     expect(Buffer.byteLength(stderrSnapshot, "utf8")).toBeLessThanOrEqual(WINDOWS_LOG_TAIL_BYTES)
+    expect(watchdogSnapshot).toBe("watchdog ready")
   })
 
   test("warns when no captured logs exist", async () => {
