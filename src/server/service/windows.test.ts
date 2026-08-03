@@ -153,6 +153,15 @@ describe("Windows service configuration", () => {
     expect(xml).toContain("<WorkingDirectory>C:\\Users\\Alice\\StillOn &amp; Friends</WorkingDirectory>")
     expect(powerShell).toContain("$arguments = @('script''s path.ts', '--label', 'value & more')")
     expect(powerShell).toContain("$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'")
+    expect(powerShell).toContain("$watchdogErrorActionPreference = $ErrorActionPreference")
+    expect(powerShell).toContain("$ErrorActionPreference = 'Continue'")
+    expect(powerShell).toContain("$ErrorActionPreference = $watchdogErrorActionPreference")
+    expect(powerShell.indexOf("$ErrorActionPreference = 'Continue'")).toBeLessThan(
+      powerShell.indexOf("2>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log'"),
+    )
+    expect(powerShell.indexOf("2>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log'")).toBeLessThan(
+      powerShell.indexOf("$ErrorActionPreference = $watchdogErrorActionPreference"),
+    )
     expect(powerShell).toContain("1>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.out.log'")
     expect(powerShell).toContain("2>> 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.err.log'")
     expect(powerShell).toContain("Add-Content -LiteralPath 'C:\\Users\\Alice\\AppData\\Local\\StillOn\\service.watchdog.log'")
