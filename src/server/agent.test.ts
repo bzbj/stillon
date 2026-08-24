@@ -1252,6 +1252,89 @@ describe("AgentCoordinator codex integration", () => {
   })
 })
 
+describe("AgentCoordinator cancellation (#109)", () => {
+  test("does not resume a cancelled chat until the previous writer has exited", async () => {
+    let releaseInterrupt!: () => void
+    const interruptGate = new Promise<void>((resolve) => {
+      releaseInterrupt = resolve
+    })
+    let startedTurns = 0
+
+    const fakeCodexManager = {
+      async startSession() {},
+      async startTurn(): Promise<HarnessTurn> {
+        startedTurns += 1
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "codex",
+              model: "gpt-5.4",
+              tools: [],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          // Never completes: the turn stays active until it is cancelled.
+          await new Promise<void>(() => {})
+        }
+
+        return {
+          provider: "codex",
+          stream: stream(),
+          // Stands in for a Codex process that takes time to release its
+          // thread-writer lock after being signalled.
+          interrupt: async () => {
+            await interruptGate
+          },
+          close: () => {},
+        }
+      },
+    }
+
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      codexManager: fakeCodexManager as never,
+      generateTitle: async () => ({ title: "t", usedFallback: false, failureMessage: null }),
+    })
+
+    await coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      content: "first message",
+      model: "gpt-5.4",
+    })
+    expect(startedTurns).toBe(1)
+
+    // Cancel blocks on interrupt(), i.e. the old writer is still alive.
+    const cancelled = coordinator.cancel("chat-1")
+    await waitFor(() => !coordinator.activeTurns.has("chat-1"))
+
+    // The chat is sendable again, but resuming now would race the old writer.
+    const resent = coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      content: "second message",
+      model: "gpt-5.4",
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(startedTurns).toBe(1)
+
+    // Once the writer is gone the resume proceeds.
+    releaseInterrupt()
+    await cancelled
+    await resent
+    expect(startedTurns).toBe(2)
+  })
+})
+
 describe("AgentCoordinator claude integration", () => {
   test("reuses a persistent Claude session across turns", async () => {
     const events = new AsyncEventQueue<any>()

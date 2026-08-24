@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import type { SpawnOptions } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
 import type { Readable, Writable } from "node:stream"
@@ -11,7 +12,31 @@ import type {
 } from "../shared/types"
 import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
+import { collectProcessTree } from "./process-tree"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
+
+// Grace period for the Codex process group to exit on SIGTERM before we
+// escalate to SIGKILL, and how long we then wait to reap it. The two together
+// stay within the cancellation budget in AgentCoordinator.cancel().
+const TERMINATE_GRACE_MS = 2_000
+const TERMINATE_KILL_TIMEOUT_MS = 3_000
+
+export function codexSpawnOptions(
+  cwd: string,
+  environment: NodeJS.ProcessEnv
+): SpawnOptions & { detached: boolean } {
+  return {
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: environment,
+    // Deliberately NOT detached. Staying in the server's process group is what
+    // lets an external teardown — `launchctl bootout`, a tty SIGINT — reap the
+    // CLI along with the server. Cancellation cannot use a group signal here
+    // (that would hit the server too), so terminateChild() enumerates and
+    // signals the process tree by pid instead.
+    detached: false,
+  }
+}
 
 export interface StartCodexExecSessionArgs {
   chatId: string
@@ -47,6 +72,7 @@ interface CodexExecProcess {
   stdout: Readable
   stderr: Readable
   killed?: boolean
+  pid?: number
   kill(signal?: NodeJS.Signals | number): void
   on(event: "close", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
@@ -74,6 +100,8 @@ interface PendingTurn {
   lastProtocolError: string | null
   startedToolIds: Set<string>
   resolved: boolean
+  exited: boolean
+  exitWaiters: Array<() => void>
 }
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(
@@ -264,11 +292,7 @@ export class CodexExecManager {
   constructor(args: { spawnProcess?: SpawnCodexExec; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd, environment) =>
-      spawn(getCodexCliCommand(), commandArgs, {
-        cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: environment,
-      }) as unknown as CodexExecProcess)
+      spawn(getCodexCliCommand(), commandArgs, codexSpawnOptions(cwd, environment)) as unknown as CodexExecProcess)
   }
 
   async startSession(args: StartCodexExecSessionArgs): Promise<string | undefined> {
@@ -324,6 +348,8 @@ export class CodexExecManager {
       lastProtocolError: null,
       startedToolIds: new Set(),
       resolved: false,
+      exited: false,
+      exitWaiters: [],
     }
     context.pendingTurn = pendingTurn
 
@@ -340,11 +366,11 @@ export class CodexExecManager {
       stream: queue,
       interrupt: async () => {
         this.finishTurn(context, pendingTurn, "cancelled", "")
-        this.killChild(child)
+        await this.terminateChild(child, pendingTurn)
       },
       close: () => {
         if (!pendingTurn.resolved) {
-          this.killChild(child)
+          void this.terminateChild(child, pendingTurn)
           this.finishTurn(context, pendingTurn, "error", "Codex exec turn closed")
         }
       },
@@ -398,7 +424,7 @@ export class CodexExecManager {
     if (!context) return
     context.closed = true
     if (context.pendingTurn) {
-      this.killChild(context.pendingTurn.child)
+      void this.terminateChild(context.pendingTurn.child, context.pendingTurn)
       context.pendingTurn.queue.finish()
       context.pendingTurn = null
     }
@@ -476,6 +502,9 @@ export class CodexExecManager {
     })
 
     pendingTurn.child.on("close", (code) => {
+      // Record the exit before the resolved-guard below: terminateChild() waits
+      // on this even for turns whose stream was already finished by cancel().
+      this.markExited(pendingTurn)
       // Let the readline loops consume any final buffered stdout/stderr lines
       // before selecting the terminal error message.
       queueMicrotask(() => {
@@ -630,11 +659,91 @@ export class CodexExecManager {
     }
   }
 
-  private killChild(child: CodexExecProcess) {
+  private signalChild(child: CodexExecProcess, signal: NodeJS.Signals) {
     try {
-      child.kill("SIGKILL")
+      child.kill(signal)
     } catch {
       // Ignore kill failures.
     }
+  }
+
+  private markExited(pendingTurn: PendingTurn) {
+    if (pendingTurn.exited) return
+    pendingTurn.exited = true
+    for (const waiter of pendingTurn.exitWaiters.splice(0)) {
+      waiter()
+    }
+  }
+
+  private waitForExit(pendingTurn: PendingTurn, timeoutMs: number): Promise<boolean> {
+    if (pendingTurn.exited) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (exited: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(exited)
+      }
+      const timer = setTimeout(() => finish(pendingTurn.exited), timeoutMs)
+      pendingTurn.exitWaiters.push(() => finish(true))
+    })
+  }
+
+  private signalPid(pid: number, signal: NodeJS.Signals) {
+    try {
+      process.kill(pid, signal)
+    } catch {
+      // Already gone, or not ours to signal.
+    }
+  }
+
+  private isPidAlive(pid: number) {
+    try {
+      // Signal 0 performs the existence check without delivering anything.
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private async waitForTreeExit(pids: number[], timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (!pids.some((pid) => this.isPidAlive(pid))) return true
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    return !pids.some((pid) => this.isPidAlive(pid))
+  }
+
+  private async terminateChild(child: CodexExecProcess, pendingTurn: PendingTurn) {
+    const pid = child.pid
+
+    if (!pid || process.platform === "win32") {
+      // No pid to walk from (a test double), or a platform without a POSIX
+      // process tree to enumerate: fall back to signalling the child itself.
+      if (pendingTurn.exited) return
+      this.signalChild(child, "SIGTERM")
+      if (await this.waitForExit(pendingTurn, TERMINATE_GRACE_MS)) return
+      this.signalChild(child, "SIGKILL")
+      await this.waitForExit(pendingTurn, TERMINATE_KILL_TIMEOUT_MS)
+      return
+    }
+
+    // Snapshot the tree before signalling anything: `codex` is often a Node
+    // shim, and once it exits the native binary it spawned is reparented to
+    // init, losing the link we need to find it.
+    const tree = await collectProcessTree(pid)
+    if (pendingTurn.exited && !tree.some((entry) => this.isPidAlive(entry))) return
+
+    // SIGTERM first so Codex can release its thread-writer lock on the way out.
+    for (const entry of tree) this.signalPid(entry, "SIGTERM")
+    if (await this.waitForTreeExit(tree, TERMINATE_GRACE_MS)) return
+
+    // Something survived. SIGKILL cannot be caught or forwarded by a shim,
+    // which is why every pid in the tree is targeted individually.
+    for (const entry of tree) this.signalPid(entry, "SIGKILL")
+    await this.waitForTreeExit(tree, TERMINATE_KILL_TIMEOUT_MS)
   }
 }

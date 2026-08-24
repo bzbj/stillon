@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
-import { CodexExecManager } from "./codex-exec"
+import { spawn } from "node:child_process"
+import { mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { CodexExecManager, codexSpawnOptions } from "./codex-exec"
 
 class FakeCodexExecProcess extends EventEmitter {
   readonly stdin = new PassThrough()
@@ -17,7 +21,10 @@ class FakeCodexExecProcess extends EventEmitter {
     })
   }
 
-  kill() {
+  readonly signals: string[] = []
+
+  kill(signal?: string) {
+    this.signals.push(signal ?? "SIGTERM")
     this.killed = true
     this.emit("close", 137)
   }
@@ -467,4 +474,174 @@ describe("CodexExecManager", () => {
     await turn.interrupt()
     expect(process.killed).toBe(true)
   })
+})
+
+/** A launcher that ignores SIGTERM, standing in for the Node shim `codex`. */
+class StubbornProcess extends EventEmitter {
+  readonly stdin = new PassThrough()
+  readonly stdout = new PassThrough()
+  readonly stderr = new PassThrough()
+  readonly signals: string[] = []
+  killed = false
+
+  kill(signal?: string) {
+    this.signals.push(signal ?? "SIGTERM")
+    // Only SIGKILL takes this process down; SIGTERM is swallowed, exactly like a
+    // shim that cannot forward an uncatchable signal to its native child.
+    if (signal === "SIGKILL") {
+      this.killed = true
+      this.emit("close", 137)
+    }
+  }
+}
+
+function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitUntilDead(pid: number, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return !isAlive(pid)
+}
+
+describe("codexSpawnOptions", () => {
+  test("keeps the CLI in the server's process group", () => {
+    // Detaching would make the CLI survive `launchctl bootout` of the StillOn
+    // job, so cancellation walks the process tree by pid instead.
+    expect(codexSpawnOptions("/tmp/project", {}).detached).toBe(false)
+  })
+})
+
+describe("CodexExecManager cancellation (#109)", () => {
+  test("asks the process to exit with SIGTERM before escalating", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new FakeCodexExecProcess()
+        processes.push(child)
+        return child as never
+      },
+    })
+
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: null })
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Wait",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    await turn.interrupt()
+
+    // A process that exits on SIGTERM is never SIGKILLed, so Codex gets the
+    // chance to release its thread-writer lock cleanly.
+    expect(processes[0]!.signals).toEqual(["SIGTERM"])
+  })
+
+  test("escalates to SIGKILL and only resolves once the process is gone", async () => {
+    const processes: StubbornProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new StubbornProcess()
+        processes.push(child)
+        return child as never
+      },
+    })
+
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: null })
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Wait",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    let resolved = false
+    const interrupted = turn.interrupt().then(() => {
+      resolved = true
+    })
+
+    // Still holding the writer lock: interrupt() must not report success yet.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(resolved).toBe(false)
+
+    await interrupted
+    expect(processes[0]!.signals).toEqual(["SIGTERM", "SIGKILL"])
+    expect(processes[0]!.killed).toBe(true)
+  }, 15_000)
+
+  test("kills the whole process tree so a native child cannot be orphaned", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-exec-group-"))
+    const pidFile = join(dir, "native.pid")
+    const nativeScript = join(dir, "native-child.mjs")
+    const launcherScript = join(dir, "launcher.mjs")
+
+    // Stands in for the native Codex binary holding the thread-writer lock.
+    await writeFile(
+      nativeScript,
+      [
+        'import { writeFileSync } from "node:fs"',
+        'process.on("SIGTERM", () => {})',
+        "setInterval(() => {}, 1000)",
+        // Written by the child itself, so the pid is only published once it is
+        // genuinely running and holding the lock.
+        `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid))`,
+      ].join("\n")
+    )
+    // Stands in for the Node shim installed as `codex`, which spawns the binary.
+    await writeFile(
+      launcherScript,
+      [
+        'import { spawn } from "node:child_process"',
+        `spawn(process.execPath, [${JSON.stringify(nativeScript)}], { stdio: ["ignore", "pipe", "ignore"] })`,
+        "setInterval(() => {}, 1000)",
+      ].join("\n")
+    )
+
+    const manager = new CodexExecManager({
+      // Mirror the production spawn options so this exercises the real
+      // detached/process-group behaviour, not a test-only shortcut.
+      spawnProcess: (_args, cwd, environment) =>
+        spawn(process.execPath, [launcherScript], codexSpawnOptions(cwd, environment)) as never,
+    })
+
+    await manager.startSession({ chatId: "chat-1", cwd: dir, model: "gpt-5.5", sessionToken: null })
+    const turn = await manager.startTurn({
+      chatId: "chat-1",
+      model: "gpt-5.5",
+      content: "Wait",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+
+    // Wait for the launcher to report the native child's pid.
+    let nativePid = 0
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline && !nativePid) {
+      try {
+        nativePid = Number(await Bun.file(pidFile).text())
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+    expect(nativePid).toBeGreaterThan(0)
+    expect(isAlive(nativePid)).toBe(true)
+
+    await turn.interrupt()
+
+    // Before the fix the launcher died and this child survived, keeping the
+    // Codex writer lock and failing the next thread/resume.
+    expect(await waitUntilDead(nativePid)).toBe(true)
+  }, 30_000)
 })
