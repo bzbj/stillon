@@ -35,6 +35,10 @@ import {
 import { resolveClaudeApiModelId } from "../shared/types"
 import { fallbackTitleFromMessage } from "./generate-title"
 
+// Upper bound on waiting for a cancelled turn's provider process to exit before
+// we stop blocking the chat. Must exceed codex-exec's SIGTERM->SIGKILL budget.
+const CANCEL_INTERRUPT_TIMEOUT_MS = 6_000
+
 const CLAUDE_TOOLSET = [
   "Skill",
   "WebFetch",
@@ -731,6 +735,10 @@ export class AgentCoordinator {
   private reportBackgroundError: ((message: string) => void) | null = null
   readonly activeTurns = new Map<string, ActiveTurn>()
   readonly drainingStreams = new Map<string, { turn: HarnessTurn }>()
+  // Chats whose cancelled turn still has a live provider process. Codex holds a
+  // per-thread writer lock, so resuming before the old process exits fails with
+  // "already has an active writer"; startTurnForChat() awaits these first.
+  readonly pendingWriterExits = new Map<string, Promise<void>>()
   readonly claudeSessions = new Map<string, ClaudeSessionState>()
 
   constructor(args: AgentCoordinatorArgs) {
@@ -941,6 +949,13 @@ export class AgentCoordinator {
     if (draining) {
       draining.turn.close()
       this.drainingStreams.delete(args.chatId)
+    }
+
+    // A just-cancelled turn may still own the provider's thread-writer lock.
+    // Wait for it to be released before resuming this chat.
+    const pendingWriterExit = this.pendingWriterExits.get(args.chatId)
+    if (pendingWriterExit) {
+      await pendingWriterExit
     }
 
     const chat = this.store.requireChat(args.chatId)
@@ -1650,18 +1665,35 @@ export class AgentCoordinator {
       activePromptSeq: active.claudePromptSeq ?? null,
     })
 
-    // Now attempt to interrupt/close the underlying stream in the background.
-    // This is best-effort — the turn is already removed from active state above,
-    // and runTurn()'s finally block will also call close().
+    // Now tear down the underlying process. The turn is already out of active
+    // state so the UI is responsive, but the provider may still hold a
+    // thread-writer lock, so publish the teardown as a barrier that
+    // startTurnForChat() awaits before resuming this chat.
+    const writerExit = (async () => {
+      try {
+        await Promise.race([
+          active.turn.interrupt(),
+          new Promise((resolve) => setTimeout(resolve, CANCEL_INTERRUPT_TIMEOUT_MS)),
+        ])
+      } catch {
+        // interrupt() failed — force close below.
+      }
+      try {
+        active.turn.close()
+      } catch {
+        // Never reject: startTurnForChat() awaits this barrier before resuming,
+        // and a teardown failure must not block the chat permanently.
+      }
+    })()
+    this.pendingWriterExits.set(chatId, writerExit)
     try {
-      await Promise.race([
-        active.turn.interrupt(),
-        new Promise((resolve) => setTimeout(resolve, 5_000)),
-      ])
-    } catch {
-      // interrupt() failed — force close
+      await writerExit
+    } finally {
+      // Only clear our own barrier; a newer cancel() may have replaced it.
+      if (this.pendingWriterExits.get(chatId) === writerExit) {
+        this.pendingWriterExits.delete(chatId)
+      }
     }
-    active.turn.close()
   }
 
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>) {
