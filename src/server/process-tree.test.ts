@@ -28,7 +28,9 @@ describe("descendantsOf", () => {
 })
 
 describe("collectProcessTree", () => {
-  test("includes the root and finds a real child process", async () => {
+  // `ps` is POSIX-only. terminateChild() never calls this on Windows — it uses
+  // the direct-child fallback there — so the walk is not exercised on win32.
+  test.skipIf(process.platform === "win32")("includes the root and finds a real child process", async () => {
     const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { stdout: "ignore" })
     try {
       const tree = await collectProcessTree(process.pid)

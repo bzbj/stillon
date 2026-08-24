@@ -41,6 +41,9 @@ export function descendantsOf(root: number, children: Map<number, number[]>): nu
  *
  * Must be taken *before* signalling: once a launcher shim exits, the native
  * binary it spawned is reparented to init and the parent link is lost.
+ *
+ * POSIX only — relies on `ps`. On Windows the caller falls back to signalling
+ * the direct child, and this returns just `root` if it is called anyway.
  */
 export async function collectProcessTree(root: number): Promise<number[]> {
   try {
