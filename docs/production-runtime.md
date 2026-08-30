@@ -32,7 +32,15 @@ For example:
 
 ```dotenv
 STILLON_MACHINE_NAME=Office Mac
+# Optional: pin one Claude Code installation across StillOn features.
+CLAUDE_EXECUTABLE=/absolute/path/to/claude
 ```
+
+`CLAUDE_EXECUTABLE` is optional. Set it when StillOn should use a specific
+Claude Code installation for both conversations and CLI-based account or usage
+checks; a leading `~` is expanded to the service account's home directory. If
+it is unset, Agent SDK conversations keep using the SDK-bundled executable and
+direct CLI checks use `claude` from the service PATH (`claude.cmd` on Windows).
 
 Install the native service by invoking the entrypoint in this runtime:
 
@@ -47,7 +55,8 @@ The installation records the runtime root as the service working directory.
 It also loads the given environment file through Bun before StillOn begins, so
 it does not accidentally inherit a `.env` file from an unrelated checkout.
 Ensure the service PATH includes the command-line agents you intend StillOn to
-run (for example `codex`, `claude`, and `opencode`).
+run (for example `codex`, `claude`, and `opencode`) unless their executable is
+configured explicitly, as with `CLAUDE_EXECUTABLE` above.
 
 ### Windows persistent startup
 

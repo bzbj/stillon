@@ -1338,20 +1338,30 @@ describe("AgentCoordinator cancellation (#109)", () => {
 describe("AgentCoordinator claude integration", () => {
   test("reuses a persistent Claude session across turns", async () => {
     const events = new AsyncEventQueue<any>()
-    const startSessionCalls: Array<{ model: string; planMode: boolean; sessionToken: string | null; environment: NodeJS.ProcessEnv }> = []
+    const startSessionCalls: Array<{
+      model: string
+      planMode: boolean
+      sessionToken: string | null
+      environment: NodeJS.ProcessEnv
+      claudeExecutable?: string
+    }> = []
     const prompts: string[] = []
 
     const store = createFakeStore()
     const coordinator = new AgentCoordinator({
       store: store as never,
       onStateChange: () => {},
-      getEnvironment: () => ({ HTTPS_PROXY: "http://127.0.0.1:7890" }),
+      getEnvironment: () => ({
+        HTTPS_PROXY: "http://127.0.0.1:7890",
+        CLAUDE_EXECUTABLE: "/opt/claude/bin/claude",
+      }),
       startClaudeSession: async (args) => {
         startSessionCalls.push({
           model: args.model,
           planMode: args.planMode,
           sessionToken: args.sessionToken,
           environment: args.environment,
+          claudeExecutable: args.claudeExecutable,
         })
 
         return {
@@ -1420,6 +1430,7 @@ describe("AgentCoordinator claude integration", () => {
     expect(startSessionCalls[0]?.planMode).toBe(false)
     expect(startSessionCalls[0]?.sessionToken).toBeNull()
     expect(startSessionCalls[0]?.environment.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
+    expect(startSessionCalls[0]?.claudeExecutable).toBe("/opt/claude/bin/claude")
     expect(prompts).toEqual(["start background task", "check task output"])
     expect(store.chat.sessionToken).toBe("claude-session-1")
     expect(store.chat.lastTurnPreferences).toEqual({

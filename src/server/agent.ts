@@ -1,5 +1,4 @@
 import { query, type CanUseTool, type EffortLevel, type PermissionResult, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
-import { homedir } from "node:os"
 import type {
   AgentPermissionMode,
   AgentProvider,
@@ -24,6 +23,7 @@ import { CodexExecManager } from "./codex-exec"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
+import { resolveClaudeCodeExecutable } from "./claude-executable"
 import {
   applyClaudeSdkModels,
   type ClaudeSdkModelInfo,
@@ -157,6 +157,7 @@ interface AgentCoordinatorArgs {
     sessionToken: string | null
     forkSession: boolean
     environment: NodeJS.ProcessEnv
+    claudeExecutable?: string
     onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   }) => Promise<ClaudeSessionHandle>
 }
@@ -610,6 +611,7 @@ async function startClaudeSession(args: {
   sessionToken: string | null
   forkSession: boolean
   environment: NodeJS.ProcessEnv
+  claudeExecutable?: string
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }): Promise<ClaudeSessionHandle> {
   const canUseTool: CanUseTool = async (toolName, input, options) => {
@@ -682,7 +684,7 @@ async function startClaudeSession(args: {
       canUseTool,
       tools: [...CLAUDE_TOOLSET],
       settingSources: ["user", "project", "local"],
-      pathToClaudeCodeExecutable: args.environment.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
+      pathToClaudeCodeExecutable: args.claudeExecutable,
       env: inheritClaudeAgentEnvironment(args.environment),
     },
   })
@@ -1195,6 +1197,7 @@ export class AgentCoordinator {
         this.claudeSessions.delete(args.chatId)
       }
 
+      const environment = this.getEnvironment()
       const started = await this.startClaudeSessionFn({
         localPath: args.localPath,
         model: args.model,
@@ -1203,7 +1206,8 @@ export class AgentCoordinator {
         permissionMode: args.permissionMode,
         sessionToken: args.sessionToken,
         forkSession: args.forkSession,
-        environment: this.getEnvironment(),
+        environment,
+        claudeExecutable: resolveClaudeCodeExecutable({ environment }),
         onToolRequest: args.onToolRequest,
       })
       this.refreshClaudeModelCatalog(started)

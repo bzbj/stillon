@@ -53,7 +53,11 @@ describe("QuickResponseAdapter", () => {
   })
 
   test("returns the Claude structured result when it validates", async () => {
+    let claudeEnvironment: NodeJS.ProcessEnv | undefined
     const adapter = new QuickResponseAdapter({
+      getEnvironment: () => ({
+        CLAUDE_EXECUTABLE: "/opt/claude/bin/claude",
+      }),
       readLlmProvider: async () => ({
         provider: "openai",
         apiKey: "",
@@ -64,7 +68,10 @@ describe("QuickResponseAdapter", () => {
         warning: null,
         filePathDisplay: "~/.kanna/llm-provider.json",
       }),
-      runClaudeStructured: async () => ({ title: "Claude title" }),
+      runClaudeStructured: async (_args, environment) => {
+        claudeEnvironment = environment
+        return { title: "Claude title" }
+      },
       runCodexStructured: async () => ({ title: "Codex title" }),
     })
 
@@ -87,6 +94,7 @@ describe("QuickResponseAdapter", () => {
     })
 
     expect(result).toBe("Claude title")
+    expect(claudeEnvironment?.CLAUDE_EXECUTABLE).toBe("/opt/claude/bin/claude")
   })
 
   test("falls back to Codex when Claude fails validation", async () => {
