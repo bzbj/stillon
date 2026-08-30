@@ -9,6 +9,7 @@ import type {
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
+import { getClaudeCliCommand, resolveClaudeCodeExecutable } from "./claude-executable"
 import { getCodexCliCommand } from "./codex-cli-command"
 
 const CODEX_APP_SERVER_TIMEOUT_MS = 20_000
@@ -28,8 +29,14 @@ type CodexAppServerReader = (
   options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ) => Promise<CodexAppServerSnapshot>
 
+interface ClaudeSdkUsageReadOptions {
+  timeoutMs: number
+  environment?: NodeJS.ProcessEnv
+  claudeExecutable?: string
+}
+
 type ClaudeSdkUsageReader = (
-  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
+  options: ClaudeSdkUsageReadOptions
 ) => Promise<ClaudeSdkUsageSnapshot>
 
 export interface ReadSubscriptionUsageOptions {
@@ -39,10 +46,6 @@ export interface ReadSubscriptionUsageOptions {
   readClaudeSdkUsage?: ClaudeSdkUsageReader
   codexAppServerTimeoutMs?: number
   environment?: NodeJS.ProcessEnv
-}
-
-export function getClaudeCliCommand(platform: NodeJS.Platform = process.platform) {
-  return platform === "win32" ? "claude.cmd" : "claude"
 }
 
 interface CodexAppServerSnapshot {
@@ -140,11 +143,16 @@ async function readClaudeUsageProvider(
   now: number
 ): Promise<SubscriptionUsageProviderSnapshot> {
   const readClaudeSdkUsage = options.readClaudeSdkUsage ?? readClaudeSdkUsageSnapshot
+  const claudeExecutable = resolveClaudeCodeExecutable({ environment: options.environment })
   let sdkSnapshot: SubscriptionUsageProviderSnapshot | null = null
 
   try {
     sdkSnapshot = parseClaudeSdkUsageSnapshot(
-      await readClaudeSdkUsage({ timeoutMs: COMMAND_TIMEOUT_MS, environment: options.environment }),
+      await readClaudeSdkUsage({
+        timeoutMs: COMMAND_TIMEOUT_MS,
+        environment: options.environment,
+        claudeExecutable,
+      }),
       now,
     )
     // Some Claude Code versions return account information but omit rate
@@ -171,7 +179,7 @@ async function readClaudeUsageProviderFromCli(
   now: number
 ): Promise<SubscriptionUsageProviderSnapshot> {
   const runCommand = options.runCommand ?? runCliCommand
-  const claudeCommand = getClaudeCliCommand()
+  const claudeCommand = getClaudeCliCommand({ environment: options.environment })
   let planType: string | null = null
   let accountEmail: string | null = null
 
@@ -221,7 +229,7 @@ async function readClaudeUsageProviderFromCli(
 }
 
 async function readClaudeSdkUsageSnapshot(
-  options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
+  options: ClaudeSdkUsageReadOptions
 ): Promise<ClaudeSdkUsageSnapshot> {
   const prompt = createIdleClaudePromptStream()
   const q = query({
@@ -232,7 +240,7 @@ async function readClaudeSdkUsageSnapshot(
       systemPrompt: "",
       persistSession: false,
       settingSources: ["user"],
-      pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
+      pathToClaudeCodeExecutable: options.claudeExecutable,
       env: inheritClaudeAgentEnvironment(options.environment),
     },
   })

@@ -6,6 +6,7 @@ import type { LlmProviderSnapshot } from "../shared/types"
 import { CodexExecManager } from "./codex-exec"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import { createAgentNetworkFetch } from "./agent-network"
+import { resolveClaudeCodeExecutable } from "./claude-executable"
 import { readLlmProviderSnapshot } from "./llm-provider"
 
 const CLAUDE_STRUCTURED_TIMEOUT_MS = 5_000
@@ -33,7 +34,10 @@ interface QuickResponseAdapterArgs {
     args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
     environment: NodeJS.ProcessEnv,
   ) => Promise<unknown | null>
-  runClaudeStructured?: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
+  runClaudeStructured?: (
+    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+    environment: NodeJS.ProcessEnv,
+  ) => Promise<unknown | null>
   runCodexStructured?: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
   getEnvironment?: () => NodeJS.ProcessEnv
 }
@@ -116,6 +120,7 @@ export async function runClaudeStructured(
         type: "json_schema",
         schema: args.schema,
       },
+      pathToClaudeCodeExecutable: resolveClaudeCodeExecutable({ environment }),
       env: inheritClaudeAgentEnvironment(environment),
     },
   })
@@ -204,7 +209,10 @@ export class QuickResponseAdapter {
     args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
     environment: NodeJS.ProcessEnv,
   ) => Promise<unknown | null>
-  private readonly runClaudeStructured: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
+  private readonly runClaudeStructured: (
+    args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
+    environment: NodeJS.ProcessEnv,
+  ) => Promise<unknown | null>
   private readonly runCodexStructured: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
   private readonly getEnvironment: () => NodeJS.ProcessEnv
 
@@ -214,8 +222,7 @@ export class QuickResponseAdapter {
     this.codexManager = args.codexManager ?? createDefaultQuickResponseCodexManager(getEnvironment)
     this.readLlmProvider = args.readLlmProvider ?? (() => readLlmProviderSnapshot())
     this.runOpenAIStructured = args.runOpenAIStructured ?? runOpenAIStructured
-    this.runClaudeStructured = args.runClaudeStructured ?? ((structuredArgs) =>
-      runClaudeStructured(structuredArgs, getEnvironment()))
+    this.runClaudeStructured = args.runClaudeStructured ?? runClaudeStructured
     this.runCodexStructured = args.runCodexStructured ?? ((structuredArgs) =>
       runCodexStructured(this.codexManager, structuredArgs))
   }
@@ -247,7 +254,8 @@ export class QuickResponseAdapter {
       }
     }
 
-    const claudeResult = await this.tryProvider("claude", args.task, args.parse, () => this.runClaudeStructured(request))
+    const claudeResult = await this.tryProvider("claude", args.task, args.parse, () =>
+      this.runClaudeStructured(request, this.getEnvironment()))
     if (claudeResult.value !== null) {
       return {
         value: claudeResult.value,

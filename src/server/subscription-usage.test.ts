@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import {
-  getClaudeCliCommand,
   parseClaudeResetAtText,
   parseClaudeUsageResult,
   parseCodexAppServerSnapshot,
@@ -148,9 +147,13 @@ describe("subscription usage", () => {
     let claudeCliCalls = 0
     let codexEnvironment: NodeJS.ProcessEnv | undefined
     let claudeEnvironment: NodeJS.ProcessEnv | undefined
+    let claudeExecutable: string | undefined
     const snapshot = await readSubscriptionUsageSnapshot({
       now: new Date(2026, 5, 30, 17, 30).getTime(),
-      environment: { HTTPS_PROXY: "http://127.0.0.1:7890" },
+      environment: {
+        HTTPS_PROXY: "http://127.0.0.1:7890",
+        CLAUDE_EXECUTABLE: "/opt/claude/bin/claude",
+      },
       readCodexAppServer: async (options) => {
         codexEnvironment = options.environment
         return ({
@@ -182,6 +185,7 @@ describe("subscription usage", () => {
       },
       readClaudeSdkUsage: async (options) => {
         claudeEnvironment = options.environment
+        claudeExecutable = options.claudeExecutable
         return ({
         subscriptionType: "pro",
         accountEmail: "claude@example.com",
@@ -233,16 +237,20 @@ describe("subscription usage", () => {
     expect(claudeCliCalls).toBe(0)
     expect(codexEnvironment?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
     expect(claudeEnvironment?.HTTPS_PROXY).toBe("http://127.0.0.1:7890")
+    expect(claudeExecutable).toBe("/opt/claude/bin/claude")
   })
 
   test("falls back to Claude CLI usage when the SDK usage API is unavailable", async () => {
+    const cliCommands: string[] = []
     const snapshot = await readSubscriptionUsageSnapshot({
       now: new Date(2026, 5, 30, 17, 30).getTime(),
+      environment: { CLAUDE_EXECUTABLE: "/opt/claude/bin/claude" },
       readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
       readClaudeSdkUsage: async () => {
         throw new Error("get_usage is not supported")
       },
-      runCommand: async (_command, args) => {
+      runCommand: async (command, args) => {
+        cliCommands.push(command)
         if (args[0] === "auth") {
           return {
             stdout: JSON.stringify({ subscriptionType: "pro", email: "claude@example.com" }),
@@ -272,6 +280,10 @@ describe("subscription usage", () => {
         { id: "weekly", usedPercent: 11 },
       ],
     })
+    expect(cliCommands).toEqual([
+      "/opt/claude/bin/claude",
+      "/opt/claude/bin/claude",
+    ])
   })
 
   test("falls back to Claude CLI usage when the SDK omits rate-limit details", async () => {
@@ -343,10 +355,5 @@ describe("subscription usage", () => {
         { id: "weekly", usedPercent: null },
       ],
     })
-  })
-
-  test("uses the Windows command shim for Claude Code", () => {
-    expect(getClaudeCliCommand("win32")).toBe("claude.cmd")
-    expect(getClaudeCliCommand("darwin")).toBe("claude")
   })
 })
