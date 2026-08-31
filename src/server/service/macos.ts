@@ -1,6 +1,7 @@
 import { access, chmod, mkdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import process from "node:process"
+import { setTimeout as delay } from "node:timers/promises"
 import {
   assertCommandSucceeded,
   type ServiceBackend,
@@ -15,6 +16,8 @@ const LAUNCHCTL_PATH = "/bin/launchctl"
 const TAIL_PATH = "/usr/bin/tail"
 const LOG_LINE_COUNT = "200"
 const SERVICE_NOT_FOUND_EXIT_CODES = new Set([3, 113])
+const DEFAULT_UNLOAD_POLL_INTERVAL_MS = 100
+const DEFAULT_UNLOAD_TIMEOUT_MS = 5_000
 
 export interface MacosServicePaths {
   launchAgentsDirectory: string
@@ -26,6 +29,10 @@ export interface MacosServicePaths {
 
 export interface MacosServiceBackendOptions {
   uid?: number
+  now?: () => number
+  sleep?: (delayMs: number) => Promise<void>
+  unloadPollIntervalMs?: number
+  unloadTimeoutMs?: number
 }
 
 export function getMacosServicePaths(homeDirectory: string): MacosServicePaths {
@@ -148,6 +155,37 @@ async function queryLoadedService(context: ServiceBackendContext, serviceTarget:
   return context.run(LAUNCHCTL_PATH, ["print", serviceTarget])
 }
 
+async function defaultSleep(delayMs: number) {
+  await delay(delayMs)
+}
+
+async function waitForServiceToUnload(
+  context: ServiceBackendContext,
+  serviceTarget: string,
+  options: {
+    now: () => number
+    sleep: (delayMs: number) => Promise<void>
+    pollIntervalMs: number
+    timeoutMs: number
+  },
+) {
+  const deadline = options.now() + options.timeoutMs
+
+  while (true) {
+    const result = await queryLoadedService(context, serviceTarget)
+    if (serviceIsNotLoaded(result)) return
+    if (!commandSucceeded(result)) assertCommandSucceeded("launchctl print", result)
+
+    const remainingMs = deadline - options.now()
+    if (remainingMs <= 0) {
+      throw new Error(
+        `Timed out after ${options.timeoutMs}ms waiting for launchctl bootout to remove ${serviceTarget}`,
+      )
+    }
+    await options.sleep(Math.min(options.pollIntervalMs, remainingMs))
+  }
+}
+
 function reportCommandOutput(context: ServiceBackendContext, result: ServiceCommandResult) {
   const stdout = result.stdout.trim()
   const stderr = result.stderr.trim()
@@ -157,6 +195,10 @@ function reportCommandOutput(context: ServiceBackendContext, result: ServiceComm
 
 export function createMacosServiceBackend(options: MacosServiceBackendOptions = {}): ServiceBackend {
   const getUid = () => options.uid ?? getCurrentUid()
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? defaultSleep
+  const unloadPollIntervalMs = options.unloadPollIntervalMs ?? DEFAULT_UNLOAD_POLL_INTERVAL_MS
+  const unloadTimeoutMs = options.unloadTimeoutMs ?? DEFAULT_UNLOAD_TIMEOUT_MS
 
   return {
     async install(context) {
@@ -179,6 +221,12 @@ export function createMacosServiceBackend(options: MacosServiceBackendOptions = 
       if (commandSucceeded(loaded)) {
         const bootout = await context.run(LAUNCHCTL_PATH, ["bootout", targets.service])
         assertCommandSucceeded("launchctl bootout", bootout)
+        await waitForServiceToUnload(context, targets.service, {
+          now,
+          sleep,
+          pollIntervalMs: unloadPollIntervalMs,
+          timeoutMs: unloadTimeoutMs,
+        })
       }
 
       const bootstrap = await context.run(LAUNCHCTL_PATH, ["bootstrap", targets.domain, paths.plistPath])
