@@ -1178,6 +1178,104 @@ function OnboardingProviderCard({
   )
 }
 
+export function isSubscriptionProviderReady(
+  provider: SubscriptionUsageProviderSnapshot | null | undefined
+) {
+  return provider?.readinessStatus === "ready"
+}
+
+export function getOnboardingProviderPendingLabel(
+  checked: boolean,
+  provider: SubscriptionUsageProviderSnapshot | null | undefined
+) {
+  if (!checked) return "Not checked"
+  switch (provider?.readinessStatus) {
+    case "needs_setup":
+      return "Needs setup"
+    case "unavailable":
+      return "Unavailable"
+    case "error":
+      return "Check failed"
+    case "unknown":
+    case undefined:
+      return "Not verified"
+    case "ready":
+      return "Connected"
+  }
+}
+
+export function OnboardingProviderStatusDetails({
+  provider,
+  checked,
+  providerLabel,
+  loginCommand,
+  copyStatus,
+  onCopyLoginCommand,
+}: {
+  provider: SubscriptionUsageProviderSnapshot | null
+  checked: boolean
+  providerLabel: string
+  loginCommand: string
+  copyStatus: OnboardingCopyStatus
+  onCopyLoginCommand: () => void
+}) {
+  if (!checked || !provider) return null
+
+  if (provider.readinessStatus === "ready") {
+    return (
+      <>
+        <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
+          Connected{provider.accountEmail ? ` as ${provider.accountEmail}` : ""}.
+        </p>
+        {provider.status !== "available" ? (
+          <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">
+            <p>
+              Subscription usage is {formatUsageStatus(provider.status).toLowerCase()}.
+              This does not block {providerLabel} conversations.
+            </p>
+            {provider.error ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{provider.error}</p> : null}
+          </div>
+        ) : null}
+      </>
+    )
+  }
+
+  if (provider.readinessStatus === "needs_setup") {
+    return (
+      <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-foreground">
+        <p>
+          {providerLabel} is not authenticated yet. In a local terminal, run{" "}
+          <code className="rounded bg-background px-1.5 py-0.5 text-xs">{loginCommand}</code>
+          {" "}and complete sign-in, then check again.
+        </p>
+        {provider.readinessError ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{provider.readinessError}</p> : null}
+        <Button type="button" size="sm" variant="secondary" onClick={onCopyLoginCommand} className="mt-3 min-h-9">
+          <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+          {copyStatus === "copied" ? "Copied" : "Copy login command"}
+        </Button>
+        {copyStatus === "error" ? (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            Could not copy the command. Select it manually instead.
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  const guidance = provider.readinessStatus === "unavailable"
+    ? `${providerLabel} is unavailable to StillOn. Check the configured executable and service environment.`
+    : provider.readinessStatus === "error"
+      ? `StillOn could not verify ${providerLabel} readiness.`
+      : `StillOn could not determine whether ${providerLabel} is ready.`
+
+  return (
+    <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-foreground">
+      <p>{guidance}</p>
+      {provider.readinessError ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{provider.readinessError}</p> : null}
+    </div>
+  )
+}
+
 export function WelcomeChecklist({ state }: { state: KannaState }) {
   const navigate = useNavigate()
   const currentMachineName = state.machineName ?? ""
@@ -1199,8 +1297,8 @@ export function WelcomeChecklist({ state }: { state: KannaState }) {
   const codex = usageSnapshot?.providers.find((provider) => provider.provider === "codex") ?? null
   const claude = usageSnapshot?.providers.find((provider) => provider.provider === "claude") ?? null
   const localServiceReady = state.connectionStatus === "connected" && state.localProjectsReady
-  const codexReady = codex?.status === "available"
-  const claudeReady = claude?.status === "available"
+  const codexReady = isSubscriptionProviderReady(codex)
+  const claudeReady = isSubscriptionProviderReady(claude)
   const codexConnected = progress.codexChecked && codexReady
   const claudeConnected = progress.claudeChecked && claudeReady
   const completedSteps = getOnboardingCompletedTaskCount(progress, { localServiceReady, codexReady, claudeReady })
@@ -1249,7 +1347,7 @@ export function WelcomeChecklist({ state }: { state: KannaState }) {
       setUsageSnapshot(snapshot)
       setCheckedProviders((current) => ({ ...current, [provider]: true }))
       const checkedProvider = snapshot.providers.find((snapshotProvider) => snapshotProvider.provider === provider)
-      if (checkedProvider?.status === "available") {
+      if (isSubscriptionProviderReady(checkedProvider)) {
         updateProgress(provider === "codex" ? { codexChecked: true } : { claudeChecked: true })
       }
     } catch (error) {
@@ -1357,65 +1455,49 @@ export function WelcomeChecklist({ state }: { state: KannaState }) {
           <div className="grid gap-3 md:grid-cols-2">
             <OnboardingProviderCard
               title="Connect Codex"
-              description="Check whether the locally installed Codex CLI can report its account and usage."
+              description="Check whether the locally installed Codex CLI is ready. Subscription usage is optional."
               complete={codexConnected}
               completeLabel="Connected"
-              pendingLabel={checkedProviders.codex ? "Needs setup" : "Not checked"}
+              pendingLabel={getOnboardingProviderPendingLabel(checkedProviders.codex, codex)}
             >
               <div className="mt-auto">
                 <Button type="button" variant="outline" onClick={() => { void checkProvider("codex") }} disabled={checkingProvider !== null} className="min-h-11 w-full">
                   {checkingProvider === "codex" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                   Check Codex
                 </Button>
-                {codexConnected ? (
-                  <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
-                    Connected{codex?.accountEmail ? ` as ${codex.accountEmail}` : ""}.
-                  </p>
-                ) : null}
                 {usageError?.provider === "codex" ? <p role="alert" className="mt-3 text-sm text-destructive">{usageError.message}</p> : null}
-                {checkedProviders.codex && !codexReady ? (
-                  <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-foreground">
-                    <p>Codex is not ready yet. In a local terminal, run <code className="rounded bg-background px-1.5 py-0.5 text-xs">codex login</code> and complete the browser sign-in, then check again.</p>
-                    {codex?.error ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{codex.error}</p> : null}
-                    <Button type="button" size="sm" variant="secondary" onClick={() => { void copyLoginCommand("codex") }} className="mt-3 min-h-9">
-                      <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-                      {copyStatus.codex === "copied" ? "Copied" : "Copy login command"}
-                    </Button>
-                    {copyStatus.codex === "error" ? <p role="alert" className="mt-2 text-xs text-destructive">Could not copy the command. Select it manually instead.</p> : null}
-                  </div>
-                ) : null}
+                <OnboardingProviderStatusDetails
+                  provider={codex}
+                  checked={checkedProviders.codex}
+                  providerLabel="Codex"
+                  loginCommand="codex login"
+                  copyStatus={copyStatus.codex}
+                  onCopyLoginCommand={() => { void copyLoginCommand("codex") }}
+                />
               </div>
             </OnboardingProviderCard>
 
             <OnboardingProviderCard
               title="Connect Claude Code"
-              description="Check whether the locally installed Claude Code CLI can report its account and usage."
+              description="Check whether the locally installed Claude Code CLI is ready. Subscription usage is optional."
               complete={claudeConnected}
               completeLabel="Connected"
-              pendingLabel={checkedProviders.claude ? "Needs setup" : "Not checked"}
+              pendingLabel={getOnboardingProviderPendingLabel(checkedProviders.claude, claude)}
             >
               <div className="mt-auto">
                 <Button type="button" variant="outline" onClick={() => { void checkProvider("claude") }} disabled={checkingProvider !== null} className="min-h-11 w-full">
                   {checkingProvider === "claude" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                   Check Claude Code
                 </Button>
-                {claudeConnected ? (
-                  <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
-                    Connected{claude?.accountEmail ? ` as ${claude.accountEmail}` : ""}.
-                  </p>
-                ) : null}
                 {usageError?.provider === "claude" ? <p role="alert" className="mt-3 text-sm text-destructive">{usageError.message}</p> : null}
-                {checkedProviders.claude && !claudeReady ? (
-                  <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-foreground">
-                    <p>Claude Code is not ready yet. In a local terminal, run <code className="rounded bg-background px-1.5 py-0.5 text-xs">claude login</code> and complete the browser sign-in, then check again.</p>
-                    {claude?.error ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{claude.error}</p> : null}
-                    <Button type="button" size="sm" variant="secondary" onClick={() => { void copyLoginCommand("claude") }} className="mt-3 min-h-9">
-                      <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-                      {copyStatus.claude === "copied" ? "Copied" : "Copy login command"}
-                    </Button>
-                    {copyStatus.claude === "error" ? <p role="alert" className="mt-2 text-xs text-destructive">Could not copy the command. Select it manually instead.</p> : null}
-                  </div>
-                ) : null}
+                <OnboardingProviderStatusDetails
+                  provider={claude}
+                  checked={checkedProviders.claude}
+                  providerLabel="Claude Code"
+                  loginCommand="claude login"
+                  copyStatus={copyStatus.claude}
+                  onCopyLoginCommand={() => { void copyLoginCommand("claude") }}
+                />
               </div>
             </OnboardingProviderCard>
           </div>
@@ -1492,8 +1574,11 @@ function SubscriptionUsageProviderBlock({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="text-sm font-medium text-foreground">{provider.label}</div>
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", getReadinessStatusClassName(provider.readinessStatus))}>
+            {formatReadinessStatus(provider.readinessStatus)}
+          </span>
           <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", getUsageStatusClassName(provider.status))}>
-            {formatUsageStatus(provider.status)}
+            Usage {formatUsageStatus(provider.status).toLowerCase()}
           </span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -1505,7 +1590,10 @@ function SubscriptionUsageProviderBlock({
             The latest quota reset times have passed. Refresh usage to request a new snapshot.
           </div>
         ) : null}
-        {provider.error ? (
+        {provider.readinessError ? (
+          <div className="mt-2 text-xs text-destructive">{provider.readinessError}</div>
+        ) : null}
+        {provider.error && provider.error !== provider.readinessError ? (
           <div className="mt-2 text-xs text-destructive">{provider.error}</div>
         ) : null}
         <div className="mt-3 grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1559,6 +1647,35 @@ function formatUsageStatus(status: SubscriptionUsageProviderSnapshot["status"]) 
       return "Unavailable"
     case "error":
       return "Error"
+  }
+}
+
+function formatReadinessStatus(status: SubscriptionUsageProviderSnapshot["readinessStatus"]) {
+  switch (status) {
+    case "ready":
+      return "Ready"
+    case "needs_setup":
+      return "Needs setup"
+    case "unavailable":
+      return "Unavailable"
+    case "error":
+      return "Error"
+    case "unknown":
+      return "Unknown"
+  }
+}
+
+function getReadinessStatusClassName(status: SubscriptionUsageProviderSnapshot["readinessStatus"]) {
+  switch (status) {
+    case "ready":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+    case "needs_setup":
+    case "unknown":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    case "unavailable":
+      return "border-border bg-muted text-muted-foreground"
+    case "error":
+      return "border-destructive/30 bg-destructive/10 text-destructive"
   }
 }
 

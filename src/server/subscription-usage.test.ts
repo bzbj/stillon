@@ -59,6 +59,8 @@ describe("subscription usage", () => {
 
     expect(provider).toMatchObject({
       provider: "codex",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "plus",
       accountEmail: "codex@example.com",
@@ -100,6 +102,8 @@ describe("subscription usage", () => {
 
     expect(provider).toMatchObject({
       provider: "codex",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "pro",
       windows: [
@@ -108,6 +112,54 @@ describe("subscription usage", () => {
       ],
     })
     expect(provider.windows[1]?.resetsAt).toBe(1_784_516_803_000)
+  })
+
+  test("keeps Codex ready when account data exists without usage limits", () => {
+    const provider = parseCodexAppServerSnapshot(
+      {
+        account: {
+          email: "codex@example.com",
+          planType: "plus",
+        },
+        requiresOpenaiAuth: false,
+      },
+      {},
+      1_783_000_000_000
+    )
+
+    expect(provider).toMatchObject({
+      provider: "codex",
+      readinessStatus: "ready",
+      readinessError: null,
+      status: "unavailable",
+      accountEmail: "codex@example.com",
+    })
+  })
+
+  test("marks Codex as needing setup only when account data explicitly says so", () => {
+    const provider = parseCodexAppServerSnapshot(
+      { account: null, requiresOpenaiAuth: true },
+      {},
+      1_783_000_000_000
+    )
+
+    expect(provider).toMatchObject({
+      provider: "codex",
+      readinessStatus: "needs_setup",
+      readinessError: null,
+      status: "unavailable",
+    })
+  })
+
+  test("keeps ambiguous Codex account data distinct from an explicit setup requirement", () => {
+    const provider = parseCodexAppServerSnapshot({}, {}, 1_783_000_000_000)
+
+    expect(provider).toMatchObject({
+      provider: "codex",
+      readinessStatus: "unknown",
+      status: "unavailable",
+    })
+    expect(provider.readinessError).toContain("recognizable account state")
   })
 
   test("parses Claude usage text into 5-hour and weekly windows", () => {
@@ -215,6 +267,8 @@ describe("subscription usage", () => {
 
     expect(snapshot.providers[0]).toMatchObject({
       provider: "codex",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "plus",
       accountEmail: "codex@example.com",
@@ -225,6 +279,8 @@ describe("subscription usage", () => {
     })
     expect(snapshot.providers[1]).toMatchObject({
       provider: "claude",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "pro",
       accountEmail: "claude@example.com",
@@ -253,7 +309,7 @@ describe("subscription usage", () => {
         cliCommands.push(command)
         if (args[0] === "auth") {
           return {
-            stdout: JSON.stringify({ subscriptionType: "pro", email: "claude@example.com" }),
+            stdout: JSON.stringify({ loggedIn: true, subscriptionType: "pro", email: "claude@example.com" }),
             stderr: "",
           }
         }
@@ -271,6 +327,8 @@ describe("subscription usage", () => {
 
     expect(snapshot.providers[1]).toMatchObject({
       provider: "claude",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       source: "claude /usage",
       planType: "pro",
@@ -301,7 +359,7 @@ describe("subscription usage", () => {
       runCommand: async (_command, args) => {
         if (args[0] === "auth") {
           return {
-            stdout: JSON.stringify({ subscriptionType: "max", email: "claude@example.com" }),
+            stdout: JSON.stringify({ loggedIn: true, subscriptionType: "max", email: "claude@example.com" }),
             stderr: "",
           }
         }
@@ -316,6 +374,8 @@ describe("subscription usage", () => {
 
     expect(snapshot.providers[1]).toMatchObject({
       provider: "claude",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       source: "claude /usage",
       planType: "max",
@@ -327,7 +387,7 @@ describe("subscription usage", () => {
     })
   })
 
-  test("preserves SDK identity when the Claude CLI fallback fails", async () => {
+  test("preserves SDK readiness and identity when the Claude CLI fallback fails", async () => {
     const snapshot = await readSubscriptionUsageSnapshot({
       now: new Date(2026, 5, 30, 17, 30).getTime(),
       readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
@@ -346,6 +406,8 @@ describe("subscription usage", () => {
 
     expect(snapshot.providers[1]).toMatchObject({
       provider: "claude",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "error",
       source: "claude /usage",
       planType: "max",
@@ -355,5 +417,106 @@ describe("subscription usage", () => {
         { id: "weekly", usedPercent: null },
       ],
     })
+  })
+
+  test("keeps CLI-authenticated Claude ready when the usage probe fails", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: 1_783_000_000_000,
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => {
+        throw new Error("get_usage is not supported")
+      },
+      runCommand: async (_command, args) => {
+        if (args[0] === "auth") {
+          return {
+            stdout: JSON.stringify({
+              loggedIn: true,
+              subscription_type: "max",
+              email: "claude@example.com",
+            }),
+            stderr: "",
+          }
+        }
+        throw new Error("usage probe failed")
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      readinessStatus: "ready",
+      readinessError: null,
+      status: "error",
+      planType: "max",
+      accountEmail: "claude@example.com",
+    })
+  })
+
+  test("keeps explicit Claude login state separate from a failing usage probe", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: 1_783_000_000_000,
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => {
+        throw new Error("get_usage is not supported")
+      },
+      runCommand: async (_command, args) => {
+        if (args[0] === "auth") {
+          return {
+            stdout: JSON.stringify({ loggedIn: false }),
+            stderr: "",
+          }
+        }
+        throw new Error("usage probe failed")
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      readinessStatus: "needs_setup",
+      readinessError: null,
+      status: "error",
+    })
+  })
+
+  test("does not turn an unrecognized Claude auth payload into a login instruction", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: 1_783_000_000_000,
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => {
+        throw new Error("get_usage is not supported")
+      },
+      runCommand: async (_command, args) => {
+        if (args[0] === "auth") {
+          return { stdout: "{}", stderr: "" }
+        }
+        throw new Error("usage probe failed")
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      readinessStatus: "unknown",
+      status: "error",
+    })
+    expect(snapshot.providers[1]?.readinessError).toContain("did not include loggedIn")
+  })
+
+  test("reports a missing Claude executable as unavailable instead of unauthenticated", async () => {
+    const snapshot = await readSubscriptionUsageSnapshot({
+      now: 1_783_000_000_000,
+      readCodexAppServer: async () => ({ account: {}, rateLimits: {} }),
+      readClaudeSdkUsage: async () => {
+        throw new Error("get_usage is not supported")
+      },
+      runCommand: async () => {
+        throw new Error("spawn claude ENOENT")
+      },
+    })
+
+    expect(snapshot.providers[1]).toMatchObject({
+      provider: "claude",
+      readinessStatus: "unavailable",
+      status: "unavailable",
+    })
+    expect(snapshot.providers[1]?.readinessError).toContain("ENOENT")
   })
 })

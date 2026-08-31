@@ -51,6 +51,7 @@ export interface SkillUninstallResult {
 export type SubscriptionUsageProvider = "codex" | "claude"
 export type SubscriptionUsageWindowId = "five_hour" | "weekly" | "fable_weekly"
 export type SubscriptionUsageStatus = "available" | "unavailable" | "error" | "stale"
+export type SubscriptionUsageReadinessStatus = "ready" | "needs_setup" | "unavailable" | "error" | "unknown"
 
 export interface SubscriptionUsageWindow {
   id: SubscriptionUsageWindowId
@@ -64,6 +65,8 @@ export interface SubscriptionUsageWindow {
 export interface SubscriptionUsageProviderSnapshot {
   provider: SubscriptionUsageProvider
   label: string
+  readinessStatus: SubscriptionUsageReadinessStatus
+  readinessError: string | null
   status: SubscriptionUsageStatus
   planType?: string | null
   accountEmail?: string | null
