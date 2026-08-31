@@ -4,6 +4,7 @@ import os, { homedir } from "node:os"
 import { createInterface } from "node:readline"
 import type {
   SubscriptionUsageProviderSnapshot,
+  SubscriptionUsageReadinessStatus,
   SubscriptionUsageSnapshot,
   SubscriptionUsageWindow,
 } from "../shared/types"
@@ -71,6 +72,11 @@ interface ClaudeSdkUsageSnapshot {
   }>
 }
 
+interface ProviderReadiness {
+  readinessStatus: SubscriptionUsageReadinessStatus
+  readinessError: string | null
+}
+
 const MONTH_INDEX: Record<string, number> = {
   jan: 0,
   january: 0,
@@ -126,10 +132,14 @@ async function readCodexUsageProvider(
     })
     return parseCodexAppServerSnapshot(snapshot.account, snapshot.rateLimits, now)
   } catch (error) {
+    const readinessStatus = isCommandUnavailable(error) ? "unavailable" : "error"
+    const readinessError = errorToMessage(error, "Unable to check Codex readiness.")
     return buildProviderSnapshot({
       provider: "codex",
       label: "Codex",
-      status: isCommandUnavailable(error) ? "unavailable" : "error",
+      readinessStatus,
+      readinessError,
+      status: readinessStatus,
       source: CODEX_APP_SERVER_SOURCE,
       updatedAt: null,
       error: errorToMessage(error, "Unable to read Codex app-server usage."),
@@ -169,6 +179,8 @@ async function readClaudeUsageProvider(
 
   return {
     ...cliSnapshot,
+    readinessStatus: sdkSnapshot.readinessStatus,
+    readinessError: sdkSnapshot.readinessError,
     planType: cliSnapshot.planType ?? sdkSnapshot.planType,
     accountEmail: cliSnapshot.accountEmail ?? sdkSnapshot.accountEmail,
   }
@@ -182,15 +194,24 @@ async function readClaudeUsageProviderFromCli(
   const claudeCommand = getClaudeCliCommand({ environment: options.environment })
   let planType: string | null = null
   let accountEmail: string | null = null
+  let readiness: ProviderReadiness = {
+    readinessStatus: "unknown",
+    readinessError: "Claude Code did not return a recognizable authentication status.",
+  }
 
   try {
     const auth = await runCommand(claudeCommand, ["auth", "status"], { timeoutMs: COMMAND_TIMEOUT_MS, environment: options.environment })
     const authSnapshot = parseClaudeAuthStatus(auth.stdout)
     planType = authSnapshot.planType
     accountEmail = authSnapshot.accountEmail
-  } catch {
+    readiness = authSnapshot
+  } catch (error) {
     planType = null
     accountEmail = null
+    readiness = {
+      readinessStatus: isCommandUnavailable(error) ? "unavailable" : "error",
+      readinessError: errorToMessage(error, "Unable to check Claude Code authentication."),
+    }
   }
 
   try {
@@ -205,6 +226,7 @@ async function readClaudeUsageProviderFromCli(
     return buildProviderSnapshot({
       provider: "claude",
       label: "Claude Code",
+      ...readiness,
       status: hasUsage ? "available" : "unavailable",
       source: "claude /usage",
       updatedAt: now,
@@ -217,6 +239,7 @@ async function readClaudeUsageProviderFromCli(
     return buildProviderSnapshot({
       provider: "claude",
       label: "Claude Code",
+      ...readiness,
       status: isCommandUnavailable(error) ? "unavailable" : "error",
       source: "claude /usage",
       updatedAt: null,
@@ -327,6 +350,8 @@ function parseClaudeSdkUsageSnapshot(
   return buildProviderSnapshot({
     provider: "claude",
     label: "Claude Code",
+    readinessStatus: "ready",
+    readinessError: null,
     status: hasUsage ? "available" : "unavailable",
     source: CLAUDE_SDK_USAGE_SOURCE,
     updatedAt: now,
@@ -418,11 +443,13 @@ export function parseCodexAppServerSnapshot(
   const accountPlanType = isRecord(accountRecord)
     ? asOptionalString(firstDefined(accountRecord, ["planType", "plan_type", "subscriptionType", "subscription_type"]))
     : null
+  const readiness = codexReadinessFromAppServer(accountResult, Boolean(codexBucket))
 
   if (!codexBucket) {
     return buildProviderSnapshot({
       provider: "codex",
       label: "Codex",
+      ...readiness,
       status: "unavailable",
       planType: accountPlanType,
       accountEmail,
@@ -439,6 +466,7 @@ export function parseCodexAppServerSnapshot(
   return buildProviderSnapshot({
     provider: "codex",
     label: "Codex",
+    ...readiness,
     status: hasUsage ? "available" : "unavailable",
     planType: accountPlanType ?? asOptionalString(firstDefined(codexBucket, ["planType", "plan_type"])),
     accountEmail,
@@ -447,6 +475,31 @@ export function parseCodexAppServerSnapshot(
     error: hasUsage ? null : "Codex app-server did not return usable rate-limit windows.",
     windows,
   })
+}
+
+function codexReadinessFromAppServer(
+  accountResult: unknown,
+  hasRateLimitBucket: boolean
+): ProviderReadiness {
+  const result = asRecord(accountResult)
+  const accountValue = firstDefined(result, ["account"])
+  const account = asRecord(accountValue)
+  const requiresOpenaiAuth = firstDefined(result, ["requiresOpenaiAuth", "requires_openai_auth"])
+
+  if (
+    hasRateLimitBucket
+    || (account && Object.keys(account).length > 0)
+    || findEmailValue(accountResult)
+  ) {
+    return { readinessStatus: "ready", readinessError: null }
+  }
+  if (accountValue === null || requiresOpenaiAuth === true) {
+    return { readinessStatus: "needs_setup", readinessError: null }
+  }
+  return {
+    readinessStatus: "unknown",
+    readinessError: "Codex app-server did not return a recognizable account state.",
+  }
 }
 
 function selectCodexRateLimitBucket(rateLimitsResult: unknown): Record<string, unknown> | null {
@@ -630,16 +683,39 @@ async function readCodexAppServerSnapshot(
   }
 }
 
-function parseClaudeAuthStatus(stdout: string): { planType: string | null; accountEmail: string | null } {
+function parseClaudeAuthStatus(
+  stdout: string
+): ProviderReadiness & { planType: string | null; accountEmail: string | null } {
   try {
     const parsed = JSON.parse(stdout) as unknown
-    if (!isRecord(parsed)) return { planType: null, accountEmail: null }
+    if (!isRecord(parsed)) {
+      return {
+        readinessStatus: "unknown",
+        readinessError: "Claude Code did not return a recognizable authentication status.",
+        planType: null,
+        accountEmail: null,
+      }
+    }
+    const loggedIn = parsed.loggedIn ?? parsed.logged_in
     return {
-      planType: asOptionalString(parsed.subscriptionType),
+      readinessStatus: loggedIn === true
+        ? "ready"
+        : loggedIn === false
+          ? "needs_setup"
+          : "unknown",
+      readinessError: typeof loggedIn === "boolean"
+        ? null
+        : "Claude Code authentication status did not include loggedIn.",
+      planType: asOptionalString(firstDefined(parsed, ["subscriptionType", "subscription_type"])),
       accountEmail: findEmailValue(parsed),
     }
   } catch {
-    return { planType: null, accountEmail: null }
+    return {
+      readinessStatus: "unknown",
+      readinessError: "Claude Code returned invalid authentication status JSON.",
+      planType: null,
+      accountEmail: null,
+    }
   }
 }
 

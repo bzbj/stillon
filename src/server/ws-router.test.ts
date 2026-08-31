@@ -479,6 +479,8 @@ const DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT: SubscriptionUsageSnapshot = {
     {
       provider: "codex",
       label: "Codex",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "pro",
       accountEmail: "codex@example.com",
@@ -507,6 +509,8 @@ const DEFAULT_SUBSCRIPTION_USAGE_SNAPSHOT: SubscriptionUsageSnapshot = {
     {
       provider: "claude",
       label: "Claude Code",
+      readinessStatus: "ready",
+      readinessError: null,
       status: "available",
       planType: "pro",
       accountEmail: "claude@example.com",

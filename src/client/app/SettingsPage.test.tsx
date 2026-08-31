@@ -14,7 +14,10 @@ import {
   getCachedChangelog,
   getKeybindingsSubtitle,
   getMachineNameEditorState,
+  getOnboardingProviderPendingLabel,
+  isSubscriptionProviderReady,
   loadChangelog,
+  OnboardingProviderStatusDetails,
   resetSettingsPageChangelogCache,
   resolveSettingsSectionId,
   setCachedChangelog,
@@ -24,7 +27,10 @@ import {
   WelcomeChecklist,
 } from "./SettingsPage"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
-import type { SubscriptionUsageSnapshot } from "../../shared/types"
+import type {
+  SubscriptionUsageProviderSnapshot,
+  SubscriptionUsageSnapshot,
+} from "../../shared/types"
 
 const SAMPLE_RELEASES = [
   {
@@ -229,6 +235,111 @@ describe("WelcomeChecklist", () => {
       claudeReady: true,
     })).toBe(5)
   })
+
+  test("treats provider readiness independently from optional usage data", () => {
+    const provider: SubscriptionUsageProviderSnapshot = {
+      provider: "claude",
+      label: "Claude Code",
+      readinessStatus: "ready",
+      readinessError: null,
+      status: "error",
+      planType: "pro",
+      accountEmail: "claude@example.com",
+      source: "claude /usage",
+      updatedAt: null,
+      error: "Usage probe failed",
+      windows: [],
+    }
+
+    expect(isSubscriptionProviderReady(provider)).toBe(true)
+    expect(getOnboardingProviderPendingLabel(true, provider)).toBe("Connected")
+  })
+
+  test("keeps unauthenticated, unavailable, failed, and unknown checks distinct", () => {
+    const provider: SubscriptionUsageProviderSnapshot = {
+      provider: "claude",
+      label: "Claude Code",
+      readinessStatus: "needs_setup",
+      readinessError: null,
+      status: "unavailable",
+      source: "claude auth status",
+      updatedAt: null,
+      error: null,
+      windows: [],
+    }
+
+    expect(getOnboardingProviderPendingLabel(true, provider)).toBe("Needs setup")
+    expect(getOnboardingProviderPendingLabel(true, { ...provider, readinessStatus: "unavailable" })).toBe("Unavailable")
+    expect(getOnboardingProviderPendingLabel(true, { ...provider, readinessStatus: "error" })).toBe("Check failed")
+    expect(getOnboardingProviderPendingLabel(true, { ...provider, readinessStatus: "unknown" })).toBe("Not verified")
+    expect(getOnboardingProviderPendingLabel(false, provider)).toBe("Not checked")
+  })
+
+  test("offers login guidance only for an explicit unauthenticated state", () => {
+    const provider: SubscriptionUsageProviderSnapshot = {
+      provider: "claude",
+      label: "Claude Code",
+      readinessStatus: "needs_setup",
+      readinessError: null,
+      status: "unavailable",
+      source: "claude auth status",
+      updatedAt: null,
+      error: null,
+      windows: [],
+    }
+    const props = {
+      checked: true,
+      providerLabel: "Claude Code",
+      loginCommand: "claude login",
+      copyStatus: "idle" as const,
+      onCopyLoginCommand: () => {},
+    }
+
+    const needsSetupHtml = renderToStaticMarkup(
+      <OnboardingProviderStatusDetails {...props} provider={provider} />
+    )
+    const unknownHtml = renderToStaticMarkup(
+      <OnboardingProviderStatusDetails
+        {...props}
+        provider={{ ...provider, readinessStatus: "unknown" }}
+      />
+    )
+
+    expect(needsSetupHtml).toContain("claude login")
+    expect(needsSetupHtml).toContain("Copy login command")
+    expect(unknownHtml).toContain("could not determine")
+    expect(unknownHtml).not.toContain("claude login")
+    expect(unknownHtml).not.toContain("Copy login command")
+  })
+
+  test("explains that usage failures do not block a ready provider", () => {
+    const provider: SubscriptionUsageProviderSnapshot = {
+      provider: "claude",
+      label: "Claude Code",
+      readinessStatus: "ready",
+      readinessError: null,
+      status: "error",
+      source: "claude /usage",
+      updatedAt: null,
+      error: "Usage probe failed",
+      windows: [],
+    }
+
+    const html = renderToStaticMarkup(
+      <OnboardingProviderStatusDetails
+        provider={provider}
+        checked
+        providerLabel="Claude Code"
+        loginCommand="claude login"
+        copyStatus="idle"
+        onCopyLoginCommand={() => {}}
+      />
+    )
+
+    expect(html).toContain("Connected")
+    expect(html).toContain("does not block Claude Code conversations")
+    expect(html).not.toContain("claude login")
+  })
 })
 
 describe("SkillsSection", () => {
@@ -258,6 +369,8 @@ describe("SubscriptionUsageSection", () => {
         {
           provider: "claude",
           label: "Claude Code",
+          readinessStatus: "ready",
+          readinessError: null,
           status: "available",
           planType: "pro",
           accountEmail: "claude@example.com",
@@ -301,6 +414,38 @@ describe("SubscriptionUsageSection", () => {
     expect(html).toContain("Fable 5 limit")
     expect(html).toContain("42%")
     expect(html).toContain("lg:grid-cols-3")
+    expect(html).toContain("Ready")
+    expect(html).toContain("Usage available")
+  })
+
+  test("renders readiness separately when subscription usage fails", () => {
+    const snapshot: SubscriptionUsageSnapshot = {
+      generatedAt: 1_783_000_000_000,
+      providers: [
+        {
+          provider: "claude",
+          label: "Claude Code",
+          readinessStatus: "ready",
+          readinessError: null,
+          status: "error",
+          planType: "pro",
+          accountEmail: "claude@example.com",
+          source: "claude /usage",
+          updatedAt: null,
+          error: "Usage probe failed",
+          windows: [],
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <SubscriptionUsageSection snapshot={snapshot} status="success" error={null} onRetry={() => {}} />
+    )
+
+    expect(html).toContain("Ready")
+    expect(html).toContain("Usage error")
+    expect(html).toContain("Usage probe failed")
+    expect(html).not.toContain("Needs setup")
   })
 })
 
