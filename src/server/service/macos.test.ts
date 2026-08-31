@@ -78,6 +78,20 @@ function createHarness(
   return { calls, context, logs, warnings }
 }
 
+function createFakeClock() {
+  let currentTime = 0
+  const sleeps: number[] = []
+
+  return {
+    now: () => currentTime,
+    sleep: async (delayMs: number) => {
+      sleeps.push(delayMs)
+      currentTime += delayMs
+    },
+    sleeps,
+  }
+}
+
 describe("getMacosServicePaths", () => {
   test("uses the per-user LaunchAgents and StillOn log directories", () => {
     expect(getMacosServicePaths("/Users/tester")).toEqual({
@@ -150,8 +164,9 @@ describe("macOS service backend", () => {
     const launch = createLaunchSpec(homeDirectory)
     const paths = getMacosServicePaths(homeDirectory)
     const notLoaded = commandResult({ code: 113, stderr: "service not found" })
+    const clock = createFakeClock()
     const { calls, context, logs } = createHarness(launch, [notLoaded, commandResult(), commandResult()])
-    const backend = createMacosServiceBackend({ uid: 501 })
+    const backend = createMacosServiceBackend({ uid: 501, now: clock.now, sleep: clock.sleep })
 
     await backend.install(context)
 
@@ -164,6 +179,7 @@ describe("macOS service backend", () => {
         options: undefined,
       },
     ])
+    expect(clock.sleeps).toEqual([])
     expect(await readFile(paths.plistPath, "utf8")).toBe(generateLaunchAgentPlist(launch))
     if (process.platform !== "win32") {
       expect((await stat(paths.plistPath)).mode & 0o777).toBe(0o600)
@@ -172,13 +188,14 @@ describe("macOS service backend", () => {
     expect(logs).toContain(`Installed and started StillOn LaunchAgent: ${paths.plistPath}`)
   })
 
-  test("prepares the replacement plist before reloading an existing job", async () => {
+  test("waits for an existing job to disappear before reloading it", async () => {
     const homeDirectory = await createTempHome()
     const launch = createLaunchSpec(homeDirectory)
     const paths = getMacosServicePaths(homeDirectory)
     const { calls, context } = createHarness(launch, [
       commandResult({ stdout: "loaded" }),
       commandResult(),
+      commandResult({ code: 3, stderr: "service not found" }),
       commandResult(),
       commandResult(),
     ])
@@ -189,9 +206,94 @@ describe("macOS service backend", () => {
     expect(calls.map(({ args }) => args)).toEqual([
       ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["bootout", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["bootstrap", "gui/502", paths.plistPath],
       ["kickstart", "-k", `gui/502/${LAUNCH_AGENT_LABEL}`],
     ])
+  })
+
+  test("polls until launchd finishes removing an existing job", async () => {
+    const homeDirectory = await createTempHome()
+    const launch = createLaunchSpec(homeDirectory)
+    const paths = getMacosServicePaths(homeDirectory)
+    const clock = createFakeClock()
+    const { calls, context } = createHarness(launch, [
+      commandResult({ stdout: "loaded" }),
+      commandResult(),
+      commandResult({ stdout: "still unloading" }),
+      commandResult({ code: 113, stderr: "service not found" }),
+      commandResult(),
+      commandResult(),
+    ])
+    const backend = createMacosServiceBackend({
+      uid: 502,
+      now: clock.now,
+      sleep: clock.sleep,
+      unloadPollIntervalMs: 25,
+      unloadTimeoutMs: 100,
+    })
+
+    await backend.install(context)
+
+    expect(clock.sleeps).toEqual([25])
+    expect(calls.map(({ args }) => args)).toEqual([
+      ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["bootout", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["bootstrap", "gui/502", paths.plistPath],
+      ["kickstart", "-k", `gui/502/${LAUNCH_AGENT_LABEL}`],
+    ])
+  })
+
+  test("stops replacement when launchd does not remove the old job before timeout", async () => {
+    const homeDirectory = await createTempHome()
+    const launch = createLaunchSpec(homeDirectory)
+    const clock = createFakeClock()
+    const { calls, context } = createHarness(launch, [
+      commandResult({ stdout: "loaded" }),
+      commandResult(),
+      commandResult({ stdout: "still loaded" }),
+      commandResult({ stdout: "still loaded" }),
+      commandResult({ stdout: "still loaded" }),
+    ])
+    const backend = createMacosServiceBackend({
+      uid: 502,
+      now: clock.now,
+      sleep: clock.sleep,
+      unloadPollIntervalMs: 10,
+      unloadTimeoutMs: 20,
+    })
+
+    await expect(backend.install(context)).rejects.toThrow(
+      `Timed out after 20ms waiting for launchctl bootout to remove gui/502/${LAUNCH_AGENT_LABEL}`,
+    )
+
+    expect(clock.sleeps).toEqual([10, 10])
+    expect(calls.map(({ args }) => args[0])).toEqual([
+      "print",
+      "bootout",
+      "print",
+      "print",
+      "print",
+    ])
+  })
+
+  test("stops replacement when the post-bootout launchd query fails", async () => {
+    const homeDirectory = await createTempHome()
+    const launch = createLaunchSpec(homeDirectory)
+    const { calls, context } = createHarness(launch, [
+      commandResult({ stdout: "loaded" }),
+      commandResult(),
+      commandResult({ code: 1, stderr: "operation not permitted" }),
+    ])
+    const backend = createMacosServiceBackend({ uid: 502 })
+
+    await expect(backend.install(context)).rejects.toThrow(
+      "launchctl print failed (exit code 1): operation not permitted",
+    )
+
+    expect(calls.map(({ args }) => args[0])).toEqual(["print", "bootout", "print"])
   })
 
   test("does not stop an existing job when writing its replacement plist fails", async () => {
