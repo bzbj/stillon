@@ -72,6 +72,7 @@ import {
 import { useTheme, type ThemePreference } from "../hooks/useTheme"
 import { KEYBINDING_ACTION_LABELS, formatKeybindingInput, getResolvedKeybindings, parseKeybindingInput } from "../lib/keybindings"
 import { playChatNotificationSound } from "../lib/chatSounds"
+import { copyTextToClipboard } from "../lib/clipboard"
 import { cn } from "../lib/utils"
 import {
   DEFAULT_TERMINAL_MIN_COLUMN_WIDTH,
@@ -387,12 +388,8 @@ function SourceUpgradePrompt({
   }
 
   async function copyPrompt() {
-    try {
-      await navigator.clipboard.writeText(prompt)
-      setCopyStatus("copied")
-    } catch {
-      setCopyStatus("error")
-    }
+    const copied = await copyTextToClipboard(prompt)
+    setCopyStatus(copied ? "copied" : "error")
   }
 
   function handleDialogChange(open: boolean) {
