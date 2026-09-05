@@ -163,14 +163,14 @@ describe("CodexAppServerManager", () => {
     ])
   })
 
-  test("maps fast mode and reasoning into app-server params", async () => {
+  test.each(["gpt-5.4", "gpt-6-astra"])("maps %s model, fast mode and reasoning into app-server params", async (model) => {
     const process = new FakeCodexProcess((message, child) => {
       if (message.method === "initialize") {
         child.writeServerMessage({ id: message.id, result: { userAgent: "codex-test" } })
       } else if (message.method === "thread/start") {
         child.writeServerMessage({
           id: message.id,
-          result: { thread: { id: "thread-1" }, model: "gpt-5.4", reasoningEffort: "high" },
+          result: { thread: { id: "thread-1" }, model, reasoningEffort: "high" },
         })
       } else if (message.method === "turn/start") {
         child.writeServerMessage({
@@ -194,15 +194,15 @@ describe("CodexAppServerManager", () => {
     await manager.startSession({
       chatId: "chat-1",
       cwd: "/tmp/project",
-      model: "gpt-5.4",
+      model,
       serviceTier: "fast",
       sessionToken: null,
     })
 
     const turn = await manager.startTurn({
       chatId: "chat-1",
-      model: "gpt-5.4",
-      effort: "xhigh",
+      model,
+      effort: model === "gpt-6-astra" ? "ultra" : "xhigh",
       serviceTier: "fast",
       content: "Run pwd",
       planMode: false,
@@ -212,14 +212,16 @@ describe("CodexAppServerManager", () => {
     await collectStream(turn.stream)
 
     const threadStart = process.messages.find((message: any) => message.method === "thread/start") as
-      | { method: "thread/start"; params: { serviceTier?: string } }
+      | { method: "thread/start"; params: { model?: string; serviceTier?: string } }
       | undefined
     const turnStart = process.messages.find((message: any) => message.method === "turn/start") as
-      | { method: "turn/start"; params: { effort?: string; serviceTier?: string; collaborationMode?: { settings?: { reasoning_effort?: string | null } } } }
+      | { method: "turn/start"; params: { model?: string; effort?: string; serviceTier?: string; collaborationMode?: { settings?: { reasoning_effort?: string | null } } } }
       | undefined
 
+    expect(threadStart?.params.model).toBe(model)
+    expect(turnStart?.params.model).toBe(model)
     expect(threadStart?.params.serviceTier).toBe("fast")
-    expect(turnStart?.params.effort).toBe("xhigh")
+    expect(turnStart?.params.effort).toBe(model === "gpt-6-astra" ? "ultra" : "xhigh")
     expect(turnStart?.params.serviceTier).toBe("fast")
     expect(turnStart?.params.collaborationMode?.settings?.reasoning_effort).toBeNull()
   })

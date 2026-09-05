@@ -24,9 +24,15 @@ describe("shared model normalization", () => {
     expect(normalizeClaudeModelId("haiku")).toBe("claude-haiku-4-5-20251001")
   })
 
-  test("normalizes legacy Codex aliases and defaults to the latest catalog model", () => {
+  test("normalizes legacy Codex aliases and defaults to the configured catalog model", () => {
     expect(normalizeCodexModelId()).toBe("gpt-5.6-sol")
     expect(normalizeCodexModelId("gpt-5-codex")).toBe("gpt-5.6-sol")
+  })
+
+  test("recognizes Astra and all of its reasoning efforts and Fast Mode", () => {
+    expect(normalizeCodexModelId("gpt-6-astra")).toBe("gpt-6-astra")
+    expect(getCodexReasoningOptions("gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"])
+    expect(supportsCodexFastMode("gpt-6-astra")).toBe(true)
   })
 
   test("uses model-specific Codex effort and Fast Mode metadata", () => {

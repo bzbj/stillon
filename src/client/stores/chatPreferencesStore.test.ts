@@ -12,6 +12,28 @@ afterEach(() => {
 })
 
 describe("migrateChatPreferencesState", () => {
+  test("preserves Astra preferences in saved defaults, chats, and legacy composers", () => {
+    const preference = {
+      model: "gpt-6-astra",
+      modelOptions: { reasoningEffort: "ultra" as const, fastMode: true },
+      permissionMode: "auto" as const,
+    }
+    const composer = { provider: "codex" as const, ...preference }
+    const migrated = migrateChatPreferencesState({
+      providerDefaults: { codex: preference },
+      chatStates: { chatA: composer },
+      legacyComposerState: composer,
+    })
+    expect(migrated.providerDefaults.codex).toEqual(preference)
+    expect(migrated.chatStates.chatA).toEqual(composer)
+    expect(migrated.legacyComposerState).toEqual(composer)
+    expect(migrateChatPreferencesState({ composerState: composer }).legacyComposerState).toEqual(composer)
+    expect(migrateChatPreferencesState({
+      liveProvider: "codex",
+      livePreferences: { codex: preference },
+    }).legacyComposerState).toEqual(composer)
+  })
+
   test("preserves max effort for versioned Opus Claude models", () => {
     const migrated = migrateChatPreferencesState({
       defaultProvider: "last_used",
@@ -59,7 +81,7 @@ describe("migrateChatPreferencesState", () => {
           permissionMode: "acceptEdits",
         },
         codex: {
-          model: "gpt-5.6-sol",
+          model: "gpt-5.6-luna",
           modelOptions: { reasoningEffort: "max", fastMode: true },
           permissionMode: "full",
         },
@@ -138,7 +160,7 @@ describe("migrateChatPreferencesState", () => {
     })
   })
 
-  test("rewrites persisted Codex composer state to gpt-5.6-sol during migration", () => {
+  test("preserves recognized Codex models during migration", () => {
     const migrated = migrateChatPreferencesState({
       defaultProvider: "codex",
       providerDefaults: {
@@ -162,19 +184,19 @@ describe("migrateChatPreferencesState", () => {
     })
 
     expect(migrated.providerDefaults.codex).toEqual({
-      model: "gpt-5.6-sol",
+      model: "gpt-5.6-luna",
       modelOptions: { reasoningEffort: "low", fastMode: true },
       permissionMode: "full",
     })
     expect(migrated.chatStates.chatA).toEqual({
       provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-5.4",
       modelOptions: { reasoningEffort: "medium", fastMode: false },
       permissionMode: "full",
     })
     expect(migrated.legacyComposerState).toEqual({
       provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-5.6-luna",
       modelOptions: { reasoningEffort: "xhigh", fastMode: true },
       permissionMode: "full",
     })
