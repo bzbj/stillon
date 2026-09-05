@@ -89,6 +89,30 @@ describe("readAppSettingsSnapshot", () => {
 })
 
 describe("AppSettingsManager", () => {
+  test("preserves Astra defaults and options after a settings reload", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+    const preference = {
+      model: "gpt-6-astra",
+      modelOptions: { reasoningEffort: "ultra" as const, fastMode: true },
+      permissionMode: "auto" as const,
+    }
+    try {
+      const saved = await manager.writePatch({ providerDefaults: { codex: preference } })
+      expect(saved.providerDefaults.codex).toEqual(preference)
+    } finally {
+      manager.dispose()
+    }
+    const restarted = new AppSettingsManager(filePath)
+    try {
+      await restarted.initialize()
+      expect(restarted.getSnapshot().providerDefaults.codex).toEqual(preference)
+    } finally {
+      restarted.dispose()
+    }
+  })
+
   test("creates a settings file with default preferences", async () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)

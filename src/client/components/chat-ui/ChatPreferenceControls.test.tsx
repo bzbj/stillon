@@ -25,6 +25,25 @@ describe("ChatPreferenceControls", () => {
     expect(html).not.toContain("Plan Mode")
   })
 
+  test("renders Astra with Ultra effort and Fast Mode", () => {
+    const html = renderToStaticMarkup(
+      <ChatPreferenceControls
+        availableProviders={PROVIDERS}
+        selectedProvider="codex"
+        model="gpt-6-astra"
+        modelOptions={{ reasoningEffort: "ultra", fastMode: true }}
+        onProviderChange={() => {}}
+        onModelChange={() => {}}
+        onModelOptionChange={() => {}}
+      />
+    )
+
+    expect(html).toContain("GPT-6-Astra")
+    expect(html).toContain("Ultra")
+    expect(html).toContain("Fast Mode")
+    expect(html).not.toContain('disabled=""')
+  })
+
   test("locks unsupported Codex models to Standard mode", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls

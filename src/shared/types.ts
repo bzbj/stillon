@@ -296,9 +296,17 @@ const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_EXTENDED_REASONING_EFFORTS, "ult
 
 export const CODEX_MODELS: ProviderModelOption[] = [
   {
+    id: "gpt-6-astra",
+    label: "GPT-6-Astra",
+    description: "Our most capable model for complex, demanding work.",
+    supportsEffort: true,
+    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+    supportsFastMode: true,
+  },
+  {
     id: "gpt-5.6-sol",
     label: "GPT-5.6-Sol",
-    description: "Latest frontier agentic coding model.",
+    description: "Reliable agentic workhorse for everyday tasks.",
     supportsEffort: true,
     supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
     supportsFastMode: true,

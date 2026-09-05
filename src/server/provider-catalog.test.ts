@@ -71,6 +71,19 @@ describe("provider catalog normalization", () => {
     })).toEqual({ reasoningEffort: "high", fastMode: false })
   })
 
+  test("keeps Astra model, reasoning effort, and service tier through server normalization", () => {
+    expect(normalizeServerModel("codex", "gpt-6-astra")).toBe("gpt-6-astra")
+    for (const reasoningEffort of ["low", "medium", "high", "xhigh", "max", "ultra"] as const) {
+      for (const fastMode of [true, false]) {
+        const normalized = normalizeCodexModelOptions("gpt-6-astra", {
+          codex: { reasoningEffort, fastMode },
+        })
+        expect(normalized).toEqual({ reasoningEffort, fastMode })
+        expect(codexServiceTierFromModelOptions(normalized)).toBe(fastMode ? "fast" : undefined)
+      }
+    }
+  })
+
   test("normalizes server model ids through the shared alias catalog", () => {
     expect(normalizeServerModel("codex")).toBe("gpt-5.6-sol")
     expect(normalizeServerModel("claude", "fable")).toBe("claude-fable-5")
