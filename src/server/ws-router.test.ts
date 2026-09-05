@@ -713,6 +713,51 @@ describe("ws-router", () => {
     ])
   })
 
+  test("generates a machine-tailored source upgrade prompt via Codex", async () => {
+    const requestedTags: string[] = []
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      sourceUpgradePrompt: {
+        generate: async ({ targetTag }) => {
+          requestedTags.push(targetTag)
+          return { prompt: "保留本机配置，升级并重启。" }
+        },
+      },
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "upgrade-prompt-1",
+        command: { type: "settings.generateSourceUpgradePrompt", targetTag: "v0.2.12" },
+      })
+    )
+
+    expect(requestedTags).toEqual(["v0.2.12"])
+    expect(ws.sent).toEqual([{
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "upgrade-prompt-1",
+      result: { prompt: "保留本机配置，升级并重启。" },
+    }])
+  })
+
   test("routes Agent network status, detection, testing, and durable restart state", async () => {
     let snapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
     let restartCalls = 0

@@ -31,6 +31,8 @@ import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
+import { CodexExecManager } from "./codex-exec"
+import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
 
 const MAX_UPLOAD_FILES = 50
@@ -203,6 +205,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const keybindings = new KeybindingsManager()
   await appSettings.initialize()
   await keybindings.initialize()
+  const sourceUpgradePrompt = createSourceUpgradePromptGenerator({
+    runtimeDirectory: path.resolve(import.meta.dir, "..", ".."),
+    codex: new CodexExecManager({ getEnvironment: getAgentEnvironment }),
+    getCodexPreference: () => appSettings.getSnapshot().providerDefaults.codex,
+  })
   const agent = new AgentCoordinator({
     store,
     getEnvironment: getAgentEnvironment,
@@ -242,6 +249,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     subscriptionUsage: {
       read: () => readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }),
     },
+    sourceUpgradePrompt,
     llmProvider: {
       read: readLlmProviderSnapshot,
       write: writeLlmProviderSnapshot,
