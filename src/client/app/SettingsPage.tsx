@@ -1598,7 +1598,7 @@ function SubscriptionUsageProviderBlock({
         ) : null}
         <div className="mt-3 grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {provider.windows.map((window) => (
-            <SubscriptionUsageWindowBlock key={window.id} window={window} />
+            <SubscriptionUsageWindowBlock key={window.id} window={window} providerLabel={provider.label} />
           ))}
         </div>
       </div>
@@ -1606,7 +1606,7 @@ function SubscriptionUsageProviderBlock({
   )
 }
 
-function SubscriptionUsageWindowBlock({ window }: { window: SubscriptionUsageWindow }) {
+function SubscriptionUsageWindowBlock({ window, providerLabel }: { window: SubscriptionUsageWindow; providerLabel: string }) {
   const label = window.id === "five_hour"
     ? "5-hour limit"
     : window.id === "weekly"
@@ -1614,8 +1614,15 @@ function SubscriptionUsageWindowBlock({ window }: { window: SubscriptionUsageWin
       : window.id === "fable_weekly"
         ? "Fable 5 limit"
         : window.label
-  const percentLabel = formatUsagePercent(window.usedPercent)
-  const progress = getUsageProgress(window.usedPercent)
+  const remainingPercent = getRemainingUsagePercent(window.usedPercent)
+  const percentLabel = remainingPercent === null ? "N/A" : `${formatUsagePercent(remainingPercent)} left`
+  const warning = remainingPercent === null || remainingPercent > 25
+    ? null
+    : remainingPercent === 0
+      ? "Quota exhausted"
+      : remainingPercent <= 5
+        ? "Almost out of quota"
+        : "Low remaining quota"
 
   return (
     <div className="rounded-lg border border-border bg-card/30 p-3">
@@ -1623,11 +1630,26 @@ function SubscriptionUsageWindowBlock({ window }: { window: SubscriptionUsageWin
         <div className="min-w-0 text-xs font-medium text-muted-foreground">{label}</div>
         <div className="shrink-0 font-mono text-lg font-semibold leading-none text-foreground">{percentLabel}</div>
       </div>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn("h-full rounded-full", getUsageProgressClassName(window.usedPercent))}
-          style={{ width: `${progress}%` }}
-        />
+      <div
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"
+        role={remainingPercent === null ? undefined : "progressbar"}
+        aria-hidden={remainingPercent === null ? true : undefined}
+        aria-label={remainingPercent === null ? undefined : `${providerLabel} ${label} remaining quota`}
+        aria-valuemin={remainingPercent === null ? undefined : 0}
+        aria-valuemax={remainingPercent === null ? undefined : 100}
+        aria-valuenow={remainingPercent ?? undefined}
+        aria-valuetext={remainingPercent === null ? undefined : percentLabel}
+      >
+        {remainingPercent !== null ? (
+          <div
+            className={cn("h-full rounded-full", getRemainingUsageProgressClassName(remainingPercent))}
+            style={{ width: `${remainingPercent}%` }}
+          />
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span>{remainingPercent === null ? "Usage unavailable" : `${formatUsagePercent(100 - remainingPercent)} used`}</span>
+        {warning ? <span className="font-medium">{warning}</span> : null}
       </div>
       <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
         <Clock3 className="h-3.5 w-3.5 shrink-0" />
@@ -1698,21 +1720,19 @@ function formatPlanType(planType: string) {
   return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1)}`
 }
 
-function formatUsagePercent(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "N/A"
+function formatUsagePercent(value: number) {
   const rounded = Math.abs(value - Math.round(value)) < 0.05 ? String(Math.round(value)) : value.toFixed(1)
   return `${rounded}%`
 }
 
-function getUsageProgress(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, value))
+function getRemainingUsagePercent(usedPercent: number | null) {
+  if (usedPercent === null || !Number.isFinite(usedPercent)) return null
+  return 100 - Math.max(0, Math.min(100, usedPercent))
 }
 
-function getUsageProgressClassName(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "bg-muted-foreground/30"
-  if (value >= 95) return "bg-destructive"
-  if (value >= 75) return "bg-amber-500"
+function getRemainingUsageProgressClassName(remainingPercent: number) {
+  if (remainingPercent <= 5) return "bg-destructive"
+  if (remainingPercent <= 25) return "bg-amber-500"
   return "bg-emerald-500"
 }
 

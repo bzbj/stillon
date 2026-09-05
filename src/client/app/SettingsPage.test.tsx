@@ -362,6 +362,92 @@ describe("SkillsSection", () => {
 })
 
 describe("SubscriptionUsageSection", () => {
+  for (const provider of ["codex", "claude"] as const) {
+    function renderQuota(usedPercent: number | null) {
+      const snapshot: SubscriptionUsageSnapshot = {
+        generatedAt: 1_783_000_000_000,
+        providers: [{
+          provider,
+          label: provider === "codex" ? "Codex" : "Claude Code",
+          readinessStatus: "ready",
+          readinessError: null,
+          status: "available",
+          source: "test fixture",
+          updatedAt: 1_783_000_000_000,
+          error: null,
+          windows: [{
+            id: "five_hour",
+            label: "5-hour window",
+            usedPercent,
+            windowMinutes: 300,
+            resetsAt: null,
+            resetsAtText: "in 2 hours",
+          }],
+        }],
+      }
+
+      const html = renderToStaticMarkup(
+        <SubscriptionUsageSection snapshot={snapshot} status="success" error={null} onRetry={() => {}} />
+      )
+      expect(snapshot.providers[0]?.windows[0]?.usedPercent).toBe(usedPercent)
+      return html
+    }
+
+    describe(`${provider} remaining quota`, () => {
+      test.each([
+        { used: 0, remaining: 100, color: "bg-emerald-500", warning: null },
+        { used: 65, remaining: 35, color: "bg-emerald-500", warning: null },
+        { used: 65.5, remaining: 34.5, color: "bg-emerald-500", warning: null },
+        { used: 74.9, remaining: 25.1, color: "bg-emerald-500", warning: null },
+        { used: 75, remaining: 25, color: "bg-amber-500", warning: "Low remaining quota" },
+        { used: 94.9, remaining: 5.1, color: "bg-amber-500", warning: "Low remaining quota" },
+        { used: 95, remaining: 5, color: "bg-destructive", warning: "Almost out of quota" },
+        { used: 100, remaining: 0, color: "bg-destructive", warning: "Quota exhausted" },
+        { used: -10, remaining: 100, color: "bg-emerald-500", warning: null },
+        { used: 110, remaining: 0, color: "bg-destructive", warning: "Quota exhausted" },
+      ])("renders $used% used as $remaining% left with matching bar and warning", ({ used, remaining, color, warning }) => {
+        const html = renderQuota(used)
+        const visibleText = html.replace(/<[^>]+>/g, " ")
+        expect(visibleText).toContain(`${remaining}% left`)
+        expect(visibleText).toContain(`${Math.max(0, Math.min(100, used))}% used`)
+        expect(visibleText.match(/\d+(?:\.\d+)?%\s+\S+/g)).toEqual([
+          `${remaining}% left`,
+          `${Math.max(0, Math.min(100, used))}% used`,
+        ])
+
+        const bar = html.match(/<div[^>]*role="progressbar"[^>]*>/)?.[0] ?? ""
+        const providerLabel = provider === "codex" ? "Codex" : "Claude Code"
+        expect(bar).toContain(`aria-label="${providerLabel} 5-hour limit remaining quota"`)
+        expect(bar).toContain('aria-valuemin="0"')
+        expect(bar).toContain('aria-valuemax="100"')
+        expect(bar).toContain(`aria-valuetext="${remaining}% left"`)
+        expect(Number(bar.match(/aria-valuenow="([^"]+)"/)?.[1])).toBeCloseTo(remaining)
+        const fill = html.match(/<div[^>]*class="h-full rounded-full [^"]+"[^>]*>/)?.[0] ?? ""
+        expect(fill).toContain(`class="h-full rounded-full ${color}"`)
+        expect(Number(fill.match(/width:([^%]+)%/)?.[1])).toBeCloseTo(remaining)
+
+        for (const label of ["Low remaining quota", "Almost out of quota", "Quota exhausted"]) {
+          expect(visibleText.includes(label)).toBe(label === warning)
+        }
+        expect(visibleText).toContain("Resets in 2 hours")
+      })
+
+      test.each([null, NaN, Infinity, -Infinity])("keeps unavailable usage (%s) distinct from an exhausted quota", (usedPercent) => {
+        const html = renderQuota(usedPercent)
+        const visibleText = html.replace(/<[^>]+>/g, " ")
+        expect(visibleText).toContain("N/A")
+        expect(visibleText).toContain("Usage unavailable")
+        expect(visibleText).not.toMatch(/\d+(?:\.\d+)?%/)
+        expect(visibleText).not.toContain("Quota exhausted")
+        expect(html).not.toContain('role="progressbar"')
+        expect(html).not.toContain("aria-valuenow")
+        expect(html).not.toContain("aria-valuetext")
+        expect(html).not.toContain("width:")
+        expect(html).toContain('class="mt-3 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true"')
+      })
+    })
+  }
+
   test("renders the Fable 5 model-scoped weekly limit", () => {
     const snapshot: SubscriptionUsageSnapshot = {
       generatedAt: 1_783_000_000_000,
@@ -412,7 +498,8 @@ describe("SubscriptionUsageSection", () => {
     )
 
     expect(html).toContain("Fable 5 limit")
-    expect(html).toContain("42%")
+    expect(html).toContain("58% left")
+    expect(html).toContain("42% used")
     expect(html).toContain("lg:grid-cols-3")
     expect(html).toContain("Ready")
     expect(html).toContain("Usage available")
