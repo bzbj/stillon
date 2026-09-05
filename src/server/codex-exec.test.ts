@@ -283,7 +283,60 @@ describe("CodexExecManager", () => {
     expect(spawned[1]?.args).toContain("approvals_reviewer=\"auto_review\"")
     autoTurn.close()
 
+    await manager.startSession({
+      chatId: "chat-read-only",
+      cwd: "/tmp/project",
+      model: "gpt-5.5",
+      sessionToken: null,
+      permissionMode: "read-only",
+      ephemeral: true,
+    })
+    const readOnlyTurn = await manager.startTurn({
+      chatId: "chat-read-only",
+      model: "gpt-5.5",
+      content: "Inspect only",
+      planMode: false,
+      onToolRequest: async () => ({}),
+    })
+    expect(spawned[2]?.args.slice(0, 3)).toEqual(["exec", "--ephemeral", "--json"])
+    expect(spawned[2]?.args).toContain("sandbox_mode=\"read-only\"")
+    expect(spawned[2]?.args).toContain("approval_policy=\"never\"")
+    readOnlyTurn.close()
+
     expect(processes.every((process) => process.killed)).toBe(true)
+  })
+
+  test("generateStructured returns only the final Codex message", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const process = new FakeCodexExecProcess()
+        processes.push(process)
+        return process as never
+      },
+    })
+
+    const resultPromise = manager.generateStructured({
+      cwd: "/tmp/project",
+      prompt: "Inspect and return the final answer only",
+      permissionMode: "read-only",
+      ephemeral: true,
+    })
+    await Promise.resolve()
+    const process = processes[0]!
+    process.writeJson({ type: "thread.started", thread_id: "thread-structured" })
+    process.writeJson({ type: "turn.started" })
+    process.writeJson({
+      type: "item.completed",
+      item: { id: "message-1", type: "agent_message", text: "I am inspecting the installation." },
+    })
+    process.writeJson({
+      type: "item.completed",
+      item: { id: "message-2", type: "agent_message", text: "Final tailored prompt" },
+    })
+    process.writeJson({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })
+
+    expect(await resultPromise).toBe("Final tailored prompt")
   })
 
   test("emits an error result when the exec process fails", async () => {

@@ -6,7 +6,6 @@ import {
   ChangelogSection,
   getOnboardingCompletedTaskCount,
   ONBOARDING_TASK_COUNT,
-  buildSourceUpgradePrompt,
   compareReleaseVersions,
   fetchGithubReleases,
   formatPublishedDate,
@@ -54,6 +53,8 @@ const SAMPLE_RELEASES = [
     draft: false,
   },
 ]
+
+const generateUpgradePrompt = async () => ({ prompt: "执行本机定制升级并重启服务。" })
 
 afterEach(() => {
   resetSettingsPageChangelogCache()
@@ -587,6 +588,7 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
+        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -610,6 +612,7 @@ describe("ChangelogSection", () => {
         error="GitHub said no"
         onRetry={() => {}}
         currentVersion="1.0.0"
+        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -626,6 +629,7 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="1.0.0"
+        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -649,12 +653,13 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
+        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
     expect(html).toContain("Upgrade available: v0.8.2")
-    expect(html).toContain("Generate upgrade prompt")
-    expect(html).toContain("StillOn will not install it automatically.")
+    expect(html).toContain("Analyze this installation")
+    expect(html).toContain("Let Codex inspect this installation")
     expect(html).not.toContain("npm install")
   })
 
@@ -666,10 +671,11 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
+        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
-    expect(html).not.toContain("Generate upgrade prompt")
+    expect(html).not.toContain("Analyze this installation")
   })
 })
 
@@ -686,16 +692,4 @@ describe("source release upgrades", () => {
     ], "0.8.1")?.tag_name).toBe("v0.10.0")
   })
 
-  test("builds a safe Bun source-upgrade prompt", () => {
-    const prompt = buildSourceUpgradePrompt("0.8.1", {
-      tag_name: "v0.8.2",
-      html_url: "https://github.com/bzbj/stillon/releases/tag/v0.8.2",
-    })
-
-    expect(prompt).toContain("从 v0.8.1 升级到 GitHub Release v0.8.2")
-    expect(prompt).toContain("checkout --detach v0.8.2")
-    expect(prompt).toContain("bun install --frozen-lockfile")
-    expect(prompt).toContain("不要使用 npm、npx")
-    expect(prompt).toContain("bun install -g")
-  })
 })

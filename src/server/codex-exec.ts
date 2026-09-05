@@ -21,6 +21,8 @@ import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-ty
 const TERMINATE_GRACE_MS = 2_000
 const TERMINATE_KILL_TIMEOUT_MS = 3_000
 
+type CodexExecPermissionMode = CodexPermissionMode | "read-only"
+
 export function codexSpawnOptions(
   cwd: string,
   environment: NodeJS.ProcessEnv
@@ -45,7 +47,8 @@ export interface StartCodexExecSessionArgs {
   serviceTier?: ServiceTier
   sessionToken: string | null
   pendingForkSessionToken?: string | null
-  permissionMode?: CodexPermissionMode
+  permissionMode?: CodexExecPermissionMode
+  ephemeral?: boolean
 }
 
 export interface StartCodexExecTurnArgs {
@@ -55,7 +58,7 @@ export interface StartCodexExecTurnArgs {
   serviceTier?: ServiceTier
   content: string
   planMode: boolean
-  permissionMode?: CodexPermissionMode
+  permissionMode?: CodexExecPermissionMode
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }
 
@@ -65,6 +68,9 @@ export interface GenerateCodexExecStructuredArgs {
   model?: string
   effort?: CodexReasoningEffort
   serviceTier?: ServiceTier
+  permissionMode?: CodexExecPermissionMode
+  ephemeral?: boolean
+  timeoutMs?: number
 }
 
 interface CodexExecProcess {
@@ -87,7 +93,8 @@ interface SessionContext {
   serviceTier?: ServiceTier
   sessionToken: string | null
   pendingTurn: PendingTurn | null
-  permissionMode: CodexPermissionMode | undefined
+  permissionMode: CodexExecPermissionMode | undefined
+  ephemeral: boolean
   closed: boolean
 }
 
@@ -156,8 +163,14 @@ function serviceTierConfig(serviceTier?: ServiceTier) {
   return serviceTier ? [`service_tier="${serviceTier}"`] : []
 }
 
-function permissionConfig(permissionMode: CodexPermissionMode | undefined) {
+function permissionConfig(permissionMode: CodexExecPermissionMode | undefined) {
   switch (permissionMode) {
+    case "read-only":
+      return [
+        'sandbox_mode="read-only"',
+        'approval_policy="never"',
+        'approvals_reviewer="user"',
+      ]
     case "request":
       return [
         'sandbox_mode="workspace-write"',
@@ -302,6 +315,7 @@ export class CodexExecManager {
       existing.serviceTier = args.serviceTier
       existing.sessionToken = args.sessionToken
       existing.permissionMode = args.permissionMode
+      existing.ephemeral = args.ephemeral ?? false
       return existing.sessionToken ?? undefined
     }
 
@@ -321,6 +335,7 @@ export class CodexExecManager {
       sessionToken: args.pendingForkSessionToken ? null : args.sessionToken,
       pendingTurn: null,
       closed: false,
+      ephemeral: args.ephemeral ?? false,
     }
     this.sessions.set(args.chatId, context)
     return context.sessionToken ?? undefined
@@ -390,25 +405,51 @@ export class CodexExecManager {
         model: args.model ?? "gpt-5.6-sol",
         serviceTier: args.serviceTier,
         sessionToken: null,
+        permissionMode: args.permissionMode,
+        ephemeral: args.ephemeral,
       })
       turn = await this.startTurn({
         chatId,
         model: args.model ?? "gpt-5.6-sol",
         effort: args.effort,
         serviceTier: args.serviceTier,
+        permissionMode: args.permissionMode,
         content: args.prompt,
         planMode: false,
         onToolRequest: async () => ({}),
       })
 
-      for await (const event of turn.stream) {
-        if (event.type !== "transcript" || !event.entry) continue
-        if (event.entry.kind === "assistant_text") {
-          assistantText += assistantText ? `\n${event.entry.text}` : event.entry.text
+      const consume = async () => {
+        for await (const event of turn!.stream) {
+          if (event.type !== "transcript" || !event.entry) continue
+          if (event.entry.kind === "assistant_text") {
+            // Codex can emit short progress messages before its final answer.
+            // The last completed agent message is the one-off operation result.
+            assistantText = event.entry.text
+          }
+          if (event.entry.kind === "result" && !event.entry.isError && event.entry.result.trim()) {
+            resultText = event.entry.result
+          }
         }
-        if (event.entry.kind === "result" && !event.entry.isError && event.entry.result.trim()) {
-          resultText = event.entry.result
+      }
+
+      if (args.timeoutMs && args.timeoutMs > 0) {
+        let timeout: ReturnType<typeof setTimeout> | null = null
+        try {
+          await Promise.race([
+            consume(),
+            new Promise<never>((_, reject) => {
+              timeout = setTimeout(() => reject(new Error("Codex request timed out.")), args.timeoutMs)
+            }),
+          ])
+        } catch (error) {
+          await turn.interrupt()
+          throw error
+        } finally {
+          if (timeout) clearTimeout(timeout)
         }
+      } else {
+        await consume()
       }
 
       const candidate = assistantText.trim() || resultText.trim()
@@ -459,6 +500,7 @@ export class CodexExecManager {
 
     return [
       "exec",
+      ...(context.ephemeral ? ["--ephemeral"] : []),
       "--json",
       "-C",
       context.cwd,

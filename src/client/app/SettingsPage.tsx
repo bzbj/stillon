@@ -59,7 +59,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import { Textarea } from "../components/ui/textarea"
-import type { EditorPreset } from "../../shared/protocol"
+import type { EditorPreset, SourceUpgradePromptResult } from "../../shared/protocol"
 import { SegmentedControl } from "../components/ui/segmented-control"
 import {
   Select,
@@ -354,39 +354,37 @@ export function getAvailableSourceRelease(releases: GithubRelease[], currentVers
   return availableRelease
 }
 
-export function buildSourceUpgradePrompt(currentVersion: string, release: Pick<GithubRelease, "tag_name" | "html_url">) {
-  const targetTag = release.tag_name.trim()
-  const currentTag = `v${normalizeReleaseVersion(currentVersion)}`
-  const targetVersion = normalizeReleaseVersion(targetTag)
-
-  return `请在这台机器上把 StillOn 从 ${currentTag} 升级到 GitHub Release v${targetVersion}（精确 tag：${targetTag}）。
-
-目标发布页：${release.html_url}
-官方源码仓库：https://github.com/bzbj/stillon.git
-
-这是一次源码部署升级。开始前，请先阅读当前或目标 checkout 中的 docs/production-runtime.md，并检查现有 StillOn 服务、runtime 目录、端口、host 和环境文件。先简要说明升级计划；如果现有安装不是独立 runtime，或任何步骤会替换/停止当前服务，请先向我说明并征求确认。
-
-必须遵守：
-1. 只使用 Git 和 Bun；不要使用 npm、npx、任何全局包安装、bun install -g，或 StillOn 的应用内自动更新。
-2. 不要覆盖开发 checkout，不要删除当前 runtime，也不要修改或迁移 ~/.stillon/ 中的用户数据。
-3. 不要改变现有服务的 host、端口、环境文件、认证、外网入口或其他基础设施设置；如发现它们不明确，先询问我。
-4. 在新版本完成构建和健康检查前，保持当前服务及其 runtime 可用于回滚。
-
-升级步骤：
-1. 在现有 runtime 的同级位置创建新的、独立的 release 目录，从官方仓库 clone，checkout --detach ${targetTag}，并确认 package.json 的版本为 ${targetVersion}。
-2. 在新 runtime 中运行 bun install --frozen-lockfile 和 bun run build。
-3. 使用未占用的 loopback 端口验证新 runtime；确认 curl --fail http://127.0.0.1:<测试端口>/health 成功后，才切换服务。
-4. 沿用已确认的端口、host 和环境文件，通过新 runtime 的 bin/stillon service install 安装/替换原生服务。若检测到自定义 supervisor，不要擅自改动它，先给出兼容的切换方案。
-5. 切换后验证 service status、生产 health endpoint 和浏览器访问；保留旧 runtime。
-
-完成时报告：新旧 runtime 路径、实际 checkout 的 tag/commit、Bun 版本、构建和 health 检查结果、服务状态、访问地址，以及用旧 runtime 回滚的精确命令。若任何验证失败，不要删除旧版本；说明失败原因并执行或建议安全回滚。`
-}
-
-function SourceUpgradePrompt({ currentVersion, release }: { currentVersion: string; release: GithubRelease }) {
+function SourceUpgradePrompt({
+  release,
+  onGenerate,
+}: {
+  release: GithubRelease
+  onGenerate: (release: GithubRelease) => Promise<SourceUpgradePromptResult>
+}) {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [generationStatus, setGenerationStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [prompt, setPrompt] = useState("")
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")
-  const prompt = buildSourceUpgradePrompt(currentVersion, release)
   const targetVersion = normalizeReleaseVersion(release.tag_name)
+
+  async function generatePrompt() {
+    if (generationStatus === "loading") return
+    setDialogOpen(true)
+    setGenerationStatus("loading")
+    setGenerationError(null)
+    setPrompt("")
+    setCopyStatus("idle")
+
+    try {
+      const result = await onGenerate(release)
+      setPrompt(result.prompt)
+      setGenerationStatus("success")
+    } catch (error) {
+      setGenerationError(error instanceof Error ? error.message : "Codex could not analyze this installation.")
+      setGenerationStatus("error")
+    }
+  }
 
   async function copyPrompt() {
     try {
@@ -409,12 +407,22 @@ function SourceUpgradePrompt({ currentVersion, release }: { currentVersion: stri
           <div className="min-w-0">
             <div className="text-sm font-medium text-foreground">Upgrade available: v{targetVersion}</div>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              StillOn will not install it automatically. Generate a source-upgrade prompt to run in Codex or Claude Code instead.
+              Let Codex inspect this installation and prepare a concise upgrade prompt that preserves local customizations.
             </p>
           </div>
-          <Button type="button" size="sm" onClick={() => setDialogOpen(true)} className="shrink-0">
-            <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-            Generate upgrade prompt
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => { void generatePrompt() }}
+            disabled={generationStatus === "loading"}
+            className="shrink-0"
+          >
+            {generationStatus === "loading" ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {generationStatus === "loading" ? "Analyzing…" : "Analyze this installation"}
           </Button>
         </div>
       </section>
@@ -423,18 +431,33 @@ function SourceUpgradePrompt({ currentVersion, release }: { currentVersion: stri
         <DialogContent size="lg">
           <DialogBody className="space-y-4">
             <div className="space-y-1">
-              <DialogTitle>Upgrade to v{targetVersion} with a coding agent</DialogTitle>
+              <DialogTitle>Tailor the v{targetVersion} upgrade</DialogTitle>
               <DialogDescription>
-                Copy this prompt into Codex or Claude Code. StillOn will not run an update itself.
+                Codex inspects this StillOn runtime in read-only mode, then prepares a concise prompt for your coding agent.
               </DialogDescription>
             </div>
-            <Textarea
-              aria-label={`Source upgrade prompt for StillOn v${targetVersion}`}
-              value={prompt}
-              readOnly
-              rows={18}
-              className="resize-y font-mono text-xs leading-5"
-            />
+            {generationStatus === "loading" ? (
+              <div role="status" className="flex min-h-40 items-center justify-center rounded-xl border border-border bg-muted/30 px-6 text-sm text-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span>Inspecting the local runtime, service, ports, and customizations. This can take a couple of minutes…</span>
+                </div>
+              </div>
+            ) : null}
+            {generationStatus === "success" ? (
+              <Textarea
+                aria-label={`Tailored upgrade prompt for StillOn v${targetVersion}`}
+                value={prompt}
+                readOnly
+                rows={12}
+                className="resize-y font-mono text-xs leading-5"
+              />
+            ) : null}
+            {generationStatus === "error" ? (
+              <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {generationError ?? "Codex could not analyze this installation."}
+              </div>
+            ) : null}
             {copyStatus === "error" ? (
               <p role="alert" className="text-xs text-destructive">
                 Could not copy the prompt. Select the text and copy it manually instead.
@@ -445,10 +468,18 @@ function SourceUpgradePrompt({ currentVersion, release }: { currentVersion: stri
             <Button type="button" variant="secondary" size="sm" onClick={() => handleDialogChange(false)}>
               Close
             </Button>
-            <Button type="button" size="sm" onClick={() => { void copyPrompt() }}>
-              <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-              <span aria-live="polite">{copyStatus === "copied" ? "Copied" : "Copy prompt"}</span>
-            </Button>
+            {generationStatus === "error" ? (
+              <Button type="button" size="sm" onClick={() => { void generatePrompt() }}>
+                <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                Try again
+              </Button>
+            ) : null}
+            {generationStatus === "success" ? (
+              <Button type="button" size="sm" onClick={() => { void copyPrompt() }}>
+                <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                <span aria-live="polite">{copyStatus === "copied" ? "Copied" : "Copy prompt"}</span>
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -462,12 +493,14 @@ export function ChangelogSection({
   error,
   onRetry,
   currentVersion,
+  onGenerateUpgradePrompt,
 }: {
   status: ChangelogStatus
   releases: GithubRelease[]
   error: string | null
   onRetry: () => void
   currentVersion: string
+  onGenerateUpgradePrompt: (release: GithubRelease) => Promise<SourceUpgradePromptResult>
 }) {
   const normalizedCurrentVersion = currentVersion.replace(/^v/i, "")
   const availableSourceRelease = status === "success"
@@ -515,7 +548,11 @@ export function ChangelogSection({
       ) : null}
 
       {availableSourceRelease ? (
-        <SourceUpgradePrompt currentVersion={currentVersion} release={availableSourceRelease} />
+        <SourceUpgradePrompt
+          key={availableSourceRelease.id}
+          release={availableSourceRelease}
+          onGenerate={onGenerateUpgradePrompt}
+        />
       ) : null}
 
       {status === "success" && releases.length > 0 ? (
@@ -3225,6 +3262,10 @@ export function SettingsPage() {
                     error={changelogError}
                     onRetry={retryChangelog}
                     currentVersion={appVersion}
+                    onGenerateUpgradePrompt={(release) => state.socket.command<SourceUpgradePromptResult>({
+                      type: "settings.generateSourceUpgradePrompt",
+                      targetTag: release.tag_name,
+                    })}
                   />
                 )}
               </div>

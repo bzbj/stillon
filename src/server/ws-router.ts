@@ -19,6 +19,7 @@ import { ensureProjectDirectory, getResolvedLocalPath } from "./paths"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
+import type { SourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { TerminalManager } from "./terminal-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import type {
@@ -140,6 +141,7 @@ interface CreateWsRouterArgs {
   subscriptionUsage?: {
     read: () => Promise<SubscriptionUsageSnapshot>
   }
+  sourceUpgradePrompt?: SourceUpgradePromptGenerator
   agentNetwork?: {
     readStatus: () => AgentNetworkStatus
     detect: () => Promise<AgentNetworkDetectionResult>
@@ -399,6 +401,7 @@ export function createWsRouter({
   appSettings,
   llmProvider,
   subscriptionUsage,
+  sourceUpgradePrompt,
   agentNetwork,
   refreshDiscovery,
   getDiscoveredProjects,
@@ -471,6 +474,11 @@ export function createWsRouter({
   }
   const resolvedSubscriptionUsage = subscriptionUsage ?? {
     read: readSubscriptionUsageSnapshot,
+  }
+  const resolvedSourceUpgradePrompt = sourceUpgradePrompt ?? {
+    generate: async () => {
+      throw new Error("Tailored upgrade analysis is unavailable.")
+    },
   }
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {
     browserSettingsMigrated: false,
@@ -1197,6 +1205,11 @@ export function createWsRouter({
         }
         case "settings.readSubscriptionUsage": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: await resolvedSubscriptionUsage.read() })
+          return
+        }
+        case "settings.generateSourceUpgradePrompt": {
+          const result = await resolvedSourceUpgradePrompt.generate({ targetTag: command.targetTag })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
         case "settings.writeLlmProvider": {

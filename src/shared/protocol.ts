@@ -51,6 +51,10 @@ export interface ResolvedLocalPath {
   separator: "/" | "\\"
 }
 
+export interface SourceUpgradePromptResult {
+  prompt: string
+}
+
 export interface ProjectQuickAction {
   id: string
   label: string
@@ -108,6 +112,7 @@ export type ClientCommand =
   | { type: "settings.restartAgentSessions" }
   | { type: "settings.readLlmProvider" }
   | { type: "settings.readSubscriptionUsage" }
+  | { type: "settings.generateSourceUpgradePrompt"; targetTag: string }
   | { type: "skills.search"; query: string; limit?: number }
   | { type: "skills.install"; source: string; skillId: string }
   | { type: "skills.uninstall"; skillId: string }
