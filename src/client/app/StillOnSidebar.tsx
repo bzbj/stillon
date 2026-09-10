@@ -96,7 +96,7 @@ export function getConnectionStatusPresentation(
   }
 }
 
-interface KannaSidebarProps {
+interface StillOnSidebarProps {
   data: SidebarData
   activeChatId: string | null
   machineName: string | null
@@ -128,7 +128,7 @@ interface KannaSidebarProps {
   editorLabel: string
 }
 
-function KannaSidebarImpl({
+function StillOnSidebarImpl({
   data,
   activeChatId,
   machineName,
@@ -158,7 +158,7 @@ function KannaSidebarImpl({
   onHideProject,
   onReorderProjectGroups,
   editorLabel,
-}: KannaSidebarProps) {
+}: StillOnSidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -679,4 +679,4 @@ function KannaSidebarImpl({
   )
 }
 
-export const KannaSidebar = memo(KannaSidebarImpl)
+export const StillOnSidebar = memo(StillOnSidebarImpl)

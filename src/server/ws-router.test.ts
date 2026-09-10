@@ -172,7 +172,7 @@ describe("skills helpers", () => {
   })
 
   test("returns an empty installed skills snapshot when the lock file is missing or invalid", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "kanna-skills-"))
+    const dir = await mkdtemp(path.join(tmpdir(), "stillon-skills-"))
     try {
       const missingPath = path.join(dir, "missing.json")
       expect(await listInstalledSkills(missingPath)).toEqual({
@@ -367,7 +367,7 @@ describe("local project discovery subscriptions", () => {
 
 describe("filesystem commands", () => {
   test("acks paths resolved by the connected host", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kanna-ws-resolve-path-"))
+    const root = await mkdtemp(path.join(tmpdir(), "stillon-ws-resolve-path-"))
     try {
       const router = createWsRouter({
         store: { state: createEmptyState() } as never,
@@ -411,7 +411,7 @@ describe("filesystem commands", () => {
   })
 
   test("acks one-level directory listings", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kanna-ws-local-directories-"))
+    const root = await mkdtemp(path.join(tmpdir(), "stillon-ws-local-directories-"))
     try {
       await mkdir(path.join(root, "beta", "nested"), { recursive: true })
       await mkdir(path.join(root, "alpha"), { recursive: true })

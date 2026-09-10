@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { MemoryRouter } from "react-router-dom"
 import { TooltipProvider } from "../components/ui/tooltip"
 import type { SidebarData } from "../../shared/types"
-import { KannaSidebar } from "./KannaSidebar"
+import { StillOnSidebar } from "./StillOnSidebar"
 
 const sidebarData: SidebarData = {
   projectGroups: [{
@@ -54,7 +54,7 @@ function renderSidebar({
   return renderToStaticMarkup(
     <MemoryRouter>
       <TooltipProvider>
-        <KannaSidebar
+        <StillOnSidebar
           data={sidebarData}
           activeChatId={null}
           machineName="Synthetic Mac"
@@ -90,7 +90,7 @@ function renderSidebar({
   )
 }
 
-describe("KannaSidebar snapshot state", () => {
+describe("StillOnSidebar snapshot state", () => {
   test("renders cached projects immediately with an explicit stale label and no mutations", () => {
     const html = renderSidebar({
       connectionStatus: "disconnected",

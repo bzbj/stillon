@@ -2,7 +2,7 @@ import process from "node:process"
 import type {
   ChatRuntime,
   ChatSnapshot,
-  KannaStatus,
+  StillOnStatus,
   LocalProjectsSnapshot,
   SidebarChatRow,
   SidebarData,
@@ -15,7 +15,7 @@ import { SERVER_PROVIDERS } from "./provider-catalog"
 const SIDEBAR_RECENT_WINDOW_MS = 24 * 60 * 60 * 1_000
 const SIDEBAR_FALLBACK_PREVIEW_LIMIT = 5
 
-export function deriveStatus(chat: ChatRecord, activeStatus?: KannaStatus): KannaStatus {
+export function deriveStatus(chat: ChatRecord, activeStatus?: StillOnStatus): StillOnStatus {
   if (activeStatus) return activeStatus
   if (chat.lastTurnOutcome === "failed") return "failed"
   return "idle"
@@ -27,7 +27,7 @@ function getSidebarChatSortTimestamp(chat: ChatRecord) {
 
 function canForkChat(
   chat: ChatRecord,
-  activeStatuses: Map<string, KannaStatus>,
+  activeStatuses: Map<string, StillOnStatus>,
   drainingChatIds: Set<string>,
 ) {
   if (!chat.provider) return false
@@ -60,7 +60,7 @@ function getSidebarChatBuckets(chats: SidebarChatRow[], nowMs: number) {
 
 export function deriveSidebarData(
   state: StoreState,
-  activeStatuses: Map<string, KannaStatus>,
+  activeStatuses: Map<string, StillOnStatus>,
   options?: {
     nowMs?: number
     sidebarProjectOrder?: string[]
@@ -182,7 +182,7 @@ export function deriveLocalProjectsSnapshot(
 
 export function deriveChatSnapshot(
   state: StoreState,
-  activeStatuses: Map<string, KannaStatus>,
+  activeStatuses: Map<string, StillOnStatus>,
   drainingChatIds: Set<string>,
   chatId: string,
   getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">,

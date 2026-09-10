@@ -86,7 +86,7 @@ import {
 } from "../stores/terminalPreferencesStore"
 import { NEW_CHAT_COMPOSER_ID, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, type ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
-import type { KannaState } from "./useKannaState"
+import type { StillOnState } from "./useStillOnState"
 
 const sidebarItems = [
   {
@@ -764,7 +764,7 @@ function SkillResultCard({
 export function SkillsSection({
   state,
 }: {
-  state: Pick<KannaState, "connectionStatus" | "socket">
+  state: Pick<StillOnState, "connectionStatus" | "socket">
 }) {
   const socket = state.socket
   const connectionStatus = state.connectionStatus
@@ -1310,7 +1310,7 @@ export function OnboardingProviderStatusDetails({
   )
 }
 
-export function WelcomeChecklist({ state }: { state: KannaState }) {
+export function WelcomeChecklist({ state }: { state: StillOnState }) {
   const navigate = useNavigate()
   const currentMachineName = state.machineName ?? ""
   const isMachineNameReady = Boolean(state.appSettings)
@@ -1831,7 +1831,7 @@ const DEFAULT_AGENT_NETWORK_SETTINGS: AgentNetworkProxySettings = {
   noProxy: "localhost,127.0.0.1,::1",
 }
 
-function NetworkSettingsSection({ state }: { state: KannaState }) {
+function NetworkSettingsSection({ state }: { state: StillOnState }) {
   const savedSettings = state.appSettings?.network ?? DEFAULT_AGENT_NETWORK_SETTINGS
   const [draft, setDraft] = useState<AgentNetworkProxySettings>(savedSettings)
   const [status, setStatus] = useState<AgentNetworkStatus | null>(null)
@@ -2109,7 +2109,7 @@ function NetworkSettingsSection({ state }: { state: KannaState }) {
 export function SettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
-  const state = useOutletContext<KannaState>()
+  const state = useOutletContext<StillOnState>()
   const { theme, setTheme } = useTheme()
   const [changelogStatus, setChangelogStatus] = useState<ChangelogStatus>("idle")
   const [signingOut, setSigningOut] = useState(false)

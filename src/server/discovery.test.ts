@@ -15,7 +15,7 @@ import {
 const tempDirs: string[] = []
 
 function makeTempDir() {
-  const directory = mkdtempSync(path.join(tmpdir(), "kanna-discovery-"))
+  const directory = mkdtempSync(path.join(tmpdir(), "stillon-discovery-"))
   tempDirs.push(directory)
   return directory
 }

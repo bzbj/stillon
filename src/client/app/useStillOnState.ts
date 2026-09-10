@@ -33,7 +33,7 @@ import {
 } from "../lib/sidebarSnapshotCache"
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
-import { KannaSocket, type SocketStatus } from "./socket"
+import { StillOnSocket, type SocketStatus } from "./socket"
 import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
@@ -529,10 +529,10 @@ function wsUrl() {
   return `${protocol}//${window.location.host}/ws`
 }
 
-function useKannaSocket() {
-  const socketRef = useRef<KannaSocket | null>(null)
+function useStillOnSocket() {
+  const socketRef = useRef<StillOnSocket | null>(null)
   if (!socketRef.current) {
-    socketRef.current = new KannaSocket(wsUrl())
+    socketRef.current = new StillOnSocket(wsUrl())
   }
 
   useEffect(() => {
@@ -543,10 +543,10 @@ function useKannaSocket() {
     }
   }, [])
 
-  return socketRef.current as KannaSocket
+  return socketRef.current as StillOnSocket
 }
 
-function logKannaState(message: string, details?: unknown) {
+function logStillOnState(message: string, details?: unknown) {
   void message
   void details
 }
@@ -705,7 +705,7 @@ export function getActiveChatSnapshot(chatSnapshot: ChatSnapshot | null, activeC
   if (!chatSnapshot) return null
   if (!activeChatId) return null
   if (chatSnapshot.runtime.chatId !== activeChatId) {
-    logKannaState("stale snapshot masked", {
+    logStillOnState("stale snapshot masked", {
       routeChatId: activeChatId,
       snapshotChatId: chatSnapshot.runtime.chatId,
       snapshotProvider: chatSnapshot.runtime.provider,
@@ -715,8 +715,8 @@ export function getActiveChatSnapshot(chatSnapshot: ChatSnapshot | null, activeC
   return chatSnapshot
 }
 
-export interface KannaState {
-  socket: KannaSocket
+export interface StillOnState {
+  socket: StillOnSocket
   activeChatId: string | null
   activeProjectId: string | null
   sidebarData: SidebarData
@@ -810,9 +810,9 @@ export interface KannaState {
   handleCopyStandaloneShareLink: () => Promise<boolean>
 }
 
-export function useKannaState(activeChatId: string | null, cacheScope: string | null): KannaState {
+export function useStillOnState(activeChatId: string | null, cacheScope: string | null): StillOnState {
   const navigate = useNavigate()
-  const socket = useKannaSocket()
+  const socket = useStillOnSocket()
   const dialog = useAppDialog()
   const { resolvedTheme } = useTheme()
 
@@ -1104,14 +1104,14 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
 
   useEffect(() => {
     if (!activeChatId) {
-      logKannaState("clearing chat snapshot for non-chat route")
+      logStillOnState("clearing chat snapshot for non-chat route")
       setChatSnapshot(null)
       setChatReady(true)
       return
     }
 
     const subscriptionId = ++chatSubscriptionDebugRef.current
-    logKannaState("subscribing to chat", {
+    logStillOnState("subscribing to chat", {
       subscriptionId,
       activeChatId,
       sidebarProjectGroups: sidebarProjectGroups.length,
@@ -1168,7 +1168,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
       }
       setChatSnapshot((current) => {
         const reused = sameChatSnapshotCore(current, snapshot)
-        logKannaState("chat snapshot received", {
+        logStillOnState("chat snapshot received", {
           subscriptionId,
           activeChatId,
           snapshotChatId: snapshot?.runtime.chatId ?? null,
@@ -1185,7 +1185,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
       setCommandError(null)
     })
     return () => {
-      logKannaState("unsubscribing from chat", {
+      logStillOnState("unsubscribing from chat", {
         subscriptionId,
         activeChatId,
         sidebarProjectGroups: sidebarProjectGroups.length,
@@ -1299,7 +1299,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
     return unsubscribe
   }, [activeProjectId, socket])
   useEffect(() => {
-    logKannaState("active snapshot resolved", {
+    logStillOnState("active snapshot resolved", {
       routeChatId: activeChatId,
       rawSnapshotChatId: chatSnapshot?.runtime.chatId ?? null,
       rawSnapshotProvider: chatSnapshot?.runtime.provider ?? null,

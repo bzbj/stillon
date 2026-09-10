@@ -11,9 +11,9 @@ import { useChatSoundPreferencesStore } from "../stores/chatSoundPreferencesStor
 import type { ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
 import { playChatNotificationSound, shouldPlayChatSound } from "../lib/chatSounds"
 import { getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
-import { KannaSidebar } from "./KannaSidebar"
+import { StillOnSidebar } from "./StillOnSidebar"
 import { LocalProjectsPage } from "./LocalProjectsPage"
-import { useKannaState } from "./useKannaState"
+import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 
 const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
@@ -154,7 +154,7 @@ function PasswordScreen({
               </div>
             ) : null}
             <Input
-              id="kanna-password"
+              id="stillon-password"
               type="password"
               autoComplete="current-password"
               value={password}
@@ -261,18 +261,18 @@ export function shouldPlayChatNotificationSound(
   return Boolean(appSettings) && shouldPlayChatSound(preference, doc)
 }
 
-function KannaLayout({ cacheScope }: { cacheScope: string | null }) {
+function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
   const location = useLocation()
   const navigate = useNavigate()
   const params = useParams()
-  const state = useKannaState(params.chatId ?? null, cacheScope)
+  const state = useStillOnState(params.chatId ?? null, cacheScope)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const machineName = state.machineName
   const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
-  const previousSidebarDataRef = useRef<ReturnType<typeof useKannaState>["sidebarData"] | null>(null)
+  const previousSidebarDataRef = useRef<ReturnType<typeof useStillOnState>["sidebarData"] | null>(null)
   const previousSidebarSnapshotStatusRef = useRef(state.sidebarSnapshotStatus)
   const handleSidebarCreateChat = useCallback((projectId: string) => {
     void state.handleCreateChat(projectId)
@@ -314,7 +314,7 @@ function KannaLayout({ cacheScope }: { cacheScope: string | null }) {
     void state.handleReorderProjectGroups(projectIds)
   }, [state.handleReorderProjectGroups])
   const sidebarElement = useMemo(() => (
-    <KannaSidebar
+    <StillOnSidebar
       data={state.sidebarData}
       activeChatId={state.activeChatId}
       machineName={machineName}
@@ -457,7 +457,7 @@ export function App() {
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
-          <Route element={<KannaLayout cacheScope={auth.state.cacheScope} />}>
+          <Route element={<StillOnLayout cacheScope={auth.state.cacheScope} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route

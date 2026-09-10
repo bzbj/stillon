@@ -20,7 +20,7 @@ async function startIsolatedServer(options: {
   strictPort?: boolean
   maxUploadSizeBytes?: number
 }) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-server-data-"))
+  const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-server-data-"))
   tempDirs.push(dataDir)
   return startStillOnServer({
     dataDir,
@@ -34,7 +34,7 @@ async function startIsolatedServer(options: {
 
 describe("uploads", () => {
   test("stores uploads in .stillon/uploads and keeps duplicate filenames", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-upload-test-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-upload-test-"))
     tempDirs.push(projectDir)
 
     const first = await persistProjectUpload({
@@ -63,7 +63,7 @@ describe("uploads", () => {
   })
 
   test("stores concurrent same-name uploads without overwriting existing content", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-upload-concurrent-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-upload-concurrent-"))
     tempDirs.push(projectDir)
 
     const attachments = await Promise.all([
@@ -98,7 +98,7 @@ describe("uploads", () => {
   })
 
   test("detects image uploads and returns absolute plus project-relative paths", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-upload-image-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-upload-image-"))
     tempDirs.push(projectDir)
 
     const attachment = await persistProjectUpload({
@@ -117,7 +117,7 @@ describe("uploads", () => {
   })
 
   test("serves uploaded attachment content through the project content URL", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-"))
     tempDirs.push(projectDir)
 
     const server = await startIsolatedServer({ port: 4310 })
@@ -142,7 +142,7 @@ describe("uploads", () => {
   })
 
   test("serves TypeScript uploads as text content", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-typescript-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-typescript-"))
     tempDirs.push(projectDir)
 
     const server = await startIsolatedServer({ port: 4314 })
@@ -167,7 +167,7 @@ describe("uploads", () => {
   })
 
   test("rejects non-GET requests for attachment content", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-content-method-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-content-method-"))
     tempDirs.push(projectDir)
 
     const server = await startIsolatedServer({ port: 4312 })
@@ -191,7 +191,7 @@ describe("uploads", () => {
   })
 
   test("rejects oversized uploads before reading them into memory", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-oversize-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-oversize-"))
     tempDirs.push(projectDir)
 
     const maxUploadSizeBytes = 1024 * 1024
@@ -245,7 +245,7 @@ describe("uploads", () => {
   })
 
   test("cleans up already-persisted files when a later file in the batch fails", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-cleanup-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-cleanup-"))
     tempDirs.push(projectDir)
 
     const files = [
@@ -273,7 +273,7 @@ describe("uploads", () => {
   })
 
   test("deletes uploaded attachments from the project uploads directory", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-upload-delete-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-upload-delete-"))
     tempDirs.push(projectDir)
 
     const attachment = await persistProjectUpload({
@@ -294,7 +294,7 @@ describe("uploads", () => {
   })
 
   test("deletes uploaded attachment content through the project delete URL", async () => {
-    const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-delete-"))
+    const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-delete-"))
     tempDirs.push(projectDir)
 
     const server = await startIsolatedServer({ port: 4311 })

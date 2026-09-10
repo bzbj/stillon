@@ -17,7 +17,7 @@ import {
   resolveComposeIntent,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
-} from "./useKannaState"
+} from "./useStillOnState"
 import type { ChatAttachment, ChatSnapshot, SidebarData, TranscriptEntry, UserPromptEntry } from "../../shared/types"
 
 test("hydrates a compact tool summary only when its details are requested", () => {

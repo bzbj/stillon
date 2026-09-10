@@ -15,7 +15,7 @@ import type {
   GitHubRepoAvailabilityResult,
 } from "../../../shared/types"
 import { useAppDialog } from "../../components/ui/app-dialog"
-import type { KannaState } from "../useKannaState"
+import type { StillOnState } from "../useStillOnState"
 import {
   DIFF_REFRESH_INTERVAL_MS,
   EMPTY_DIFF_SNAPSHOT,
@@ -27,7 +27,7 @@ import {
 export { EMPTY_DIFF_SNAPSHOT }
 
 interface UseChatPageSidebarActionsArgs {
-  state: KannaState
+  state: StillOnState
   projectId: string | null
   showRightSidebar: boolean
 }

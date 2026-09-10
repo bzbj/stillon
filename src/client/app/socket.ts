@@ -34,7 +34,7 @@ function isSendToStartingProfilingEnabled() {
   }
 }
 
-export class KannaSocket {
+export class StillOnSocket {
   private readonly url: string
   private ws: WebSocket | null = null
   private started = false

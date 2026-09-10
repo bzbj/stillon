@@ -282,20 +282,20 @@
     margin-bottom: 20px;
   }
 
-  .kanna-terminal,
-  .kanna-terminal .xterm,
-  .kanna-terminal .xterm-scrollable-element,
-  .kanna-terminal .xterm-viewport,
-  .kanna-terminal .xterm-screen,
-  .kanna-terminal .xterm-helpers,
-  .kanna-terminal .xterm-helper-textarea,
-  .kanna-terminal .composition-view {
+  .stillon-terminal,
+  .stillon-terminal .xterm,
+  .stillon-terminal .xterm-scrollable-element,
+  .stillon-terminal .xterm-viewport,
+  .stillon-terminal .xterm-screen,
+  .stillon-terminal .xterm-helpers,
+  .stillon-terminal .xterm-helper-textarea,
+  .stillon-terminal .composition-view {
     background: transparent !important;
     background-color: transparent !important;
     max-width: 100%;
   }
 
-  .kanna-terminal .xterm-screen canvas {
+  .stillon-terminal .xterm-screen canvas {
     background: transparent !important;
   }
 
@@ -423,7 +423,7 @@
     }
   }
 
-  @keyframes kanna-empty-state-flower-in {
+  @keyframes stillon-empty-state-flower-in {
     from {
       opacity: 0;
       filter: blur(12px);
@@ -437,7 +437,7 @@
     }
   }
 
-  @keyframes kanna-empty-state-text-in {
+  @keyframes stillon-empty-state-text-in {
     from {
       filter: blur(4px);
     }
@@ -447,7 +447,7 @@
     }
   }
 
-  @keyframes kanna-cursor-blink {
+  @keyframes stillon-cursor-blink {
     0%,
     49% {
       opacity: 1;
@@ -459,7 +459,7 @@
     }
   }
 
-  @keyframes kanna-cursor-fade-out {
+  @keyframes stillon-cursor-fade-out {
     from {
       opacity: 1;
     }
@@ -469,16 +469,16 @@
     }
   }
 
-  .kanna-empty-state-flower {
-    animation: kanna-empty-state-flower-in 0.399s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+  .stillon-empty-state-flower {
+    animation: stillon-empty-state-flower-in 0.399s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
     transform-origin: center;
   }
 
-  .kanna-empty-state-text {
-    animation: kanna-empty-state-text-in 0.38s ease-out both;
+  .stillon-empty-state-text {
+    animation: stillon-empty-state-text-in 0.38s ease-out both;
   }
 
-  .kanna-typewriter-cursor-slot {
+  .stillon-typewriter-cursor-slot {
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
@@ -487,16 +487,16 @@
     flex-shrink: 0;
   }
 
-  .kanna-typewriter-cursor {
+  .stillon-typewriter-cursor {
     display: inline-block;
     width: 1px;
     height: 1.05em;
     background-color: white;
-    animation: kanna-cursor-blink 0.9s step-end infinite;
+    animation: stillon-cursor-blink 0.9s step-end infinite;
   }
 
-  .kanna-typewriter-cursor[data-typing-complete="true"] {
-    animation: kanna-cursor-fade-out 0.24s ease-out forwards;
+  .stillon-typewriter-cursor[data-typing-complete="true"] {
+    animation: stillon-cursor-fade-out 0.24s ease-out forwards;
   }
 
 }

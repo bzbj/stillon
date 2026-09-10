@@ -18,7 +18,7 @@ afterEach(async () => {
 })
 
 async function createViewerDist() {
-  const viewerDistDir = await createTempDir("kanna-viewer-")
+  const viewerDistDir = await createTempDir("stillon-viewer-")
   await mkdir(path.join(viewerDistDir, "assets"), { recursive: true })
   await writeFile(path.join(viewerDistDir, "index.html"), "<!doctype html><html><body><div id=\"root\"></div></body></html>\n", "utf8")
   await writeFile(path.join(viewerDistDir, "assets", "viewer.js"), "console.log('viewer')\n", "utf8")
@@ -57,7 +57,7 @@ function createMessages(attachmentAbsolutePath: string): TranscriptEntry[] {
 describe("writeStandaloneTranscriptExport", () => {
   test("writes a metadata-only export with viewer assets and sanitized attachments", async () => {
     const viewerDistDir = await createViewerDist()
-    const projectDir = await createTempDir("kanna-project-")
+    const projectDir = await createTempDir("stillon-project-")
     const uploadsDir = path.join(projectDir, ".kanna", "uploads")
     await mkdir(uploadsDir, { recursive: true })
     const attachmentPath = path.join(uploadsDir, "mock.png")
@@ -125,7 +125,7 @@ describe("writeStandaloneTranscriptExport", () => {
 
   test("copies attachments into the export when bundle mode is selected", async () => {
     const viewerDistDir = await createViewerDist()
-    const projectDir = await createTempDir("kanna-project-")
+    const projectDir = await createTempDir("stillon-project-")
     const uploadsDir = path.join(projectDir, ".kanna", "uploads")
     await mkdir(uploadsDir, { recursive: true })
     const attachmentPath = path.join(uploadsDir, "mock.png")
@@ -181,7 +181,7 @@ describe("writeStandaloneTranscriptExport", () => {
 
   test("returns transcript json for download when share upload fails", async () => {
     const viewerDistDir = await createViewerDist()
-    const projectDir = await createTempDir("kanna-project-")
+    const projectDir = await createTempDir("stillon-project-")
     const uploadsDir = path.join(projectDir, ".kanna", "uploads")
     await mkdir(uploadsDir, { recursive: true })
     const attachmentPath = path.join(uploadsDir, "mock.png")

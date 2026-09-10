@@ -1340,7 +1340,7 @@ function DiffFileCard({
             </div>
           </div>
           {!isCollapsed ? (
-            <div className="kanna-diff-patch overflow-hidden rounded-b-[calc(theme(borderRadius.lg)-1px)] pb-[1px]">
+            <div className="stillon-diff-patch overflow-hidden rounded-b-[calc(theme(borderRadius.lg)-1px)] pb-[1px]">
               {previewAttachment ? (
                 <div className="flex justify-center p-3">
                   {previewAttachment.kind === "image" ? (

@@ -20,7 +20,7 @@ describe("project quick actions", () => {
   })
 
   test("writes quick actions to the project .stillon directory", async () => {
-    const projectPath = await mkdtemp(path.join(tmpdir(), "kanna-project-quick-actions-"))
+    const projectPath = await mkdtemp(path.join(tmpdir(), "stillon-project-quick-actions-"))
 
     const written = await writeProjectQuickActions(projectPath, [
       { id: "dev", label: "Dev", command: "bun run dev" },

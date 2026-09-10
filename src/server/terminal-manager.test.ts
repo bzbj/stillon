@@ -21,8 +21,8 @@ const originalHistfile = process.env.HISTFILE
 
 beforeAll(async () => {
   if (!isSupportedPlatform) return
-  tempProjectPath = await mkdtemp(path.join(os.tmpdir(), "kanna-terminal-manager-"))
-  tempHomePath = await mkdtemp(path.join(os.tmpdir(), "kanna-terminal-home-"))
+  tempProjectPath = await mkdtemp(path.join(os.tmpdir(), "stillon-terminal-manager-"))
+  tempHomePath = await mkdtemp(path.join(os.tmpdir(), "stillon-terminal-home-"))
   await mkdir(path.join(tempHomePath, ".config"), { recursive: true })
   process.env.HOME = tempHomePath
   process.env.ZDOTDIR = tempHomePath
@@ -32,7 +32,7 @@ beforeAll(async () => {
 afterEach(async () => {
   if (!tempProjectPath) return
   await rm(tempProjectPath, { recursive: true, force: true })
-  tempProjectPath = await mkdtemp(path.join(os.tmpdir(), "kanna-terminal-manager-"))
+  tempProjectPath = await mkdtemp(path.join(os.tmpdir(), "stillon-terminal-manager-"))
 })
 
 afterAll(async () => {
