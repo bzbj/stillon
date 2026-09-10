@@ -875,7 +875,7 @@ async function readBaseFile(repoRoot: string, baseCommit: string | null, relativ
 }
 
 async function createPatch(beforePathLabel: string, afterPathLabel: string, beforeText: string | null, afterText: string | null) {
-  const tempDir = await mkdtemp(path.join(tmpdir(), "kanna-diff-"))
+  const tempDir = await mkdtemp(path.join(tmpdir(), "stillon-diff-"))
   const beforePath = path.join(tempDir, "before")
   const afterPath = path.join(tempDir, "after")
 

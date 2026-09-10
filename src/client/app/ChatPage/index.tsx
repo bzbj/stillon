@@ -30,8 +30,8 @@ import { TERMINAL_TOGGLE_ANIMATION_DURATION_MS } from "../terminalToggleAnimatio
 import { useRightSidebarToggleAnimation } from "../useRightSidebarToggleAnimation"
 import { useStickyChatFocus } from "../useStickyChatFocus"
 import { useTerminalToggleAnimation } from "../useTerminalToggleAnimation"
-import type { KannaState } from "../useKannaState"
-import { getNextMeasuredInputHeight, getTranscriptPaddingBottom } from "../useKannaState"
+import type { StillOnState } from "../useStillOnState"
+import { getNextMeasuredInputHeight, getTranscriptPaddingBottom } from "../useStillOnState"
 import { useChatPageSidebarActions, EMPTY_DIFF_SNAPSHOT } from "./useChatPageSidebarActions"
 import {
   EMPTY_STATE_TEXT,
@@ -274,8 +274,8 @@ interface ChatWorkspaceProps {
   fixedTerminalHeight: number
   terminalFocusRequestVersion: number
   addTerminal: ReturnType<typeof useTerminalLayoutStore.getState>["addTerminal"]
-  socket: KannaState["socket"]
-  connectionStatus: KannaState["connectionStatus"]
+  socket: StillOnState["socket"]
+  connectionStatus: StillOnState["connectionStatus"]
   scrollback: number
   minColumnWidth: number
   splitTerminalShortcut?: string[]
@@ -529,7 +529,7 @@ function ChatWorkspace({
 }
 
 export function ChatPage() {
-  const state = useOutletContext<KannaState>()
+  const state = useOutletContext<StillOnState>()
   const dialog = useAppDialog()
   const layoutRootRef = useRef<HTMLDivElement>(null)
   const transcriptListRef = useRef<LegendListRef | null>(null)
@@ -796,7 +796,7 @@ export function ChatPage() {
     }
   }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
-  const handleOpenTranscriptLocalLink = useCallback<KannaState["handleOpenLocalLink"]>(async (target, action, editor) => {
+  const handleOpenTranscriptLocalLink = useCallback<StillOnState["handleOpenLocalLink"]>(async (target, action, editor) => {
     if (target.trigger === "contextmenu" && canOpenHostFiles) {
       await state.handleOpenLocalLink(target, action, editor)
       return

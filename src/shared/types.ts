@@ -559,7 +559,7 @@ export function resolveClaudeContextWindowTokens(contextWindow: ClaudeContextWin
   }
 }
 
-export type KannaStatus =
+export type StillOnStatus =
   | "idle"
   | "starting"
   | "running"
@@ -583,7 +583,7 @@ export interface SidebarChatRow {
   _creationTime: number
   chatId: string
   title: string
-  status: KannaStatus
+  status: StillOnStatus
   unread: boolean
   localPath: string
   provider: AgentProvider | null
@@ -1280,7 +1280,7 @@ export interface ChatRuntime {
   projectId: string
   localPath: string
   title: string
-  status: KannaStatus
+  status: StillOnStatus
   isDraining: boolean
   provider: AgentProvider | null
   lastTurnPreferences: ChatTurnPreferences | null
@@ -1314,7 +1314,7 @@ export interface ChatToolDetails {
   messages: TranscriptEntry[]
 }
 
-export interface KannaSnapshot {
+export interface StillOnSnapshot {
   sidebar: SidebarData
   chat?: ChatSnapshot | null
 }

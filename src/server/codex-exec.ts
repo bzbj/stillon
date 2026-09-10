@@ -393,7 +393,7 @@ export class CodexExecManager {
       serviceTier: args.serviceTier,
       permissionMode: args.permissionMode,
       // codex exec has exact resume, but no confirmed fork equivalent. A fork
-      // request starts a fresh exec session; Kanna clears the pending fork once
+      // request starts a fresh exec session; Still On clears the pending fork once
       // the new thread id arrives.
       sessionToken: args.pendingForkSessionToken ? null : args.sessionToken,
       pendingTurn: null,

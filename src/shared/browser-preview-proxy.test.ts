@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { buildBrowserPreviewProxyUrl } from "./browser-preview-proxy"
 
 describe("buildBrowserPreviewProxyUrl", () => {
-  test("keeps localhost addresses direct during local Kanna access", () => {
+  test("keeps localhost addresses direct during local Still On access", () => {
     expect(buildBrowserPreviewProxyUrl(
       "http://localhost:5173/demo?x=1#top",
       new URL("http://localhost:3210/chat/demo")

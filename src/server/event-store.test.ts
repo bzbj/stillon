@@ -22,7 +22,7 @@ afterEach(async () => {
 })
 
 async function createTempDataDir() {
-  const dir = await mkdtemp(join(tmpdir(), "kanna-event-store-"))
+  const dir = await mkdtemp(join(tmpdir(), "stillon-event-store-"))
   tempDirs.push(dir)
   return dir
 }

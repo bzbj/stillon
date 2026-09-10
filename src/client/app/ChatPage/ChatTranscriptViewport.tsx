@@ -13,11 +13,11 @@ import { cn } from "../../lib/utils"
 import { getProjectRelativeFilePath, parseProjectRelativeFileLink, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
 import {
   buildResolvedTranscriptRows,
-  KannaTranscriptRow,
+  StillOnTranscriptRow,
   type ResolvedTranscriptRow,
   useStableResolvedRows,
-} from "../KannaTranscript"
-import type { KannaState } from "../useKannaState"
+} from "../StillOnTranscript"
+import type { StillOnState } from "../useStillOnState"
 import {
   CHAT_NAVBAR_OFFSET_PX,
   EMPTY_STATE_TEXT,
@@ -28,11 +28,11 @@ import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../sha
 interface ChatTranscriptViewportProps {
   activeChatId: string | null
   listRef: React.RefObject<LegendListRef | null>
-  messages: KannaState["messages"]
-  queuedMessages: KannaState["queuedMessages"]
+  messages: StillOnState["messages"]
+  queuedMessages: StillOnState["queuedMessages"]
   transcriptPaddingBottom: number
   localPath: string | null | undefined
-  latestToolIds: KannaState["latestToolIds"]
+  latestToolIds: StillOnState["latestToolIds"]
   isHistoryLoading: boolean
   hasOlderHistory: boolean
   isProcessing: boolean
@@ -40,14 +40,14 @@ interface ChatTranscriptViewportProps {
   isDraining: boolean
   commandError: string | null
   loadOlderHistory: () => Promise<void>
-  loadToolDetails: KannaState["loadToolDetails"]
+  loadToolDetails: StillOnState["loadToolDetails"]
   onStopDraining: () => void
   onSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
-  onOpenLocalLink: KannaState["handleOpenLocalLink"]
+  onOpenLocalLink: StillOnState["handleOpenLocalLink"]
   canOpenHostFiles?: boolean
-  onAskUserQuestionSubmit: KannaState["handleAskUserQuestion"]
-  onExitPlanModeConfirm: KannaState["handleExitPlanMode"]
+  onAskUserQuestionSubmit: StillOnState["handleAskUserQuestion"]
+  onExitPlanModeConfirm: StillOnState["handleExitPlanMode"]
   showScrollButton: boolean
   onIsAtEndChange: (isAtEnd: boolean) => void
   scrollToBottom: () => void
@@ -292,7 +292,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   const renderItem = useCallback(({ item }: { item: ResolvedTranscriptRow }) => (
     <div className="mx-auto w-full max-w-[800px] pb-5" data-transcript-row-id={item.id}>
-      <KannaTranscriptRow
+      <StillOnTranscriptRow
         row={item}
         toolGroupExpanded={item.kind === "tool-group" ? (toolGroupExpanded[item.id] ?? false) : undefined}
         onToolGroupExpandedChange={handleToolGroupExpandedChange}
@@ -430,23 +430,23 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
               <img
                 src="/stillon-mark.svg"
                 alt=""
-                className="kanna-empty-state-flower size-8 rounded-lg object-contain opacity-80"
+                className="stillon-empty-state-flower size-8 rounded-lg object-contain opacity-80"
                 draggable={false}
               />
               <div
-                className="kanna-empty-state-text flex max-w-xs items-center text-center text-base font-normal text-muted-foreground"
+                className="stillon-empty-state-text flex max-w-xs items-center text-center text-base font-normal text-muted-foreground"
                 aria-label={EMPTY_STATE_TEXT}
               >
                 <span className="relative inline-grid place-items-start">
                   <span className="invisible col-start-1 row-start-1 flex items-center whitespace-pre">
                     <span>{EMPTY_STATE_TEXT}</span>
-                    <span className="kanna-typewriter-cursor-slot" aria-hidden="true" />
+                    <span className="stillon-typewriter-cursor-slot" aria-hidden="true" />
                   </span>
                   <span className="col-start-1 row-start-1 flex items-center whitespace-pre">
                     <span>{typedEmptyStateText}</span>
-                    <span className="kanna-typewriter-cursor-slot" aria-hidden="true">
+                    <span className="stillon-typewriter-cursor-slot" aria-hidden="true">
                       <span
-                        className="kanna-typewriter-cursor"
+                        className="stillon-typewriter-cursor"
                         data-typing-complete={isEmptyStateTypingComplete ? "true" : "false"}
                       />
                     </span>

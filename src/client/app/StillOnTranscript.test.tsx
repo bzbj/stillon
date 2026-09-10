@@ -5,15 +5,15 @@ import type { HydratedTranscriptMessage } from "../../shared/types"
 import {
   buildResolvedTranscriptRows,
   computeStableResolvedTranscriptRows,
-  KannaTranscript,
+  StillOnTranscript,
   type StableResolvedTranscriptRowsState,
-} from "./KannaTranscript"
+} from "./StillOnTranscript"
 
 const ROW_WRAPPER_CLASS = "mx-auto max-w-[800px] pb-5"
 
 function renderTranscript(messages: HydratedTranscriptMessage[]) {
   return renderToStaticMarkup(
-    <KannaTranscript
+    <StillOnTranscript
       messages={messages}
       isLoading={false}
       latestToolIds={{ AskUserQuestion: null, ExitPlanMode: null, TodoWrite: null }}
@@ -43,7 +43,7 @@ function createToolMessage(id: string, toolId = id): HydratedTranscriptMessage {
   }
 }
 
-describe("KannaTranscript", () => {
+describe("StillOnTranscript", () => {
   test("renders user attachment cards outside the user bubble", () => {
     const html = renderTranscript([
       {

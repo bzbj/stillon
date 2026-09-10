@@ -4,7 +4,7 @@ import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-pro
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
 import { buildProjectFileContentUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../../shared/protocol"
-import type { KannaSocket } from "../../app/socket"
+import type { StillOnSocket } from "../../app/socket"
 import {
   getCachedLocalHttpServers,
   getCachedProjectQuickActions,
@@ -43,7 +43,7 @@ function openContextMenuFromButton(event: ReactMouseEvent<HTMLButtonElement>) {
 
 interface BrowserPanelProps {
   projectId: string
-  socket: KannaSocket
+  socket: StillOnSocket
   localPath?: string | null
   canOpenHostFiles?: boolean
   onOpenHostFile?: (filePath: string, action: "open_editor" | "open_default") => void

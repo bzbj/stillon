@@ -1,5 +1,5 @@
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../shared/protocol"
-import type { KannaSocket } from "../app/socket"
+import type { StillOnSocket } from "../app/socket"
 
 let localHttpServersCache: LocalHttpServerInfo[] | null = null
 let localHttpServersRequest: Promise<LocalHttpServerInfo[]> | null = null
@@ -15,7 +15,7 @@ export function getCachedLocalHttpServers() {
   return localHttpServersCache
 }
 
-export function refreshCachedLocalHttpServers(socket: KannaSocket, projectId?: string) {
+export function refreshCachedLocalHttpServers(socket: StillOnSocket, projectId?: string) {
   if (localHttpServersRequest) return localHttpServersRequest
 
   localHttpServersRequest = socket.command<LocalHttpServerInfo[]>({
@@ -42,7 +42,7 @@ export function getCachedProjectQuickActions(projectId: string) {
   return quickActionsCacheByProjectId.get(projectId)
 }
 
-export function refreshCachedProjectQuickActions(socket: KannaSocket, projectId: string) {
+export function refreshCachedProjectQuickActions(socket: StillOnSocket, projectId: string) {
   const existingRequest = quickActionsRequestByProjectId.get(projectId)
   if (existingRequest) return existingRequest
 
@@ -60,7 +60,7 @@ export function refreshCachedProjectQuickActions(socket: KannaSocket, projectId:
   return request
 }
 
-export function writeCachedProjectQuickActions(socket: KannaSocket, projectId: string, actions: ProjectQuickAction[]) {
+export function writeCachedProjectQuickActions(socket: StillOnSocket, projectId: string, actions: ProjectQuickAction[]) {
   quickActionsCacheByProjectId.set(projectId, actions)
   return socket.command<ProjectQuickAction[]>({
     type: "project.writeQuickActions",

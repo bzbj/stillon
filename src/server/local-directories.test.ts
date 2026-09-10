@@ -6,8 +6,8 @@ import { listLocalDirectories } from "./local-directories"
 
 describe("listLocalDirectories", () => {
   test("returns only direct child directories sorted before hidden entries", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kanna-local-directories-"))
-    const linkedTarget = await mkdtemp(path.join(tmpdir(), "kanna-local-directories-link-target-"))
+    const root = await mkdtemp(path.join(tmpdir(), "stillon-local-directories-"))
+    const linkedTarget = await mkdtemp(path.join(tmpdir(), "stillon-local-directories-link-target-"))
     try {
       await mkdir(path.join(root, "beta", "nested"), { recursive: true })
       await mkdir(path.join(root, "alpha"), { recursive: true })
@@ -32,7 +32,7 @@ describe("listLocalDirectories", () => {
   })
 
   test("rejects file paths", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kanna-local-directories-"))
+    const root = await mkdtemp(path.join(tmpdir(), "stillon-local-directories-"))
     try {
       const filePath = path.join(root, "file.txt")
       await writeFile(filePath, "not a directory", "utf8")

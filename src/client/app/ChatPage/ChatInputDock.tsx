@@ -1,7 +1,7 @@
 import { memo, type RefObject } from "react"
 import { ChatInput, type ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import type { ContextWindowSnapshot } from "../../lib/contextWindow"
-import type { KannaState } from "../useKannaState"
+import type { StillOnState } from "../useStillOnState"
 
 interface ChatInputDockProps {
   inputRef: RefObject<HTMLDivElement | null>
@@ -16,9 +16,9 @@ interface ChatInputDockProps {
   projectId: string | null
   activeProvider: "claude" | "codex" | null
   preferencesReady: boolean
-  availableProviders: KannaState["availableProviders"]
+  availableProviders: StillOnState["availableProviders"]
   contextWindowSnapshot: ContextWindowSnapshot | null
-  onSubmit: KannaState["handleSend"]
+  onSubmit: StillOnState["handleSend"]
   onCancel: () => void
 }
 

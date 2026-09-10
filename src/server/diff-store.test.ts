@@ -70,7 +70,7 @@ describe("DiffStore", () => {
   })
 
   test("returns no_repo outside a git repository", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kanna-no-repo-"))
+    const root = await mkdtemp(path.join(tmpdir(), "stillon-no-repo-"))
     tempDirs.push(root)
 
     const store = new DiffStore(root)

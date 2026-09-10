@@ -11,7 +11,7 @@ import type {
   ModelOptions,
   NormalizedToolCall,
   PendingToolSnapshot,
-  KannaStatus,
+  StillOnStatus,
   QueuedChatMessage,
   TranscriptEntry,
 } from "../shared/types"
@@ -80,7 +80,7 @@ interface ActiveTurn {
   serviceTier?: "fast"
   planMode: boolean
   permissionMode: AgentPermissionMode
-  status: KannaStatus
+  status: StillOnStatus
   pendingTool: PendingToolRequest | null
   postToolFollowUp: { content: string; planMode: boolean; permissionMode: AgentPermissionMode } | null
   hasFinalResult: boolean
@@ -849,7 +849,7 @@ export class AgentCoordinator {
   }
 
   getActiveStatuses() {
-    const statuses = new Map<string, KannaStatus>()
+    const statuses = new Map<string, StillOnStatus>()
     for (const [chatId, turn] of this.activeTurns.entries()) {
       statuses.set(chatId, turn.status)
     }

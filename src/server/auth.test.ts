@@ -14,8 +14,8 @@ afterEach(async () => {
 })
 
 async function startPasswordServer(options: { password?: string; trustProxy?: boolean; port?: number } = {}) {
-  const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-auth-test-"))
-  const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-auth-data-"))
+  const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-auth-test-"))
+  const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-auth-data-"))
   tempDirs.push(projectDir)
   tempDirs.push(dataDir)
   const server = await startStillOnServer({

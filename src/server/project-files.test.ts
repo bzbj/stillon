@@ -12,8 +12,8 @@ afterEach(async () => {
 })
 
 async function startProjectFileServer() {
-  const projectDir = await mkdtemp(path.join(tmpdir(), "kanna-project-files-"))
-  const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-project-files-data-"))
+  const projectDir = await mkdtemp(path.join(tmpdir(), "stillon-project-files-"))
+  const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-project-files-data-"))
   tempDirs.push(projectDir, dataDir)
   const server = await startStillOnServer({
     dataDir,
@@ -81,7 +81,7 @@ describe("project file routes", () => {
     if (process.platform === "win32") return
 
     const { server, project, projectDir } = await startProjectFileServer()
-    const outsideDir = await mkdtemp(path.join(tmpdir(), "kanna-project-files-outside-"))
+    const outsideDir = await mkdtemp(path.join(tmpdir(), "stillon-project-files-outside-"))
     tempDirs.push(outsideDir)
 
     try {
@@ -99,8 +99,8 @@ describe("project file routes", () => {
   })
 
   test("serves local markdown files through the local file content route", async () => {
-    const localDir = await mkdtemp(path.join(tmpdir(), "kanna-local-markdown-"))
-    const dataDir = await mkdtemp(path.join(tmpdir(), "kanna-local-markdown-data-"))
+    const localDir = await mkdtemp(path.join(tmpdir(), "stillon-local-markdown-"))
+    const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-local-markdown-data-"))
     tempDirs.push(localDir, dataDir)
     const markdownPath = path.join(localDir, "SKILL.md")
     const imagePath = path.join(localDir, "chart.png")

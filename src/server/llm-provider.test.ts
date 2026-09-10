@@ -13,7 +13,7 @@ import {
 } from "./llm-provider"
 
 let tempDirs: string[] = []
-const TEST_FILE_PATH = "/tmp/kanna-test-llm-provider.json"
+const TEST_FILE_PATH = "/tmp/stillon-test-llm-provider.json"
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
@@ -21,7 +21,7 @@ afterEach(async () => {
 })
 
 async function createTempFilePath() {
-  const dir = await mkdtemp(path.join(tmpdir(), "kanna-llm-provider-"))
+  const dir = await mkdtemp(path.join(tmpdir(), "stillon-llm-provider-"))
   tempDirs.push(dir)
   return path.join(dir, "llm-provider.json")
 }

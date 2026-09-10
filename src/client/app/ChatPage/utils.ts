@@ -1,5 +1,5 @@
 import type { ChatBranchListEntry, ChatDiffSnapshot } from "../../../shared/types"
-import type { ResolvedTranscriptRow } from "../KannaTranscript"
+import type { ResolvedTranscriptRow } from "../StillOnTranscript"
 import type { ContextWindowSnapshot } from "../../lib/contextWindow"
 
 export const EMPTY_STATE_TEXT = "What are we working on?"

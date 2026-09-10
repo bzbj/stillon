@@ -573,7 +573,7 @@ export function buildResolvedTranscriptRows(
   return rows
 }
 
-interface KannaTranscriptProps {
+interface StillOnTranscriptProps {
   messages: HydratedTranscriptMessage[]
   isLoading: boolean
   localPath?: string
@@ -587,7 +587,7 @@ interface KannaTranscriptProps {
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
 }
 
-interface KannaTranscriptRowProps {
+interface StillOnTranscriptRowProps {
   row: ResolvedTranscriptRow
   toolGroupExpanded?: boolean
   onToolGroupExpandedChange: (groupId: string, next: boolean) => void
@@ -599,13 +599,13 @@ interface KannaTranscriptRowProps {
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
 }
 
-export const KannaTranscriptRow = memo(function KannaTranscriptRow({
+export const StillOnTranscriptRow = memo(function StillOnTranscriptRow({
   row,
   toolGroupExpanded,
   onToolGroupExpandedChange,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
-}: KannaTranscriptRowProps) {
+}: StillOnTranscriptRowProps) {
   if (row.kind === "tool-group") {
     return (
       <TranscriptToolGroup
@@ -672,7 +672,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
   return false
 })
 
-function KannaTranscriptImpl({
+function StillOnTranscriptImpl({
   messages,
   isLoading,
   localPath,
@@ -680,7 +680,7 @@ function KannaTranscriptImpl({
   onOpenLocalLink,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
-}: KannaTranscriptProps) {
+}: StillOnTranscriptProps) {
   const [toolGroupExpanded, setToolGroupExpanded] = useState<Record<string, boolean>>({})
   const rows = useMemo(() => buildResolvedTranscriptRows(messages, {
     isLoading,
@@ -705,7 +705,7 @@ function KannaTranscriptImpl({
           key={row.id}
           className="mx-auto max-w-[800px] pb-5"
         >
-          <KannaTranscriptRow
+          <StillOnTranscriptRow
             row={row}
             toolGroupExpanded={row.kind === "tool-group" ? (toolGroupExpanded[row.id] ?? false) : undefined}
             onToolGroupExpandedChange={handleToolGroupExpandedChange}
@@ -718,4 +718,4 @@ function KannaTranscriptImpl({
   )
 }
 
-export const KannaTranscript = memo(KannaTranscriptImpl)
+export const StillOnTranscript = memo(StillOnTranscriptImpl)

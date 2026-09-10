@@ -13,7 +13,7 @@ afterEach(async () => {
 })
 
 async function createTempFilePath() {
-  const dir = await mkdtemp(path.join(tmpdir(), "kanna-settings-"))
+  const dir = await mkdtemp(path.join(tmpdir(), "stillon-settings-"))
   tempDirs.push(dir)
   return path.join(dir, "settings.json")
 }
