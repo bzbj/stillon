@@ -35,9 +35,15 @@ import {
 import { resolveClaudeApiModelId } from "../shared/types"
 import { fallbackTitleFromMessage } from "./generate-title"
 
-// Upper bound on waiting for a cancelled turn's provider process to exit before
-// we stop blocking the chat. Must exceed codex-exec's SIGTERM->SIGKILL budget.
-const CANCEL_INTERRUPT_TIMEOUT_MS = 6_000
+// Claude has no per-thread writer lock: an interrupt that hangs past this is
+// abandoned, as before, so the chat does not stay blocked.
+const CLAUDE_INTERRUPT_TIMEOUT_MS = 6_000
+// How long a command waits for a stopping run to be confirmed gone before it
+// answers "still stopping". The chat stays blocked either way: this bounds the
+// wait for an answer, not the protection against a second thread writer.
+const DEFAULT_STOP_CONFIRM_TIMEOUT_MS = 20_000
+// Queued message ids already started, remembered so a late ↑ is a no-op.
+const STARTED_QUEUED_MESSAGE_MEMORY = 50
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -80,6 +86,8 @@ interface ActiveTurn {
   hasFinalResult: boolean
   cancelRequested: boolean
   cancelRecorded: boolean
+  /** The stop bookkeeping in flight, shared by repeated cancel() calls. */
+  cancelling?: Promise<void>
   clientTraceId?: string
   profilingStartedAt?: number
 }
@@ -138,14 +146,15 @@ interface CodexManager {
     effort?: CodexReasoningEffort
     serviceTier?: "fast"
   }): Promise<string | null>
-  stopSession(chatId: string): void
-  stopAll(): void
+  stopSession(chatId: string): void | Promise<void>
+  stopAll(): void | Promise<void>
 }
 
 interface AgentCoordinatorArgs {
   store: EventStore
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   codexManager?: CodexManager
+  stopConfirmTimeoutMs?: number
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   getEnvironment?: () => NodeJS.ProcessEnv
   startClaudeSession?: (args: {
@@ -727,6 +736,87 @@ async function startClaudeSession(args: {
   }
 }
 
+/** The previous run could not be confirmed stopped, so nothing may resume its thread yet. */
+export class ChatStopError extends Error {
+  readonly code = "stop_failed"
+}
+
+/** Another start for this chat got there first. */
+class ChatBusyError extends Error {}
+
+/** A stop or a newer ↑ arrived while this start waited, so it must not launch. */
+class StartSupersededError extends Error {}
+
+export interface SteerResult {
+  status: "started" | "already_started" | "superseded"
+}
+
+interface RunBarrier {
+  turn: HarnessTurn
+  provider: AgentProvider
+  /** "stop": the run was stopped. "exit": it finished and its process is winding down. */
+  kind: "stop" | "exit"
+  pending: Promise<void> | null
+  error: Error | null
+}
+
+/** Per-chat run lifecycle shared by send, Esc, ↑ and natural completion. */
+interface ChatRunControl {
+  /** Bumped by every stop and ↑; a start that waited on cleanup launches only if it still matches. */
+  generation: number
+  /** The previous run, until its process is confirmed gone. */
+  barrier: RunBarrier | null
+  /** Esc parks the queue until the user sends or presses ↑. */
+  paused: boolean
+  /** A start is past its final checks and has not registered its turn yet. */
+  launching: Promise<void> | null
+  /** The queued message a ↑ is handing the thread to. */
+  steering: { queuedMessageId: string; generation: number; done: Promise<SteerResult> } | null
+  claimedQueuedMessageIds: Set<string>
+  startedQueuedMessageIds: string[]
+}
+
+interface StartTurnArgs {
+  chatId: string
+  provider: AgentProvider
+  content: string
+  attachments: ChatAttachment[]
+  model: string
+  effort?: string
+  serviceTier?: "fast"
+  planMode: boolean
+  permissionMode: AgentPermissionMode
+  preferences?: ChatTurnPreferences
+  appendUserPrompt: boolean
+  steered?: boolean
+  profile?: SendToStartingProfile | null
+  /** Remove this queued message once the run has launched, not before. */
+  consumeQueuedMessageId?: string
+  /** Launch only if no stop or ↑ happened since the caller decided to start. */
+  expectedGeneration?: number
+}
+
+function settleWithin(promise: Promise<unknown>, timeoutMs: number): Promise<"fulfilled" | "rejected" | "timeout"> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve("timeout"), Math.max(0, timeoutMs))
+    promise.then(
+      () => {
+        clearTimeout(timer)
+        resolve("fulfilled")
+      },
+      () => {
+        clearTimeout(timer)
+        resolve("rejected")
+      },
+    )
+  })
+}
+
+function stopFailedMessage(error: Error | null) {
+  const detail = error?.message ? ` ${error.message.replace(/\.$/, "")}.` : ""
+  return `The previous run could not be confirmed stopped.${detail} Press Esc to try again.`
+}
+
 export class AgentCoordinator {
   private readonly store: EventStore
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
@@ -736,11 +826,12 @@ export class AgentCoordinator {
   private readonly getEnvironment: () => NodeJS.ProcessEnv
   private reportBackgroundError: ((message: string) => void) | null = null
   readonly activeTurns = new Map<string, ActiveTurn>()
-  readonly drainingStreams = new Map<string, { turn: HarnessTurn }>()
-  // Chats whose cancelled turn still has a live provider process. Codex holds a
-  // per-thread writer lock, so resuming before the old process exits fails with
-  // "already has an active writer"; startTurnForChat() awaits these first.
-  readonly pendingWriterExits = new Map<string, Promise<void>>()
+  readonly drainingStreams = new Map<string, { turn: HarnessTurn; provider?: AgentProvider }>()
+  // Codex holds a per-thread writer lock, so resuming before the previous
+  // process exits fails with "already has an active writer". Every start waits
+  // on the chat's barrier, which clears only once that exit is confirmed.
+  private readonly runControls = new Map<string, ChatRunControl>()
+  private readonly stopConfirmTimeoutMs: number
   readonly claudeSessions = new Map<string, ClaudeSessionState>()
 
   constructor(args: AgentCoordinatorArgs) {
@@ -750,6 +841,7 @@ export class AgentCoordinator {
     this.codexManager = args.codexManager ?? createDefaultCodexManager(this.getEnvironment)
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
+    this.stopConfirmTimeoutMs = args.stopConfirmTimeoutMs ?? DEFAULT_STOP_CONFIRM_TIMEOUT_MS
   }
 
   setBackgroundErrorReporter(report: ((message: string) => void) | null) {
@@ -760,6 +852,16 @@ export class AgentCoordinator {
     const statuses = new Map<string, KannaStatus>()
     for (const [chatId, turn] of this.activeTurns.entries()) {
       statuses.set(chatId, turn.status)
+    }
+    for (const [chatId, control] of this.runControls) {
+      if (statuses.has(chatId)) continue
+      if (control.barrier?.error) {
+        statuses.set(chatId, "stop_failed")
+      } else if (control.barrier?.kind === "stop") {
+        statuses.set(chatId, "stopping")
+      } else if (control.launching || control.steering) {
+        statuses.set(chatId, "starting")
+      }
     }
     return statuses
   }
@@ -772,6 +874,11 @@ export class AgentCoordinator {
 
   getDrainingChatIds(): Set<string> {
     return new Set(this.drainingStreams.keys())
+  }
+
+  /** The queued message a ↑ is about to send, while the previous run stops. */
+  getSteeringQueuedMessageId(chatId: string): string | null {
+    return this.runControls.get(chatId)?.steering?.queuedMessageId ?? null
   }
 
   private emitStateChange(chatId?: string, options?: { immediate?: boolean }) {
@@ -807,8 +914,10 @@ export class AgentCoordinator {
   async stopDraining(chatId: string) {
     const draining = this.drainingStreams.get(chatId)
     if (!draining) return
-    draining.turn.close()
     this.drainingStreams.delete(chatId)
+    if (this.runControls.get(chatId)?.barrier?.turn !== draining.turn) {
+      this.releaseRun(chatId, draining.turn, draining.provider ?? "codex", "stop")
+    }
     this.emitStateChange(chatId)
   }
 
@@ -823,7 +932,8 @@ export class AgentCoordinator {
   }
 
   restartSessions() {
-    if (this.activeTurns.size > 0 || this.drainingStreams.size > 0) {
+    const runWindingDown = [...this.runControls.values()].some((control) => control.barrier || control.launching)
+    if (this.activeTurns.size > 0 || this.drainingStreams.size > 0 || runWindingDown) {
       throw new Error("Wait for active agent turns to finish or stop them before restarting agent sessions.")
     }
     const claudeSessionCount = this.claudeSessions.size
@@ -831,7 +941,7 @@ export class AgentCoordinator {
       session.session.close()
     }
     this.claudeSessions.clear()
-    this.codexManager.stopAll()
+    void Promise.resolve(this.codexManager.stopAll()).catch(() => undefined)
     this.emitStateChange()
     return { restarted: true, closedClaudeSessions: claudeSessionCount }
   }
@@ -892,52 +1002,241 @@ export class AgentCoordinator {
     return queued
   }
 
-  private async dequeueAndStartQueuedMessage(chatId: string, queuedMessage: QueuedChatMessage, options?: { steered?: boolean }) {
-    await this.store.removeQueuedMessage(chatId, queuedMessage.id)
-    const chat = this.store.requireChat(chatId)
-    const provider = this.resolveProvider(queuedMessage, chat.provider)
-    const settings = this.getProviderSettings(provider, queuedMessage)
-    await this.startTurnForChat({
-      chatId,
-      provider,
-      content: options?.steered ? buildSteeredMessageContent(queuedMessage.content) : queuedMessage.content,
-      attachments: queuedMessage.attachments,
-      model: settings.model,
-      effort: settings.effort,
-      serviceTier: settings.serviceTier,
-      planMode: settings.planMode,
-      permissionMode: settings.permissionMode,
-      preferences: settings.preferences,
-      appendUserPrompt: true,
-      steered: options?.steered,
-    })
+  private async dequeueAndStartQueuedMessage(
+    chatId: string,
+    queuedMessage: QueuedChatMessage,
+    options?: { steered?: boolean; generation?: number },
+  ) {
+    const control = this.control(chatId)
+    if (control.claimedQueuedMessageIds.has(queuedMessage.id)) {
+      throw new ChatBusyError("Queued message is already starting")
+    }
+    // Claim the message so no other path starts it, but keep it queued until
+    // the run has launched: a failed stop or launch must not lose it.
+    control.claimedQueuedMessageIds.add(queuedMessage.id)
+    try {
+      const chat = this.store.requireChat(chatId)
+      const provider = this.resolveProvider(queuedMessage, chat.provider)
+      const settings = this.getProviderSettings(provider, queuedMessage)
+      await this.startTurnForChat({
+        chatId,
+        provider,
+        content: options?.steered ? buildSteeredMessageContent(queuedMessage.content) : queuedMessage.content,
+        attachments: queuedMessage.attachments,
+        model: settings.model,
+        effort: settings.effort,
+        serviceTier: settings.serviceTier,
+        planMode: settings.planMode,
+        permissionMode: settings.permissionMode,
+        preferences: settings.preferences,
+        appendUserPrompt: true,
+        steered: options?.steered,
+        consumeQueuedMessageId: queuedMessage.id,
+        expectedGeneration: options?.generation,
+      })
+    } finally {
+      control.claimedQueuedMessageIds.delete(queuedMessage.id)
+    }
+  }
+
+  private nextQueuedMessage(chatId: string) {
+    if (typeof this.store.getQueuedMessages !== "function") return undefined
+    const control = this.runControls.get(chatId)
+    return this.store.getQueuedMessages(chatId).find((message) => (
+      !control?.claimedQueuedMessageIds.has(message.id)
+      && !control?.startedQueuedMessageIds.includes(message.id)
+    ))
   }
 
   private async maybeStartNextQueuedMessage(chatId: string) {
-    if (this.activeTurns.has(chatId)) return false
-    const nextQueuedMessage = typeof this.store.getQueuedMessages === "function"
-      ? this.store.getQueuedMessages(chatId)[0]
-      : undefined
+    const control = this.control(chatId)
+    if (control.paused || control.steering || this.isChatBusy(chatId)) return false
+    if (!this.nextQueuedMessage(chatId)) return false
+    const generation = control.generation
+    try {
+      await this.awaitRunStopped(chatId)
+    } catch (error) {
+      // The queue waits; the chat shows the stop failure and the user decides.
+      if (error instanceof ChatStopError) return false
+      throw error
+    }
+    if (control.generation !== generation || control.paused || control.steering) return false
+    const nextQueuedMessage = this.nextQueuedMessage(chatId)
     if (!nextQueuedMessage) return false
-    await this.dequeueAndStartQueuedMessage(chatId, nextQueuedMessage)
+    try {
+      await this.dequeueAndStartQueuedMessage(chatId, nextQueuedMessage, { generation })
+    } catch (error) {
+      if (error instanceof ChatBusyError || error instanceof StartSupersededError) return false
+      throw error
+    }
     return true
   }
 
-  private async startTurnForChat(args: {
-    chatId: string
-    provider: AgentProvider
-    content: string
-    attachments: ChatAttachment[]
-    model: string
-    effort?: string
-    serviceTier?: "fast"
-    planMode: boolean
-    permissionMode: AgentPermissionMode
-    preferences?: ChatTurnPreferences
-    appendUserPrompt: boolean
-    steered?: boolean
-    profile?: SendToStartingProfile | null
-  }) {
+  /** Start the queue if the chat is genuinely idle. A stopped or stopping chat keeps it parked. */
+  private scheduleQueuedMessages(chatId: string) {
+    const control = this.control(chatId)
+    if (control.paused || control.steering || control.barrier?.error || this.isChatBusy(chatId)) return
+    void this.startNextQueuedMessage(chatId).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      this.reportBackgroundError?.(`[queue] chat ${chatId} failed to start a queued message: ${message}`)
+    })
+  }
+
+  private async startNextQueuedMessage(chatId: string) {
+    try {
+      await this.maybeStartNextQueuedMessage(chatId)
+    } catch (error) {
+      await this.recordStartFailure(chatId, error)
+    }
+  }
+
+  private async recordStartFailure(chatId: string, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    await this.store.appendMessage(
+      chatId,
+      timestamped({
+        kind: "result",
+        subtype: "error",
+        isError: true,
+        durationMs: 0,
+        result: message,
+      })
+    )
+    await this.store.recordTurnFailed(chatId, message)
+    this.emitStateChange(chatId)
+  }
+
+  private async consumeQueuedMessage(chatId: string, queuedMessageId: string) {
+    const control = this.control(chatId)
+    control.startedQueuedMessageIds.push(queuedMessageId)
+    if (control.startedQueuedMessageIds.length > STARTED_QUEUED_MESSAGE_MEMORY) {
+      control.startedQueuedMessageIds.shift()
+    }
+    try {
+      await this.store.removeQueuedMessage(chatId, queuedMessageId)
+    } catch (error) {
+      // The run has started; the stale entry is skipped via startedQueuedMessageIds.
+      const message = error instanceof Error ? error.message : String(error)
+      this.reportBackgroundError?.(`[queue] chat ${chatId} could not remove started message: ${message}`)
+    }
+  }
+
+  private control(chatId: string): ChatRunControl {
+    let control = this.runControls.get(chatId)
+    if (!control) {
+      control = {
+        generation: 0,
+        barrier: null,
+        paused: false,
+        launching: null,
+        steering: null,
+        claimedQueuedMessageIds: new Set(),
+        startedQueuedMessageIds: [],
+      }
+      this.runControls.set(chatId, control)
+    }
+    return control
+  }
+
+  private isChatBusy(chatId: string) {
+    return this.activeTurns.has(chatId) || Boolean(this.runControls.get(chatId)?.launching)
+  }
+
+  /** Publish the run as the chat's barrier and start releasing it. */
+  private releaseRun(chatId: string, turn: HarnessTurn, provider: AgentProvider, kind: RunBarrier["kind"]) {
+    const control = this.control(chatId)
+    const barrier: RunBarrier = { turn, provider, kind, pending: null, error: null }
+    control.barrier = barrier
+    this.attemptRelease(chatId, barrier)
+    this.emitStateChange(chatId)
+  }
+
+  private attemptRelease(chatId: string, barrier: RunBarrier) {
+    const attempt = barrier.provider === "claude"
+      ? this.releaseClaudeRun(barrier)
+      : this.releaseCodexRun(barrier)
+    barrier.error = null
+    barrier.pending = attempt
+    attempt.then(
+      () => {
+        if (barrier.pending === attempt) barrier.pending = null
+        const control = this.runControls.get(chatId)
+        if (control?.barrier === barrier) {
+          control.barrier = null
+          this.emitStateChange(chatId)
+        }
+      },
+      (error) => {
+        if (barrier.pending !== attempt) return
+        barrier.pending = null
+        barrier.error = error instanceof Error ? error : new Error(String(error))
+        this.reportBackgroundError?.(`[stop] chat ${chatId}: ${barrier.error.message}`)
+        this.emitStateChange(chatId)
+      },
+    )
+  }
+
+  private async releaseCodexRun(barrier: RunBarrier) {
+    // No timeout here: an unconfirmed stop must keep the barrier. Codex's own
+    // SIGTERM -> SIGKILL budget bounds how long interrupt() takes to decide.
+    if (barrier.kind === "stop") {
+      await barrier.turn.interrupt()
+    }
+    await barrier.turn.close()
+  }
+
+  private async releaseClaudeRun(barrier: RunBarrier) {
+    if (barrier.kind === "stop") {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          barrier.turn.interrupt(),
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, CLAUDE_INTERRUPT_TIMEOUT_MS)
+          }),
+        ])
+      } catch {
+        // interrupt() failed — close below.
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    try {
+      await barrier.turn.close()
+    } catch {
+      // Closing a Claude turn has no writer to wait for.
+    }
+  }
+
+  /**
+   * Wait until the chat's previous run is confirmed gone. Throws ChatStopError
+   * when the stop failed or is still unconfirmed after the timeout; the barrier
+   * stays in place either way. With `retry`, a failed stop is attempted again.
+   */
+  private async awaitRunStopped(chatId: string, options?: { retry?: boolean }) {
+    const control = this.control(chatId)
+    let retry = options?.retry ?? false
+    const deadline = Date.now() + this.stopConfirmTimeoutMs
+    for (;;) {
+      const barrier = control.barrier
+      if (!barrier) return
+      if (!barrier.pending) {
+        if (!retry) throw new ChatStopError(stopFailedMessage(barrier.error))
+        retry = false
+        this.attemptRelease(chatId, barrier)
+        this.emitStateChange(chatId)
+      }
+      const outcome = await settleWithin(barrier.pending!, deadline - Date.now())
+      if (outcome === "timeout") {
+        throw new ChatStopError("The previous run is still stopping. Try again in a moment.")
+      }
+      if (outcome === "rejected" && control.barrier === barrier) {
+        throw new ChatStopError(stopFailedMessage(barrier.error))
+      }
+    }
+  }
+
+  private async startTurnForChat(args: StartTurnArgs) {
     logSendToStartingProfile(args.profile, "start_turn.begin", {
       chatId: args.chatId,
       provider: args.provider,
@@ -946,24 +1245,42 @@ export class AgentCoordinator {
       permissionMode: args.permissionMode,
     })
 
-    // Close any lingering draining stream before starting a new turn.
+    const control = this.control(args.chatId)
+    // A draining stream belongs to a finished run; let its process wind down.
     const draining = this.drainingStreams.get(args.chatId)
     if (draining) {
-      draining.turn.close()
       this.drainingStreams.delete(args.chatId)
+      if (control.barrier?.turn !== draining.turn) {
+        this.releaseRun(args.chatId, draining.turn, draining.provider ?? args.provider, "exit")
+      }
     }
 
-    // A just-cancelled turn may still own the provider's thread-writer lock.
-    // Wait for it to be released before resuming this chat.
-    const pendingWriterExit = this.pendingWriterExits.get(args.chatId)
-    if (pendingWriterExit) {
-      await pendingWriterExit
-    }
+    // The previous run may still own the provider's thread-writer lock. Wait
+    // until its exit is confirmed; a failed or unconfirmed stop throws here.
+    await this.awaitRunStopped(args.chatId)
 
+    // Decide synchronously from here: a stop that arrived during the wait
+    // wins, and so does another start that got here first.
+    if (args.expectedGeneration !== undefined && control.generation !== args.expectedGeneration) {
+      throw new StartSupersededError("A newer stop request replaced this start")
+    }
+    if (this.isChatBusy(args.chatId)) {
+      throw new ChatBusyError("Chat is already running")
+    }
+    let finishLaunch!: () => void
+    control.launching = new Promise<void>((resolve) => {
+      finishLaunch = resolve
+    })
+    try {
+      await this.launchTurn(args)
+    } finally {
+      control.launching = null
+      finishLaunch()
+    }
+  }
+
+  private async launchTurn(args: StartTurnArgs) {
     const chat = this.store.requireChat(args.chatId)
-    if (this.activeTurns.has(args.chatId)) {
-      throw new Error("Chat is already running")
-    }
 
     if (args.preferences) {
       await this.store.setChatTurnPreferences(args.chatId, args.preferences)
@@ -1101,6 +1418,10 @@ export class AgentCoordinator {
         provider: args.provider,
         model: args.model,
       })
+    }
+
+    if (args.consumeQueuedMessageId) {
+      await this.consumeQueuedMessage(args.chatId, args.consumeQueuedMessageId)
     }
 
     const active: ActiveTurn = {
@@ -1274,33 +1595,55 @@ export class AgentCoordinator {
     }
 
     const chat = this.store.requireChat(chatId)
-    if (this.activeTurns.has(chatId)) {
-      const queuedMessage = await this.enqueueMessage(chatId, command.content, command.attachments ?? [], {
+    const targetChatId = chatId
+    const control = this.control(targetChatId)
+    const queueMessage = async () => {
+      const queuedMessage = await this.enqueueMessage(targetChatId, command.content, command.attachments ?? [], {
         provider: command.provider,
         model: command.model,
         modelOptions: command.modelOptions,
         effort: command.effort,
         permissionMode: command.permissionMode,
       })
-      return { chatId, queuedMessageId: queuedMessage.id, queued: true as const }
+      return { chatId: targetChatId, queuedMessageId: queuedMessage.id, queued: true as const }
+    }
+    if (this.isChatBusy(targetChatId) || control.steering) {
+      return await queueMessage()
     }
 
+    // An explicit send is the go-ahead after a stop: it runs once the previous
+    // run is confirmed gone, and lets the queue flow again afterwards.
+    control.paused = false
+    const generation = control.generation
     const provider = this.resolveProvider(command, chat.provider)
     const settings = this.getProviderSettings(provider, command)
-    await this.startTurnForChat({
-      chatId,
-      provider,
-      content: command.content,
-      attachments: command.attachments ?? [],
-      model: settings.model,
-      effort: settings.effort,
-      serviceTier: settings.serviceTier,
-      planMode: settings.planMode,
-      permissionMode: settings.permissionMode,
-      preferences: settings.preferences,
-      appendUserPrompt: true,
-      profile,
-    })
+    try {
+      await this.startTurnForChat({
+        chatId: targetChatId,
+        provider,
+        content: command.content,
+        attachments: command.attachments ?? [],
+        model: settings.model,
+        effort: settings.effort,
+        serviceTier: settings.serviceTier,
+        planMode: settings.planMode,
+        permissionMode: settings.permissionMode,
+        preferences: settings.preferences,
+        appendUserPrompt: true,
+        profile,
+        expectedGeneration: generation,
+      })
+    } catch (error) {
+      // Nothing was started for this message: keep it rather than drop it.
+      if (error instanceof ChatBusyError || error instanceof StartSupersededError) {
+        return await queueMessage()
+      }
+      if (error instanceof ChatStopError) {
+        await queueMessage()
+        throw new ChatStopError(`${error.message} Your message is saved in the queue.`)
+      }
+      throw error
+    }
 
     logSendToStartingProfile(profile, "chat_send.ready_for_ack", {
       chatId,
@@ -1318,39 +1661,92 @@ export class AgentCoordinator {
       modelOptions: command.modelOptions,
       permissionMode: command.permissionMode,
     })
+    // The browser may have thought the chat was busy when it had just gone
+    // idle; don't strand the message behind a queue nobody will drain.
+    this.scheduleQueuedMessages(command.chatId)
     return { queuedMessageId: queuedMessage.id }
   }
 
-  async steer(command: Extract<ClientCommand, { type: "message.steer" }>) {
-    const queuedMessage = this.store.getQueuedMessage(command.chatId, command.queuedMessageId)
+  /**
+   * ↑ on a queued message: stop the current run, wait until its writer is
+   * confirmed gone, then run the selected message once on the same thread,
+   * ahead of the rest of the queue.
+   */
+  async steer(command: Extract<ClientCommand, { type: "message.steer" }>): Promise<SteerResult> {
+    const { chatId, queuedMessageId } = command
+    const control = this.control(chatId)
+    if (control.steering?.queuedMessageId === queuedMessageId) {
+      // Repeated ↑ for the same message joins the handoff under way.
+      return await control.steering.done
+    }
+    if (control.claimedQueuedMessageIds.has(queuedMessageId) || control.startedQueuedMessageIds.includes(queuedMessageId)) {
+      // The previous run ended first and the message started on its own; stopping it now would be wrong.
+      return { status: "already_started" }
+    }
+    const queuedMessage = this.store.getQueuedMessage(chatId, queuedMessageId)
     if (!queuedMessage) {
       throw new Error("Queued message not found")
     }
 
     logClaudeSteer("steer_requested", {
-      chatId: command.chatId,
-      queuedMessageId: command.queuedMessageId,
-      activeTurn: this.activeTurns.has(command.chatId),
+      chatId,
+      queuedMessageId,
+      activeTurn: this.activeTurns.has(chatId),
       queuedMessagePreview: queuedMessage.content.slice(0, 160),
     })
 
-    if (this.activeTurns.has(command.chatId)) {
-      await this.cancel(command.chatId, { hideInterrupted: true })
-    }
-
-    logClaudeSteer("steer_after_cancel", {
-      chatId: command.chatId,
-      stillActive: this.activeTurns.has(command.chatId),
+    const generation = ++control.generation
+    control.paused = false
+    let settle!: (result: Promise<SteerResult>) => void
+    const done = new Promise<SteerResult>((resolve) => {
+      settle = resolve
     })
-
-    if (this.activeTurns.has(command.chatId)) {
-      throw new Error("Chat is still running")
+    control.steering = { queuedMessageId, generation, done }
+    this.emitStateChange(chatId)
+    settle(this.runSteer(chatId, queuedMessageId, generation))
+    try {
+      return await done
+    } finally {
+      if (control.steering?.done === done) {
+        control.steering = null
+        this.emitStateChange(chatId)
+      }
     }
+  }
 
-    await this.dequeueAndStartQueuedMessage(command.chatId, queuedMessage, { steered: true })
+  private async runSteer(chatId: string, queuedMessageId: string, generation: number): Promise<SteerResult> {
+    const control = this.control(chatId)
+    // A few rounds at most: each one stops whatever slipped in while the
+    // previous run was stopping.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await this.cancel(chatId, { hideInterrupted: true, handoff: true })
+      logClaudeSteer("steer_after_cancel", {
+        chatId,
+        stillActive: this.activeTurns.has(chatId),
+      })
+      // Esc or a newer ↑ during cleanup cancels this handoff; the message stays queued.
+      if (control.generation !== generation) return { status: "superseded" }
+      if (control.claimedQueuedMessageIds.has(queuedMessageId) || control.startedQueuedMessageIds.includes(queuedMessageId)) {
+        return { status: "already_started" }
+      }
+      const queuedMessage = this.store.getQueuedMessage(chatId, queuedMessageId)
+      if (!queuedMessage) return { status: "superseded" }
+      try {
+        await this.dequeueAndStartQueuedMessage(chatId, queuedMessage, { steered: true, generation })
+        return { status: "started" }
+      } catch (error) {
+        if (error instanceof StartSupersededError) return { status: "superseded" }
+        if (error instanceof ChatBusyError) continue
+        throw error
+      }
+    }
+    throw new Error("Chat is still running")
   }
 
   async dequeue(command: Extract<ClientCommand, { type: "message.dequeue" }>) {
+    if (this.runControls.get(command.chatId)?.claimedQueuedMessageIds.has(command.queuedMessageId)) {
+      throw new Error("This message is already being sent")
+    }
     const queuedMessage = this.store.getQueuedMessage(command.chatId, command.queuedMessageId)
     if (!queuedMessage) {
       throw new Error("Queued message not found")
@@ -1361,7 +1757,7 @@ export class AgentCoordinator {
 
   async forkChat(chatId: string) {
     const chat = this.store.requireChat(chatId)
-    if (this.activeTurns.has(chatId) || this.drainingStreams.has(chatId)) {
+    if (this.activeTurns.has(chatId) || this.drainingStreams.has(chatId) || this.runControls.get(chatId)?.barrier) {
       throw new Error("Chat must be idle before forking")
     }
     if (!chat.provider) {
@@ -1529,7 +1925,7 @@ export class AgentCoordinator {
           this.activeTurns.delete(active.chatId)
           // Track the still-open stream so the UI can show a draining
           // indicator and the user can stop background tasks.
-          this.drainingStreams.set(active.chatId, { turn: active.turn })
+          this.drainingStreams.set(active.chatId, { turn: active.turn, provider: active.provider })
         }
 
         this.emitStateChange(active.chatId)
@@ -1553,7 +1949,12 @@ export class AgentCoordinator {
       if (active.cancelRequested && !active.cancelRecorded) {
         await this.store.recordTurnCancelled(active.chatId)
       }
-      active.turn.close()
+      // Keep the chat's writer barrier until the process has exited. A
+      // cancelled turn already has one from cancel(); a finished one gets one
+      // here, so the next start waits for the exit rather than the result.
+      if (!active.cancelRequested && this.runControls.get(active.chatId)?.barrier?.turn !== active.turn) {
+        this.releaseRun(active.chatId, active.turn, active.provider, "exit")
+      }
       // Only remove if we're still the active turn for this chat.
       // We may have already been removed by result handling or cancel(),
       // and a new turn may have started for the same chatId.
@@ -1579,61 +1980,61 @@ export class AgentCoordinator {
             appendUserPrompt: false,
           })
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          await this.store.appendMessage(
-            active.chatId,
-            timestamped({
-              kind: "result",
-              subtype: "error",
-              isError: true,
-              durationMs: 0,
-              result: message,
-            })
-          )
-          await this.store.recordTurnFailed(active.chatId, message)
-          this.emitStateChange(active.chatId)
+          await this.recordStartFailure(active.chatId, error)
         }
       } else if (!active.cancelRequested) {
-        try {
-          await this.maybeStartNextQueuedMessage(active.chatId)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          await this.store.appendMessage(
-            active.chatId,
-            timestamped({
-              kind: "result",
-              subtype: "error",
-              isError: true,
-              durationMs: 0,
-              result: message,
-            })
-          )
-          await this.store.recordTurnFailed(active.chatId, message)
-          this.emitStateChange(active.chatId)
-        }
+        await this.startNextQueuedMessage(active.chatId)
       }
     }
   }
 
-  async cancel(chatId: string, options?: { hideInterrupted?: boolean }) {
-    // Also clean up any draining stream for this chat.
+  /**
+   * Stop the chat's run and wait until its processes are confirmed gone.
+   * Esc (the default) also cancels a pending ↑ handoff and parks the queue;
+   * `handoff` is ↑'s own stop, which keeps its pending action.
+   */
+  async cancel(chatId: string, options?: { hideInterrupted?: boolean; handoff?: boolean }) {
+    const control = this.control(chatId)
+    if (!options?.handoff) {
+      control.generation += 1
+      control.paused = true
+      this.emitStateChange(chatId)
+    }
+
     const draining = this.drainingStreams.get(chatId)
     if (draining) {
-      draining.turn.close()
       this.drainingStreams.delete(chatId)
+      if (control.barrier?.turn !== draining.turn) {
+        this.releaseRun(chatId, draining.turn, draining.provider ?? "codex", "stop")
+      }
+    }
+
+    // A start that already passed its checks registers its turn momentarily;
+    // wait for it so this stop covers that run too.
+    if (control.launching) {
+      await control.launching
     }
 
     const active = this.activeTurns.get(chatId)
-    if (!active) return
+    if (active) {
+      // Repeated stops share one set of interruption bookkeeping.
+      active.cancelling ??= this.stopActiveTurn(chatId, active, options)
+      await active.cancelling
+    } else if (control.barrier && !control.barrier.pending) {
+      // Retrying a failed stop: stop the whole run, not just a lingering writer.
+      control.barrier.kind = "stop"
+    }
 
+    await this.awaitRunStopped(chatId, { retry: true })
+  }
+
+  private async stopActiveTurn(chatId: string, active: ActiveTurn, options?: { hideInterrupted?: boolean }) {
     logClaudeSteer("cancel_requested", {
       chatId,
       provider: active.provider,
       activePromptSeq: active.claudePromptSeq ?? null,
     })
 
-    // Guard against concurrent cancel() calls — only the first one does work.
-    if (active.cancelRequested) return
     active.cancelRequested = true
 
     const pendingTool = active.pendingTool
@@ -1659,45 +2060,27 @@ export class AgentCoordinator {
     active.cancelRecorded = true
     active.hasFinalResult = true
 
-    // Remove from activeTurns immediately so the UI reflects the cancellation
-    // right away, rather than waiting for interrupt() which may hang.
-    this.activeTurns.delete(chatId)
-    this.emitStateChange(chatId)
+    // Leave the active state right away so the UI shows the run stopping
+    // rather than waiting on interrupt(), and publish the stop as the chat's
+    // barrier: nothing resumes the thread until the process is confirmed gone.
+    if (this.activeTurns.get(chatId) === active) {
+      this.activeTurns.delete(chatId)
+    }
+    this.releaseRun(chatId, active.turn, active.provider, "stop")
     logClaudeSteer("cancel_active_turn_deleted", {
       chatId,
       provider: active.provider,
       activePromptSeq: active.claudePromptSeq ?? null,
     })
+  }
 
-    // Now tear down the underlying process. The turn is already out of active
-    // state so the UI is responsive, but the provider may still hold a
-    // thread-writer lock, so publish the teardown as a barrier that
-    // startTurnForChat() awaits before resuming this chat.
-    const writerExit = (async () => {
-      try {
-        await Promise.race([
-          active.turn.interrupt(),
-          new Promise((resolve) => setTimeout(resolve, CANCEL_INTERRUPT_TIMEOUT_MS)),
-        ])
-      } catch {
-        // interrupt() failed — force close below.
-      }
-      try {
-        active.turn.close()
-      } catch {
-        // Never reject: startTurnForChat() awaits this barrier before resuming,
-        // and a teardown failure must not block the chat permanently.
-      }
-    })()
-    this.pendingWriterExits.set(chatId, writerExit)
-    try {
-      await writerExit
-    } finally {
-      // Only clear our own barrier; a newer cancel() may have replaced it.
-      if (this.pendingWriterExits.get(chatId) === writerExit) {
-        this.pendingWriterExits.delete(chatId)
-      }
-    }
+  /** Stop every run and wait until their processes are gone or could not be stopped. */
+  async shutdown() {
+    await Promise.allSettled([...this.activeTurns.keys()].map((chatId) => this.cancel(chatId)))
+    await Promise.allSettled(
+      [...this.runControls.values()].flatMap((control) => (control.barrier?.pending ? [control.barrier.pending] : [])),
+    )
+    await this.codexManager.stopAll()
   }
 
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>) {

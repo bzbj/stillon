@@ -942,7 +942,7 @@ describe("AgentCoordinator codex integration", () => {
     expect(streamClosed).toBe(true)
   })
 
-  test("cancel immediately removes active turn so UI shows idle", async () => {
+  test("cancel immediately leaves the active state and reports stopping until the run is gone", async () => {
     let resolveInterrupt!: () => void
     const interruptCalled = new Promise<void>((resolve) => {
       resolveInterrupt = resolve
@@ -1011,13 +1011,15 @@ describe("AgentCoordinator codex integration", () => {
     // Cancel — this should immediately remove from active turns
     const cancelPromise = coordinator.cancel("chat-1")
 
-    // The turn should be removed from activeTurns immediately,
-    // BEFORE interrupt() resolves
+    // The turn leaves activeTurns immediately, BEFORE interrupt() resolves,
+    // and the chat reports "stopping" rather than idle while it is torn down.
     await interruptCalled
-    expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
+    expect(coordinator.activeTurns.has("chat-1")).toBe(false)
+    expect(coordinator.getActiveStatuses().get("chat-1")).toBe("stopping")
     expect(interruptDone).toBe(false) // interrupt is still in progress
 
     await cancelPromise
+    expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
 
     // Verify only one "interrupted" message was appended
     const interruptedMessages = store.messages.filter((entry) => entry.kind === "interrupted")
@@ -1332,6 +1334,332 @@ describe("AgentCoordinator cancellation (#109)", () => {
     await cancelled
     await resent
     expect(startedTurns).toBe(2)
+  })
+})
+
+interface FakeCodexRun {
+  content: string
+  events: AsyncEventQueue<any>
+  interruptCalls: number
+  closeCalls: number
+}
+
+/**
+ * A Codex manager whose runs stay up until the test finishes or stops them.
+ * `interrupt` / `close` stand in for the provider confirming its process is gone.
+ */
+function createFakeCodexRuns(options: {
+  interrupt?: (run: FakeCodexRun) => Promise<void>
+  close?: (run: FakeCodexRun) => void | Promise<void>
+} = {}) {
+  const runs: FakeCodexRun[] = []
+  const manager = {
+    async startSession() {},
+    async startTurn(args: { content: string }): Promise<HarnessTurn> {
+      const events = new AsyncEventQueue<any>()
+      const run: FakeCodexRun = { content: args.content, events, interruptCalls: 0, closeCalls: 0 }
+      runs.push(run)
+      events.push({
+        type: "transcript" as const,
+        entry: timestamped({
+          kind: "system_init",
+          provider: "codex",
+          model: "gpt-5.4",
+          tools: [],
+          agents: [],
+          slashCommands: [],
+          mcpServers: [],
+        }),
+      })
+      return {
+        provider: "codex",
+        stream: events,
+        interrupt: async () => {
+          run.interruptCalls += 1
+          await options.interrupt?.(run)
+          events.close()
+        },
+        close: () => {
+          run.closeCalls += 1
+          return options.close?.(run)
+        },
+      }
+    },
+    async generateStructured() {
+      return null
+    },
+    stopSession() {},
+    stopAll() {},
+  }
+  return { manager, runs }
+}
+
+function finishRun(run: FakeCodexRun) {
+  run.events.push({
+    type: "transcript" as const,
+    entry: timestamped({ kind: "result", subtype: "success", isError: false, durationMs: 0, result: "done" }),
+  })
+  run.events.close()
+}
+
+function gate() {
+  let open!: () => void
+  const opened = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { opened, open }
+}
+
+async function startRunning(coordinator: AgentCoordinator, content = "message-A") {
+  await coordinator.send({ type: "chat.send", chatId: "chat-1", provider: "codex", content, model: "gpt-5.4" })
+  await waitFor(() => coordinator.getActiveStatuses().get("chat-1") === "running")
+}
+
+async function enqueue(coordinator: AgentCoordinator, content: string) {
+  const { queuedMessageId } = await coordinator.enqueue({
+    type: "message.enqueue",
+    chatId: "chat-1",
+    content,
+    provider: "codex",
+    model: "gpt-5.4",
+  })
+  return queuedMessageId
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
+
+describe("AgentCoordinator stop and queued-message override (#126)", () => {
+  test("Esc stops the run and keeps the queue parked", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const queuedId = await enqueue(coordinator, "message-B")
+    await coordinator.cancel("chat-1")
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.interruptCalls).toBe(1)
+    expect(store.queuedMessages.map((message) => message.id)).toEqual([queuedId])
+    expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
+  })
+
+  test("↑ stops the run and starts the selected message once, ahead of the rest of the queue", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const queuedB = await enqueue(coordinator, "message-B")
+    const queuedC = await enqueue(coordinator, "message-C")
+
+    const result = await coordinator.steer({ type: "message.steer", chatId: "chat-1", queuedMessageId: queuedC })
+
+    expect(result).toEqual({ status: "started" })
+    expect(runs[0]!.interruptCalls).toBe(1)
+    expect(runs).toHaveLength(2)
+    expect(runs[1]!.content).toContain("message-C")
+    expect(store.queuedMessages.map((message) => message.id)).toEqual([queuedB])
+    const interrupted = store.messages.filter((entry) => entry.kind === "interrupted")
+    expect(interrupted).toHaveLength(1)
+  })
+
+  test("Esc during ↑ cleanup cancels the automatic restart and keeps the message", async () => {
+    const stop = gate()
+    const { manager, runs } = createFakeCodexRuns({ interrupt: () => stop.opened })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const queuedC = await enqueue(coordinator, "message-C")
+    const steered = coordinator.steer({ type: "message.steer", chatId: "chat-1", queuedMessageId: queuedC })
+    await waitFor(() => coordinator.getActiveStatuses().get("chat-1") === "stopping")
+    expect(coordinator.getSteeringQueuedMessageId("chat-1")).toBe(queuedC)
+
+    const cancelled = coordinator.cancel("chat-1")
+    stop.open()
+    await cancelled
+
+    expect(await steered).toEqual({ status: "superseded" })
+    await settle()
+    expect(runs).toHaveLength(1)
+    expect(store.queuedMessages.map((message) => message.id)).toEqual([queuedC])
+    expect(coordinator.getSteeringQueuedMessageId("chat-1")).toBeNull()
+  })
+
+  test("a stop that cannot be confirmed blocks the thread, keeps new input, and recovers on retry", async () => {
+    let attempts = 0
+    const { manager, runs } = createFakeCodexRuns({
+      interrupt: async () => {
+        attempts += 1
+        if (attempts === 1) throw new Error("process 4242 is still running after SIGKILL")
+      },
+    })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    await expect(coordinator.cancel("chat-1")).rejects.toThrow(/could not be confirmed stopped.*4242/)
+    expect(coordinator.getActiveStatuses().get("chat-1")).toBe("stop_failed")
+
+    // A correction sent now must not resume over the live writer, and must not be lost.
+    await expect(coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      content: "message-B",
+      model: "gpt-5.4",
+    })).rejects.toThrow(/saved in the queue/)
+    expect(runs).toHaveLength(1)
+    expect(store.queuedMessages.map((message) => message.content)).toEqual(["message-B"])
+
+    // Esc again retries the stop; once it is confirmed the chat is free.
+    await coordinator.cancel("chat-1")
+    expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
+    expect(runs).toHaveLength(1)
+
+    const result = await coordinator.steer({
+      type: "message.steer",
+      chatId: "chat-1",
+      queuedMessageId: store.queuedMessages[0]!.id,
+    })
+    expect(result).toEqual({ status: "started" })
+    expect(runs).toHaveLength(2)
+    expect(runs[1]!.content).toContain("message-B")
+  })
+
+  test("an unresolved stop is reported as still stopping, never as done", async () => {
+    const { manager, runs } = createFakeCodexRuns({ interrupt: () => new Promise<void>(() => {}) })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      codexManager: manager as never,
+      stopConfirmTimeoutMs: 50,
+    })
+
+    await startRunning(coordinator)
+    await expect(coordinator.cancel("chat-1")).rejects.toThrow(/still stopping/)
+    await expect(coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      content: "message-B",
+      model: "gpt-5.4",
+    })).rejects.toThrow(/still stopping/)
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(runs).toHaveLength(1)
+    expect(coordinator.getActiveStatuses().get("chat-1")).toBe("stopping")
+    expect(store.queuedMessages.map((message) => message.content)).toEqual(["message-B"])
+  })
+
+  test("a finished turn's queued follow-up waits until the previous process has exited", async () => {
+    const exit = gate()
+    const { manager, runs } = createFakeCodexRuns({
+      close: (run) => (run === runs[0] ? exit.opened : undefined),
+    })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    await enqueue(coordinator, "message-B")
+    finishRun(runs[0]!)
+    await waitFor(() => store.turnFinishedCount === 1)
+    await settle()
+    expect(runs).toHaveLength(1)
+
+    exit.open()
+    await waitFor(() => runs.length === 2)
+    expect(runs[1]!.content).toContain("message-B")
+    expect(store.queuedMessages).toHaveLength(0)
+  })
+
+  test("a late ↑ for a message that already started on its own does not stop it", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const queuedM = await enqueue(coordinator, "message-M")
+    finishRun(runs[0]!)
+    await waitFor(() => runs.length === 2)
+
+    const result = await coordinator.steer({ type: "message.steer", chatId: "chat-1", queuedMessageId: queuedM })
+    expect(result).toEqual({ status: "already_started" })
+    expect(runs[1]!.interruptCalls).toBe(0)
+    expect(runs).toHaveLength(2)
+  })
+
+  test("repeated ↑ for the same message starts it once", async () => {
+    const stop = gate()
+    const { manager, runs } = createFakeCodexRuns({ interrupt: () => stop.opened })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const queuedC = await enqueue(coordinator, "message-C")
+    const first = coordinator.steer({ type: "message.steer", chatId: "chat-1", queuedMessageId: queuedC })
+    const second = coordinator.steer({ type: "message.steer", chatId: "chat-1", queuedMessageId: queuedC })
+    stop.open()
+
+    expect(await first).toEqual({ status: "started" })
+    expect(await second).toEqual({ status: "started" })
+    expect(runs).toHaveLength(2)
+    expect(store.messages.filter((entry) => entry.kind === "interrupted")).toHaveLength(1)
+  })
+
+  test("enqueue on an idle chat starts the message", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await enqueue(coordinator, "message-M")
+    await waitFor(() => runs.length === 1)
+    expect(runs[0]!.content).toContain("message-M")
+    expect(store.queuedMessages).toHaveLength(0)
+  })
+
+  test("enqueue after Esc stays parked until the user continues", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    await coordinator.cancel("chat-1")
+    await enqueue(coordinator, "message-M")
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(store.queuedMessages.map((message) => message.content)).toEqual(["message-M"])
+  })
+
+  test("sends racing a stop start exactly one run; the rest are queued", async () => {
+    const stop = gate()
+    const { manager, runs } = createFakeCodexRuns({ interrupt: () => stop.opened })
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+
+    await startRunning(coordinator)
+    const cancelled = coordinator.cancel("chat-1")
+    await waitFor(() => coordinator.getActiveStatuses().get("chat-1") === "stopping")
+    const sends = ["message-B", "message-C"].map((content) => coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      content,
+      model: "gpt-5.4",
+    }))
+    await settle()
+    expect(runs).toHaveLength(1)
+
+    stop.open()
+    await cancelled
+    const results = await Promise.all(sends)
+    expect(runs).toHaveLength(2)
+    expect(results.filter((result) => "queued" in result && result.queued)).toHaveLength(1)
+    expect(store.queuedMessages).toHaveLength(1)
   })
 })
 

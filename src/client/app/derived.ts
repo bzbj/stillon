@@ -39,7 +39,13 @@ export function getLatestToolIds(messages: HydratedTranscriptMessage[]) {
 }
 
 export function canCancelStatus(status?: string) {
-  return status === "starting" || status === "running" || status === "waiting_for_user"
+  // Esc while stopping retries a stop that has not been confirmed yet.
+  return status === "starting" || status === "running" || status === "waiting_for_user" || isStoppingStatus(status)
+}
+
+/** The run was stopped but its processes are not confirmed gone. New sends wait for them. */
+export function isStoppingStatus(status?: string) {
+  return status === "stopping" || status === "stop_failed"
 }
 
 export function isProcessingStatus(status?: string) {
