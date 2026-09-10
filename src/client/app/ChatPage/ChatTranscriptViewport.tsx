@@ -6,6 +6,7 @@ import { DrainingIndicator } from "../../components/messages/DrainingIndicator"
 import { QueuedUserMessage } from "../../components/messages/QueuedUserMessage"
 import { OpenLocalLinkProvider, type OpenLocalLinkTarget } from "../../components/messages/shared"
 import { ProcessingMessage } from "../../components/messages/ProcessingMessage"
+import { isStoppingStatus } from "../derived"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../components/ui/context-menu"
 import { OpenExternalContextMenuContent } from "../../components/open-external-menu"
 import { cn } from "../../lib/utils"
@@ -330,7 +331,9 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   const listFooter = (
     <div className="mx-auto w-full max-w-[800px]">
-      {isProcessing ? <ProcessingMessage status={runtimeStatus ?? undefined} /> : null}
+      {isProcessing || isStoppingStatus(runtimeStatus ?? undefined) ? (
+        <ProcessingMessage status={runtimeStatus ?? undefined} />
+      ) : null}
       {queuedMessages.map((message) => (
         <QueuedUserMessage
           key={message.id}

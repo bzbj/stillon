@@ -157,6 +157,8 @@ export interface QueuedChatMessage {
   model?: string
   modelOptions?: ModelOptions
   permissionMode?: AgentPermissionMode
+  /** Snapshot only: ↑ picked this message and it runs as soon as the current run has stopped. */
+  sendingNow?: boolean
 }
 
 export interface InternalUserAttachmentsData {
@@ -563,6 +565,10 @@ export type KannaStatus =
   | "running"
   | "waiting_for_user"
   | "failed"
+  // The run was stopped and its processes are being confirmed gone.
+  | "stopping"
+  // The run's processes could not be confirmed gone; nothing resumes until a retry succeeds.
+  | "stop_failed"
 
 export interface ProjectSummary {
   id: string

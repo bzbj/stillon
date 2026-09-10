@@ -185,7 +185,8 @@ export function deriveChatSnapshot(
   activeStatuses: Map<string, KannaStatus>,
   drainingChatIds: Set<string>,
   chatId: string,
-  getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">
+  getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">,
+  steeringQueuedMessageId: string | null = null,
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -212,6 +213,7 @@ export function deriveChatSnapshot(
     queuedMessages: (state.queuedMessagesByChatId.get(chat.id) ?? []).map((entry) => ({
       ...entry,
       attachments: [...entry.attachments],
+      ...(entry.id === steeringQueuedMessageId ? { sendingNow: true } : {}),
     })),
     messages: transcript.messages,
     history: transcript.history,

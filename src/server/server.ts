@@ -468,9 +468,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       await server.stop(true)
       await Promise.allSettled([...pendingServerOperations])
       await discoveryRefresh
-      for (const chatId of [...agent.activeTurns.keys()]) {
-        await agent.cancel(chatId)
-      }
+      // Stop every run and wait for its processes, so none outlives the service.
+      await agent.shutdown()
       router.dispose()
       localHtmlPreviews.dispose()
       appSettings.dispose()

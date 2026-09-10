@@ -841,6 +841,7 @@ export function createWsRouter({
           agent.getDrainingChatIds(),
           topic.chatId,
           () => transcript,
+          agent.getSteeringQueuedMessageId?.(topic.chatId) ?? null,
         ),
       },
     }
@@ -1588,8 +1589,8 @@ export function createWsRouter({
           return
         }
         case "message.steer": {
-          await agent.steer(command)
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          const result = await agent.steer(command)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           await broadcastChatAndSidebar(command.chatId)
           return
         }

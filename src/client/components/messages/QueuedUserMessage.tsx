@@ -3,7 +3,7 @@ import remarkGfm from "remark-gfm"
 import type { QueuedChatMessage } from "../../../shared/types"
 import { Button } from "../ui/button"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
-import { ArrowUp, X } from "lucide-react"
+import { ArrowUp, Loader2, X } from "lucide-react"
 
 interface QueuedUserMessageProps {
   message: QueuedChatMessage
@@ -47,9 +47,14 @@ export function QueuedUserMessage({ message, onRemove, onSendNow }: QueuedUserMe
                   size="none"
                   className="rounded-full size-[24px] bg-muted text-muted-foreground border border-primary/10 group-hover:!text-primary hover:bg-muted/60"
                   onClick={onSendNow}
+                  disabled={message.sendingNow}
+                  aria-label={message.sendingNow ? "Sending after the current run stops" : "Send now"}
                 >
-                  {/* Send Now */}
-                  <ArrowUp className="size-3.5"/>
+                  {message.sendingNow ? (
+                    <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  ) : (
+                    <ArrowUp className="size-3.5" aria-hidden="true" />
+                  )}
                 </Button>
 
               

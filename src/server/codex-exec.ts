@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import type { SpawnOptions } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
@@ -12,14 +12,47 @@ import type {
 } from "../shared/types"
 import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
-import { collectProcessTree } from "./process-tree"
+import {
+  defaultProcessControl,
+  ProcessOwnership,
+  ProcessStopError,
+  type ProcessControl,
+  type TerminationScope,
+} from "./process-tree"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 
-// Grace period for the Codex process group to exit on SIGTERM before we
-// escalate to SIGKILL, and how long we then wait to reap it. The two together
-// stay within the cancellation budget in AgentCoordinator.cancel().
-const TERMINATE_GRACE_MS = 2_000
-const TERMINATE_KILL_TIMEOUT_MS = 3_000
+export interface CodexExecTiming {
+  /** How long a finished turn's process may take to exit on its own before it is stopped. */
+  resultExitGraceMs: number
+  /** How long the run gets to exit on SIGTERM before SIGKILL. */
+  terminateGraceMs: number
+  /** How long to wait for SIGKILLed processes to disappear before reporting failure. */
+  killTimeoutMs: number
+}
+
+const DEFAULT_TIMING: CodexExecTiming = {
+  resultExitGraceMs: 5_000,
+  terminateGraceMs: 2_000,
+  killTimeoutMs: 3_000,
+}
+
+// If a background grandchild keeps stdout open, "close" never follows the
+// child's "exit"; finish the turn anyway once buffered output had a chance.
+const EXIT_CLOSE_GRACE_MS = 2_000
+
+/**
+ * The previous Codex run on a thread could not be confirmed stopped. Starting
+ * another `codex exec resume` now would fail with "already has an active
+ * writer", so the caller must keep the chat blocked and let the user retry.
+ */
+export class CodexStopError extends Error {
+  readonly code = "codex_stop_failed"
+}
+
+/** Another chat is running the same Codex thread. It is not ours to kill. */
+export class CodexThreadBusyError extends Error {
+  readonly code = "codex_thread_busy"
+}
 
 type CodexExecPermissionMode = CodexPermissionMode | "read-only"
 
@@ -34,8 +67,8 @@ export function codexSpawnOptions(
     // Deliberately NOT detached. Staying in the server's process group is what
     // lets an external teardown — `launchctl bootout`, a tty SIGINT — reap the
     // CLI along with the server. Cancellation cannot use a group signal here
-    // (that would hit the server too), so terminateChild() enumerates and
-    // signals the process tree by pid instead.
+    // (that would hit the server too), so terminate() enumerates and signals
+    // the process tree by pid instead.
     detached: false,
   }
 }
@@ -81,6 +114,7 @@ interface CodexExecProcess {
   pid?: number
   kill(signal?: NodeJS.Signals | number): void
   on(event: "close", listener: (code: number | null) => void): this
+  on(event: "exit", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
 }
 
@@ -93,12 +127,17 @@ interface SessionContext {
   serviceTier?: ServiceTier
   sessionToken: string | null
   pendingTurn: PendingTurn | null
+  /** The latest run whose process has not been confirmed gone; the next turn waits for it. */
+  writer: PendingTurn | null
+  /** A startTurn() call is between its checks and the spawn. */
+  starting: boolean
   permissionMode: CodexExecPermissionMode | undefined
   ephemeral: boolean
   closed: boolean
 }
 
 interface PendingTurn {
+  chatId: string
   child: CodexExecProcess
   queue: AsyncQueue<HarnessEvent>
   model: string
@@ -106,9 +145,22 @@ interface PendingTurn {
   stderrLines: string[]
   lastProtocolError: string | null
   startedToolIds: Set<string>
+  /** The result was delivered to the stream. Says nothing about the process. */
   resolved: boolean
+  /** The direct child exited. */
   exited: boolean
   exitWaiters: Array<() => void>
+  /** Someone asked the run to stop, as opposed to letting a finished run exit. */
+  stopRequested: boolean
+  stopWaiters: Array<() => void>
+  /** Every process the run started, once the tree can be read (POSIX with a real pid). */
+  ownership: ProcessOwnership | null
+  ownershipRecorded: boolean
+  /** The run's processes are confirmed gone; the thread is free for the next writer. */
+  released: boolean
+  /** In-flight release, shared by every caller until it settles. */
+  cleanup: Promise<void> | null
+  threadId: string | null
 }
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(
@@ -299,13 +351,24 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 
 export class CodexExecManager {
   private readonly sessions = new Map<string, SessionContext>()
+  // Codex allows one writer per thread, whichever chat owns the run.
+  private readonly writersByThread = new Map<string, PendingTurn>()
   private readonly spawnProcess: SpawnCodexExec
   private readonly getEnvironment: () => NodeJS.ProcessEnv
+  private readonly timing: CodexExecTiming
+  private readonly processControl: ProcessControl
 
-  constructor(args: { spawnProcess?: SpawnCodexExec; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
+  constructor(args: {
+    spawnProcess?: SpawnCodexExec
+    getEnvironment?: () => NodeJS.ProcessEnv
+    timing?: Partial<CodexExecTiming>
+    processControl?: ProcessControl
+  } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd, environment) =>
       spawn(getCodexCliCommand(), commandArgs, codexSpawnOptions(cwd, environment)) as unknown as CodexExecProcess)
+    this.timing = { ...DEFAULT_TIMING, ...args.timing }
+    this.processControl = args.processControl ?? defaultProcessControl
   }
 
   async startSession(args: StartCodexExecSessionArgs): Promise<string | undefined> {
@@ -320,7 +383,7 @@ export class CodexExecManager {
     }
 
     if (existing) {
-      this.stopSession(args.chatId)
+      void this.stopSession(args.chatId)
     }
 
     const context: SessionContext = {
@@ -334,6 +397,9 @@ export class CodexExecManager {
       // the new thread id arrives.
       sessionToken: args.pendingForkSessionToken ? null : args.sessionToken,
       pendingTurn: null,
+      // A replaced session's last run may still be exiting; keep waiting for it.
+      writer: existing?.writer && !existing.writer.released ? existing.writer : null,
+      starting: false,
       closed: false,
       ephemeral: args.ephemeral ?? false,
     }
@@ -343,8 +409,20 @@ export class CodexExecManager {
 
   async startTurn(args: StartCodexExecTurnArgs): Promise<HarnessTurn> {
     const context = this.requireSession(args.chatId)
-    if (context.pendingTurn) {
+    if (context.pendingTurn || context.starting) {
       throw new Error("Codex exec turn is already running")
+    }
+
+    if (this.threadHasWriter(context)) {
+      context.starting = true
+      try {
+        await this.waitForThreadRelease(context)
+      } finally {
+        context.starting = false
+      }
+      if (context.closed || this.sessions.get(args.chatId) !== context) {
+        throw new Error("Codex exec session not started")
+      }
     }
 
     const queue = new AsyncQueue<HarnessEvent>()
@@ -355,6 +433,7 @@ export class CodexExecManager {
     const commandArgs = this.buildCommandArgs(context, args)
     const child = this.spawnProcess(commandArgs, context.cwd, this.getEnvironment())
     const pendingTurn: PendingTurn = {
+      chatId: context.chatId,
       child,
       queue,
       model: args.model,
@@ -365,8 +444,22 @@ export class CodexExecManager {
       resolved: false,
       exited: false,
       exitWaiters: [],
+      stopRequested: false,
+      stopWaiters: [],
+      // Windows has no POSIX process table; the direct child is all we can track there.
+      ownership: typeof child.pid === "number" && process.platform !== "win32"
+        ? new ProcessOwnership(child.pid, this.processControl)
+        : null,
+      ownershipRecorded: false,
+      released: false,
+      cleanup: null,
+      threadId: null,
     }
     context.pendingTurn = pendingTurn
+    context.writer = pendingTurn
+    if (context.sessionToken) {
+      this.claimThread(pendingTurn, context.sessionToken)
+    }
 
     this.attachListeners(context, pendingTurn)
 
@@ -381,13 +474,15 @@ export class CodexExecManager {
       stream: queue,
       interrupt: async () => {
         this.finishTurn(context, pendingTurn, "cancelled", "")
-        await this.terminateChild(child, pendingTurn)
+        await this.releaseWriter(pendingTurn, "stop")
       },
       close: () => {
         if (!pendingTurn.resolved) {
-          void this.terminateChild(child, pendingTurn)
           this.finishTurn(context, pendingTurn, "error", "Codex exec turn closed")
+          return this.releaseWriter(pendingTurn, "stop")
         }
+        // The result is in, but the writer may still be flushing its thread.
+        return this.releaseWriter(pendingTurn, "result")
       },
     }
   }
@@ -455,27 +550,32 @@ export class CodexExecManager {
       const candidate = assistantText.trim() || resultText.trim()
       return candidate || null
     } finally {
-      turn?.close()
-      this.stopSession(chatId)
+      void turn?.close()
+      void this.stopSession(chatId)
     }
   }
 
-  stopSession(chatId: string) {
+  /** Stop the chat's session. Settles once its processes are gone or could not be stopped; never rejects. */
+  stopSession(chatId: string): Promise<void> {
     const context = this.sessions.get(chatId)
-    if (!context) return
+    if (!context) return Promise.resolve()
     context.closed = true
-    if (context.pendingTurn) {
-      void this.terminateChild(context.pendingTurn.child, context.pendingTurn)
-      context.pendingTurn.queue.finish()
-      context.pendingTurn = null
-    }
     this.sessions.delete(chatId)
+    const releases: Promise<void>[] = []
+    if (context.pendingTurn) {
+      const pendingTurn = context.pendingTurn
+      pendingTurn.queue.finish()
+      context.pendingTurn = null
+      releases.push(this.releaseWriter(pendingTurn, "stop"))
+    }
+    if (context.writer && !context.writer.released) {
+      releases.push(this.releaseWriter(context.writer, "result"))
+    }
+    return Promise.allSettled(releases).then(() => undefined)
   }
 
-  stopAll() {
-    for (const chatId of this.sessions.keys()) {
-      this.stopSession(chatId)
-    }
+  stopAll(): Promise<void> {
+    return Promise.all([...this.sessions.keys()].map((chatId) => this.stopSession(chatId))).then(() => undefined)
   }
 
   private buildCommandArgs(context: SessionContext, args: StartCodexExecTurnArgs) {
@@ -543,29 +643,49 @@ export class CodexExecManager {
       this.finishTurn(context, pendingTurn, "error", error.message)
     })
 
+    const finishFromExit = (code: number | null) => {
+      if (pendingTurn.resolved) return
+      const message = pendingTurn.lastProtocolError
+        || pendingTurn.stderrLines.at(-1)
+        || `Codex exec exited with code ${code ?? 1}`
+      this.finishTurn(context, pendingTurn, code === 0 ? "success" : "error", code === 0 ? "" : message)
+    }
+
+    pendingTurn.child.on("exit", (code) => {
+      // The writer is gone as soon as the process exits, even if a grandchild
+      // still holds its stdout open and delays "close".
+      this.markExited(pendingTurn)
+      if (pendingTurn.resolved) return
+      const timer = setTimeout(() => finishFromExit(code), EXIT_CLOSE_GRACE_MS)
+      timer.unref?.()
+    })
+
     pendingTurn.child.on("close", (code) => {
-      // Record the exit before the resolved-guard below: terminateChild() waits
-      // on this even for turns whose stream was already finished by cancel().
+      // Record the exit before the resolved-guard below: a release waits on
+      // this even for turns whose stream was already finished by cancel().
       this.markExited(pendingTurn)
       // Let the readline loops consume any final buffered stdout/stderr lines
       // before selecting the terminal error message.
-      queueMicrotask(() => {
-        if (pendingTurn.resolved) return
-        const message = pendingTurn.lastProtocolError
-          || pendingTurn.stderrLines.at(-1)
-          || `Codex exec exited with code ${code ?? 1}`
-        this.finishTurn(context, pendingTurn, code === 0 ? "success" : "error", code === 0 ? "" : message)
-      })
+      queueMicrotask(() => finishFromExit(code))
     })
   }
 
   private handleEvent(context: SessionContext, pendingTurn: PendingTurn, event: Record<string, unknown>) {
     const type = asString(event.type)
 
+    if (pendingTurn.ownership && !pendingTurn.ownershipRecorded) {
+      // Codex is producing output, so the launcher and its native binary are
+      // both up. Record them now: if the launcher dies first, the native
+      // child is reparented and could no longer be found through the tree.
+      pendingTurn.ownershipRecorded = true
+      void pendingTurn.ownership.record(!pendingTurn.exited).catch(() => undefined)
+    }
+
     if (type === "thread.started") {
       const threadId = asString(event.thread_id) ?? asString(event.threadId)
       if (threadId) {
         context.sessionToken = threadId
+        this.claimThread(pendingTurn, threadId)
         pendingTurn.queue.push({ type: "session_token", sessionToken: threadId })
       }
       return
@@ -701,6 +821,117 @@ export class CodexExecManager {
     }
   }
 
+  private claimThread(pendingTurn: PendingTurn, threadId: string) {
+    pendingTurn.threadId = threadId
+    this.writersByThread.set(threadId, pendingTurn)
+  }
+
+  private threadHolder(context: SessionContext) {
+    const holder = context.sessionToken ? this.writersByThread.get(context.sessionToken) : undefined
+    return holder && !holder.released && holder.chatId !== context.chatId ? holder : null
+  }
+
+  private threadHasWriter(context: SessionContext) {
+    return Boolean((context.writer && !context.writer.released) || this.threadHolder(context))
+  }
+
+  /**
+   * Wait until no process can still hold this chat's Codex thread: the chat's
+   * own previous run, and a run of any other chat resumed on the same thread.
+   * Throws when that cannot be confirmed; the caller must not spawn.
+   */
+  private async waitForThreadRelease(context: SessionContext) {
+    if (context.writer && !context.writer.released) {
+      await this.releaseWriter(context.writer, "result")
+    }
+    const holder = this.threadHolder(context)
+    if (holder) {
+      if (!holder.resolved) {
+        throw new CodexThreadBusyError("This Codex thread is already running in another chat.")
+      }
+      await this.releaseWriter(holder, "result")
+    }
+  }
+
+  /**
+   * Make sure the run's writer is gone. Idempotent and shared: concurrent
+   * callers get the same attempt, and a call after a failed attempt retries.
+   * "stop" terminates the whole run; "result" first lets a finished run exit
+   * on its own and then stops only the Codex processes that linger.
+   */
+  private releaseWriter(pendingTurn: PendingTurn, mode: "stop" | "result"): Promise<void> {
+    if (mode === "stop" && !pendingTurn.stopRequested) {
+      pendingTurn.stopRequested = true
+      for (const waiter of pendingTurn.stopWaiters.splice(0)) waiter()
+    }
+    if (pendingTurn.released) return Promise.resolve()
+    if (!pendingTurn.cleanup) {
+      const cleanup: Promise<void> = this.runRelease(pendingTurn)
+        .then(() => {
+          pendingTurn.released = true
+          if (pendingTurn.threadId && this.writersByThread.get(pendingTurn.threadId) === pendingTurn) {
+            this.writersByThread.delete(pendingTurn.threadId)
+          }
+        })
+        .finally(() => {
+          if (pendingTurn.cleanup === cleanup) pendingTurn.cleanup = null
+        })
+      // Callers that fire and forget must not surface an unhandled rejection.
+      cleanup.catch(() => undefined)
+      pendingTurn.cleanup = cleanup
+    }
+    return pendingTurn.cleanup
+  }
+
+  private async runRelease(pendingTurn: PendingTurn) {
+    if (!pendingTurn.stopRequested && !pendingTurn.exited) {
+      await this.waitForExitOrStop(pendingTurn, this.timing.resultExitGraceMs)
+    }
+    // A stop that arrives during the grace escalates this same attempt.
+    await this.terminate(pendingTurn, pendingTurn.stopRequested ? "tree" : "writer")
+  }
+
+  private async terminate(pendingTurn: PendingTurn, scope: TerminationScope) {
+    const { terminateGraceMs, killTimeoutMs } = this.timing
+
+    if (pendingTurn.ownership) {
+      try {
+        await pendingTurn.ownership.terminate({
+          scope,
+          rootAlive: () => !pendingTurn.exited,
+          graceMs: terminateGraceMs,
+          killTimeoutMs,
+        })
+      } catch (error) {
+        if (!(error instanceof ProcessStopError)) throw error
+        throw new CodexStopError(`Codex did not stop: ${error.message}`)
+      }
+      // The process table no longer shows the child; its exit event can trail slightly.
+      if (!pendingTurn.exited && !(await this.waitForExit(pendingTurn, killTimeoutMs))) {
+        throw new CodexStopError(`Codex did not stop: process ${pendingTurn.child.pid} has not exited`)
+      }
+      return
+    }
+
+    // No pid to walk from (a test double), or a platform without a POSIX
+    // process tree: the direct child is all that can be signalled and verified.
+    if (pendingTurn.exited) return
+    this.signalChild(pendingTurn.child, "SIGTERM")
+    if (await this.waitForExit(pendingTurn, terminateGraceMs)) return
+    if (process.platform === "win32" && pendingTurn.child.pid) {
+      await this.killWindowsTree(pendingTurn.child.pid)
+    }
+    this.signalChild(pendingTurn.child, "SIGKILL")
+    if (await this.waitForExit(pendingTurn, killTimeoutMs)) return
+    throw new CodexStopError("Codex did not stop: the process is still running after SIGKILL")
+  }
+
+  private killWindowsTree(pid: number) {
+    return new Promise<void>((resolve) => {
+      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => resolve())
+    })
+  }
+
   private signalChild(child: CodexExecProcess, signal: NodeJS.Signals) {
     try {
       child.kill(signal)
@@ -732,60 +963,19 @@ export class CodexExecManager {
     })
   }
 
-  private signalPid(pid: number, signal: NodeJS.Signals) {
-    try {
-      process.kill(pid, signal)
-    } catch {
-      // Already gone, or not ours to signal.
-    }
-  }
-
-  private isPidAlive(pid: number) {
-    try {
-      // Signal 0 performs the existence check without delivering anything.
-      process.kill(pid, 0)
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  private async waitForTreeExit(pids: number[], timeoutMs: number) {
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      if (!pids.some((pid) => this.isPidAlive(pid))) return true
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    return !pids.some((pid) => this.isPidAlive(pid))
-  }
-
-  private async terminateChild(child: CodexExecProcess, pendingTurn: PendingTurn) {
-    const pid = child.pid
-
-    if (!pid || process.platform === "win32") {
-      // No pid to walk from (a test double), or a platform without a POSIX
-      // process tree to enumerate: fall back to signalling the child itself.
-      if (pendingTurn.exited) return
-      this.signalChild(child, "SIGTERM")
-      if (await this.waitForExit(pendingTurn, TERMINATE_GRACE_MS)) return
-      this.signalChild(child, "SIGKILL")
-      await this.waitForExit(pendingTurn, TERMINATE_KILL_TIMEOUT_MS)
-      return
-    }
-
-    // Snapshot the tree before signalling anything: `codex` is often a Node
-    // shim, and once it exits the native binary it spawned is reparented to
-    // init, losing the link we need to find it.
-    const tree = await collectProcessTree(pid)
-    if (pendingTurn.exited && !tree.some((entry) => this.isPidAlive(entry))) return
-
-    // SIGTERM first so Codex can release its thread-writer lock on the way out.
-    for (const entry of tree) this.signalPid(entry, "SIGTERM")
-    if (await this.waitForTreeExit(tree, TERMINATE_GRACE_MS)) return
-
-    // Something survived. SIGKILL cannot be caught or forwarded by a shim,
-    // which is why every pid in the tree is targeted individually.
-    for (const entry of tree) this.signalPid(entry, "SIGKILL")
-    await this.waitForTreeExit(tree, TERMINATE_KILL_TIMEOUT_MS)
+  private waitForExitOrStop(pendingTurn: PendingTurn, timeoutMs: number): Promise<void> {
+    if (pendingTurn.exited || pendingTurn.stopRequested) return Promise.resolve()
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(finish, timeoutMs)
+      pendingTurn.exitWaiters.push(finish)
+      pendingTurn.stopWaiters.push(finish)
+    })
   }
 }

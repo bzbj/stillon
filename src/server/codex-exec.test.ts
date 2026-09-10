@@ -5,7 +5,7 @@ import { spawn } from "node:child_process"
 import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { CodexExecManager, codexSpawnOptions } from "./codex-exec"
+import { CodexExecManager, CodexStopError, CodexThreadBusyError, codexSpawnOptions } from "./codex-exec"
 
 class FakeCodexExecProcess extends EventEmitter {
   readonly stdin = new PassThrough()
@@ -697,4 +697,135 @@ describe("CodexExecManager cancellation (#109)", () => {
     // Codex writer lock and failing the next thread/resume.
     expect(await waitUntilDead(nativePid)).toBe(true)
   }, 30_000)
+})
+
+/** A process that ignores every signal until the test lets it exit. */
+class ImmortalProcess extends FakeCodexExecProcess {
+  override kill(signal?: string) {
+    this.signals.push(signal ?? "SIGTERM")
+  }
+}
+
+async function startExecTurn(manager: CodexExecManager, chatId = "chat-1") {
+  return await manager.startTurn({
+    chatId,
+    model: "gpt-5.5",
+    content: "Work",
+    planMode: false,
+    onToolRequest: async () => ({}),
+  })
+}
+
+describe("CodexExecManager writer lifecycle (#126)", () => {
+  test("a completed turn keeps the thread until its process exits", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new FakeCodexExecProcess()
+        processes.push(child)
+        return child as never
+      },
+      timing: { resultExitGraceMs: 10_000 },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-1" })
+
+    const first = await startExecTurn(manager)
+    processes[0]!.writeJson({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })
+    const events = await collectStream(first.stream)
+    expect(events.at(-1)?.entry?.kind).toBe("result")
+
+    // The result is in but the writer is still alive: resuming now would race it.
+    const second = startExecTurn(manager)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(processes).toHaveLength(1)
+
+    processes[0]!.closeWithCode(0)
+    await second
+    expect(processes).toHaveLength(2)
+    // It exited on its own, so it was never signalled.
+    expect(processes[0]!.signals).toEqual([])
+  })
+
+  test("a finished process that lingers is stopped before the next resume", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new FakeCodexExecProcess()
+        processes.push(child)
+        return child as never
+      },
+      timing: { resultExitGraceMs: 20, terminateGraceMs: 200, killTimeoutMs: 200 },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-1" })
+
+    const first = await startExecTurn(manager)
+    processes[0]!.writeJson({ type: "turn.completed" })
+    await collectStream(first.stream)
+
+    await startExecTurn(manager)
+    expect(processes[0]!.signals).toEqual(["SIGTERM"])
+    expect(processes).toHaveLength(2)
+  })
+
+  test("close() after the result still releases the writer", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new FakeCodexExecProcess()
+        processes.push(child)
+        return child as never
+      },
+      timing: { resultExitGraceMs: 20, terminateGraceMs: 200, killTimeoutMs: 200 },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: null })
+
+    const turn = await startExecTurn(manager)
+    processes[0]!.writeJson({ type: "turn.completed" })
+    await collectStream(turn.stream)
+
+    await turn.close()
+    expect(processes[0]!.killed).toBe(true)
+  })
+
+  test("an unconfirmed stop fails and keeps the thread blocked until the process is gone", async () => {
+    const processes: ImmortalProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new ImmortalProcess()
+        processes.push(child)
+        return child as never
+      },
+      timing: { terminateGraceMs: 20, killTimeoutMs: 20 },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-1" })
+
+    const turn = await startExecTurn(manager)
+    await expect(turn.interrupt()).rejects.toBeInstanceOf(CodexStopError)
+    await expect(startExecTurn(manager)).rejects.toBeInstanceOf(CodexStopError)
+    expect(processes).toHaveLength(1)
+
+    // Once the writer is really gone, a retry succeeds and the thread resumes.
+    processes[0]!.closeWithCode(137)
+    await turn.interrupt()
+    await startExecTurn(manager)
+    expect(processes).toHaveLength(2)
+  })
+
+  test("refuses to resume a thread that another chat is running, without killing it", async () => {
+    const processes: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        const child = new FakeCodexExecProcess()
+        processes.push(child)
+        return child as never
+      },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-shared" })
+    await manager.startSession({ chatId: "chat-2", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-shared" })
+
+    await startExecTurn(manager, "chat-1")
+    await expect(startExecTurn(manager, "chat-2")).rejects.toBeInstanceOf(CodexThreadBusyError)
+    expect(processes).toHaveLength(1)
+    expect(processes[0]!.signals).toEqual([])
+  })
 })

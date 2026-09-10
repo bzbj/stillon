@@ -9,6 +9,8 @@ const STATUS_LABELS: Record<string, string> = {
   starting: "Starting...",
   running: "Running...",
   waiting_for_user: "Waiting...",
+  stopping: "Stopping...",
+  stop_failed: "Could not stop. Press Esc to retry.",
   failed: "Failed",
 }
 
@@ -18,7 +20,7 @@ interface ProcessingMessageProps {
 
 export function ProcessingMessage({ status }: ProcessingMessageProps) {
   const label = (status ? STATUS_LABELS[status] : undefined) || "Processing..."
-  const isFailed = status === "failed"
+  const isFailed = status === "failed" || status === "stop_failed"
 
   return (
     <MetaRow className="ml-[1px]">

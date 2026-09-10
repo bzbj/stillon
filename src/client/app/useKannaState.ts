@@ -95,6 +95,7 @@ function sameQueuedMessage(left: QueuedChatMessage, right: QueuedChatMessage) {
     && left.provider === right.provider
     && left.model === right.model
     && JSON.stringify(left.modelOptions) === JSON.stringify(right.modelOptions)
+    && left.sendingNow === right.sendingNow
     && sameAttachmentArray(left.attachments, right.attachments)
 }
 
@@ -1721,7 +1722,7 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
         throw new Error("Open a project first")
       }
 
-      const result = await socket.command<{ chatId?: string }>({
+      const result = await socket.command<{ chatId?: string; queued?: boolean }>({
         type: "chat.send",
         chatId: activeChatId ?? undefined,
         projectId: activeChatId ? undefined : projectId ?? undefined,
@@ -1733,6 +1734,15 @@ export function useKannaState(activeChatId: string | null, cacheScope: string | 
         modelOptions: options?.modelOptions,
         permissionMode: options?.permissionMode,
       })
+      if (result.queued) {
+        // The chat was busy, or a stop was requested while this send waited;
+        // the server kept the message in the queue instead of starting it.
+        setOptimisticUserPrompts((current) => current.filter((prompt) => prompt.id !== optimisticId))
+        setOptimisticProcessing(null)
+        sendToStartingProfilesRef.current.delete(clientTraceId)
+        setCommandError(null)
+        return
+      }
       sendTrace.ackAt = performance.now()
       sendTrace.serverChatId = result.chatId ?? sendTrace.serverChatId
       setOptimisticProcessing((current) => {

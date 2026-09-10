@@ -9,7 +9,7 @@ import { getSidebarChatTimestamp } from "../../../lib/sidebarChats"
 import { cn, normalizeChatId } from "../../../lib/utils"
 import { ChatRowMenu } from "./Menus"
 
-const loadingStatuses = new Set(["starting", "running"])
+const loadingStatuses = new Set(["starting", "running", "stopping"])
 
 interface Props {
   chat: SidebarChatRow
