@@ -124,8 +124,12 @@ kill a process merely because it occupies the configured port.
 Tracked CSS, components, icons, binary images and committed local changes are
 captured relative to the current release tag. Additional source files and local
 environment files are copied only when they do not conflict with a release
-file. Symlinks/junctions, special files, runtime-local user data and conflicting
-patches require manual handling.
+file. Relative source symlinks are preserved without copying their target contents when
+the resolved target stays inside the source tree. Absolute, dangling, cyclic,
+external, generated-file and user-data links require manual handling, as do
+linked data/build trees, special files, runtime-local user data and conflicting
+patches. Windows must support creating any links present in the source; inability
+to create one stops preparation before the running application is changed.
 
 Generated `dist` files have a verified checksum baseline. Direct changes stop
 the upgrade until migrated into source. Dependency/editor caches are not
