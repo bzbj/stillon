@@ -6,7 +6,19 @@ import path from "node:path"
 import { buildWindowsServicePowerShell, encodeWindowsPowerShell, getWindowsServicePaths } from "../service/windows"
 import { waitUntil } from "./control"
 import { exists } from "./files"
-import { stopWindowsServiceProcesses } from "./processes"
+import { stopWindowsEncodedProcesses, stopWindowsServiceProcesses } from "./processes"
+
+test.skipIf(process.platform !== "win32")("long registered command identities do not exceed the cleanup helper command-line limit", async () => {
+  const encoded = encodeWindowsPowerShell(`#${"x".repeat(9_500)}\r\nStart-Sleep -Seconds 120`)
+  expect(encoded.length).toBeGreaterThan(25_000)
+  const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { windowsHide: true, stdio: "ignore" })
+  const exited = new Promise<void>((resolve, reject) => { child.once("exit", () => resolve()); child.once("error", reject) })
+  try {
+    await new Promise<void>((resolve, reject) => { child.once("spawn", () => resolve()); child.once("error", reject) })
+    await stopWindowsEncodedProcesses(encoded)
+    await exited
+  } finally { child.kill(); await exited }
+}, 30_000)
 
 test.skipIf(process.platform !== "win32")("native service cleanup removes its watchdog and child while leaving a sibling process alive", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stillon native '路径-"))

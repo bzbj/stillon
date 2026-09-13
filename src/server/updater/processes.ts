@@ -3,13 +3,16 @@ import { assertCommandSucceeded } from "../service/types"
 import { buildWindowsServicePowerShell, encodeWindowsPowerShell } from "../service/windows"
 import type { ServiceLaunchSpec } from "../service/types"
 import type { UpdateDeployment, UpdateRunnerStatus } from "./model"
+import { mkdtemp, rmdir, unlink, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 /** Task Scheduler can leave conhost's PowerShell/Bun children alive after /End. */
 export async function stopWindowsEncodedProcesses(encoded: string) {
   if (!/^[A-Za-z0-9+/=]{32,}$/.test(encoded)) throw new Error("Missing native task command identity")
   const script = [
     "$ErrorActionPreference = 'Stop'",
-    `$expected = '${encoded}'`,
+    "$expected = [IO.File]::ReadAllText($env:STILLON_WATCHDOG_IDENTITY_FILE)",
     "function Find-Owned { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('conhost.exe','powershell.exe') -and $_.CommandLine -and [regex]::Match($_.CommandLine, '(?i)(?:^|\\s)-EncodedCommand\\s+([A-Za-z0-9+/=]+)(?:\\s|$)').Groups[1].Value -eq $expected }) }",
     "$deadline = [DateTime]::UtcNow.AddSeconds(10)",
     "do {",
@@ -26,7 +29,19 @@ export async function stopWindowsEncodedProcesses(encoded: string) {
     "} while ([DateTime]::UtcNow -lt $deadline)",
     "if ((Find-Owned).Count -gt 0) { throw 'An owned native service process did not exit' }",
   ].join("\r\n")
-  assertCommandSucceeded("Stop owned native service process tree", await runServiceCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeWindowsPowerShell(script)]))
+  // Re-encoding a long PATH-bearing launch command can exceed CreateProcess's
+  // command-line limit. Keep the helper command fixed-size and the payload local.
+  const directory = await mkdtemp(path.join(os.tmpdir(), "stillon-watchdog-identity-"))
+  const file = path.join(directory, "command.txt")
+  try {
+    await writeFile(file, encoded, { mode: 0o600 })
+    assertCommandSucceeded("Stop owned native service process tree", await runServiceCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeWindowsPowerShell(script)], {
+      env: { ...process.env, STILLON_WATCHDOG_IDENTITY_FILE: file },
+    }))
+  } finally {
+    await unlink(file)
+    await rmdir(directory)
+  }
 }
 
 export async function stopWindowsServiceProcesses(launch: ServiceLaunchSpec) {
