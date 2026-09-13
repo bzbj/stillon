@@ -59,7 +59,8 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import { Textarea } from "../components/ui/textarea"
-import type { EditorPreset, SourceUpgradePromptResult } from "../../shared/protocol"
+import type { EditorPreset, ManagedUpdateStatus, SourceUpgradePromptResult } from "../../shared/protocol"
+import { ManagedUpgradePanel } from "./ManagedUpgradePanel"
 import { SegmentedControl } from "../components/ui/segmented-control"
 import {
   Select,
@@ -491,6 +492,8 @@ export function ChangelogSection({
   onRetry,
   currentVersion,
   onGenerateUpgradePrompt,
+  onReadManagedUpdate,
+  onRequestManagedUpdate,
 }: {
   status: ChangelogStatus
   releases: GithubRelease[]
@@ -498,6 +501,8 @@ export function ChangelogSection({
   onRetry: () => void
   currentVersion: string
   onGenerateUpgradePrompt: (release: GithubRelease) => Promise<SourceUpgradePromptResult>
+  onReadManagedUpdate?: () => Promise<ManagedUpdateStatus>
+  onRequestManagedUpdate?: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
 }) {
   const normalizedCurrentVersion = currentVersion.replace(/^v/i, "")
   const availableSourceRelease = status === "success"
@@ -506,6 +511,9 @@ export function ChangelogSection({
 
   return (
     <div className="space-y-4">
+      {onReadManagedUpdate && onRequestManagedUpdate ? (
+        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} />
+      ) : null}
       {status === "loading" || status === "idle" ? (
         <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-border bg-card/40 px-6 py-8 text-sm text-muted-foreground">
           <div className="flex items-center gap-3">
@@ -3259,6 +3267,8 @@ export function SettingsPage() {
                     error={changelogError}
                     onRetry={retryChangelog}
                     currentVersion={appVersion}
+                    onReadManagedUpdate={() => state.socket.command<ManagedUpdateStatus>({ type: "settings.readManagedUpdateStatus" })}
+                    onRequestManagedUpdate={(targetTag, prepareOnly) => state.socket.command<ManagedUpdateStatus>({ type: "settings.requestManagedUpdate", targetTag, prepareOnly })}
                     onGenerateUpgradePrompt={(release) => state.socket.command<SourceUpgradePromptResult>({
                       type: "settings.generateSourceUpgradePrompt",
                       targetTag: release.tag_name,

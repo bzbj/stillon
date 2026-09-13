@@ -146,11 +146,17 @@ Check the native service and local health endpoint after each deployment:
 curl --fail http://127.0.0.1:3210/health
 ```
 
-For an update, create and build a new release directory, verify it manually
+Opt-in managed source updates are available for recorded native macOS and
+Windows installations, including x64 and arm64 Bun. See
+[Managed source updates](managed-updates.md) for one-time setup, Changelog
+actions, customization preservation and independent rollback. Unknown/custom
+launchers continue using the manual workflow below.
+
+For a manual update, create and build a new release directory, verify it manually
 on an unused local port, then run `service install` from its `bin/stillon`
-entrypoint. The per-user service is replaced with the new runtime. StillOn
-does not download or install releases itself; **Settings → Changelog** can
-generate a source-upgrade prompt for Codex or Claude Code instead.
+entrypoint. The per-user service is replaced with the new runtime.
+**Settings → Changelog** can also generate a source-upgrade prompt for Codex
+or Claude Code when managed updates are unavailable.
 
 To roll back, reinstall the service from the known-good release directory:
 

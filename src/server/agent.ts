@@ -931,9 +931,13 @@ export class AgentCoordinator {
     this.emitStateChange(chatId)
   }
 
-  restartSessions() {
+  hasActiveWork() {
     const runWindingDown = [...this.runControls.values()].some((control) => control.barrier || control.launching)
-    if (this.activeTurns.size > 0 || this.drainingStreams.size > 0 || runWindingDown) {
+    return this.activeTurns.size > 0 || this.drainingStreams.size > 0 || runWindingDown
+  }
+
+  restartSessions() {
+    if (this.hasActiveWork()) {
       throw new Error("Wait for active agent turns to finish or stop them before restarting agent sessions.")
     }
     const claudeSessionCount = this.claudeSessions.size

@@ -1,2 +1,10 @@
 #!/usr/bin/env bun
-await import("../src/server/cli.ts")
+if (process.argv[2] === "update") {
+  const { updateCli } = await import("../src/server/updater/cli.ts")
+  try { await updateCli() } catch (error) {
+    console.error(error instanceof Error ? error.message : "Managed update failed.")
+    process.exitCode = 1
+  }
+} else {
+  await import("../src/server/cli.ts")
+}

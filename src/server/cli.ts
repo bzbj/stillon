@@ -18,6 +18,7 @@ const result = await runCli(argv, {
     const { manageService } = await import("./service")
     return manageService(action, {
       ...options,
+      recordInstallation: true,
       log: console.log,
       warn: console.warn,
     })

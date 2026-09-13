@@ -20,6 +20,7 @@ import { readProjectQuickActions, writeProjectQuickActions } from "./project-qui
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import type { SourceUpgradePromptGenerator } from "./source-upgrade-prompt"
+import type { ManagedUpdateApi } from "./updater/api"
 import { TerminalManager } from "./terminal-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import type {
@@ -142,6 +143,7 @@ interface CreateWsRouterArgs {
     read: () => Promise<SubscriptionUsageSnapshot>
   }
   sourceUpgradePrompt?: SourceUpgradePromptGenerator
+  managedUpdate?: ManagedUpdateApi
   agentNetwork?: {
     readStatus: () => AgentNetworkStatus
     detect: () => Promise<AgentNetworkDetectionResult>
@@ -402,6 +404,7 @@ export function createWsRouter({
   llmProvider,
   subscriptionUsage,
   sourceUpgradePrompt,
+  managedUpdate,
   agentNetwork,
   refreshDiscovery,
   getDiscoveredProjects,
@@ -1210,6 +1213,17 @@ export function createWsRouter({
         }
         case "settings.generateSourceUpgradePrompt": {
           const result = await resolvedSourceUpgradePrompt.generate({ targetTag: command.targetTag })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "settings.readManagedUpdateStatus": {
+          const result = managedUpdate ? await managedUpdate.read() : { enabled: false }
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "settings.requestManagedUpdate": {
+          if (!managedUpdate) throw new Error("Managed updates are not available for this installation.")
+          const result = await managedUpdate.request(command.targetTag, command.prepareOnly)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
