@@ -774,7 +774,8 @@ function applyDownloadHeader(headers: Headers, fileName: string, url: URL) {
 }
 
 function buildAttachmentContentDisposition(fileName: string) {
-  const fallbackName = path.basename(fileName).replaceAll("\\", "-").replace(/["\r\n]/g, "_") || "download"
+  // Keep the legacy filename ASCII; filename* carries the original UTF-8 name.
+  const fallbackName = path.basename(fileName).replaceAll("\\", "-").replace(/[^\x20-\x7e]|"/g, "_") || "download"
   return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeRfc5987ValueChars(fileName)}`
 }
 
