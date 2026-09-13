@@ -90,10 +90,37 @@ export function parseProcessList(output: string): ProcessInfo[] {
 
 export class ProcessDiscoveryError extends Error {}
 
-/** Every process on the machine, with enough detail to tell a reused pid apart. POSIX only. */
+/** CIM supplies executable names (not command lines) and stable creation timestamps. */
+export function parseWindowsProcessList(output: string): ProcessInfo[] {
+  const value: unknown = JSON.parse(output.replace(/^\uFEFF/, ""))
+  const rows = Array.isArray(value) ? value : [value]
+  return rows.map((row) => {
+    if (!row || !Number.isInteger(row.pid) || row.pid < 0
+      || !Number.isInteger(row.ppid) || row.ppid < 0
+      || typeof row.startedAt !== "string" || !row.startedAt
+      || typeof row.command !== "string" || !row.command) {
+      throw new ProcessDiscoveryError("could not list processes: invalid CIM process identity")
+    }
+    return { pid: row.pid, ppid: row.ppid, stat: "S", startedAt: row.startedAt, command: row.command }
+  })
+}
+
+/** Every process on the machine, with enough detail to tell a reused pid apart. */
 export async function listProcesses(): Promise<ProcessInfo[]> {
   let stdout: string
   try {
+    if (process.platform === "win32") {
+      const result = await execFileAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+        "$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        + "@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -gt 0 } | ForEach-Object { "
+        + "if ($null -eq $_.CreationDate) { throw 'Missing process creation time' }; "
+        + "[pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; "
+        + "startedAt = $_.CreationDate.ToUniversalTime().Ticks.ToString(); command = $_.Name } }) | ConvertTo-Json -Compress",
+      ], { windowsHide: true, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 })
+      const processes = parseWindowsProcessList(result.stdout)
+      if (processes.length === 0) throw new ProcessDiscoveryError("CIM returned no processes")
+      return processes
+    }
     ;({ stdout } = await execFileAsync("ps", ["-Ao", "pid=,ppid=,stat=,lstart=,comm="], {
       env: { ...process.env, LC_ALL: "C" },
       maxBuffer: 16 * 1024 * 1024,
@@ -238,6 +265,11 @@ export class ProcessOwnership {
     const byPid = new Map(processes.map((info) => [info.pid, info]))
     const children = new Map<number, number[]>()
     for (const info of processes) {
+      // Windows retains ParentProcessId after the parent exits. If that pid
+      // was reused, an older child must not be adopted by the new process.
+      const parent = byPid.get(info.ppid)
+      if (parent && /^\d+$/.test(info.startedAt) && /^\d+$/.test(parent.startedAt)
+        && BigInt(info.startedAt) < BigInt(parent.startedAt)) continue
       const siblings = children.get(info.ppid)
       if (siblings) siblings.push(info.pid)
       else children.set(info.ppid, [info.pid])

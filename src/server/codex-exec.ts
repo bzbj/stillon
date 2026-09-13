@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process"
+import { spawn } from "node:child_process"
 import type { SpawnOptions } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
@@ -153,9 +153,10 @@ interface PendingTurn {
   /** Someone asked the run to stop, as opposed to letting a finished run exit. */
   stopRequested: boolean
   stopWaiters: Array<() => void>
-  /** Every process the run started, once the tree can be read (POSIX with a real pid). */
+  /** Every process the run started, once the tree can be read. */
   ownership: ProcessOwnership | null
   ownershipRecorded: boolean
+  ownershipRecording: Promise<void> | null
   /** The run's processes are confirmed gone; the thread is free for the next writer. */
   released: boolean
   /** In-flight release, shared by every caller until it settles. */
@@ -446,11 +447,11 @@ export class CodexExecManager {
       exitWaiters: [],
       stopRequested: false,
       stopWaiters: [],
-      // Windows has no POSIX process table; the direct child is all we can track there.
-      ownership: typeof child.pid === "number" && process.platform !== "win32"
+      ownership: typeof child.pid === "number"
         ? new ProcessOwnership(child.pid, this.processControl)
         : null,
       ownershipRecorded: false,
+      ownershipRecording: null,
       released: false,
       cleanup: null,
       threadId: null,
@@ -681,7 +682,7 @@ export class CodexExecManager {
       // both up. Record them now: if the launcher dies first, the native
       // child is reparented and could no longer be found through the tree.
       pendingTurn.ownershipRecorded = true
-      void pendingTurn.ownership.record(!pendingTurn.exited).catch(() => undefined)
+      pendingTurn.ownershipRecording = pendingTurn.ownership.record(!pendingTurn.exited).catch(() => undefined)
     }
 
     if (type === "thread.started") {
@@ -899,6 +900,9 @@ export class CodexExecManager {
 
     if (pendingTurn.ownership) {
       try {
+        // In particular, a Windows CIM query may still be running when Esc
+        // arrives. Finish the initial snapshot before signalling the launcher.
+        await pendingTurn.ownershipRecording
         await pendingTurn.ownership.terminate({
           scope,
           rootAlive: () => !pendingTurn.exited,
@@ -916,23 +920,13 @@ export class CodexExecManager {
       return
     }
 
-    // No pid to walk from (a test double), or a platform without a POSIX
-    // process tree: the direct child is all that can be signalled and verified.
+    // No pid to walk from (a test double).
     if (pendingTurn.exited) return
     this.signalChild(pendingTurn.child, "SIGTERM")
     if (await this.waitForExit(pendingTurn, terminateGraceMs)) return
-    if (process.platform === "win32" && pendingTurn.child.pid) {
-      await this.killWindowsTree(pendingTurn.child.pid)
-    }
     this.signalChild(pendingTurn.child, "SIGKILL")
     if (await this.waitForExit(pendingTurn, killTimeoutMs)) return
     throw new CodexStopError("Codex did not stop: the process is still running after SIGKILL")
-  }
-
-  private killWindowsTree(pid: number) {
-    return new Promise<void>((resolve) => {
-      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => resolve())
-    })
   }
 
   private signalChild(child: CodexExecProcess, signal: NodeJS.Signals) {
