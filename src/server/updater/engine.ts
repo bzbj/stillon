@@ -106,6 +106,9 @@ export class UpdateEngine {
 }
 
 export async function updateCommand(command: string[], cwd: string, timeout = 120_000, log?: string) {
+  // Transaction directories plus Git object/customization paths can exceed
+  // MAX_PATH. Scope this to our Git process, never change the user's config.
+  if (process.platform === "win32" && command[0] === "git") command = ["git", "-c", "core.longpaths=true", ...command.slice(1)]
   const child = Bun.spawn(command, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" } })
   const timer = setTimeout(() => child.kill(), timeout)

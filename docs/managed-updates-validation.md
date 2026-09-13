@@ -83,12 +83,37 @@ not native interruption recovery, Apple Silicon adoption, login/reboot or a
 subsequent production release-to-release upgrade. The running production runtime
 was not replaced during PR integration; platform CI checks the combined revision.
 
+## Physical Windows ARM64 retest (2026-09-14)
+
+On a Snapdragon X X1E80100 running Windows 11 Pro build 26200 and native ARM64
+Bun 1.3.14, the native task rehearsal passed in 132.88 seconds: a killed setup
+worker recovered the original service automatically, setup retry enabled managed
+operation, and a killed update worker recovered the original runtime and data.
+
+A separate full-source installation reproduced a killed setup initiator before
+worker registration. Re-running setup installed the worker and reached `enabled`
+without manually completing the service switch. Live Task Scheduler edits were
+rejected. Fresh dependencies, both client builds, the real application probe,
+managed status and an additional binary under `public/dist` were verified.
+An exclusive Windows file lock blocked backup without starting new code; the
+real controller resumed the old application. Tracked and additional-file
+customization conflicts stopped preparation before any service pause.
+
+This deeply nested installation exposed Git's Windows MAX_PATH limit. Updater
+Git commands now use a process-local `core.longpaths=true` option. A regression
+test clones and checks out an asset beyond 260 characters without persisting a
+Git configuration change. The original command failed this test.
+
+The temporary tasks and their processes were removed. The existing production
+service and headless launcher were unchanged. These checks do not cover actual
+logout/login, reboot or physical power loss.
+
 ## Remaining lifecycle acceptance
 
 | Scenario | Windows x64 | Windows ARM64 | Mac Intel / Apple Silicon |
 | --- | --- | --- | --- |
-| Controller/worker interruption tests | Automated + native tasks | CI | CI |
-| First-time native adoption and recovery | Rehearsed + CI task rehearsal | CI task rehearsal | Intel production adoption + combined-code isolated setup passed; native interruption recovery / Apple Silicon pending |
+| Controller/worker interruption tests | Automated + native tasks | Physical ARM64 + CI | CI |
+| First-time native adoption and recovery | Rehearsed + CI task rehearsal | Physical ARM64 + CI task rehearsal | Intel production adoption + combined-code isolated setup passed; native interruption recovery / Apple Silicon pending |
 | Logout/login after interrupted update | Pending | Pending | Pending |
 | Reboot after interrupted update | Pending | Pending | Pending |
 | Physical power loss / filesystem failure | Not certified | Not certified | Not certified |
