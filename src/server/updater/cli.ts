@@ -35,7 +35,7 @@ export async function setupManagedUpdates(root = updateRoot()) {
       console.log("The independent worker will finish first-time setup. Use update status for progress.")
       return
     }
-    if (!setup || !["failed", "restored"].includes(setup.phase)) throw new Error("Managed updates are configured or setup is pending. Use update status or update recover.")
+    if (!setup || !["prepared", "failed", "restored"].includes(setup.phase)) throw new Error("Managed updates are configured or setup is pending. Use update status or update recover.")
     if (await leaseAlive(root)) throw new Error("The previous setup worker is still finishing. Retry setup after it exits.")
   }
   const registration = await json<ServiceRegistration>(registrationFile)
@@ -87,10 +87,13 @@ export async function setupManagedUpdates(root = updateRoot()) {
   }
   await verifyServiceRegistration(registration)
   await checkSetupReadiness(deployment)
+  // Disable adoption before publishing deployment metadata. A crash between
+  // these writes leaves a retryable preparation, never an apparently enabled app.
+  const setup: SetupState = { phase: "prepared", registration, updatedAt: new Date().toISOString() }
+  await atomicJson(path.join(root, "setup.json"), setup)
   await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
   await atomicJson(path.join(root, "deployment.json"), deployment)
-  const setup: SetupState = { phase: "queued", registration, updatedAt: new Date().toISOString() }
-  await atomicJson(path.join(root, "setup.json"), setup)
+  await atomicJson(path.join(root, "setup.json"), { ...setup, phase: "queued" })
   await installUpdateWorker(deployment)
   await wakeUpdateWorker(deployment)
   console.log(`First-time setup requested for ${serviceTarget.platform}/${serviceTarget.architecture}. The independent worker owns the service switch and recovery; use update status for progress.`)

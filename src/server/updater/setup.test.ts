@@ -46,6 +46,14 @@ test("busy or changed original services are left intact", async () => {
   expect((await json<SetupState>(f.file)).phase).toBe("failed")
 })
 
+test("an interrupted deployment-metadata write does not start native adoption", async () => {
+  const f = await fixture("prepared")
+  expect(await runSetupTransaction(f.deployment, f.effects)).toBe(false)
+  expect(f.calls).toEqual([])
+  expect(await launchAllowed(f.root)).toBe(false)
+  await expect(enqueueUpdate(f.deployment, "v0.3.0")).rejects.toThrow("setup must finish")
+})
+
 for (const phase of ["installing", "verifying", "restoring", "recovery-required"] as const) {
   test(`fresh worker restores the original service after setup interruption at ${phase}`, async () => {
     const f = await fixture(phase)

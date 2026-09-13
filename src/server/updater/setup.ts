@@ -9,7 +9,7 @@ import { verifyServiceRegistration, type ServiceRegistration } from "./registrat
 import { stopWindowsEncodedProcesses, stopWindowsServiceProcesses } from "./processes"
 
 export interface SetupState {
-  phase: "queued" | "installing" | "verifying" | "restoring" | "recovery-required" | "enabled" | "restored" | "failed"
+  phase: "prepared" | "queued" | "installing" | "verifying" | "restoring" | "recovery-required" | "enabled" | "restored" | "failed"
   registration: ServiceRegistration
   updatedAt: string
   error?: string
@@ -34,7 +34,7 @@ export async function checkSetupReadiness(deployment: UpdateDeployment) {
 export async function runSetupTransaction(deployment: UpdateDeployment, effects: SetupEffects) {
   const file = path.join(deployment.root, "setup.json")
   let state = await json<SetupState>(file)
-  if (["enabled", "restored", "failed"].includes(state.phase)) return state.phase === "enabled"
+  if (["prepared", "enabled", "restored", "failed"].includes(state.phase)) return state.phase === "enabled"
   if (state.phase !== "queued" && !SETUP_SWITCH_PHASES.has(state.phase)) throw new Error("Unknown setup phase; inspect the retained journal.")
   async function save(phase: SetupState["phase"], error = state.error) {
     state = { ...state, phase, error, updatedAt: new Date().toISOString() }
