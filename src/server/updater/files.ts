@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { chmod, copyFile, lstat, mkdir, open, readdir, rename, stat } from "node:fs/promises"
+import { chmod, copyFile, lstat, mkdir, open, readdir, readlink, realpath, rename, stat, symlink } from "node:fs/promises"
 import path from "node:path"
 
 export async function exists(file: string) {
@@ -52,7 +52,56 @@ export async function assertPlainDirectory(directory: string) {
 }
 
 const generated = new Set([".git", "node_modules", "dist", ".idea", ".vscode"])
+// File digests remain compatible with existing build/data manifests. Source links
+// record their text, never the contents reached by following them.
 export type Manifest = Record<string, string>
+const LINK_PREFIX = "symlink:"
+const privateRoots = new Set([".stillon", ".stillon-dev", ".kanna", ".kanna-dev"])
+
+async function sourceLink(root: string, file: string) {
+  const target = await readlink(file)
+  if (path.isAbsolute(target) || path.win32.isAbsolute(target)) {
+    throw new Error("Absolute source links require manual migration.")
+  }
+  const canonicalRoot = await realpath(root)
+  // realpath rejects dangling links/cycles and resolves indirect escapes.
+  const resolved = await realpath(file)
+  const relative = path.relative(canonicalRoot, resolved)
+  inside(canonicalRoot, relative)
+  const lexical = path.relative(path.resolve(root), path.resolve(path.dirname(file), target))
+  inside(root, lexical)
+  for (const candidate of [relative, lexical]) {
+    if (candidate.split(path.sep).some((part, index) =>
+      (generated.has(part) && (index === 0 || part === "node_modules")) || privateRoots.has(part))) {
+      throw new Error("Source links into generated files or user data require manual migration.")
+    }
+  }
+  return target
+}
+
+/** Copy one additional source entry without dereferencing links or linked parents. */
+export async function copySourceEntry(source: string, target: string, relative: string) {
+  const from = inside(source, relative)
+  const to = inside(target, relative)
+  await assertPlainDirectory(target)
+  let parent = target
+  for (const part of path.relative(path.resolve(target), path.dirname(to)).split(path.sep)) {
+    if (part === ".") continue
+    parent = path.join(parent, part)
+    if (!await exists(parent)) await mkdir(parent)
+    await assertPlainDirectory(parent)
+  }
+  if (await exists(to)) throw new Error("Refusing to overwrite an existing source entry.")
+  const info = await lstat(from)
+  if (info.isSymbolicLink()) {
+    const link = await sourceLink(source, from)
+    // Keep relative link text; validate the assembled runtime after all copies.
+    await symlink(link, to, (await stat(from)).isDirectory() ? "dir" : "file")
+  } else if (info.isFile()) {
+    await copyFile(from, to, constants.COPYFILE_EXCL)
+    await chmod(to, info.mode & 0o777)
+  } else throw new Error("Special source files require manual migration.")
+}
 
 export async function manifest(root: string, sourceOnly = false): Promise<Manifest> {
   await assertPlainDirectory(root)
@@ -62,8 +111,10 @@ export async function manifest(root: string, sourceOnly = false): Promise<Manife
       if (sourceOnly && ((generated.has(entry.name) && (directory === root || entry.name === "node_modules")) || /(?:\.log|\.tsbuildinfo|\.swp|\.swo)$/.test(entry.name) || [".DS_Store", "Thumbs.db"].includes(entry.name))) continue
       const file = path.join(directory, entry.name)
       const info = await lstat(file)
-      if (info.isSymbolicLink()) throw new Error("A customization or data file is a link; manual migration is required.")
-      if (info.isDirectory()) {
+      if (info.isSymbolicLink()) {
+        if (!sourceOnly) throw new Error("A data or build file is a link; manual migration is required.")
+        result[path.relative(root, file).split(path.sep).join("/")] = LINK_PREFIX + await sourceLink(root, file)
+      } else if (info.isDirectory()) {
         await assertPlainDirectory(file)
         if (!sourceOnly) result[`${path.relative(root, file).split(path.sep).join("/")}/`] = "directory"
         await walk(file)

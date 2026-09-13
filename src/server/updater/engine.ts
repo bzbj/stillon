@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { chmod, copyFile, mkdir, open, rename, stat, unlink } from "node:fs/promises"
+import { mkdir, open, rename, stat, unlink } from "node:fs/promises"
 import path from "node:path"
-import { atomicJson, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
+import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
 import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
 import { FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
@@ -171,9 +171,9 @@ export async function prepareSource(deployment: UpdateDeployment, state: UpdateS
   const extras = Object.keys(before).filter((name) => !tracked.has(name))
   await atomicJson(path.join(transaction, "customizations.json"), { baseTag: oldTag, extraFiles: extras })
   for (const name of extras) {
-    const backup = inside(path.join(transaction, "custom-files"), name)
-    await mkdir(path.dirname(backup), { recursive: true, mode: 0o700 })
-    await copyFile(inside(old, name), backup)
+    const customRoot = path.join(transaction, "custom-files")
+    await mkdir(customRoot, { recursive: true, mode: 0o700 })
+    await copySourceEntry(old, customRoot, name)
   }
   await mkdir(path.dirname(runtime), { recursive: true })
   await updateCommand(["git", "clone", "--no-hardlinks", "--no-checkout", old, runtime], transaction, 300_000)
@@ -189,14 +189,16 @@ export async function prepareSource(deployment: UpdateDeployment, state: UpdateS
   const targetFiles = await manifest(runtime, true)
   for (const name of extras) {
     if (targetFiles[name] && targetFiles[name] !== before[name]) throw new Error("A custom file conflicts with a new release file.")
-    const destination = inside(runtime, name)
-    await mkdir(path.dirname(destination), { recursive: true })
-    await copyFile(inside(path.join(transaction, "custom-files"), name), destination)
-    await chmod(destination, (await stat(inside(old, name))).mode & 0o777)
+    if (targetFiles[name]) continue
+    // Copy from the still-verified source: a saved extra link may point to a
+    // tracked file absent from custom-files. The archive retains the link text.
+    await copySourceEntry(old, runtime, name)
   }
   if (releaseTag((await json<{ version: string }>(path.join(runtime, "package.json"))).version) !== state.targetTag) {
     throw new Error("The release tag does not match the prepared package version.")
   }
+  // Validate links after overlaying extras, before dependency/build execution.
+  await manifest(runtime, true)
   const log = path.join(transaction, "build.log")
   await updateCommand([deployment.launch.executable, "install", "--frozen-lockfile"], runtime, 900_000, log)
   await updateCommand([deployment.launch.executable, "run", "build"], runtime, 900_000, log)

@@ -52,12 +52,43 @@ Apple Silicon, Windows x64, Windows ARM64 and Linux.
 The Windows x64 and ARM64 jobs also run the native task rehearsal as a required
 step; the PR's latest checks report its result for each revision.
 
+## Mac Intel source-link fix and adoption
+
+A real first-time setup on Intel macOS 13.7.8 / Bun 1.3.14 found that the
+repository's own `.claude/skills/shadcn` symlink was rejected by source
+preparation. Source manifests now retain safe internal relative links without
+traversing them. Data/build manifests still reject links, and source preparation
+rejects external, absolute, dangling, cyclic, generated-file and user-data links.
+Extra source entries cannot write through linked destination directories.
+
+On the original PR base plus this link fix (`4bf177e`), validation passed:
+
+- 35 focused tests, typechecking and both frontend builds.
+- Complete official-tag source preparation, patching, fresh dependency install,
+  build and isolated real-app/resource probe, with matching build manifests and
+  the skill link preserved.
+- Full native service installation and first-time setup using isolated
+  LaunchAgent labels, home and port; both test jobs were unloaded afterward.
+- First-time adoption of an existing production source service after an idle
+  check and verified stopped-server backup. Controller/worker ownership,
+  application resources, history, existing ingress and actual environment
+  inheritance were verified. Old runtime and backups were retained.
+
+These production results predate the newer independent setup-journal/Windows
+recovery changes. The combined code was subsequently tested in another isolated
+Mac installation: the CLI requested setup, the independent worker reached the
+`enabled` phase, both native jobs and managed application health were verified,
+and the fixture jobs were cleaned up. This covers successful worker-owned setup,
+not native interruption recovery, Apple Silicon adoption, login/reboot or a
+subsequent production release-to-release upgrade. The running production runtime
+was not replaced during PR integration; platform CI checks the combined revision.
+
 ## Remaining lifecycle acceptance
 
 | Scenario | Windows x64 | Windows ARM64 | Mac Intel / Apple Silicon |
 | --- | --- | --- | --- |
 | Controller/worker interruption tests | Automated + native tasks | CI | CI |
-| First-time native adoption and recovery | Rehearsed + CI task rehearsal | CI task rehearsal | Pending |
+| First-time native adoption and recovery | Rehearsed + CI task rehearsal | CI task rehearsal | Intel production adoption + combined-code isolated setup passed; native interruption recovery / Apple Silicon pending |
 | Logout/login after interrupted update | Pending | Pending | Pending |
 | Reboot after interrupted update | Pending | Pending | Pending |
 | Physical power loss / filesystem failure | Not certified | Not certified | Not certified |
