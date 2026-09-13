@@ -55,6 +55,17 @@ export interface SourceUpgradePromptResult {
   prompt: string
 }
 
+export interface ManagedUpdateStatus {
+  enabled: boolean
+  platform?: "darwin" | "win32"
+  architecture?: "x64" | "arm64"
+  phase?: string
+  targetTag?: string
+  prepareOnly?: boolean
+  busy?: boolean
+  message?: string
+}
+
 export interface ProjectQuickAction {
   id: string
   label: string
@@ -113,6 +124,8 @@ export type ClientCommand =
   | { type: "settings.readLlmProvider" }
   | { type: "settings.readSubscriptionUsage" }
   | { type: "settings.generateSourceUpgradePrompt"; targetTag: string }
+  | { type: "settings.readManagedUpdateStatus" }
+  | { type: "settings.requestManagedUpdate"; targetTag: string; prepareOnly?: boolean }
   | { type: "skills.search"; query: string; limit?: number }
   | { type: "skills.install"; source: string; skillId: string }
   | { type: "skills.uninstall"; skillId: string }

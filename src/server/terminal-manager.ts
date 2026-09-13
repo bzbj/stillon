@@ -151,6 +151,10 @@ export class TerminalManager {
   private readonly sessions = new Map<string, TerminalSession>()
   private readonly listeners = new Set<(event: TerminalEvent) => void>()
 
+  hasRunningSessions() {
+    return [...this.sessions.values()].some((session) => session.status === "running")
+  }
+
   onEvent(listener: (event: TerminalEvent) => void) {
     this.listeners.add(listener)
     return () => {

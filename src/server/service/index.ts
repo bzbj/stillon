@@ -18,6 +18,7 @@ import type {
 import { windowsServiceBackend } from "./windows"
 
 export interface ManageServiceOptions {
+  recordInstallation?: boolean
   platform?: NodeJS.Platform
   executable?: string
   entrypoint?: string
@@ -183,6 +184,10 @@ export async function manageService(action: ServiceAction, options: ManageServic
     log,
     warn: options.warn ?? console.warn,
   })
+  if (action === "install" && options.recordInstallation) {
+    const { recordServiceRegistration } = await import("../updater/registration")
+    await recordServiceRegistration(platform, launch)
+  }
   if (action === "install" && launch.environmentFile) {
     log(`Service environment file: ${launch.environmentFile}`)
   }

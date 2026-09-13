@@ -91,6 +91,8 @@ function printHelp() {
 Usage:
   ${CLI_COMMAND} [options]
   ${CLI_COMMAND} service <install|status|logs|uninstall> [options]
+  ${CLI_COMMAND} update <setup|status|recover>
+  ${CLI_COMMAND} update request <release-tag> [--prepare-only]
 
 Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})

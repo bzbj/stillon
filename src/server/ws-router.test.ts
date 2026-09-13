@@ -768,6 +768,30 @@ describe("ws-router", () => {
     }])
   })
 
+  test("routes managed upgrade requests to the independent updater and returns status", async () => {
+    const requests: unknown[] = []
+    const result = { enabled: true, phase: "queued", busy: true }
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+      terminals: { getSnapshot: () => null, onEvent: () => () => {} } as never,
+      keybindings: { getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT, onChange: () => () => {} } as never,
+      managedUpdate: {
+        read: async () => result,
+        request: async (targetTag, prepareOnly) => { requests.push({ targetTag, prepareOnly }); return result },
+      },
+      refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+    for (const command of [{ type: "settings.requestManagedUpdate", targetTag: "v0.3.0", prepareOnly: true }, { type: "settings.readManagedUpdateStatus" }]) {
+      await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id: "managed", command }))
+    }
+    expect(requests).toEqual([{ targetTag: "v0.3.0", prepareOnly: true }])
+    expect(ws.sent).toEqual(Array.from({ length: 2 }, () => ({ v: PROTOCOL_VERSION, type: "ack", id: "managed", result })))
+    router.dispose()
+  })
+
   test("routes Agent network status, detection, testing, and durable restart state", async () => {
     let snapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
     let restartCalls = 0

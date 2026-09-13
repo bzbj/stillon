@@ -1,6 +1,8 @@
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
-import { LOG_PREFIX } from "../shared/branding"
+import { APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
+import { createManagedAppControl } from "./updater/app-control"
+import { createManagedUpdateApi } from "./updater/api"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
@@ -250,6 +252,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       read: () => readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }),
     },
     sourceUpgradePrompt,
+    managedUpdate: createManagedUpdateApi(path.resolve(import.meta.dir, "..", "..")),
     llmProvider: {
       read: readLlmProviderSnapshot,
       write: writeLlmProviderSnapshot,
@@ -284,6 +287,13 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
   const MAX_PORT_ATTEMPTS = 20
   let actualPort = port
+  const managedUpdate = createManagedAppControl({
+    instance: process.env.STILLON_UPDATE_INSTANCE,
+    secret: process.env.STILLON_UPDATE_SECRET,
+    verifying: process.env.STILLON_UPDATE_VERIFYING === "1",
+    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0,
+    shutdown: async () => { await shutdown(); process.emit("SIGTERM") },
+  })
 
   for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
     try {
@@ -303,6 +313,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
           return trackServerOperation((async () => {
             const url = new URL(req.url)
+            const updateResponse = managedUpdate.handle(req, serverInstance.requestIP(req)?.address)
+            if (updateResponse) return updateResponse
+            if (managedUpdate.paused && (url.pathname === "/ws" || !["GET", "HEAD"].includes(req.method))) {
+              return new Response("StillOn is finishing an update. Reconnect shortly.", { status: 503 })
+            }
 
             if (url.pathname === "/auth/status") {
               return auth
@@ -365,7 +380,12 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           }
 
           if (url.pathname === "/health") {
-            return Response.json({ ok: true, port: actualPort })
+            return Response.json({ ok: true, port: actualPort,
+              ...(url.searchParams.get("update-setup") === "1" ? { managedUpdateProtocol: 1,
+                runtimeProfile: getRuntimeProfile(),
+                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 } : {}),
+              ...(managedUpdate.instance ? { updateInstance: managedUpdate.instance, updateProtocol: 1, version: APP_VERSION } : {}),
+            })
           }
 
           const browserPreviewProxyResponse = await handleBrowserPreviewProxy(req, url, {
@@ -424,6 +444,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           },
           message(ws, raw) {
             if (shuttingDown) return
+            if (managedUpdate.paused) { ws.close(1012, "StillOn is updating"); return }
             void trackServerOperation(router.handleMessage(ws, raw))
           },
           close(ws) {
