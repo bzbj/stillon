@@ -38,7 +38,7 @@ describe("source upgrade prompt generation", () => {
     expect(calls[0]).toMatchObject({
       cwd: "/opt/stillon/releases/current",
       model: "gpt-6-astra",
-      effort: "high",
+      effort: "low",
       serviceTier: "fast",
       permissionMode: "read-only",
       ephemeral: true,
@@ -47,6 +47,41 @@ describe("source upgrade prompt generation", () => {
     expect(calls[0]?.prompt).toContain("analysis only")
     expect(calls[0]?.prompt).toContain("v0.2.12")
     expect(calls[0]?.prompt).toContain("service restart commands")
+  })
+
+  test.each([
+    { reasoningEffort: "xhigh", fastMode: true },
+    { reasoningEffort: "xhigh", fastMode: false },
+    { reasoningEffort: "ultra", fastMode: true },
+    { reasoningEffort: "ultra", fastMode: false },
+  ] as const)("uses low effort independently of global preferences: %j", async ({ reasoningEffort, fastMode }) => {
+    const preference = {
+      ...CODEX_PREFERENCE,
+      model: "configured-model",
+      modelOptions: { reasoningEffort, fastMode },
+    }
+    const originalPreference = structuredClone(preference)
+    const calls: GenerateCodexExecStructuredArgs[] = []
+    const generator = createSourceUpgradePromptGenerator({
+      runtimeDirectory: "/opt/stillon",
+      codex: {
+        async generateStructured(args) {
+          calls.push(args)
+          return "升级并重启。"
+        },
+      },
+      getCodexPreference: () => preference,
+    })
+
+    await generator.generate({ targetTag: "v0.2.12" })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      model: preference.model,
+      effort: "low",
+      serviceTier: fastMode ? "fast" : undefined,
+    })
+    expect(preference).toEqual(originalPreference)
   })
 
   test("shares one in-flight analysis for repeated requests for the same release", async () => {

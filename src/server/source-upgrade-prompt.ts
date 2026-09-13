@@ -74,7 +74,8 @@ export function createSourceUpgradePromptGenerator(options: {
         cwd: options.runtimeDirectory,
         prompt: buildSourceUpgradeAnalysisRequest(targetTag),
         model: preference.model,
-        effort: preference.modelOptions.reasoningEffort,
+        // Keep this bounded helper independent of the effort used for coding/chat.
+        effort: "low",
         serviceTier: preference.modelOptions.fastMode ? "fast" : undefined,
         permissionMode: "read-only",
         ephemeral: true,
