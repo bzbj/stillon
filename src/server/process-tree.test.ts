@@ -4,6 +4,7 @@ import {
   descendantsOf,
   parseProcessList,
   parseProcessTable,
+  parseWindowsProcessList,
   ProcessDiscoveryError,
   ProcessOwnership,
   ProcessStopError,
@@ -66,10 +67,22 @@ describe("parseProcessList", () => {
     ])
   })
 
-  test.skipIf(process.platform === "win32")("parses this machine's ps output", async () => {
+  test("parses this machine's process output", async () => {
     const { listProcesses } = await import("./process-tree")
     const processes = await listProcesses()
     expect(processes.some((info) => info.pid === process.pid)).toBe(true)
+  }, 15_000)
+})
+
+describe("parseWindowsProcessList", () => {
+  test("keeps creation timestamps exact and handles singleton CIM output", () => {
+    expect(parseWindowsProcessList('\uFEFF{"pid":10,"ppid":2,"startedAt":"639249167258774070","command":"codex.exe"}'))
+      .toEqual([{ pid: 10, ppid: 2, stat: "S", startedAt: "639249167258774070", command: "codex.exe" }])
+  })
+
+  test("rejects missing creation times instead of trusting a reusable pid", () => {
+    expect(() => parseWindowsProcessList('[{"pid":10,"ppid":2,"command":"codex.exe"}]'))
+      .toThrow(ProcessDiscoveryError)
   })
 })
 
@@ -101,6 +114,34 @@ function fakeProcesses(initial: ProcessInfo[], exitsOn: NodeJS.Signals[] = ["SIG
 const quick = { graceMs: 20, killTimeoutMs: 20 }
 
 describe("ProcessOwnership", () => {
+  test("does not adopt an older Windows child whose parent pid was reused", async () => {
+    const processes = fakeProcesses([
+      info(100, 50, "node.exe", "200"),
+      info(101, 100, "codex.exe", "100"),
+      info(102, 100, "codex.exe", "201"),
+    ])
+    const ownership = new ProcessOwnership(100, processes.control)
+    await ownership.terminate({ scope: "tree", rootAlive: () => true, ...quick })
+    expect(processes.signals).toEqual([[100, "SIGTERM"], [102, "SIGTERM"]])
+  })
+
+  test("Windows writer cleanup retains native ownership after the shim exits and preserves tools", async () => {
+    const processes = fakeProcesses([
+      info(100, 50, "node.exe", "639249167258774070"),
+      info(101, 100, "codex.exe", "639249167258774071"),
+      info(102, 101, "powershell.exe", "639249167258774072"),
+    ])
+    const ownership = new ProcessOwnership(100, processes.control)
+    await ownership.record(true)
+    processes.set([
+      info(100, 50, "unrelated.exe", "639249167258774090"),
+      info(101, 100, "codex.exe", "639249167258774071"),
+      info(102, 101, "powershell.exe", "639249167258774072"),
+    ])
+    await ownership.terminate({ scope: "writer", rootAlive: () => false, ...quick })
+    expect(processes.signals).toEqual([[101, "SIGTERM"]])
+  })
+
   test("still stops a native child after its launcher exited and it was reparented", async () => {
     const processes = fakeProcesses([info(100, 50, "node"), info(101, 100, "/opt/codex/bin/codex")])
     const ownership = new ProcessOwnership(100, processes.control)

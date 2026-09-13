@@ -721,7 +721,7 @@ describe("CodexExecManager cancellation (#109)", () => {
       // Mirror the production spawn options so this exercises the real
       // detached/process-group behaviour, not a test-only shortcut.
       spawnProcess: (_args, cwd, environment) =>
-        spawn(process.execPath, [launcherScript], codexSpawnOptions(cwd, environment)) as never,
+        spawn(process.platform === "win32" ? "node" : process.execPath, [launcherScript], codexSpawnOptions(cwd, environment)) as never,
     })
 
     await manager.startSession({ chatId: "chat-1", cwd: dir, model: "gpt-5.5", sessionToken: null })
@@ -746,11 +746,16 @@ describe("CodexExecManager cancellation (#109)", () => {
     expect(nativePid).toBeGreaterThan(0)
     expect(isAlive(nativePid)).toBe(true)
 
-    await turn.interrupt()
+    try {
+      await turn.interrupt()
 
-    // Before the fix the launcher died and this child survived, keeping the
-    // Codex writer lock and failing the next thread/resume.
-    expect(await waitUntilDead(nativePid)).toBe(true)
+      // Use a Node shim on Windows: Bun's own child cleanup can hide the bug.
+      // Stopping only the shim must not leave the native writer alive.
+      expect(await waitUntilDead(nativePid)).toBe(true)
+    } finally {
+      if (isAlive(nativePid)) process.kill(nativePid, "SIGKILL")
+      await manager.stopAll()
+    }
   }, 30_000)
 })
 
@@ -772,6 +777,46 @@ async function startExecTurn(manager: CodexExecManager, chatId = "chat-1") {
 }
 
 describe("CodexExecManager writer lifecycle (#126)", () => {
+  test("does not resume on Windows when the shim exited but its native writer survived", async () => {
+    const launcher = Object.assign(new FakeCodexExecProcess(), { pid: 100 })
+    let nativeAlive = true
+    let launcherAlive = true
+    let allowNativeExit = false
+    let launches = 0
+    const manager = new CodexExecManager({
+      spawnProcess: () => {
+        launches++
+        return (launches === 1 ? launcher : new FakeCodexExecProcess()) as never
+      },
+      timing: { terminateGraceMs: 10, killTimeoutMs: 10 },
+      processControl: {
+        listProcesses: async () => [
+          ...(launcherAlive ? [{ pid: 100, ppid: 50, stat: "S", startedAt: "1", command: "node.exe" }] : []),
+          ...(nativeAlive ? [{ pid: 101, ppid: 100, stat: "S", startedAt: "2", command: "codex.exe" }] : []),
+        ],
+        signal(pid) {
+          if (pid === 100) {
+            launcherAlive = false
+            launcher.closeWithCode(137)
+          }
+          if (pid === 101 && allowNativeExit) nativeAlive = false
+        },
+        isPidPresent: (pid) => pid === 100 ? launcherAlive : nativeAlive,
+      },
+    })
+    await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5", sessionToken: "thread-1" })
+    const turn = await startExecTurn(manager)
+    await expect(turn.interrupt()).rejects.toBeInstanceOf(CodexStopError)
+    await expect(startExecTurn(manager)).rejects.toBeInstanceOf(CodexStopError)
+    expect(launches).toBe(1)
+    expect(nativeAlive).toBe(true)
+    allowNativeExit = true
+    await turn.interrupt()
+    expect(nativeAlive).toBe(false)
+    await startExecTurn(manager)
+    expect(launches).toBe(2)
+  })
+
   test("a completed turn keeps the thread until its process exits", async () => {
     const processes: FakeCodexExecProcess[] = []
     const manager = new CodexExecManager({
