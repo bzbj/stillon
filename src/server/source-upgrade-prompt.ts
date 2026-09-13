@@ -74,14 +74,22 @@ export function createSourceUpgradePromptGenerator(options: {
         cwd: options.runtimeDirectory,
         prompt: buildSourceUpgradeAnalysisRequest(targetTag),
         model: preference.model,
-        effort: preference.modelOptions.reasoningEffort,
+        // Keep this bounded helper independent of the effort used for coding/chat.
+        effort: "low",
         serviceTier: preference.modelOptions.fastMode ? "fast" : undefined,
-        permissionMode: "read-only",
+        // Honor explicit Full Access; other presets stay non-interactive and read-only.
+        permissionMode: preference.permissionMode === "full" ? "full" : "read-only",
         ephemeral: true,
         timeoutMs: options.timeoutMs ?? DEFAULT_ANALYSIS_TIMEOUT_MS,
       }).then((prompt) => ({
         prompt: normalizeGeneratedSourceUpgradePrompt(prompt),
-      })).finally(() => {
+      })).catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error)
+        if (detail === "Codex request timed out.") {
+          throw new Error("Installation analysis timed out and was stopped. Check Codex authentication and host permissions, then retry.")
+        }
+        throw new Error(`Codex could not analyze this installation. Check Codex authentication and host sandbox/permission settings, then retry. Details: ${detail}`)
+      }).finally(() => {
         if (inFlight?.promise === promise) inFlight = null
       })
 

@@ -430,14 +430,14 @@ function SourceUpgradePrompt({
             <div className="space-y-1">
               <DialogTitle>Tailor the v{targetVersion} upgrade</DialogTitle>
               <DialogDescription>
-                Codex inspects this StillOn runtime in read-only mode, then prepares a concise prompt for your coding agent.
+                Codex is instructed to inspect this installation without making changes, then prepare a concise upgrade prompt.
               </DialogDescription>
             </div>
             {generationStatus === "loading" ? (
               <div role="status" className="flex min-h-40 items-center justify-center rounded-xl border border-border bg-muted/30 px-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span>Inspecting the local runtime, service, ports, and customizations. This can take a couple of minutes…</span>
+                  <span>Inspecting the local runtime, service, ports, and customizations. Analysis stops after four minutes if it cannot finish. Closing this dialog keeps the analysis running.</span>
                 </div>
               </div>
             ) : null}

@@ -6,6 +6,7 @@ import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CodexExecManager, CodexStopError, CodexThreadBusyError, codexSpawnOptions } from "./codex-exec"
+import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 
 class FakeCodexExecProcess extends EventEmitter {
   readonly stdin = new PassThrough()
@@ -338,6 +339,60 @@ describe("CodexExecManager", () => {
 
     expect(await resultPromise).toBe("Final tailored prompt")
   })
+
+  test.each([undefined, 1_000])("generateStructured rejects terminal errors after progress (timeout %s)", async (timeoutMs) => {
+    const child = new FakeCodexExecProcess()
+    const manager = new CodexExecManager({ spawnProcess: () => child as never })
+    const result = manager.generateStructured({ cwd: "/tmp/project", prompt: "Inspect", timeoutMs })
+    await Promise.resolve()
+    child.writeJson({ type: "item.completed", item: { type: "agent_message", text: "Inspecting…" } })
+    child.writeJson({ type: "turn.failed", error: { message: "sandbox initialization failed" } })
+    await expect(result).rejects.toThrow("sandbox initialization failed")
+    expect(child.killed).toBe(true)
+  })
+
+  test("generateStructured stops a stalled subprocess on timeout", async () => {
+    const child = new FakeCodexExecProcess()
+    const manager = new CodexExecManager({ spawnProcess: () => child as never })
+    await expect(manager.generateStructured({
+      cwd: "/tmp/project", prompt: "Inspect", timeoutMs: 10,
+    })).rejects.toThrow("Codex request timed out.")
+    expect(child.signals).toEqual(["SIGTERM"])
+  })
+
+  test("upgrade analysis completes over pipes with explicit Full Access and no approval channel", async () => {
+    const commands: string[][] = []
+    const manager = new CodexExecManager({
+      spawnProcess: (args, cwd, environment) => {
+        commands.push(args)
+        // A headless protocol fixture, not a real Codex/model invocation.
+        const script = `
+          if (process.stdin.isTTY) process.exit(1)
+          process.stdin.resume()
+          process.stdin.on("end", () => {
+            console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "Upgrade instructions" } }))
+            console.log(JSON.stringify({ type: "turn.completed" }))
+          })
+        `
+        return spawn(process.execPath, ["-e", script], codexSpawnOptions(cwd, environment)) as never
+      },
+    })
+    const generator = createSourceUpgradePromptGenerator({
+      runtimeDirectory: process.cwd(),
+      codex: manager,
+      getCodexPreference: () => ({
+        model: "configured-model",
+        modelOptions: { reasoningEffort: "ultra", fastMode: true },
+        permissionMode: "full",
+      }),
+      timeoutMs: 5_000,
+    })
+    expect(await generator.generate({ targetTag: "v0.2.13" })).toEqual({ prompt: "Upgrade instructions" })
+    expect(commands[0]).toContain('sandbox_mode="danger-full-access"')
+    expect(commands[0]).toContain('approval_policy="never"')
+    expect(commands[0]).toContain('model_reasoning_effort="low"')
+    expect(commands[0]).toContain("--ephemeral")
+  }, 10_000)
 
   test("emits an error result when the exec process fails", async () => {
     const process = new FakeCodexExecProcess()
