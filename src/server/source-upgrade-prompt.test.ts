@@ -17,7 +17,7 @@ const CODEX_PREFERENCE = {
 }
 
 describe("source upgrade prompt generation", () => {
-  test("asks the configured Codex model to inspect the runtime without write access", async () => {
+  test("honors configured Full Access while instructing Codex to analyze only", async () => {
     const calls: GenerateCodexExecStructuredArgs[] = []
     const generator = createSourceUpgradePromptGenerator({
       runtimeDirectory: "/opt/stillon/releases/current",
@@ -40,11 +40,12 @@ describe("source upgrade prompt generation", () => {
       model: "gpt-6-astra",
       effort: "low",
       serviceTier: "fast",
-      permissionMode: "read-only",
+      permissionMode: "full",
       ephemeral: true,
       timeoutMs: 5_000,
     })
     expect(calls[0]?.prompt).toContain("analysis only")
+    expect(calls[0]?.prompt).toContain("Do not edit files, install packages, stop or restart services, or change configuration")
     expect(calls[0]?.prompt).toContain("v0.2.12")
     expect(calls[0]?.prompt).toContain("service restart commands")
   })
@@ -82,6 +83,43 @@ describe("source upgrade prompt generation", () => {
       serviceTier: fastMode ? "fast" : undefined,
     })
     expect(preference).toEqual(originalPreference)
+  })
+
+  test.each(["request", "auto"] as const)("keeps %s preferences non-interactive without granting Full Access", async (permissionMode) => {
+    const calls: GenerateCodexExecStructuredArgs[] = []
+    const generator = createSourceUpgradePromptGenerator({
+      runtimeDirectory: "/opt/stillon",
+      codex: {
+        async generateStructured(args) {
+          calls.push(args)
+          return "升级并重启。"
+        },
+      },
+      getCodexPreference: () => ({ ...CODEX_PREFERENCE, permissionMode }),
+    })
+    await generator.generate({ targetTag: "v0.2.12" })
+    expect(calls[0]?.permissionMode).toBe("read-only")
+  })
+
+  test.each([
+    "Codex request timed out.",
+    "sandbox initialization failed: operation not permitted",
+  ])("surfaces actionable errors and allows retry after %s", async (message) => {
+    let calls = 0
+    const generator = createSourceUpgradePromptGenerator({
+      runtimeDirectory: "/opt/stillon",
+      codex: {
+        async generateStructured() {
+          if (++calls === 1) throw new Error(message)
+          return "升级并重启。"
+        },
+      },
+      getCodexPreference: () => CODEX_PREFERENCE,
+    })
+    await expect(generator.generate({ targetTag: "v0.2.12" })).rejects.toThrow(
+      message.includes("timed out") ? "timed out and was stopped" : message
+    )
+    expect(await generator.generate({ targetTag: "v0.2.12" })).toEqual({ prompt: "升级并重启。" })
   })
 
   test("shares one in-flight analysis for repeated requests for the same release", async () => {

@@ -713,7 +713,7 @@ describe("ws-router", () => {
     ])
   })
 
-  test("generates a machine-tailored source upgrade prompt via Codex", async () => {
+  test.each([null, "Sandbox initialization failed; check host permissions and retry."])("returns the upgrade analysis result or error to the remote client: %s", async (failure) => {
     const requestedTags: string[] = []
     const router = createWsRouter({
       store: { state: createEmptyState() } as never,
@@ -729,6 +729,7 @@ describe("ws-router", () => {
       sourceUpgradePrompt: {
         generate: async ({ targetTag }) => {
           requestedTags.push(targetTag)
+          if (failure) throw new Error(failure)
           return { prompt: "保留本机配置，升级并重启。" }
         },
       },
@@ -750,6 +751,15 @@ describe("ws-router", () => {
     )
 
     expect(requestedTags).toEqual(["v0.2.12"])
+    if (failure) {
+      expect(ws.sent).toEqual([{
+        v: PROTOCOL_VERSION,
+        type: "error",
+        id: "upgrade-prompt-1",
+        message: failure,
+      }])
+      return
+    }
     expect(ws.sent).toEqual([{
       v: PROTOCOL_VERSION,
       type: "ack",

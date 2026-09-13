@@ -522,6 +522,9 @@ export class CodexExecManager {
             // The last completed agent message is the one-off operation result.
             assistantText = event.entry.text
           }
+          if (event.entry.kind === "result" && (event.entry.isError || event.entry.subtype === "cancelled")) {
+            throw new Error(event.entry.result.trim() || "Codex request failed or was cancelled.")
+          }
           if (event.entry.kind === "result" && !event.entry.isError && event.entry.result.trim()) {
             resultText = event.entry.result
           }
@@ -537,9 +540,6 @@ export class CodexExecManager {
               timeout = setTimeout(() => reject(new Error("Codex request timed out.")), args.timeoutMs)
             }),
           ])
-        } catch (error) {
-          await turn.interrupt()
-          throw error
         } finally {
           if (timeout) clearTimeout(timeout)
         }
@@ -549,6 +549,9 @@ export class CodexExecManager {
 
       const candidate = assistantText.trim() || resultText.trim()
       return candidate || null
+    } catch (error) {
+      await turn?.interrupt()
+      throw error
     } finally {
       void turn?.close()
       void this.stopSession(chatId)
