@@ -49,13 +49,15 @@ full test suite. Focused tests cover setup interruption phases, retryable recove
 live-task fingerprint changes, empty-directory rollback and process cleanup that
 leaves an unrelated sibling process alive. PR CI runs the tests on Mac Intel,
 Apple Silicon, Windows x64, Windows ARM64 and Linux.
+The Windows x64 and ARM64 jobs also run the native task rehearsal as a required
+step; the PR's latest checks report its result for each revision.
 
 ## Remaining lifecycle acceptance
 
 | Scenario | Windows x64 | Windows ARM64 | Mac Intel / Apple Silicon |
 | --- | --- | --- | --- |
 | Controller/worker interruption tests | Automated + native tasks | CI | CI |
-| First-time native adoption and recovery | Rehearsed | Pending | Pending |
+| First-time native adoption and recovery | Rehearsed + CI task rehearsal | CI task rehearsal | Pending |
 | Logout/login after interrupted update | Pending | Pending | Pending |
 | Reboot after interrupted update | Pending | Pending | Pending |
 | Physical power loss / filesystem failure | Not certified | Not certified | Not certified |

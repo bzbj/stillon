@@ -43,4 +43,9 @@ jobs:
 
       - run: bun run test
 
+      - name: Rehearse native Windows updater recovery
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        run: bun scripts/rehearse-managed-updates-windows.ts
+
       - run: bun run audit
