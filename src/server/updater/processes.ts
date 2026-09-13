@@ -1,7 +1,37 @@
 import { runServiceCommand } from "../service"
 import { assertCommandSucceeded } from "../service/types"
-import { encodeWindowsPowerShell } from "../service/windows"
+import { buildWindowsServicePowerShell, encodeWindowsPowerShell } from "../service/windows"
+import type { ServiceLaunchSpec } from "../service/types"
 import type { UpdateDeployment, UpdateRunnerStatus } from "./model"
+
+/** Task Scheduler can leave conhost's PowerShell/Bun children alive after /End. */
+export async function stopWindowsEncodedProcesses(encoded: string) {
+  if (!/^[A-Za-z0-9+/=]{32,}$/.test(encoded)) throw new Error("Missing native task command identity")
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$expected = '${encoded}'`,
+    "function Find-Owned { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('conhost.exe','powershell.exe') -and $_.CommandLine -and [regex]::Match($_.CommandLine, '(?i)(?:^|\\s)-EncodedCommand\\s+([A-Za-z0-9+/=]+)(?:\\s|$)').Groups[1].Value -eq $expected }) }",
+    "$deadline = [DateTime]::UtcNow.AddSeconds(10)",
+    "do {",
+    "  $owned = Find-Owned",
+    "  if ($owned.Count -eq 0) { exit 0 }",
+    "  foreach ($candidate in $owned) {",
+    "    $current = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $candidate.ProcessId)",
+    "    if ($null -eq $current -or $current.CreationDate -ne $candidate.CreationDate -or $current.CommandLine -ne $candidate.CommandLine) { continue }",
+    "    $ErrorActionPreference = 'Continue'",
+    "    & \"$env:SystemRoot\\System32\\taskkill.exe\" /PID ([string]$current.ProcessId) /T /F 2>$null | Out-Null",
+    "    $ErrorActionPreference = 'Stop'",
+    "  }",
+    "  Start-Sleep -Milliseconds 100",
+    "} while ([DateTime]::UtcNow -lt $deadline)",
+    "if ((Find-Owned).Count -gt 0) { throw 'An owned native service process did not exit' }",
+  ].join("\r\n")
+  assertCommandSucceeded("Stop owned native service process tree", await runServiceCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeWindowsPowerShell(script)]))
+}
+
+export async function stopWindowsServiceProcesses(launch: ServiceLaunchSpec) {
+  await stopWindowsEncodedProcesses(encodeWindowsPowerShell(buildWindowsServicePowerShell(launch)))
+}
 
 /** Match an unguessable, persisted command-line identity, never just a PID or port. */
 export function isManagedAppCommand(command: string, deployment: UpdateDeployment, status: UpdateRunnerStatus) {

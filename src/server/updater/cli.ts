@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, realpath, rename } from "node:fs/promises"
+import { mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
-import { resolveServiceBackend, runServiceCommand } from "../service"
+import { runServiceCommand } from "../service"
 import { assertCommandSucceeded } from "../service/types"
 import { atomicJson, exists, json, manifest, sameManifest } from "./files"
-import { enqueueUpdate, prepareSource, verifyRuntime } from "./engine"
+import { enqueueUpdate, prepareSource } from "./engine"
 import { installUpdateWorker, wakeUpdateWorker } from "./native"
-import { localFetch } from "./control"
+import { leaseAlive } from "./control"
 import { releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
-import { hashServiceFile, type ServiceRegistration } from "./registration"
+import { verifyServiceRegistration, windowsServiceCommand, type ServiceRegistration } from "./registration"
+import { checkSetupReadiness, type SetupState } from "./setup"
 
 export function parseUpdateArgs(args: string[]) {
   const [action, ...rest] = args
@@ -25,11 +26,22 @@ export async function setupManagedUpdates(root = updateRoot()) {
   if (!await exists(registrationFile)) {
     throw new Error("Managed updates require a recorded native service installation. Install the native StillOn service from this release with your existing options first. Custom launchers remain unchanged.")
   }
-  if (await exists(path.join(root, "deployment.json"))) throw new Error("Managed updates are already configured. Use update status or update recover.")
-  const registration = await json<ServiceRegistration>(registrationFile)
-  if (registration.platform !== target.platform || registration.serviceHash !== await hashServiceFile(registration.serviceFile)) {
-    throw new Error("The service definition changed after installation; refusing to replace custom service settings.")
+  if (await exists(path.join(root, "deployment.json"))) {
+    const setup = await exists(path.join(root, "setup.json")) ? await json<SetupState>(path.join(root, "setup.json")) : null
+    if (setup?.phase === "queued" && !await leaseAlive(root)) {
+      const deployment = await json<UpdateDeployment>(path.join(root, "deployment.json"))
+      await installUpdateWorker(deployment)
+      await wakeUpdateWorker(deployment)
+      console.log("The independent worker will finish first-time setup. Use update status for progress.")
+      return
+    }
+    if (!setup || !["failed", "restored"].includes(setup.phase)) throw new Error("Managed updates are configured or setup is pending. Use update status or update recover.")
+    if (await leaseAlive(root)) throw new Error("The previous setup worker is still finishing. Retry setup after it exits.")
   }
+  const registration = await json<ServiceRegistration>(registrationFile)
+  if (registration.platform !== target.platform) throw new Error("Service platform mismatch.")
+  await verifyServiceRegistration(registration)
+  if (target.platform === "win32") registration.windowsCommand = await windowsServiceCommand(registration.serviceFile)
   // Verify the native service still exists. Unknown/custom supervisors are never adopted.
   const query = target.platform === "win32"
     ? await runServiceCommand("schtasks.exe", ["/Query", "/TN", "StillOn"])
@@ -73,29 +85,15 @@ export async function setupManagedUpdates(root = updateRoot()) {
   if (!sameManifest(baseline, await manifest(path.join(rehearsal.newRuntime, "dist")))) {
     throw new Error("The rebuilt source differs from the existing dist. Preserve those customizations in source before enabling managed updates.")
   }
-  if (registration.serviceHash !== await hashServiceFile(registration.serviceFile)) throw new Error("Service settings changed during setup; retry without replacing them.")
-  const setupCheck = await localFetch(`http://127.0.0.1:${port}/health?update-setup=1`)
-  const readiness = await setupCheck.json() as { ok?: boolean; managedUpdateProtocol?: number; runtimeProfile?: string; busy?: boolean }
-  if (!readiness.ok || readiness.managedUpdateProtocol !== 1 || readiness.runtimeProfile !== "prod" || readiness.busy !== false) {
-    throw new Error("Start this release and finish active agent/terminal work before enabling managed updates.")
-  }
+  await verifyServiceRegistration(registration)
+  await checkSetupReadiness(deployment)
   await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
   await atomicJson(path.join(root, "deployment.json"), deployment)
-  const backend = resolveServiceBackend(target.platform)
-  try {
-    await installUpdateWorker(deployment)
-    await backend.install({ launch: { ...launch, executable: deployment.launch.executable,
-      args: [deployment.controller, "serve", root], workingDirectory: root, environmentFile: undefined },
-      run: runServiceCommand, log: console.log, warn: console.warn })
-    await verifyRuntime(deployment, runtime)
-  } catch (error) {
-    await backend.install({ launch, run: runServiceCommand, log: console.log, warn: console.warn })
-    await rename(path.join(root, "deployment.json"), path.join(root, `failed-setup-${randomUUID()}.json`))
-    if (target.platform === "win32") await runServiceCommand("schtasks.exe", ["/Change", "/TN", "StillOn Updater", "/DISABLE"])
-    else await runServiceCommand("/bin/launchctl", ["bootout", `gui/${process.getuid!()}/com.bzbj.stillon.updater`])
-    throw error
-  }
-  console.log(`Managed updates enabled for ${serviceTarget.platform}/${serviceTarget.architecture}.`)
+  const setup: SetupState = { phase: "queued", registration, updatedAt: new Date().toISOString() }
+  await atomicJson(path.join(root, "setup.json"), setup)
+  await installUpdateWorker(deployment)
+  await wakeUpdateWorker(deployment)
+  console.log(`First-time setup requested for ${serviceTarget.platform}/${serviceTarget.architecture}. The independent worker owns the service switch and recovery; use update status for progress.`)
 }
 
 export async function updateCli(args = process.argv.slice(3)) {
@@ -110,7 +108,10 @@ export async function updateCli(args = process.argv.slice(3)) {
   const deployment = await json<UpdateDeployment>(config)
   if (options.action === "status") {
     const file = path.join(root, "state.json")
-    console.log(await exists(file) ? JSON.stringify(await json<UpdateState>(file), null, 2) : "No upgrade requested.")
+    const setupFile = path.join(root, "setup.json")
+    const setup = await exists(setupFile) ? await json<SetupState>(setupFile) : null
+    console.log(JSON.stringify({ setup: setup ? { phase: setup.phase, error: setup.error, updatedAt: setup.updatedAt } : null,
+      update: await exists(file) ? await json<UpdateState>(file) : null }, null, 2))
     return
   }
   if (options.action === "request") await enqueueUpdate(deployment, options.tag!, options.prepareOnly)

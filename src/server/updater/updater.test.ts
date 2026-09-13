@@ -199,4 +199,18 @@ describe("durable update and recovery", () => {
     await expect(copyTree(f.config.dataRoot, f.config.dataRoot)).rejects.toThrow("overwrite")
     expect(Object.keys(await manifest(f.config.dataRoot))).toEqual(["history.json"])
   })
+  test("rollback preserves empty data directories", async () => {
+    const f = await fixture()
+    await mkdir(path.join(f.config.dataRoot, "attachments", "empty"), { recursive: true })
+    f.effects.verify = async (runtime) => { if (runtime === f.state.newRuntime) throw new Error("new app failed") }
+    await f.engine.execute()
+    expect(f.engine.state.phase).toBe("rolled-back")
+    expect((await manifest(f.config.dataRoot))["attachments/empty/"]).toBe("directory")
+  })
+  test("custom assets named dist inside public are retained as source files", async () => {
+    const root = await temp()
+    await mkdir(path.join(root, "public", "dist"), { recursive: true })
+    await writeFile(path.join(root, "public", "dist", "custom.png"), Buffer.from([0, 1, 2, 255]))
+    expect(Object.keys(await manifest(root, true))).toEqual(["public/dist/custom.png"])
+  })
 })

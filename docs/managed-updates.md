@@ -46,8 +46,22 @@ custom launcher just to dismiss the setup message.
 
 Setup builds a self-contained JavaScript controller outside the runtime and
 rebuilds the current source once. It compares the generated files with the
-deployed build before replacing the native service entrypoint. Differences
+deployed build before requesting native service adoption. Differences
 require review; this prevents silently losing existing edits to `dist`.
+
+The CLI then registers the independent worker and persists a setup request.
+The worker owns the first service switch as well as subsequent updates. Closing
+the initiating terminal after that handoff does not abandon a half-installed
+service. An interrupted first switch restores the original service definition
+on the next worker invocation. `update status` reports setup progress; use
+`update recover` to request recovery or rerun `update setup` after a completed
+restoration. Active agents and embedded terminals must finish before adoption.
+
+On Windows, adoption checks the definition actually registered in Task Scheduler
+as well as the saved XML file. It also stops the exact registered PowerShell
+watchdog and its process tree: Task Scheduler's `/End` alone can leave children
+running with the old log files open. Cleanup matches the full encoded launch
+command and rechecks process creation time; it never kills every Bun process.
 
 The native service then runs the stable application controller. A different
 scheduled task / LaunchAgent owns the updater. Source upgrades never stop or
@@ -140,6 +154,20 @@ The updater is opt-in. Unknown service managers and unsupported platforms use
 the existing prompt. Do not interpret a successful source build as a verified
 native scheduler lifecycle: native setup/login/reboot checks must also be
 performed on each deployment platform before broad rollout.
+
+An explicit Windows native rehearsal is available:
+
+```text
+bun scripts/rehearse-managed-updates-windows.ts
+```
+
+It creates two uniquely named `StillOn.Rehearsal.<uuid>.*` tasks, isolated fixture
+apps and a disposable user home. It terminates the worker during first adoption
+and again during an app update, waits for the scheduler to recover automatically,
+and checks the original data plus the quarantined failed-version data. The tasks
+and owned processes are removed on completion; logs and a JSON report remain in
+the printed temporary directory. Fixture releases bypass Git/build, which are
+validated separately. This does not log out or reboot the machine.
 
 Controllers are installed in immutable directories and stay pinned throughout
 an application transaction. Replacing the updater/controller itself is a

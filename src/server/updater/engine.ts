@@ -245,6 +245,10 @@ export async function probeRuntime(deployment: UpdateDeployment, runtime: string
 
 export async function enqueueUpdate(deployment: UpdateDeployment, target: string, prepareOnly = false) {
   const tag = releaseTag(target)
+  const setupFile = path.join(deployment.root, "setup.json")
+  if (await exists(setupFile) && (await json<{ phase: string }>(setupFile)).phase !== "enabled") {
+    throw new Error("First-time setup must finish successfully before requesting an upgrade. Use update status or update recover.")
+  }
   const request = path.join(deployment.root, "request.json")
   // A separate exclusive request file prevents requests from overwriting worker state.
   const handle = await open(request, "wx", 0o600)

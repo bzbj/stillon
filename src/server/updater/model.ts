@@ -50,6 +50,7 @@ export interface UpdateRunnerStatus {
 export const FINISHED_PHASES = new Set<UpdatePhase>(["prepared", "succeeded", "rolled-back", "failed"])
 export const SWITCH_PHASES = new Set<UpdatePhase>(["pausing", "backing-up", "starting", "verifying", "rolling-back", "recovery-required"])
 export const UPDATE_PHASES = new Set<UpdatePhase>([...FINISHED_PHASES, ...SWITCH_PHASES, "queued", "preparing"])
+export const SETUP_SWITCH_PHASES = new Set(["installing", "verifying", "restoring", "recovery-required"])
 export const UPDATE_REPOSITORY = "https://github.com/bzbj/stillon.git"
 
 export function updateTarget(platform = process.platform, architecture = process.arch) {

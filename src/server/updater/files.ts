@@ -59,12 +59,13 @@ export async function manifest(root: string, sourceOnly = false): Promise<Manife
   const result: Manifest = {}
   async function walk(directory: string) {
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (sourceOnly && (generated.has(entry.name) || /(?:\.log|\.tsbuildinfo|\.swp|\.swo)$/.test(entry.name) || [".DS_Store", "Thumbs.db"].includes(entry.name))) continue
+      if (sourceOnly && ((generated.has(entry.name) && (directory === root || entry.name === "node_modules")) || /(?:\.log|\.tsbuildinfo|\.swp|\.swo)$/.test(entry.name) || [".DS_Store", "Thumbs.db"].includes(entry.name))) continue
       const file = path.join(directory, entry.name)
       const info = await lstat(file)
       if (info.isSymbolicLink()) throw new Error("A customization or data file is a link; manual migration is required.")
       if (info.isDirectory()) {
         await assertPlainDirectory(file)
+        if (!sourceOnly) result[`${path.relative(root, file).split(path.sep).join("/")}/`] = "directory"
         await walk(file)
       } else if (info.isFile()) {
         const hash = createHash("sha256")
@@ -88,6 +89,7 @@ export async function copyTree(source: string, target: string) {
   await mkdir(target, { recursive: true, mode: 0o700 })
   for (const relative of Object.keys(before)) {
     const destination = inside(target, relative)
+    if (before[relative] === "directory") { await mkdir(destination, { recursive: true, mode: 0o700 }); continue }
     await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
     await copyFile(inside(source, relative), destination, constants.COPYFILE_EXCL)
     await chmod(destination, (await stat(inside(source, relative))).mode & 0o777)

@@ -14,6 +14,8 @@ export function createManagedUpdateApi(runtime: string, root = updateRoot()): Ma
   async function configuredDeployment() {
     const file = path.join(root, "deployment.json")
     if (!await exists(file)) return null
+    const setupFile = path.join(root, "setup.json")
+    if (await exists(setupFile) && (await json<{ phase: string }>(setupFile)).phase !== "enabled") return null
     const deployment = await json<UpdateDeployment>(file)
     const control = await json<UpdateControl>(path.join(root, "control.json"))
     const normalize = (value: string) => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value)

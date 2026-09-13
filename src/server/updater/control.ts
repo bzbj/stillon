@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { atomicJson, exists, json } from "./files"
-import { SWITCH_PHASES, UPDATE_PHASES, type UpdateControl, type UpdateDeployment, type UpdateLease, type UpdateRunnerStatus, type UpdateState } from "./model"
+import { SETUP_SWITCH_PHASES, SWITCH_PHASES, UPDATE_PHASES, type UpdateControl, type UpdateDeployment, type UpdateLease, type UpdateRunnerStatus, type UpdateState } from "./model"
 import { stopOrphanedApp } from "./processes"
 
 export async function localFetch(url: string, init: RequestInit = {}) {
@@ -20,11 +20,20 @@ export async function leaseAlive(root: string) {
 
 export async function launchAllowed(root: string) {
   try {
+    if (await exists(path.join(root, "setup.json"))) {
+      const setup = await json<{ phase: string }>(path.join(root, "setup.json"))
+      if (setup.phase !== "enabled" && (!SETUP_SWITCH_PHASES.has(setup.phase) || !await leaseAlive(root))) return false
+    }
     if (!await exists(path.join(root, "state.json"))) return true
     const state = await json<UpdateState>(path.join(root, "state.json"))
     if (!state || !UPDATE_PHASES.has(state.phase)) return false
     return !SWITCH_PHASES.has(state.phase) || await leaseAlive(root)
   } catch { return false }
+}
+
+async function verificationPending(root: string) {
+  if (await exists(path.join(root, "setup.json")) && (await json<{ phase: string }>(path.join(root, "setup.json"))).phase !== "enabled") return true
+  return await exists(path.join(root, "state.json")) && SWITCH_PHASES.has((await json<UpdateState>(path.join(root, "state.json"))).phase)
 }
 
 export async function appStatus(deployment: UpdateDeployment) {
@@ -100,27 +109,21 @@ export async function runServerController(deployment: UpdateDeployment) {
       } else {
         if (child?.exitCode !== null) child = null
         if (!child) {
-          const state = await exists(path.join(root, "state.json")) ? await json<UpdateState>(path.join(root, "state.json")) : null
           last = { runtime: control.runtime, stopped: false, instance: randomUUID(), secret: randomUUID() }
           // Persist identity before spawn, so an interrupted spawn can be recovered.
           await atomicJson(statusFile, last)
           const envArgs = deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]
           child = Bun.spawn([deployment.launch.executable, ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
-            state && SWITCH_PHASES.has(state.phase) ? "1" : "0"], {
+            await verificationPending(root) ? "1" : "0"], {
             cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: "inherit",
             env: { ...process.env, HOME: deployment.launch.homeDirectory, USERPROFILE: deployment.launch.homeDirectory,
               STILLON_RUNTIME_PROFILE: "prod" },
           })
           child.exited.catch(() => {})
         }
-        if (child && !await exists(path.join(root, "state.json"))) {
-          // Initial setup starts unpaused through the environment above.
-        } else if (child) {
-          const state = await json<UpdateState>(path.join(root, "state.json"))
-          if (!SWITCH_PHASES.has(state.phase)) {
-            const live = await appStatus(deployment)
-            if (live?.updateInstance === last.instance) await appCommand(deployment, last.secret, "resume")
-          }
+        if (child && !await verificationPending(root)) {
+          const live = await appStatus(deployment)
+          if (live?.updateInstance === last.instance) await appCommand(deployment, last.secret, "resume")
         }
       }
       if (last.error) { last.error = undefined; await atomicJson(statusFile, last) }

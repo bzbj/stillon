@@ -4,10 +4,14 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { atomicJson, exists, json } from "./files"
 import { leaseAlive, runServerController } from "./control"
-import { claimRequest, realUpdateEffects, UpdateEngine } from "./engine"
+import { claimRequest, realUpdateEffects, UpdateEngine, type UpdateEffects } from "./engine"
 import { updateTarget, type UpdateDeployment } from "./model"
+import { realSetupEffects, runSetupTransaction, type SetupEffects, type SetupState } from "./setup"
 
-export async function worker(deployment: UpdateDeployment) {
+export async function worker(deployment: UpdateDeployment, effects: {
+  setup?: (setup: SetupState) => SetupEffects
+  update?: UpdateEffects
+} = {}) {
   const root = deployment.root
   // OS task/LaunchAgent serializes invocations; a live lease additionally rejects
   // accidental direct invocations. A process cannot impersonate a dead lease by PID reuse.
@@ -26,8 +30,12 @@ export async function worker(deployment: UpdateDeployment) {
       ? new Response(token) : new Response(null, { status: 403 }) } })
   try {
     await atomicJson(path.join(root, "lease.json"), { port: server.port, token })
+    if (await exists(path.join(root, "setup.json"))) {
+      const setup = await json<SetupState>(path.join(root, "setup.json"))
+      if (!await runSetupTransaction(deployment, effects.setup?.(setup) ?? realSetupEffects(deployment, setup.registration))) return
+    }
     await claimRequest(deployment)
-    if (await exists(path.join(root, "state.json"))) await new UpdateEngine(deployment, realUpdateEffects(deployment)).execute()
+    if (await exists(path.join(root, "state.json"))) await new UpdateEngine(deployment, effects.update ?? realUpdateEffects(deployment)).execute()
   } finally {
     server.stop(true)
     await unlink(path.join(root, "lease.json")).catch(() => {})
