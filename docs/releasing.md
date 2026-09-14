@@ -1,10 +1,12 @@
 # Releasing StillOn
 
-StillOn is released from GitHub source. It does not publish an npm package and
-does not perform in-app self-updates. A GitHub Release is the source for the
-in-app changelog. When **Settings → Changelog** sees a newer stable release,
-it only generates a copyable source-upgrade prompt for Codex or Claude Code;
-it never runs an installation, restart, or package-manager command itself.
+StillOn is released from GitHub source; it does not publish an npm package.
+A GitHub Release is the source for the in-app changelog. On an explicitly enabled
+[managed deployment](managed-updates.md), **Settings → Changelog** offers
+**Prepare only** and **Upgrade to …** for newer stable releases. An independent
+native updater performs requested source builds and service switches. Publishing
+a release does not automatically install it. Unsupported installations retain
+installation analysis and the copyable source-upgrade prompt.
 
 ## Triggering a release
 
@@ -58,7 +60,9 @@ met. Patch and minor releases do not advance the edition automatically.
 7. Confirm the workflow passed and that the new release appears in
    **Settings → Changelog**.
 
-For deployments, upgrade by creating and validating a new pinned runtime as
-described in [production-runtime.md](production-runtime.md), then reinstall
-the native service from that runtime. Keep the previous runtime available for
-rollback.
+For enabled managed deployments, request preparation or an upgrade as described
+in [managed-updates.md](managed-updates.md); application upgrades keep the
+installed controller and updater pinned. For first-time setup or other source
+installations, create and validate a new pinned runtime as described in
+[production-runtime.md](production-runtime.md), then install the native service
+from that runtime. Keep the previous runtime available for rollback.
