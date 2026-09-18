@@ -29,6 +29,35 @@ function questionKeyOf(context: AsyncQuestionContext) {
   return asyncQuestionKey(context)
 }
 
+type DraftState = {
+  selections: Record<number, string>
+  customMode: Record<number, boolean>
+  customValues: Record<number, string>
+}
+
+/**
+ * A question without options is always free text; one with options uses the
+ * typed value only after the user picks "other".
+ */
+export function asyncQuestionAnswerValue(
+  question: { index: number; options: string[] | null },
+  draft: DraftState,
+) {
+  const hasOptions = Boolean(question.options && question.options.length > 0)
+  if (!hasOptions) return draft.customValues[question.index] ?? ""
+  return draft.customMode[question.index]
+    ? (draft.customValues[question.index] ?? "")
+    : (draft.selections[question.index] ?? "")
+}
+
+export function isAsyncQuestionComplete(
+  questions: Array<{ index: number; options: string[] | null }>,
+  draft: DraftState,
+) {
+  return questions.length > 0
+    && questions.every((question) => asyncQuestionAnswerValue(question, draft).trim().length > 0)
+}
+
 function statusLabel(status: AsyncQuestionDeliveryStatus) {
   switch (status) {
     case "submitting":
@@ -91,11 +120,14 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
     || response?.status === "queued"
     || response?.status === "delivery_unknown"
 
-  const answersFor = (index: number) => (
-    customMode[index] ? (customValues[index] ?? "") : (selections[index] ?? "")
+  // A question without options is always free text; one with options uses the
+  // typed value only after the user picks "other".
+  const draft = { selections, customMode, customValues }
+  const answersFor = (question: { index: number; options: string[] | null }) => (
+    asyncQuestionAnswerValue(question, draft)
   )
 
-  const complete = questions.length > 0 && questions.every((question) => answersFor(question.index).trim().length > 0)
+  const complete = isAsyncQuestionComplete(questions, draft)
   const canSend = complete && !pending && !settled
 
   if (!context || questions.length === 0) {
@@ -106,7 +138,7 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
     if (!canSend) return
     const answers: AsyncQuestionAnswerInput[] = questions.map((question) => ({
       index: question.index,
-      value: answersFor(question.index).trim(),
+      value: answersFor(question).trim(),
     }))
     setPending(true)
     setError(null)
