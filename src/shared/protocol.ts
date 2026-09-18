@@ -3,6 +3,8 @@ import type {
   AppSettingsPatch,
   AgentProvider,
   AgentPermissionMode,
+  AsyncQuestionAnswerInput,
+  AsyncQuestionDeliveryStatus,
   ChatAttachment,
   ChatDiffSnapshot,
   ChatHistoryPage,
@@ -19,6 +21,18 @@ import type {
 } from "./types"
 
 export type { EditorPreset }
+
+export interface AsyncQuestionAnswerResult {
+  questionKey: string
+  submissionId: string
+  status: AsyncQuestionDeliveryStatus
+  answers: AsyncQuestionAnswerInput[]
+  error?: string | null
+  localMessageId?: string | null
+  providerTurnId?: string | null
+  /** True when this submissionId was already recorded and nothing new was sent. */
+  duplicate?: boolean
+}
 
 export interface EditorOpenSettings {
   preset: EditorPreset
@@ -252,6 +266,13 @@ export type ClientCommand =
   | { type: "chat.loadHistory"; chatId: string; beforeCursor: string; limit: number }
   | { type: "chat.loadToolDetails"; chatId: string; toolIds: string[] }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
+  | {
+      type: "chat.answerAsyncQuestion"
+      chatId: string
+      questionKey: string
+      submissionId: string
+      answers: AsyncQuestionAnswerInput[]
+    }
   | {
       type: "message.enqueue"
       chatId: string

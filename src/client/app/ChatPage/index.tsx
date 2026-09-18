@@ -1142,7 +1142,9 @@ export function ChatPage() {
             editorPreset={editorPreset}
             editorCommandTemplate={editorCommandTemplate}
             platform={state.localProjects?.machine.platform}
+            asyncQuestionResponses={state.asyncQuestionResponses}
             onAskUserQuestionSubmit={state.handleAskUserQuestion}
+            onAnswerAsyncQuestion={state.handleAnswerAsyncQuestion}
             onExitPlanModeConfirm={state.handleExitPlanMode}
             showScrollButton={showScrollToBottom && state.messages.length > 0}
             onIsAtEndChange={onIsAtEndChange}

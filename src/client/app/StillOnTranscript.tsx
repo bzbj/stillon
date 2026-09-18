@@ -1,12 +1,21 @@
 import React, { memo, useCallback, useMemo, useRef, useState } from "react"
 import type { AskUserQuestionItem, ProcessedToolCall } from "../components/messages/types"
-import type { AskUserQuestionAnswerMap, ChatAttachment, HydratedTranscriptMessage } from "../../shared/types"
+import type {
+  AskUserQuestionAnswerMap,
+  AsyncQuestionAnswerInput,
+  AsyncQuestionResponse,
+  ChatAttachment,
+  HydratedTranscriptMessage,
+} from "../../shared/types"
+import { asyncQuestionKey } from "../../shared/types"
+import type { AsyncQuestionAnswerResult } from "../../shared/protocol"
 import { UserMessage } from "../components/messages/UserMessage"
 import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
 import { AccountInfoMessage } from "../components/messages/AccountInfoMessage"
 import { TextMessage } from "../components/messages/TextMessage"
 import { AskUserQuestionMessage } from "../components/messages/AskUserQuestionMessage"
+import { AsyncQuestionMessage } from "../components/messages/AsyncQuestionMessage"
 import { ExitPlanModeMessage } from "../components/messages/ExitPlanModeMessage"
 import { TodoWriteMessage } from "../components/messages/TodoWriteMessage"
 import { ToolCallMessage } from "../components/messages/ToolCallMessage"
@@ -350,11 +359,18 @@ interface TranscriptSingleRowProps {
   isLatestTodoWrite: boolean
   hideResult: boolean
   isFinalStatus: boolean
+  asyncQuestionResponses: Map<string, AsyncQuestionResponse>
+  asyncQuestionsReadOnly?: boolean
   onAskUserQuestionSubmit: (
     toolUseId: string,
     questions: AskUserQuestionItem[],
     answers: AskUserQuestionAnswerMap
   ) => void
+  onAnswerAsyncQuestion: (
+    questionKey: string,
+    answers: AsyncQuestionAnswerInput[],
+    submissionId: string,
+  ) => Promise<AsyncQuestionAnswerResult>
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
 }
 
@@ -370,7 +386,10 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   isLatestTodoWrite,
   hideResult,
   isFinalStatus,
+  asyncQuestionResponses,
+  asyncQuestionsReadOnly = false,
   onAskUserQuestionSubmit,
+  onAnswerAsyncQuestion,
   onExitPlanModeConfirm,
 }: TranscriptSingleRowProps) {
   let rendered: React.ReactNode = null
@@ -389,7 +408,17 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
         rendered = isFirstAccount ? <AccountInfoMessage key={message.id} message={message} /> : null
         break
       case "assistant_text":
-        rendered = <TextMessage key={message.id} message={message} />
+        rendered = message.asyncQuestion ? (
+          <AsyncQuestionMessage
+            key={message.id}
+            message={message}
+            response={asyncQuestionResponses.get(asyncQuestionKey(message.asyncQuestion))}
+            readOnly={asyncQuestionsReadOnly}
+            onSubmit={onAnswerAsyncQuestion}
+          />
+        ) : (
+          <TextMessage key={message.id} message={message} />
+        )
         break
       case "tool":
         if (message.toolKind === "ask_user_question") {
@@ -469,7 +498,10 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   && prev.isLatestTodoWrite === next.isLatestTodoWrite
   && prev.hideResult === next.hideResult
   && prev.isFinalStatus === next.isFinalStatus
+  && prev.asyncQuestionResponses === next.asyncQuestionResponses
+  && prev.asyncQuestionsReadOnly === next.asyncQuestionsReadOnly
   && prev.onAskUserQuestionSubmit === next.onAskUserQuestionSubmit
+  && prev.onAnswerAsyncQuestion === next.onAnswerAsyncQuestion
   && prev.onExitPlanModeConfirm === next.onExitPlanModeConfirm
   && sameMessage(prev.message, next.message)
 ))
@@ -579,11 +611,18 @@ interface StillOnTranscriptProps {
   localPath?: string
   latestToolIds: Record<string, string | null>
   onOpenLocalLink: (target: OpenLocalLinkTarget) => void
+  asyncQuestionResponses: AsyncQuestionResponse[]
+  asyncQuestionsReadOnly?: boolean
   onAskUserQuestionSubmit: (
     toolUseId: string,
     questions: AskUserQuestionItem[],
     answers: AskUserQuestionAnswerMap
   ) => void
+  onAnswerAsyncQuestion: (
+    questionKey: string,
+    answers: AsyncQuestionAnswerInput[],
+    submissionId: string,
+  ) => Promise<AsyncQuestionAnswerResult>
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
 }
 
@@ -591,11 +630,18 @@ interface StillOnTranscriptRowProps {
   row: ResolvedTranscriptRow
   toolGroupExpanded?: boolean
   onToolGroupExpandedChange: (groupId: string, next: boolean) => void
+  asyncQuestionResponses: Map<string, AsyncQuestionResponse>
+  asyncQuestionsReadOnly?: boolean
   onAskUserQuestionSubmit: (
     toolUseId: string,
     questions: AskUserQuestionItem[],
     answers: AskUserQuestionAnswerMap
   ) => void
+  onAnswerAsyncQuestion: (
+    questionKey: string,
+    answers: AsyncQuestionAnswerInput[],
+    submissionId: string,
+  ) => Promise<AsyncQuestionAnswerResult>
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
 }
 
@@ -603,7 +649,10 @@ export const StillOnTranscriptRow = memo(function StillOnTranscriptRow({
   row,
   toolGroupExpanded,
   onToolGroupExpandedChange,
+  asyncQuestionResponses,
+  asyncQuestionsReadOnly = false,
   onAskUserQuestionSubmit,
+  onAnswerAsyncQuestion,
   onExitPlanModeConfirm,
 }: StillOnTranscriptRowProps) {
   if (row.kind === "tool-group") {
@@ -633,14 +682,20 @@ export const StillOnTranscriptRow = memo(function StillOnTranscriptRow({
       isLatestTodoWrite={row.isLatestTodoWrite}
       hideResult={row.hideResult}
       isFinalStatus={row.isFinalStatus}
+      asyncQuestionResponses={asyncQuestionResponses}
+      asyncQuestionsReadOnly={asyncQuestionsReadOnly}
       onAskUserQuestionSubmit={onAskUserQuestionSubmit}
+      onAnswerAsyncQuestion={onAnswerAsyncQuestion}
       onExitPlanModeConfirm={onExitPlanModeConfirm}
     />
   )
 }, (prev, next) => {
   if (prev.toolGroupExpanded !== next.toolGroupExpanded) return false
   if (prev.onToolGroupExpandedChange !== next.onToolGroupExpandedChange) return false
+  if (prev.asyncQuestionResponses !== next.asyncQuestionResponses) return false
+  if (prev.asyncQuestionsReadOnly !== next.asyncQuestionsReadOnly) return false
   if (prev.onAskUserQuestionSubmit !== next.onAskUserQuestionSubmit) return false
+  if (prev.onAnswerAsyncQuestion !== next.onAnswerAsyncQuestion) return false
   if (prev.onExitPlanModeConfirm !== next.onExitPlanModeConfirm) return false
   if (prev.row.kind !== next.row.kind) return false
   if (prev.row.id !== next.row.id) return false
@@ -678,10 +733,17 @@ function StillOnTranscriptImpl({
   localPath,
   latestToolIds,
   onOpenLocalLink,
+  asyncQuestionResponses,
+  asyncQuestionsReadOnly = false,
   onAskUserQuestionSubmit,
+  onAnswerAsyncQuestion,
   onExitPlanModeConfirm,
 }: StillOnTranscriptProps) {
   const [toolGroupExpanded, setToolGroupExpanded] = useState<Record<string, boolean>>({})
+  const asyncQuestionResponseByKey = useMemo(
+    () => new Map(asyncQuestionResponses.map((entry) => [entry.questionKey, entry])),
+    [asyncQuestionResponses],
+  )
   const rows = useMemo(() => buildResolvedTranscriptRows(messages, {
     isLoading,
     localPath,
@@ -709,7 +771,10 @@ function StillOnTranscriptImpl({
             row={row}
             toolGroupExpanded={row.kind === "tool-group" ? (toolGroupExpanded[row.id] ?? false) : undefined}
             onToolGroupExpandedChange={handleToolGroupExpandedChange}
+            asyncQuestionResponses={asyncQuestionResponseByKey}
+            asyncQuestionsReadOnly={asyncQuestionsReadOnly}
             onAskUserQuestionSubmit={onAskUserQuestionSubmit}
+            onAnswerAsyncQuestion={onAnswerAsyncQuestion}
             onExitPlanModeConfirm={onExitPlanModeConfirm}
           />
         </div>

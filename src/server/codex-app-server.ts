@@ -51,10 +51,13 @@ import {
   type TurnInterruptParams,
   type TurnStartParams,
   type TurnStartResponse,
+  type TurnSteerParams,
+  type TurnSteerResponse,
   isJsonRpcResponse,
   isServerNotification,
   isServerRequest,
 } from "./codex-app-server-protocol"
+import { asyncQuestionContextFromItem } from "./async-question"
 
 interface CodexAppServerProcess {
   stdin: Writable
@@ -83,6 +86,8 @@ interface PendingTurn {
   queue: AsyncQueue<HarnessEvent>
   startedToolIds: Set<string>
   handledDynamicToolIds: Set<string>
+  /** Provider item ids already converted to transcript entries, for replay dedup. */
+  completedItemIds: Set<string>
   latestPlanExplanation: string | null
   latestPlanSteps: TurnPlanStep[]
   latestPlanText: string | null
@@ -855,6 +860,7 @@ export class CodexAppServerManager {
       queue,
       startedToolIds: new Set(),
       handledDynamicToolIds: new Set(),
+      completedItemIds: new Set(),
       latestPlanExplanation: null,
       latestPlanSteps: [],
       latestPlanText: null,
@@ -921,6 +927,47 @@ export class CodexAppServerManager {
       },
       close: () => {},
     }
+  }
+
+  /** The app-server exposes a non-interrupting `turn/steer` RPC. */
+  readonly supportsNativeSteer = true
+
+  /** Provider turn id currently running for this chat, or null when idle. */
+  getActiveTurnId(chatId: string): string | null {
+    const context = this.sessions.get(chatId)
+    const pendingTurn = context?.pendingTurn
+    if (!pendingTurn || pendingTurn.resolved) return null
+    return pendingTurn.turnId
+  }
+
+  /**
+   * Append input to the active turn without starting a new one. The caller must
+   * pass the expected turn id; the provider rejects the request when the active
+   * turn differs, and no `turn/started` is emitted on success.
+   */
+  async steerTurn(args: {
+    chatId: string
+    expectedTurnId: string
+    content: string
+    clientUserMessageId?: string | null
+  }): Promise<TurnSteerResponse> {
+    const context = this.requireSession(args.chatId)
+    const threadId = context.sessionToken
+    if (!threadId) {
+      throw new Error("Codex session not started")
+    }
+    return await this.sendRequest<TurnSteerResponse>(context, "turn/steer", {
+      threadId,
+      expectedTurnId: args.expectedTurnId,
+      clientUserMessageId: args.clientUserMessageId ?? null,
+      input: [
+        {
+          type: "text",
+          text: args.content,
+          text_elements: [],
+        },
+      ],
+    } satisfies TurnSteerParams)
   }
 
   async generateStructured(args: GenerateStructuredArgs): Promise<string | null> {
@@ -1221,7 +1268,7 @@ export class CodexAppServerManager {
         this.handleItemStarted(pendingTurn, notification.params)
         return
       case "item/completed":
-        this.handleItemCompleted(pendingTurn, notification.params)
+        this.handleItemCompleted(context, pendingTurn, notification.params)
         return
       case "item/plan/delta":
         this.handlePlanDelta(pendingTurn, notification.params)
@@ -1273,13 +1320,28 @@ export class CodexAppServerManager {
     }
   }
 
-  private handleItemCompleted(pendingTurn: PendingTurn, notification: ItemCompletedNotification) {
+  private handleItemCompleted(
+    context: SessionContext,
+    pendingTurn: PendingTurn,
+    notification: ItemCompletedNotification,
+  ) {
     if (notification.item.type === "agentMessage") {
+      const item = notification.item
+      if (pendingTurn.completedItemIds.has(item.id)) return
+      pendingTurn.completedItemIds.add(item.id)
+      const threadId = notification.threadId || context.sessionToken || ""
+      const originTurnId = notification.turnId || pendingTurn.turnId || ""
+      const asyncQuestion = asyncQuestionContextFromItem(
+        item as unknown as Record<string, unknown>,
+        threadId,
+        originTurnId,
+      )
       pendingTurn.queue.push({
         type: "transcript",
         entry: timestamped({
           kind: "assistant_text",
           text: notification.item.text,
+          ...(asyncQuestion ? { asyncQuestion } : {}),
         }),
       })
       if (pendingTurn.pendingWebSearchResultToolId && notification.item.text.trim()) {

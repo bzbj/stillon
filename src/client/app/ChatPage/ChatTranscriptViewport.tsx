@@ -46,7 +46,10 @@ interface ChatTranscriptViewportProps {
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
   onOpenLocalLink: StillOnState["handleOpenLocalLink"]
   canOpenHostFiles?: boolean
+  asyncQuestionResponses: StillOnState["asyncQuestionResponses"]
+  asyncQuestionsReadOnly?: boolean
   onAskUserQuestionSubmit: StillOnState["handleAskUserQuestion"]
+  onAnswerAsyncQuestion: StillOnState["handleAnswerAsyncQuestion"]
   onExitPlanModeConfirm: StillOnState["handleExitPlanMode"]
   showScrollButton: boolean
   onIsAtEndChange: (isAtEnd: boolean) => void
@@ -118,7 +121,10 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   onRemoveQueuedMessage,
   onOpenLocalLink,
   canOpenHostFiles = false,
+  asyncQuestionResponses,
+  asyncQuestionsReadOnly = false,
   onAskUserQuestionSubmit,
+  onAnswerAsyncQuestion,
   onExitPlanModeConfirm,
   showScrollButton,
   onIsAtEndChange,
@@ -290,17 +296,25 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     parseProjectRelativeFileLink(href, localPath)
   ), [localPath])
 
+  const asyncQuestionResponseByKey = useMemo(
+    () => new Map(asyncQuestionResponses.map((entry) => [entry.questionKey, entry])),
+    [asyncQuestionResponses],
+  )
+
   const renderItem = useCallback(({ item }: { item: ResolvedTranscriptRow }) => (
     <div className="mx-auto w-full max-w-[800px] pb-5" data-transcript-row-id={item.id}>
       <StillOnTranscriptRow
         row={item}
         toolGroupExpanded={item.kind === "tool-group" ? (toolGroupExpanded[item.id] ?? false) : undefined}
         onToolGroupExpandedChange={handleToolGroupExpandedChange}
+        asyncQuestionResponses={asyncQuestionResponseByKey}
+        asyncQuestionsReadOnly={asyncQuestionsReadOnly}
         onAskUserQuestionSubmit={onAskUserQuestionSubmit}
+        onAnswerAsyncQuestion={onAnswerAsyncQuestion}
         onExitPlanModeConfirm={onExitPlanModeConfirm}
       />
     </div>
-  ), [handleToolGroupExpandedChange, onAskUserQuestionSubmit, onExitPlanModeConfirm, toolGroupExpanded])
+  ), [handleToolGroupExpandedChange, asyncQuestionResponseByKey, asyncQuestionsReadOnly, onAskUserQuestionSubmit, onAnswerAsyncQuestion, onExitPlanModeConfirm, toolGroupExpanded])
 
   const listHeader = (
     <div className="mx-auto w-full max-w-[800px]" style={{ paddingTop: `${headerOffsetPx}px` }}>

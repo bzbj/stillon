@@ -3,6 +3,7 @@ import type { Dirent } from "node:fs"
 import path from "node:path"
 import { cp as copyPath, copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
 import type {
+  AsyncQuestionResponse,
   StandaloneTranscriptAttachmentMode,
   StandaloneTranscriptBundle,
   StandaloneTranscriptExportCommandResult,
@@ -45,6 +46,7 @@ export interface WriteStandaloneTranscriptExportArgs {
   theme: StandaloneTranscriptTheme
   attachmentMode: StandaloneTranscriptAttachmentMode
   messages: TranscriptEntry[]
+  asyncQuestionResponses?: AsyncQuestionResponse[]
 }
 
 export interface StandaloneExportDeps {
@@ -124,6 +126,7 @@ export async function writeStandaloneTranscriptExport(
     theme: args.theme,
     attachmentMode: args.attachmentMode,
     messages: prepared.messages,
+    asyncQuestionResponses: args.asyncQuestionResponses ? [...args.asyncQuestionResponses] : [],
   }
 
   const transcriptJson = `${JSON.stringify(bundle, null, 2)}\n`

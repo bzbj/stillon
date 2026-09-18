@@ -1,4 +1,4 @@
-import type { AgentProvider, ChatTurnPreferences, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, AsyncQuestionResponse, ChatTurnPreferences, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 
 export interface ProjectRecord extends ProjectSummary {
   sidebarTitle?: string
@@ -189,7 +189,18 @@ export type TurnEvent =
       pendingForkSessionToken: string | null
     }
 
-export type StoreEvent = ProjectEvent | ChatEvent | MessageEvent | QueuedMessageEvent | TurnEvent
+/**
+ * An answer-journal record. Kept in its own append-only log so older builds,
+ * which never learned this event type, can still read chats and snapshots.
+ */
+export type AsyncQuestionEvent = {
+  v: 2
+  type: "async_question_response_recorded"
+  timestamp: number
+  response: AsyncQuestionResponse
+}
+
+export type StoreEvent = ProjectEvent | ChatEvent | MessageEvent | QueuedMessageEvent | TurnEvent | AsyncQuestionEvent
 
 export function createEmptyState(): StoreState {
   return {

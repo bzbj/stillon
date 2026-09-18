@@ -5,9 +5,10 @@ import path from "node:path"
 import { createInterface } from "node:readline"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import { CHAT_HISTORY_RAW_ENTRY_SAFETY_LIMIT, INITIAL_CHAT_HISTORY_SERIALIZED_BYTE_LIMIT } from "../shared/transcript-history"
-import type { AgentProvider, ChatHistoryPage, ChatHistorySnapshot, ChatToolDetails, ChatTurnPreferences, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, AsyncQuestionResponse, ChatHistoryPage, ChatHistorySnapshot, ChatToolDetails, ChatTurnPreferences, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
+  type AsyncQuestionEvent,
   type ChatEvent,
   type ProjectEvent,
   type QueuedMessageEvent,
@@ -128,6 +129,8 @@ function getReplayEventPriority(event: StoreEvent) {
       return 8
     case "chat_read_state_set":
       return 9
+    case "async_question_response_recorded":
+      return 9
     case "chat_deleted":
     case "chat_archived":
     case "chat_unarchived":
@@ -177,8 +180,13 @@ export class EventStore {
   private readonly messagesLogPath: string
   private readonly queuedMessagesLogPath: string
   private readonly turnsLogPath: string
+  private readonly asyncResponsesLogPath: string
   private readonly transcriptsDir: string
   private readonly sidebarProjectOrderPath: string
+  /** Answer journal, keyed by chat then questionKey. Not part of the snapshot. */
+  private readonly asyncQuestionResponsesByChatId = new Map<string, Map<string, AsyncQuestionResponse>>()
+  /** Every recorded submission, keyed by chat then submissionId, for exact retries. */
+  private readonly asyncQuestionSubmissionsByChatId = new Map<string, Map<string, AsyncQuestionResponse>>()
   private legacyMessagesByChatId = new Map<string, TranscriptEntry[]>()
   private legacySidebarProjectOrder: string[] = []
   private sidebarProjectOrder: string[] = []
@@ -196,6 +204,7 @@ export class EventStore {
     this.messagesLogPath = path.join(this.dataDir, "messages.jsonl")
     this.queuedMessagesLogPath = path.join(this.dataDir, "queued-messages.jsonl")
     this.turnsLogPath = path.join(this.dataDir, "turns.jsonl")
+    this.asyncResponsesLogPath = path.join(this.dataDir, "async-question-responses.jsonl")
     this.transcriptsDir = path.join(this.dataDir, "transcripts")
     this.sidebarProjectOrderPath = path.join(this.dataDir, SIDEBAR_PROJECT_ORDER_FILE)
   }
@@ -208,6 +217,7 @@ export class EventStore {
     await this.ensureFile(this.messagesLogPath)
     await this.ensureFile(this.queuedMessagesLogPath)
     await this.ensureFile(this.turnsLogPath)
+    await this.ensureFile(this.asyncResponsesLogPath)
     await this.loadSnapshot()
     await this.replayLogs()
     await this.loadSidebarProjectOrder()
@@ -527,12 +537,33 @@ export class EventStore {
         chat.updatedAt = event.timestamp
         break
       }
+      case "async_question_response_recorded": {
+        const response = event.response
+        if (!response || typeof response.questionKey !== "string" || typeof response.chatId !== "string") break
+        let byKey = this.asyncQuestionResponsesByChatId.get(response.chatId)
+        if (!byKey) {
+          byKey = new Map()
+          this.asyncQuestionResponsesByChatId.set(response.chatId, byKey)
+        }
+        byKey.set(response.questionKey, response)
+        if (typeof response.submissionId === "string" && response.submissionId) {
+          let bySubmission = this.asyncQuestionSubmissionsByChatId.get(response.chatId)
+          if (!bySubmission) {
+            bySubmission = new Map()
+            this.asyncQuestionSubmissionsByChatId.set(response.chatId, bySubmission)
+          }
+          bySubmission.set(response.submissionId, response)
+        }
+        break
+      }
       case "chat_deleted": {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
         chat.deletedAt = event.timestamp
         chat.updatedAt = event.timestamp
         this.state.queuedMessagesByChatId.delete(event.chatId)
+        this.asyncQuestionResponsesByChatId.delete(event.chatId)
+        this.asyncQuestionSubmissionsByChatId.delete(event.chatId)
         break
       }
       case "chat_archived": {
@@ -906,6 +937,33 @@ export class EventStore {
     this.transcriptRevisions.delete(chatId)
   }
 
+  /**
+   * Append one answer-journal record. Serialized on the same write chain as
+   * every other store write, so a restart replays it in submission order.
+   */
+  async recordAsyncQuestionResponse(response: AsyncQuestionResponse) {
+    const event: AsyncQuestionEvent = {
+      v: STORE_VERSION,
+      type: "async_question_response_recorded",
+      timestamp: response.updatedAt,
+      response,
+    }
+    await this.append(this.asyncResponsesLogPath, event)
+  }
+
+  getAsyncQuestionResponse(chatId: string, questionKey: string): AsyncQuestionResponse | null {
+    return this.asyncQuestionResponsesByChatId.get(chatId)?.get(questionKey) ?? null
+  }
+
+  getAsyncQuestionResponseBySubmission(chatId: string, submissionId: string): AsyncQuestionResponse | null {
+    return this.asyncQuestionSubmissionsByChatId.get(chatId)?.get(submissionId) ?? null
+  }
+
+  listAsyncQuestionResponses(chatId: string): AsyncQuestionResponse[] {
+    const byKey = this.asyncQuestionResponsesByChatId.get(chatId)
+    return byKey ? [...byKey.values()] : []
+  }
+
   async archiveChat(chatId: string) {
     this.requireChat(chatId)
     const event: ChatEvent = {
@@ -1058,6 +1116,8 @@ export class EventStore {
       model: message.model,
       modelOptions: message.modelOptions,
       permissionMode: message.permissionMode,
+      asyncQuestionSubmissionId: message.asyncQuestionSubmissionId,
+      asyncQuestionKey: message.asyncQuestionKey,
     }
     const event: QueuedMessageEvent = {
       v: STORE_VERSION,
@@ -1505,6 +1565,7 @@ export class EventStore {
       [this.messagesLogPath, 2],
       [this.queuedMessagesLogPath, 3],
       [this.turnsLogPath, 4],
+      [this.asyncResponsesLogPath, 5],
     ]
   }
 

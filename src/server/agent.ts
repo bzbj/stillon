@@ -2,6 +2,9 @@ import { query, type CanUseTool, type EffortLevel, type PermissionResult, type Q
 import type {
   AgentPermissionMode,
   AgentProvider,
+  AsyncQuestionContext,
+  AsyncQuestionDeliveryStatus,
+  AsyncQuestionResponse,
   ChatAttachment,
   ChatTurnPreferences,
   ClaudePermissionMode,
@@ -16,9 +19,11 @@ import type {
   TranscriptEntry,
 } from "../shared/types"
 import { normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
+import { ASYNC_QUESTION_RESPONSE_SCHEMA_VERSION } from "../shared/types"
 import { normalizeToolCall } from "../shared/tools"
-import type { ClientCommand } from "../shared/protocol"
+import type { AsyncQuestionAnswerResult, ClientCommand } from "../shared/protocol"
 import { EventStore } from "./event-store"
+import { buildAsyncQuestionAnswerText, asyncQuestionKey, validateAsyncQuestionAnswers } from "./async-question"
 import { CodexExecManager } from "./codex-exec"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
@@ -148,6 +153,15 @@ interface CodexManager {
   }): Promise<string | null>
   stopSession(chatId: string): void | Promise<void>
   stopAll(): void | Promise<void>
+  /** True only when the transport can append input to a running turn. */
+  readonly supportsNativeSteer?: boolean
+  getActiveTurnId?(chatId: string): string | null
+  steerTurn?(args: {
+    chatId: string
+    expectedTurnId: string
+    content: string
+    clientUserMessageId?: string | null
+  }): Promise<{ turnId: string }>
 }
 
 interface AgentCoordinatorArgs {
@@ -202,6 +216,9 @@ interface SendMessageOptions {
   modelOptions?: ModelOptions
   effort?: string
   permissionMode?: AgentPermissionMode
+  asyncQuestionSubmissionId?: string
+  asyncQuestionKey?: string
+  queuedMessageId?: string
 }
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(
@@ -817,6 +834,27 @@ function stopFailedMessage(error: Error | null) {
   return `The previous run could not be confirmed stopped.${detail} Press Esc to try again.`
 }
 
+function toAsyncAnswerResult(response: AsyncQuestionResponse, duplicate = false): AsyncQuestionAnswerResult {
+  return {
+    questionKey: response.questionKey,
+    submissionId: response.submissionId,
+    status: response.status,
+    answers: response.answers,
+    error: response.error ?? null,
+    localMessageId: response.localMessageId ?? null,
+    providerTurnId: response.providerTurnId ?? null,
+    duplicate,
+  }
+}
+
+/**
+ * Only a provider error that proves the turn is gone may be downgraded to a
+ * follow-up. Anything else stays unresolved instead of silently resending.
+ */
+function isConfirmedTurnSteerRejection(message: string) {
+  return /expectedTurnId|expected turn|no active turn|not active|turn (?:is )?(?:not found|completed|finished)|mismatch/i.test(message)
+}
+
 export class AgentCoordinator {
   private readonly store: EventStore
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
@@ -833,6 +871,8 @@ export class AgentCoordinator {
   private readonly runControls = new Map<string, ChatRunControl>()
   private readonly stopConfirmTimeoutMs: number
   readonly claudeSessions = new Map<string, ClaudeSessionState>()
+  /** Per-chat serialization for async-question submissions. */
+  private readonly asyncQuestionLocks = new Map<string, Promise<void>>()
 
   constructor(args: AgentCoordinatorArgs) {
     this.store = args.store
@@ -995,12 +1035,15 @@ export class AgentCoordinator {
 
   private async enqueueMessage(chatId: string, content: string, attachments: ChatAttachment[], options?: SendMessageOptions) {
     const queued = await this.store.enqueueMessage(chatId, {
+      id: options?.queuedMessageId,
       content,
       attachments,
       provider: options?.provider,
       model: options?.model,
       modelOptions: options?.modelOptions,
       permissionMode: options?.permissionMode,
+      asyncQuestionSubmissionId: options?.asyncQuestionSubmissionId,
+      asyncQuestionKey: options?.asyncQuestionKey,
     })
     this.emitStateChange(chatId)
     return queued
@@ -1116,12 +1159,24 @@ export class AgentCoordinator {
     if (control.startedQueuedMessageIds.length > STARTED_QUEUED_MESSAGE_MEMORY) {
       control.startedQueuedMessageIds.shift()
     }
+    const queuedMessage = this.store.getQueuedMessage(chatId, queuedMessageId)
     try {
       await this.store.removeQueuedMessage(chatId, queuedMessageId)
     } catch (error) {
       // The run has started; the stale entry is skipped via startedQueuedMessageIds.
       const message = error instanceof Error ? error.message : String(error)
       this.reportBackgroundError?.(`[queue] chat ${chatId} could not remove started message: ${message}`)
+    }
+
+    // The turn has actually launched, so a queued async answer is now sent.
+    if (queuedMessage?.asyncQuestionSubmissionId) {
+      const response = this.store.getAsyncQuestionResponseBySubmission(
+        chatId,
+        queuedMessage.asyncQuestionSubmissionId,
+      )
+      if (response && (response.status === "queued" || response.status === "submitting")) {
+        await this.updateAsyncQuestionResponse(chatId, response, { status: "accepted", error: null })
+      }
     }
   }
 
@@ -2085,6 +2140,217 @@ export class AgentCoordinator {
       [...this.runControls.values()].flatMap((control) => (control.barrier?.pending ? [control.barrier.pending] : [])),
     )
     await this.codexManager.stopAll()
+  }
+
+  private async withAsyncQuestionLock<T>(chatId: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.asyncQuestionLocks.get(chatId) ?? Promise.resolve()
+    const run = previous.then(action, action)
+    this.asyncQuestionLocks.set(
+      chatId,
+      run.then(() => undefined, () => undefined),
+    )
+    return await run
+  }
+
+  private getCodexActiveTurnId(chatId: string): string | null {
+    if (typeof this.codexManager.getActiveTurnId !== "function") return null
+    try {
+      return this.codexManager.getActiveTurnId(chatId)
+    } catch {
+      return null
+    }
+  }
+
+  private async findAsyncQuestion(chatId: string, questionKey: string): Promise<AsyncQuestionContext | null> {
+    for await (const entry of this.store.iterateMessages(chatId)) {
+      if (entry.kind !== "assistant_text" || !entry.asyncQuestion) continue
+      if (asyncQuestionKey(entry.asyncQuestion) === questionKey) return entry.asyncQuestion
+    }
+    return null
+  }
+
+  private async updateAsyncQuestionResponse(
+    chatId: string,
+    response: AsyncQuestionResponse,
+    patch: Partial<Pick<AsyncQuestionResponse, "status" | "error" | "localMessageId" | "providerTurnId">>,
+  ): Promise<AsyncQuestionResponse> {
+    const next: AsyncQuestionResponse = { ...response, ...patch, updatedAt: Date.now() }
+    await this.store.recordAsyncQuestionResponse(next)
+    this.emitStateChange(chatId)
+    return next
+  }
+
+  /**
+   * Re-read the durable state after a crash that left a `submitting` record.
+   * Only a provably unsent submission may be retried; an unconfirmable
+   * provider-side send becomes `delivery_unknown`.
+   */
+  private async reconcileSubmitting(
+    chatId: string,
+    response: AsyncQuestionResponse,
+    context: AsyncQuestionContext,
+  ): Promise<AsyncQuestionAnswerResult> {
+    const queued = this.store
+      .getQueuedMessages(chatId)
+      .find((message) => message.asyncQuestionSubmissionId === response.submissionId)
+    if (queued) {
+      const next = await this.updateAsyncQuestionResponse(chatId, response, {
+        status: "queued",
+        localMessageId: queued.id,
+        error: null,
+      })
+      return toAsyncAnswerResult(next, true)
+    }
+
+    const canSteer = this.codexManager.supportsNativeSteer === true
+      && typeof this.codexManager.steerTurn === "function"
+    const runningTurnId = this.getCodexActiveTurnId(chatId)
+    if (canSteer && runningTurnId && runningTurnId === context.originTurnId) {
+      const next = await this.updateAsyncQuestionResponse(chatId, response, {
+        status: "delivery_unknown",
+        error: "服务重启时发送结果未知，请核对聊天记录后再决定是否重发",
+      })
+      return toAsyncAnswerResult(next, true)
+    }
+
+    // The provider never received it: the durable queue has no entry and the
+    // transport had no in-flight channel. Safe to retry with a new submission.
+    const next = await this.updateAsyncQuestionResponse(chatId, response, {
+      status: "failed",
+      error: "上次发送未完成，可安全重试",
+    })
+    return toAsyncAnswerResult(next, true)
+  }
+
+  /**
+   * Submit an answer to a Codex asynchronous question. Serialized per chat so a
+   * double click or two browsers cannot both win; the durable `submitting`
+   * record is written before any external send.
+   */
+  async answerAsyncQuestion(
+    command: Extract<ClientCommand, { type: "chat.answerAsyncQuestion" }>,
+  ): Promise<AsyncQuestionAnswerResult> {
+    return await this.withAsyncQuestionLock(command.chatId, async () => {
+      const chat = this.store.requireChat(command.chatId)
+      const context = await this.findAsyncQuestion(command.chatId, command.questionKey)
+      if (!context) {
+        throw new Error("该问题不属于此会话，无法回答")
+      }
+
+      const priorSubmission = this.store.getAsyncQuestionResponseBySubmission(
+        command.chatId,
+        command.submissionId,
+      )
+      if (priorSubmission) {
+        if (priorSubmission.questionKey !== command.questionKey) {
+          throw new Error("提交标识已用于其他问题")
+        }
+        if (priorSubmission.status === "submitting") {
+          return await this.reconcileSubmitting(command.chatId, priorSubmission, context)
+        }
+        return toAsyncAnswerResult(priorSubmission, true)
+      }
+
+      const existing = this.store.getAsyncQuestionResponse(command.chatId, command.questionKey)
+      if (existing && existing.status === "submitting") {
+        // A crash left an in-flight record; re-derive its provable state.
+        return await this.reconcileSubmitting(command.chatId, existing, context)
+      }
+      if (existing && existing.status !== "failed") {
+        // Answered or in flight already: never send a second copy.
+        return toAsyncAnswerResult(existing, true)
+      }
+
+      if (chat.sessionToken && context.threadId && chat.sessionToken !== context.threadId) {
+        throw new Error("该问题所属的 Codex 会话已被替换，不能回答旧问题")
+      }
+
+      const validation = validateAsyncQuestionAnswers(context.questions, command.answers)
+      if (!validation.ok || !validation.answers) {
+        throw new Error(validation.error ?? "答案无效")
+      }
+
+      const text = buildAsyncQuestionAnswerText(context.questions, validation.answers)
+      const now = Date.now()
+      let response: AsyncQuestionResponse = {
+        schemaVersion: ASYNC_QUESTION_RESPONSE_SCHEMA_VERSION,
+        chatId: command.chatId,
+        questionKey: command.questionKey,
+        submissionId: command.submissionId,
+        answers: validation.answers,
+        status: "submitting" as AsyncQuestionDeliveryStatus,
+        error: null,
+        localMessageId: null,
+        providerTurnId: null,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      }
+      await this.store.recordAsyncQuestionResponse(response)
+
+      const runningTurnId = this.getCodexActiveTurnId(command.chatId)
+      const originRunning = Boolean(runningTurnId && runningTurnId === context.originTurnId)
+      const steer = this.codexManager.steerTurn?.bind(this.codexManager)
+      const canSteer = this.codexManager.supportsNativeSteer === true && typeof steer === "function"
+
+      if (originRunning && canSteer && steer) {
+        try {
+          const steered = await steer({
+            chatId: command.chatId,
+            expectedTurnId: context.originTurnId,
+            content: text,
+            clientUserMessageId: command.submissionId,
+          })
+          response = await this.updateAsyncQuestionResponse(command.chatId, response, {
+            status: "accepted",
+            providerTurnId: steered?.turnId ?? context.originTurnId,
+            error: null,
+          })
+          return toAsyncAnswerResult(response)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          const stillRunning = this.getCodexActiveTurnId(command.chatId) === context.originTurnId
+          if (stillRunning) {
+            response = await this.updateAsyncQuestionResponse(command.chatId, response, {
+              status: "failed",
+              error: message,
+            })
+            return toAsyncAnswerResult(response)
+          }
+          if (!isConfirmedTurnSteerRejection(message)) {
+            response = await this.updateAsyncQuestionResponse(command.chatId, response, {
+              status: "delivery_unknown",
+              error: message,
+            })
+            return toAsyncAnswerResult(response)
+          }
+          // Confirmed not accepted: fall through to exactly one follow-up.
+        }
+      }
+
+      // Follow-up path: original turn ended, another turn owns the chat, or the
+      // transport cannot steer. Queue the same-thread follow-up once.
+      const queuedMessageId = crypto.randomUUID()
+      try {
+        await this.enqueueMessage(command.chatId, text, [], {
+          asyncQuestionSubmissionId: command.submissionId,
+          asyncQuestionKey: command.questionKey,
+          queuedMessageId,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        response = await this.updateAsyncQuestionResponse(command.chatId, response, {
+          status: "failed",
+          error: message,
+        })
+        return toAsyncAnswerResult(response)
+      }
+      response = await this.updateAsyncQuestionResponse(command.chatId, response, {
+        status: "queued",
+        localMessageId: queuedMessageId,
+      })
+      this.scheduleQueuedMessages(command.chatId)
+      return toAsyncAnswerResult(response)
+    })
   }
 
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>) {

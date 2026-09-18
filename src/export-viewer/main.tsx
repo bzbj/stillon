@@ -93,6 +93,9 @@ function StandaloneTranscriptApp() {
     _message?: string,
   ) => Promise.resolve(), [])
   const handleOpenLocalLink = useCallback(() => Promise.resolve(), [])
+  const handleAnswerAsyncQuestion = useCallback(() => (
+    Promise.reject(new Error("只读导出，无法回复"))
+  ), [])
   const scrollToBottom = useCallback(() => {
     void listRef.current?.scrollToEnd?.({ animated: true })
   }, [])
@@ -171,7 +174,10 @@ function StandaloneTranscriptApp() {
             onSteerQueuedMessage={noopPromise}
             onRemoveQueuedMessage={noopPromise}
             onOpenLocalLink={handleOpenLocalLink}
+            asyncQuestionResponses={state.bundle.asyncQuestionResponses ?? []}
+            asyncQuestionsReadOnly
             onAskUserQuestionSubmit={handleAskUserQuestion}
+            onAnswerAsyncQuestion={handleAnswerAsyncQuestion}
             onExitPlanModeConfirm={handleExitPlanMode}
             showScrollButton={!isAtEnd && messages.length > 0}
             onIsAtEndChange={setIsAtEnd}

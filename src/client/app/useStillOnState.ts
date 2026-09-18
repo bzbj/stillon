@@ -5,7 +5,7 @@ import {
   CHAT_HISTORY_PAGE_ENTRY_LIMIT,
   INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
 } from "../../shared/transcript-history"
-import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
+import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -34,7 +34,7 @@ import {
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { StillOnSocket, type SocketStatus } from "./socket"
-import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath } from "../../shared/protocol"
+import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -745,6 +745,7 @@ export interface StillOnState {
   isHistoryLoading: boolean
   hasOlderHistory: boolean
   availableProviders: ProviderCatalogEntry[]
+  asyncQuestionResponses: AsyncQuestionResponse[]
   isProcessing: boolean
   canCancel: boolean
   isDraining: boolean
@@ -798,6 +799,11 @@ export interface StillOnState {
     questions: AskUserQuestionItem[],
     answers: AskUserQuestionAnswerMap
   ) => Promise<void>
+  handleAnswerAsyncQuestion: (
+    questionKey: string,
+    answers: AsyncQuestionAnswerInput[],
+    submissionId: string,
+  ) => Promise<AsyncQuestionAnswerResult>
   handleExitPlanMode: (
     toolUseId: string,
     confirmed: boolean,
@@ -1336,6 +1342,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     : null
   const effectiveRuntimeStatus = optimisticRuntimeStatus ?? runtime?.status ?? null
   const availableProviders = activeChatSnapshot?.availableProviders ?? PROVIDERS
+  const asyncQuestionResponses: AsyncQuestionResponse[] = activeChatSnapshot?.asyncQuestionResponses ?? []
   const isProcessing = isProcessingStatus(effectiveRuntimeStatus ?? undefined)
   const canCancel = canCancelStatus(effectiveRuntimeStatus ?? undefined)
   const isDraining = runtime?.isDraining ?? false
@@ -2149,6 +2156,26 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
   }, [activeChatId, socket])
 
+  const handleAnswerAsyncQuestion = useCallback(async (
+    questionKey: string,
+    answers: AsyncQuestionAnswerInput[],
+    submissionId: string,
+  ) => {
+    if (!activeChatId) throw new Error("没有活动会话")
+    try {
+      return await socket.command<AsyncQuestionAnswerResult>({
+        type: "chat.answerAsyncQuestion",
+        chatId: activeChatId,
+        questionKey,
+        submissionId,
+        answers,
+      })
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+      throw error
+    }
+  }, [activeChatId, socket])
+
   const handleExitPlanMode = useCallback(async (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => {
     if (!activeChatId) return
     try {
@@ -2216,6 +2243,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     isHistoryLoading,
     hasOlderHistory,
     availableProviders,
+    asyncQuestionResponses,
     isProcessing,
     canCancel,
     isDraining,
@@ -2265,6 +2293,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     handleOpenLocalLink,
     handleCompose,
     handleAskUserQuestion,
+    handleAnswerAsyncQuestion,
     handleExitPlanMode,
     handleExportStandalone,
     handleCloseStandaloneShareDialog,

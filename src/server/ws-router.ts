@@ -845,6 +845,7 @@ export function createWsRouter({
           topic.chatId,
           () => transcript,
           agent.getSteeringQueuedMessageId?.(topic.chatId) ?? null,
+          store.listAsyncQuestionResponses?.(topic.chatId) ?? [],
         ),
       },
     }
@@ -1573,6 +1574,7 @@ export function createWsRouter({
             theme: command.theme,
             attachmentMode: command.attachmentMode,
             messages: await store.readAllMessages(command.chatId),
+            asyncQuestionResponses: store.listAsyncQuestionResponses(command.chatId),
           })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
@@ -1594,6 +1596,12 @@ export function createWsRouter({
         case "chat.respondTool": {
           await agent.respondTool(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          return
+        }
+        case "chat.answerAsyncQuestion": {
+          const result = await agent.answerAsyncQuestion(command)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastChatAndSidebar(command.chatId)
           return
         }
         case "message.enqueue": {
