@@ -658,8 +658,10 @@ describe("ChangelogSection", () => {
     )
 
     expect(html).toContain("Upgrade available: v0.8.2")
-    expect(html).toContain("Analyze this installation")
-    expect(html).toContain("Let Codex inspect this installation")
+    expect(html).toContain("Generate upgrade prompt")
+    expect(html).toContain("Your coding agent will check this installation when you run it.")
+    expect(html).not.toContain("Analyze this installation")
+    expect(html).not.toContain("Let Codex inspect")
     expect(html).not.toContain("npm install")
   })
 
@@ -675,7 +677,7 @@ describe("ChangelogSection", () => {
       />
     )
 
-    expect(html).not.toContain("Analyze this installation")
+    expect(html).not.toContain("Generate upgrade prompt")
   })
 })
 

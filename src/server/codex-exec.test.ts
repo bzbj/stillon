@@ -6,7 +6,6 @@ import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CodexExecManager, CodexStopError, CodexThreadBusyError, codexSpawnOptions } from "./codex-exec"
-import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 
 class FakeCodexExecProcess extends EventEmitter {
   readonly stdin = new PassThrough()
@@ -360,7 +359,7 @@ describe("CodexExecManager", () => {
     expect(child.signals).toEqual(["SIGTERM"])
   })
 
-  test("upgrade analysis completes over pipes with explicit Full Access and no approval channel", async () => {
+  test("generateStructured completes over pipes with explicit Full Access and no approval channel", async () => {
     const commands: string[][] = []
     const manager = new CodexExecManager({
       spawnProcess: (args, cwd, environment) => {
@@ -377,17 +376,17 @@ describe("CodexExecManager", () => {
         return spawn(process.execPath, ["-e", script], codexSpawnOptions(cwd, environment)) as never
       },
     })
-    const generator = createSourceUpgradePromptGenerator({
-      runtimeDirectory: process.cwd(),
-      codex: manager,
-      getCodexPreference: () => ({
-        model: "configured-model",
-        modelOptions: { reasoningEffort: "ultra", fastMode: true },
-        permissionMode: "full",
-      }),
+    const result = await manager.generateStructured({
+      cwd: process.cwd(),
+      prompt: "Return a short response.",
+      model: "configured-model",
+      effort: "low",
+      serviceTier: "fast",
+      permissionMode: "full",
+      ephemeral: true,
       timeoutMs: 5_000,
     })
-    expect(await generator.generate({ targetTag: "v0.2.13" })).toEqual({ prompt: "Upgrade instructions" })
+    expect(result).toBe("Upgrade instructions")
     expect(commands[0]).toContain('sandbox_mode="danger-full-access"')
     expect(commands[0]).toContain('approval_policy="never"')
     expect(commands[0]).toContain('model_reasoning_effort="low"')

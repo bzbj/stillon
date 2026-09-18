@@ -713,7 +713,7 @@ describe("ws-router", () => {
     ])
   })
 
-  test.each([null, "Sandbox initialization failed; check host permissions and retry."])("returns the upgrade analysis result or error to the remote client: %s", async (failure) => {
+  test.each([null, "The target StillOn release tag is invalid."])("returns the upgrade prompt or error to the remote client: %s", async (failure) => {
     const requestedTags: string[] = []
     const router = createWsRouter({
       store: { state: createEmptyState() } as never,
