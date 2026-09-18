@@ -33,7 +33,6 @@ import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
-import { CodexExecManager } from "./codex-exec"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
 
@@ -208,9 +207,14 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   await appSettings.initialize()
   await keybindings.initialize()
   const sourceUpgradePrompt = createSourceUpgradePromptGenerator({
-    runtimeDirectory: path.resolve(import.meta.dir, "..", ".."),
-    codex: new CodexExecManager({ getEnvironment: getAgentEnvironment }),
-    getCodexPreference: () => appSettings.getSnapshot().providerDefaults.codex,
+    getContext: () => ({
+      currentVersion: APP_VERSION,
+      platform: process.platform,
+      runtimeDirectory: path.resolve(import.meta.dir, "..", ".."),
+      dataDirectory: path.resolve(store.dataDir),
+      host: hostname,
+      port: server.port!,
+    }),
   })
   const agent = new AgentCoordinator({
     store,

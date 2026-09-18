@@ -383,7 +383,7 @@ function SourceUpgradePrompt({
       setPrompt(result.prompt)
       setGenerationStatus("success")
     } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : "Codex could not analyze this installation.")
+      setGenerationError(error instanceof Error ? error.message : "Could not generate the upgrade prompt.")
       setGenerationStatus("error")
     }
   }
@@ -405,7 +405,7 @@ function SourceUpgradePrompt({
           <div className="min-w-0">
             <div className="text-sm font-medium text-foreground">Upgrade available: v{targetVersion}</div>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              Let Codex inspect this installation and prepare a concise upgrade prompt that preserves local customizations.
+              Generate a ready-to-copy upgrade prompt. Your coding agent will check this installation when you run it.
             </p>
           </div>
           <Button
@@ -418,9 +418,9 @@ function SourceUpgradePrompt({
             {generationStatus === "loading" ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
             ) : (
-              <Sparkles className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+              <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
             )}
-            {generationStatus === "loading" ? "Analyzing…" : "Analyze this installation"}
+            {generationStatus === "loading" ? "Preparing…" : "Generate upgrade prompt"}
           </Button>
         </div>
       </section>
@@ -429,22 +429,22 @@ function SourceUpgradePrompt({
         <DialogContent size="lg">
           <DialogBody className="space-y-4">
             <div className="space-y-1">
-              <DialogTitle>Tailor the v{targetVersion} upgrade</DialogTitle>
+              <DialogTitle>Upgrade prompt for v{targetVersion}</DialogTitle>
               <DialogDescription>
-                Codex is instructed to inspect this installation without making changes, then prepare a concise upgrade prompt.
+                Copy this prompt to your coding agent to perform the upgrade. It will first verify your setup and preserve local customizations. Generating this prompt does not change your installation.
               </DialogDescription>
             </div>
             {generationStatus === "loading" ? (
               <div role="status" className="flex min-h-40 items-center justify-center rounded-xl border border-border bg-muted/30 px-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span>Inspecting the local runtime, service, ports, and customizations. Analysis stops after four minutes if it cannot finish. Closing this dialog keeps the analysis running.</span>
+                  <span>Preparing your upgrade prompt…</span>
                 </div>
               </div>
             ) : null}
             {generationStatus === "success" ? (
               <Textarea
-                aria-label={`Tailored upgrade prompt for StillOn v${targetVersion}`}
+                aria-label={`Upgrade prompt for StillOn v${targetVersion}`}
                 value={prompt}
                 readOnly
                 rows={12}
@@ -453,7 +453,7 @@ function SourceUpgradePrompt({
             ) : null}
             {generationStatus === "error" ? (
               <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {generationError ?? "Codex could not analyze this installation."}
+                {generationError ?? "Could not generate the upgrade prompt."}
               </div>
             ) : null}
             {copyStatus === "error" ? (

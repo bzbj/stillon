@@ -480,7 +480,7 @@ export function createWsRouter({
   }
   const resolvedSourceUpgradePrompt = sourceUpgradePrompt ?? {
     generate: async () => {
-      throw new Error("Tailored upgrade analysis is unavailable.")
+      throw new Error("Upgrade prompt generation is unavailable.")
     },
   }
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {

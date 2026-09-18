@@ -6,7 +6,8 @@ A GitHub Release is the source for the in-app changelog. On an explicitly enable
 **Prepare only** and **Upgrade to …** for newer stable releases. An independent
 native updater performs requested source builds and service switches. Publishing
 a release does not automatically install it. Unsupported installations retain
-installation analysis and the copyable source-upgrade prompt.
+an instantly generated, copyable source-upgrade prompt. Deployment inspection
+happens when a coding agent executes that prompt, not while generating it.
 
 ## Triggering a release
 

@@ -152,11 +152,19 @@ Windows installations, including x64 and arm64 Bun. See
 actions, customization preservation and independent rollback. Unknown/custom
 launchers continue using the manual workflow below.
 
-For a manual update, create and build a new release directory, verify it manually
-on an unused local port, then run `service install` from its `bin/stillon`
+For a manual update of a native service, create and build a new release directory,
+verify it manually on an unused local port, then run `service install` from its `bin/stillon`
 entrypoint. The per-user service is replaced with the new runtime.
 **Settings → Changelog** can also generate a source-upgrade prompt for Codex
-or Claude Code when managed updates are unavailable.
+or Claude Code when managed updates are unavailable. **Generate upgrade prompt**
+returns a local template using the running server's version, platform, runtime
+and data directories, and listening address. It does not invoke a model, inspect
+the deployment, or change the installation, and needs no provider credentials.
+The agent receiving the copied prompt verifies the actual installation and
+target-version documentation before selecting update, build, restart, health
+check, and rollback commands. This applies to macOS and Windows, including
+custom launchers: preserve the existing startup mechanism instead of assuming
+that reinstalling the native service is appropriate.
 
 To roll back, reinstall the service from the known-good release directory:
 
