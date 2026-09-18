@@ -300,6 +300,7 @@ describe("getActiveChatSnapshot", () => {
         revision: "revision-1",
       },
       availableProviders: [],
+      asyncQuestionResponses: [],
     }
 
     expect(getActiveChatSnapshot(snapshot, "chat-1")).toEqual(snapshot)
@@ -328,6 +329,7 @@ describe("getActiveChatSnapshot", () => {
         revision: "revision-old",
       },
       availableProviders: [],
+      asyncQuestionResponses: [],
     }
 
     expect(getActiveChatSnapshot(snapshot, "chat-new")).toBeNull()
@@ -372,6 +374,7 @@ describe("reconcileHistoryPaginationSnapshot", () => {
         revision,
       },
       availableProviders: [],
+      asyncQuestionResponses: [],
     }
   }
 

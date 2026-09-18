@@ -18,7 +18,9 @@ function renderTranscript(messages: HydratedTranscriptMessage[]) {
       isLoading={false}
       latestToolIds={{ AskUserQuestion: null, ExitPlanMode: null, TodoWrite: null }}
       onOpenLocalLink={() => undefined}
+      asyncQuestionResponses={[]}
       onAskUserQuestionSubmit={() => undefined}
+      onAnswerAsyncQuestion={() => Promise.reject(new Error("not used"))}
       onExitPlanModeConfirm={() => undefined}
     />
   )

@@ -79,6 +79,7 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
           ...createBaseMessage(entry),
           kind: "assistant_text",
           text: entry.text,
+          ...(entry.asyncQuestion ? { asyncQuestion: entry.asyncQuestion } : {}),
         })
         break
       case "tool_call": {

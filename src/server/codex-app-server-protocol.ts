@@ -90,6 +90,27 @@ export interface TurnInterruptParams {
   turnId: string
 }
 
+/** A question attached to an asynchronous agent message. */
+export interface AsyncUserInputQuestion {
+  title: string
+  options: string[] | null
+}
+
+/**
+ * Append input to an already-running turn without starting a new one. The
+ * provider requires `expectedTurnId` to match the active turn.
+ */
+export interface TurnSteerParams {
+  threadId: string
+  expectedTurnId: string
+  clientUserMessageId?: string | null
+  input: CodexUserInput[]
+}
+
+export interface TurnSteerResponse {
+  turnId: string
+}
+
 export interface ThreadSummary {
   id: string
 }
@@ -313,6 +334,9 @@ export interface AgentMessageItem {
   id: string
   text: string
   phase?: string
+  memoryCitation?: unknown
+  delivery?: "async" | null
+  questions?: AsyncUserInputQuestion[] | null
 }
 
 export interface PlanItem {

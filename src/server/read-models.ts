@@ -187,6 +187,7 @@ export function deriveChatSnapshot(
   chatId: string,
   getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">,
   steeringQueuedMessageId: string | null = null,
+  asyncQuestionResponses: ChatSnapshot["asyncQuestionResponses"] = [],
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -218,5 +219,6 @@ export function deriveChatSnapshot(
     messages: transcript.messages,
     history: transcript.history,
     availableProviders: [...SERVER_PROVIDERS],
+    asyncQuestionResponses: asyncQuestionResponses.map((entry) => ({ ...entry })),
   }
 }

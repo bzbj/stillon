@@ -251,4 +251,25 @@ describe("getLatestToolIds", () => {
       TodoWrite: null,
     })
   })
+
+  test("keeps async question metadata on assistant text", () => {
+    const asyncQuestion = {
+      threadId: "thread-1",
+      originTurnId: "turn-1",
+      providerItemId: "item-1",
+      questions: [{ index: 0, title: "Which output format?", options: ["Markdown", "HTML"] }],
+    }
+    const messages = processTranscriptMessages([
+      entry({ kind: "assistant_text", text: "Which output format?", asyncQuestion }),
+      entry({ kind: "assistant_text", text: "Plain follow-up" }),
+    ])
+
+    expect(messages).toHaveLength(2)
+    const question = messages[0]
+    if (question?.kind !== "assistant_text") throw new Error("unexpected message")
+    expect(question.asyncQuestion).toEqual(asyncQuestion)
+    const plain = messages[1]
+    if (plain?.kind !== "assistant_text") throw new Error("unexpected message")
+    expect(plain.asyncQuestion).toBeUndefined()
+  })
 })

@@ -779,3 +779,81 @@ describe("EventStore", () => {
     expect(store.listChatsByProject(project.id).map((entry) => entry.id)).toEqual([chat.id])
   })
 })
+
+describe("EventStore async question journal", () => {
+  function response(chatId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      schemaVersion: 1 as const,
+      chatId,
+      questionKey: JSON.stringify(["thread-1", "turn-1", "item-1"]),
+      submissionId: "submission-1",
+      answers: [{ index: 0, value: "HTML" }],
+      status: "queued" as const,
+      error: null,
+      localMessageId: "queued-1",
+      providerTurnId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      ...overrides,
+    }
+  }
+
+  test("records, queries, and replays answers after a restart", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const first = response(chat.id)
+    await store.recordAsyncQuestionResponse(first)
+
+    expect(store.getAsyncQuestionResponse(chat.id, first.questionKey)?.status).toBe("queued")
+    expect(store.getAsyncQuestionResponseBySubmission(chat.id, "submission-1")?.localMessageId).toBe("queued-1")
+    expect(store.listAsyncQuestionResponses(chat.id)).toHaveLength(1)
+
+    const reopened = new EventStore(dataDir)
+    await reopened.initialize()
+    expect(reopened.getAsyncQuestionResponse(chat.id, first.questionKey)?.answers).toEqual([{ index: 0, value: "HTML" }])
+    expect(reopened.getAsyncQuestionResponseBySubmission(chat.id, "submission-1")?.questionKey).toBe(first.questionKey)
+  })
+
+  test("keeps the newest record per question and every submission", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+
+    await store.recordAsyncQuestionResponse(response(chat.id, { status: "submitting", updatedAt: 1 }))
+    await store.recordAsyncQuestionResponse(response(chat.id, { status: "accepted", updatedAt: 3, providerTurnId: "turn-1" }))
+    await store.recordAsyncQuestionResponse(response(chat.id, {
+      submissionId: "submission-2",
+      status: "delivery_unknown",
+      updatedAt: 4,
+    }))
+
+    const latest = store.getAsyncQuestionResponse(chat.id, response(chat.id).questionKey)
+    expect(latest?.status).toBe("delivery_unknown")
+    expect(store.getAsyncQuestionResponseBySubmission(chat.id, "submission-1")?.status).toBe("accepted")
+    expect(store.getAsyncQuestionResponseBySubmission(chat.id, "submission-2")?.status).toBe("delivery_unknown")
+    expect(store.listAsyncQuestionResponses(chat.id)).toHaveLength(1)
+  })
+
+  test("drops journal records when the chat is deleted", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    await store.recordAsyncQuestionResponse(response(chat.id))
+
+    await store.deleteChat(chat.id)
+
+    expect(store.listAsyncQuestionResponses(chat.id)).toEqual([])
+    expect(store.getAsyncQuestionResponseBySubmission(chat.id, "submission-1")).toBeNull()
+
+    const reopened = new EventStore(dataDir)
+    await reopened.initialize()
+    expect(reopened.listAsyncQuestionResponses(chat.id)).toEqual([])
+  })
+})

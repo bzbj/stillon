@@ -118,6 +118,8 @@ export interface StandaloneTranscriptBundle {
   theme: StandaloneTranscriptTheme
   attachmentMode: StandaloneTranscriptAttachmentMode
   messages: TranscriptEntry[]
+  /** Answer state for exported async questions; read-only in the viewer. */
+  asyncQuestionResponses?: AsyncQuestionResponse[]
 }
 
 export interface StandaloneTranscriptExportResult {
@@ -157,6 +159,9 @@ export interface QueuedChatMessage {
   model?: string
   modelOptions?: ModelOptions
   permissionMode?: AgentPermissionMode
+  /** Set when this queued message carries an async-question answer. */
+  asyncQuestionSubmissionId?: string
+  asyncQuestionKey?: string
   /** Snapshot only: ↑ picked this message and it runs as soon as the current run has stopped. */
   sendingNow?: boolean
 }
@@ -798,6 +803,72 @@ export interface AskUserQuestionItem {
 
 export type AskUserQuestionAnswerMap = Record<string, string[]>
 
+/**
+ * One question from a Codex asynchronous `request_user_input_async` agent
+ * message. `index` is the position in the provider's original array and is the
+ * only safe identity for a question: titles may repeat.
+ */
+export interface AsyncQuestionItem {
+  index: number
+  title: string
+  options: string[] | null
+}
+
+/**
+ * Metadata preserved from an async agent message. The plain text stays on the
+ * entry so older builds can still render the question as text.
+ */
+export interface AsyncQuestionContext {
+  threadId: string
+  originTurnId: string
+  providerItemId: string
+  questions: AsyncQuestionItem[]
+}
+
+export type AsyncQuestionDeliveryStatus =
+  | "submitting"
+  | "queued"
+  | "accepted"
+  | "failed"
+  | "delivery_unknown"
+
+export interface AsyncQuestionAnswerInput {
+  index: number
+  value: string
+}
+
+/** Durable record of one answer submission, stored in the answer journal. */
+export interface AsyncQuestionResponse {
+  schemaVersion: 1
+  chatId: string
+  questionKey: string
+  submissionId: string
+  answers: AsyncQuestionAnswerInput[]
+  status: AsyncQuestionDeliveryStatus
+  error?: string | null
+  localMessageId?: string | null
+  providerTurnId?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export const ASYNC_QUESTION_RESPONSE_SCHEMA_VERSION = 1
+
+export const ASYNC_QUESTION_MAX_QUESTIONS = 20
+export const ASYNC_QUESTION_MAX_ANSWER_BYTES = 8_000
+export const ASYNC_QUESTION_MAX_TITLE_BYTES = 2_000
+export const ASYNC_QUESTION_MAX_OPTION_BYTES = 1_000
+
+/**
+ * Stable identity of an async question. Structured JSON tuple, not a delimiter
+ * join, so ids containing the delimiter cannot collide.
+ */
+export function asyncQuestionKey(
+  context: Pick<AsyncQuestionContext, "threadId" | "originTurnId" | "providerItemId">
+): string {
+  return JSON.stringify([context.threadId, context.originTurnId, context.providerItemId])
+}
+
 export interface TodoItem {
   content: string
   status: "pending" | "in_progress" | "completed"
@@ -915,6 +986,11 @@ export interface AccountInfoEntry extends TranscriptEntryBase {
 export interface AssistantTextEntry extends TranscriptEntryBase {
   kind: "assistant_text"
   text: string
+  /**
+   * Present only when the provider sent a structured async question. Old
+   * entries and ordinary text messages never carry it.
+   */
+  asyncQuestion?: AsyncQuestionContext
 }
 
 export interface ToolCallEntry extends TranscriptEntryBase {
@@ -1263,7 +1339,7 @@ export type HydratedTranscriptMessage =
   | ({ kind: "user_prompt"; content: string; attachments?: ChatAttachment[]; steered?: boolean; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "system_init"; model: string; tools: string[]; agents: string[]; slashCommands: string[]; mcpServers: McpServerInfo[]; provider: AgentProvider; id: string; messageId?: string; timestamp: string; hidden?: boolean; debugRaw?: string })
   | ({ kind: "account_info"; accountInfo: AccountInfo; id: string; messageId?: string; timestamp: string; hidden?: boolean })
-  | ({ kind: "assistant_text"; text: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "assistant_text"; text: string; asyncQuestion?: AsyncQuestionContext; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "result"; success: boolean; cancelled?: boolean; result: string; durationMs: number; costUsd?: number; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "status"; status: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "context_window_updated"; usage: ContextWindowUsageSnapshot; id: string; messageId?: string; timestamp: string; hidden?: boolean })
@@ -1301,6 +1377,11 @@ export interface ChatSnapshot {
   messages: TranscriptEntry[]
   history: ChatHistorySnapshot
   availableProviders: ProviderCatalogEntry[]
+  /**
+   * Answer state for every async question in this chat, keyed by questionKey.
+   * Served from the journal so paged-out questions keep their "sent" marker.
+   */
+  asyncQuestionResponses: AsyncQuestionResponse[]
 }
 
 export interface ChatHistoryPage {

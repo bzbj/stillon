@@ -10,6 +10,7 @@ import type {
   ServiceTier,
   TranscriptEntry,
 } from "../shared/types"
+import { asyncQuestionContextFromItem } from "./async-question"
 import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
 import {
@@ -145,6 +146,10 @@ interface PendingTurn {
   stderrLines: string[]
   lastProtocolError: string | null
   startedToolIds: Set<string>
+  /** Provider item ids already turned into transcript entries, for replay dedup. */
+  completedItemIds: Set<string>
+  /** Stable local identity for this run; exec's JSON stream carries no turn id. */
+  localTurnId: string
   /** The result was delivered to the stream. Says nothing about the process. */
   resolved: boolean
   /** The direct child exited. */
@@ -442,6 +447,8 @@ export class CodexExecManager {
       stderrLines: [],
       lastProtocolError: null,
       startedToolIds: new Set(),
+      completedItemIds: new Set(),
+      localTurnId: randomUUID(),
       resolved: false,
       exited: false,
       exitWaiters: [],
@@ -486,6 +493,20 @@ export class CodexExecManager {
         return this.releaseWriter(pendingTurn, "result")
       },
     }
+  }
+
+  /**
+   * `codex exec` streams the prompt over a closed stdin and exposes no
+   * append-to-running-turn RPC, so a running turn can only be interrupted.
+   */
+  readonly supportsNativeSteer = false
+
+  /** Local turn id currently running for this chat, or null when idle. */
+  getActiveTurnId(chatId: string): string | null {
+    const context = this.sessions.get(chatId)
+    const pendingTurn = context?.pendingTurn
+    if (!pendingTurn || pendingTurn.resolved) return null
+    return pendingTurn.localTurnId
   }
 
   async generateStructured(args: GenerateCodexExecStructuredArgs): Promise<string | null> {
@@ -778,13 +799,26 @@ export class CodexExecManager {
     const itemType = asString(item.type)
 
     if (itemType === "agent_message") {
+      const id = asString(item.id)
+      if (id) {
+        // A replayed completion for the same provider item must not create a
+        // second transcript entry (and so a second question card).
+        if (pendingTurn.completedItemIds.has(id)) return
+        pendingTurn.completedItemIds.add(id)
+      }
       const text = asString(item.text)
       if (text?.trim()) {
+        const asyncQuestion = asyncQuestionContextFromItem(
+          item,
+          pendingTurn.threadId ?? "",
+          pendingTurn.localTurnId,
+        )
         pendingTurn.queue.push({
           type: "transcript",
           entry: timestamped({
             kind: "assistant_text",
             text,
+            ...(asyncQuestion ? { asyncQuestion } : {}),
           }),
         })
       }
