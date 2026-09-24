@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
 import { APP_VERSION } from "../shared/branding"
+import { getCodexModelForRole } from "../shared/types"
 import { CodexAppServerManager } from "./codex-app-server"
 
 class FakeCodexProcess extends EventEmitter {
@@ -362,8 +363,8 @@ describe("CodexAppServerManager", () => {
 
     expect(result).toBe("{\"title\":\"Codex title\"}")
     expect(process.killed).toBe(true)
-    expect((process.messages.find((message: any) => message.method === "thread/start") as any)?.params.model).toBe("gpt-6-sol")
-    expect((process.messages.find((message: any) => message.method === "turn/start") as any)?.params.model).toBe("gpt-6-sol")
+    expect((process.messages.find((message: any) => message.method === "thread/start") as any)?.params.model).toBe(getCodexModelForRole("conversation"))
+    expect((process.messages.find((message: any) => message.method === "turn/start") as any)?.params.model).toBe(getCodexModelForRole("conversation"))
   })
 
   test("maps command execution and agent output into the shared transcript stream", async () => {

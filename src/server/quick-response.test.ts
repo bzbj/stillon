@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { getCodexModelForRole } from "../shared/types"
 import { CodexExecManager } from "./codex-exec"
 import { fallbackTitleFromMessage, generateTitleForChat, generateTitleForChatDetailed } from "./generate-title"
 import { createDefaultQuickResponseCodexManager, getQuickResponseWorkspace, QuickResponseAdapter } from "./quick-response"
@@ -225,7 +226,7 @@ describe("QuickResponseAdapter", () => {
     }
   })
 
-  test("uses gpt-6-luna for Codex title generation fallback", async () => {
+  test("uses the background Codex model for title generation fallback", async () => {
     const requests: Array<{ cwd: string; prompt: string; model?: string }> = []
     const adapter = new QuickResponseAdapter({
       readLlmProvider: async () => ({
@@ -267,7 +268,7 @@ describe("QuickResponseAdapter", () => {
 
     expect(result).toBe("Codex title")
     expect(requests).toHaveLength(1)
-    expect(requests[0]?.model).toBe("gpt-6-luna")
+    expect(requests[0]?.model).toBe(getCodexModelForRole("background"))
   })
 
   test("falls through to Claude when the SDK is not configured", async () => {

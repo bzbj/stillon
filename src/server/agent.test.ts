@@ -8,7 +8,7 @@ import {
   normalizeClaudeUsageSnapshot,
 } from "./agent"
 import type { HarnessTurn } from "./harness-types"
-import type { ChatAttachment, ChatTurnPreferences, TranscriptEntry } from "../shared/types"
+import { getCodexModelForRole, type ChatAttachment, type ChatTurnPreferences, type TranscriptEntry } from "../shared/types"
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(entry: T): TranscriptEntry {
   return {
@@ -574,7 +574,7 @@ describe("AgentCoordinator codex integration", () => {
     expect(turnCalls).toEqual([{ effort: "xhigh", serviceTier: "fast" }])
     expect(store.chat.lastTurnPreferences).toEqual({
       provider: "codex",
-      model: "gpt-6-sol",
+      model: getCodexModelForRole("conversation"),
       modelOptions: { reasoningEffort: "xhigh", fastMode: true },
       permissionMode: "full",
     })

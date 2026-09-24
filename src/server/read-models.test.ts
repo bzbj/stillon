@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
+import { CODEX_MODEL_POLICY } from "../shared/types"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import { createEmptyState } from "./events"
 
@@ -158,11 +159,9 @@ describe("read models", () => {
     expect(chat?.queuedMessages.map((message) => message.content)).toEqual(["follow up"])
     expect(chat?.history.recentLimit).toBe(200)
     expect(chat?.availableProviders.length).toBeGreaterThan(1)
-    expect(chat?.availableProviders.find((provider) => provider.id === "codex")?.models.map((model) => model.id)).toEqual([
-      "gpt-6-astra",
-      "gpt-6-sol",
-      "gpt-6-luna",
-    ])
+    expect(chat?.availableProviders.find((provider) => provider.id === "codex")?.models.map((model) => model.id)).toEqual(
+      CODEX_MODEL_POLICY.models.map((model) => model.id),
+    )
   })
 
   test("prefers saved project metadata over discovered entries for the same path", () => {

@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { AppSettingsManager, readAppSettingsSnapshot } from "./app-settings"
-import type { AppSettingsSnapshot } from "../shared/types"
+import { getCodexModelForRole, type AppSettingsSnapshot } from "../shared/types"
+import { normalizeCodexPreference as normalizeClientCodexPreference } from "../client/stores/chatPreferencesStore"
 
 let tempDirs: string[] = []
 
@@ -49,7 +50,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
         permissionMode: "acceptEdits",
       },
       codex: {
-        model: "gpt-6-sol",
+        model: getCodexModelForRole("conversation"),
         modelOptions: {
           reasoningEffort: "xhigh",
           fastMode: true,
@@ -85,6 +86,24 @@ describe("readAppSettingsSnapshot", () => {
     const snapshot = await readAppSettingsSnapshot(filePath)
     expect(snapshot.browserSettingsMigrated).toBe(false)
     expect(snapshot.warning).toContain("invalid JSON")
+  })
+
+  test("migrates legacy Codex settings identically in client and server", async () => {
+    const filePath = await createTempFilePath()
+    const legacy = {
+      model: "gpt-5.6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: false },
+      permissionMode: "request",
+    }
+    await writeFile(filePath, JSON.stringify({ providerDefaults: { codex: legacy } }), "utf8")
+
+    const serverPreference = (await readAppSettingsSnapshot(filePath)).providerDefaults.codex
+    expect(serverPreference).toEqual(normalizeClientCodexPreference(legacy))
+    expect(serverPreference).toEqual({
+      model: "gpt-6-luna",
+      modelOptions: { reasoningEffort: "max", fastMode: false },
+      permissionMode: "request",
+    })
   })
 })
 

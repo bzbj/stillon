@@ -10,14 +10,12 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_MODEL_OPTIONS,
   DEFAULT_CODEX_PERMISSION_MODE,
+  getCodexModelForRole,
   isClaudeReasoningEffort,
-  normalizeCodexReasoningEffort,
   normalizeClaudePermissionMode,
-  normalizeCodexPermissionMode,
+  normalizeCodexPreference,
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
-  normalizeCodexModelId,
-  supportsCodexFastMode,
   supportsClaudeMaxReasoningEffort,
   type AppSettingsPatch,
   type AppSettingsSnapshot,
@@ -28,7 +26,6 @@ import {
   type ClaudeModelOptions,
   type ClaudePermissionMode,
   type CodexModelOptions,
-  type CodexPermissionMode,
   type DefaultProviderPreference,
   type EditorPreset,
   type ProviderPreference,
@@ -111,7 +108,7 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
     codex: {
-      model: "gpt-6-sol",
+      model: getCodexModelForRole("conversation"),
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     },
@@ -185,26 +182,6 @@ function normalizeClaudePreference(value?: {
       contextWindow: normalizeClaudeContextWindow(model, value?.modelOptions?.contextWindow),
     },
     permissionMode: normalizeClaudePermissionMode(value?.permissionMode),
-  }
-}
-
-function normalizeCodexPreference(value?: {
-  model?: unknown
-  effort?: unknown
-  modelOptions?: Partial<Record<keyof CodexModelOptions, unknown>>
-  permissionMode?: unknown
-}): ProviderPreference<CodexModelOptions, CodexPermissionMode> {
-  const model = normalizeCodexModelId(typeof value?.model === "string" ? value.model : undefined)
-  const reasoningEffort = value?.modelOptions?.reasoningEffort ?? value?.effort
-  return {
-    model,
-    modelOptions: {
-      reasoningEffort: normalizeCodexReasoningEffort(model, reasoningEffort),
-      fastMode: supportsCodexFastMode(model) && typeof value?.modelOptions?.fastMode === "boolean"
-        ? value.modelOptions.fastMode
-        : supportsCodexFastMode(model) && DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
-    },
-    permissionMode: normalizeCodexPermissionMode(value?.permissionMode),
   }
 }
 

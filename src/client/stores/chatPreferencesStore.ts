@@ -4,14 +4,13 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_MODEL_OPTIONS,
   DEFAULT_CODEX_PERMISSION_MODE,
+  getCodexModelForRole,
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
-  normalizeCodexModelId,
+  normalizeCodexPreference as normalizeSharedCodexPreference,
   normalizeClaudePermissionMode,
   normalizeCodexPermissionMode,
   isClaudeReasoningEffort,
-  normalizeCodexReasoningEffort,
-  supportsCodexFastMode,
   supportsClaudeMaxReasoningEffort,
   type AgentProvider,
   type ChatProviderPreferences,
@@ -136,25 +135,7 @@ export function normalizeClaudePreference(value?: {
   }
 }
 
-export function normalizeCodexPreference(value?: {
-  model?: string
-  effort?: string
-  modelOptions?: Partial<CodexModelOptions>
-  permissionMode?: unknown
-}): ProviderPreference<CodexModelOptions, CodexPermissionMode> {
-  const model = normalizeCodexModelId(value?.model)
-  const reasoningEffort = value?.modelOptions?.reasoningEffort ?? value?.effort
-  return {
-    model,
-    modelOptions: {
-      reasoningEffort: normalizeCodexReasoningEffort(model, reasoningEffort),
-      fastMode: supportsCodexFastMode(model) && typeof value?.modelOptions?.fastMode === "boolean"
-        ? value.modelOptions.fastMode
-        : supportsCodexFastMode(model) && DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
-    },
-    permissionMode: normalizeCodexPermissionMode(value?.permissionMode),
-  }
-}
+export const normalizeCodexPreference = normalizeSharedCodexPreference
 
 export function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
@@ -164,7 +145,7 @@ export function createDefaultProviderDefaults(): ChatProviderPreferences {
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
     codex: {
-      model: "gpt-6-sol",
+      model: getCodexModelForRole("conversation"),
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     },
