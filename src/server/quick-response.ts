@@ -188,7 +188,7 @@ export async function runCodexStructured(
 ): Promise<unknown | null> {
   const response = await codexManager.generateStructured({
     cwd: args.cwd,
-    model: "gpt-5.4-mini",
+    model: "gpt-6-luna",
     prompt: `${args.prompt}\n\nReturn JSON only that matches this schema:\n${JSON.stringify(args.schema, null, 2)}`,
   })
   if (typeof response !== "string") return null

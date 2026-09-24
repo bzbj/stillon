@@ -111,7 +111,7 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
     codex: {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     },

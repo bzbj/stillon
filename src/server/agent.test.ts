@@ -574,7 +574,7 @@ describe("AgentCoordinator codex integration", () => {
     expect(turnCalls).toEqual([{ effort: "xhigh", serviceTier: "fast" }])
     expect(store.chat.lastTurnPreferences).toEqual({
       provider: "codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       modelOptions: { reasoningEffort: "xhigh", fastMode: true },
       permissionMode: "full",
     })
