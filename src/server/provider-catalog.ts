@@ -10,13 +10,10 @@ import type {
 } from "../shared/types"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
-  DEFAULT_CODEX_MODEL_OPTIONS,
-  CODEX_MODELS,
   PROVIDERS,
   normalizeClaudeContextWindow,
-  normalizeCodexReasoningEffort,
+  normalizeCodexOptions,
   normalizeProviderModelId,
-  supportsCodexFastMode,
   isClaudeReasoningEffort,
 } from "../shared/types"
 
@@ -30,15 +27,7 @@ export interface ClaudeSdkModelInfo {
 }
 
 function createServerProviders(): ProviderCatalogEntry[] {
-  return PROVIDERS.map((provider) =>
-    provider.id === "codex"
-      ? {
-          ...provider,
-          defaultModel: "gpt-6-sol",
-          models: CODEX_MODELS,
-        }
-      : provider
-  )
+  return PROVIDERS.map((provider) => ({ ...provider }))
 }
 
 export const SERVER_PROVIDERS: ProviderCatalogEntry[] = createServerProviders()
@@ -137,13 +126,7 @@ export function normalizeCodexModelOptions(
   modelOptions?: ModelOptions,
   legacyEffort?: string
 ): CodexModelOptions {
-  const reasoningEffort = modelOptions?.codex?.reasoningEffort ?? legacyEffort
-  return {
-    reasoningEffort: normalizeCodexReasoningEffort(model, reasoningEffort),
-    fastMode: supportsCodexFastMode(model) && typeof modelOptions?.codex?.fastMode === "boolean"
-      ? modelOptions.codex.fastMode
-      : supportsCodexFastMode(model) && DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
-  }
+  return normalizeCodexOptions(model, modelOptions?.codex, legacyEffort)
 }
 
 export function codexServiceTierFromModelOptions(modelOptions: CodexModelOptions): ServiceTier | undefined {

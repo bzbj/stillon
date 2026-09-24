@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import type { ServerWebSocket } from "bun"
 import { INITIAL_CHAT_HISTORY_ENTRY_LIMIT } from "../shared/transcript-history"
-import { PROTOCOL_VERSION, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
+import { PROTOCOL_VERSION, getCodexModelForRole, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
@@ -508,7 +508,7 @@ export function createWsRouter({
         permissionMode: "acceptEdits",
       },
       codex: {
-        model: "gpt-6-sol",
+        model: getCodexModelForRole("conversation"),
         modelOptions: {
           reasoningEffort: "xhigh",
           fastMode: true,

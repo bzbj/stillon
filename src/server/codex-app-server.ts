@@ -10,6 +10,7 @@ import type {
   TodoItem,
   TranscriptEntry,
 } from "../shared/types"
+import { getCodexModelForRole } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
 import { inheritAgentEnvironment } from "./agent-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
@@ -980,14 +981,14 @@ export class CodexAppServerManager {
       await this.startSession({
         chatId,
         cwd: args.cwd,
-        model: args.model ?? "gpt-6-sol",
+        model: args.model ?? getCodexModelForRole("conversation"),
         serviceTier: args.serviceTier ?? "fast",
         sessionToken: null,
       })
 
       turn = await this.startTurn({
         chatId,
-        model: args.model ?? "gpt-6-sol",
+        model: args.model ?? getCodexModelForRole("conversation"),
         effort: args.effort,
         serviceTier: args.serviceTier ?? "fast",
         content: args.prompt,

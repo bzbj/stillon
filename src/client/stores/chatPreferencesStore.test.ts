@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { getCodexModelForRole } from "../../shared/types"
 import {
   migrateChatPreferencesState,
   NEW_CHAT_COMPOSER_ID,
@@ -204,9 +205,9 @@ describe("migrateChatPreferencesState", () => {
 })
 
 describe("chat preference store", () => {
-  test("starts with gpt-6-sol as the default Codex model", () => {
+  test("starts with the conversation Codex model by default", () => {
     expect(INITIAL_STATE.providerDefaults.codex).toEqual({
-      model: "gpt-6-sol",
+      model: getCodexModelForRole("conversation"),
       modelOptions: { reasoningEffort: "xhigh", fastMode: true },
       permissionMode: "full",
     })

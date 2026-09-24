@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk"
 import { homedir } from "node:os"
 import OpenAI from "openai"
 import { getDataRootDir } from "../shared/branding"
-import type { LlmProviderSnapshot } from "../shared/types"
+import { getCodexModelForRole, type LlmProviderSnapshot } from "../shared/types"
 import { CodexExecManager } from "./codex-exec"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import { createAgentNetworkFetch } from "./agent-network"
@@ -188,7 +188,7 @@ export async function runCodexStructured(
 ): Promise<unknown | null> {
   const response = await codexManager.generateStructured({
     cwd: args.cwd,
-    model: "gpt-6-luna",
+    model: getCodexModelForRole("background"),
     prompt: `${args.prompt}\n\nReturn JSON only that matches this schema:\n${JSON.stringify(args.schema, null, 2)}`,
   })
   if (typeof response !== "string") return null

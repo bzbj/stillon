@@ -300,34 +300,47 @@ export const DEFAULT_CODEX_PERMISSION_MODE: CodexPermissionMode = "full"
 const CODEX_STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const
 const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_STANDARD_REASONING_EFFORTS, "max", "ultra"] as const
 
-export const CODEX_MODELS: ProviderModelOption[] = [
-  {
-    id: "gpt-6-astra",
-    label: "GPT-6-Astra",
-    description: "Our most capable model for complex, demanding work.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-    supportsFastMode: true,
+export const CODEX_MODEL_POLICY = {
+  models: [
+    {
+      id: "gpt-6-astra",
+      label: "GPT-6-Astra",
+      description: "Our most capable model for complex, demanding work.",
+      supportsEffort: true,
+      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+      supportsFastMode: true,
+    },
+    {
+      id: "gpt-6-sol",
+      label: "GPT-6-Sol",
+      description: "Strong reasoning for coding and demanding tasks.",
+      aliases: ["gpt-5.6-sol", "gpt-5.6-terra"],
+      supportsEffort: true,
+      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+      supportsFastMode: true,
+    },
+    {
+      id: "gpt-6-luna",
+      label: "GPT-6-Luna",
+      description: "Efficient model for focused, repeatable work.",
+      aliases: ["gpt-5.6-luna"],
+      supportsEffort: true,
+      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
+      supportsFastMode: true,
+    },
+  ] as ProviderModelOption[],
+  roles: {
+    conversation: "gpt-6-sol",
+    background: "gpt-6-luna",
   },
-  {
-    id: "gpt-6-sol",
-    label: "GPT-6-Sol",
-    description: "Strong reasoning for coding and demanding tasks.",
-    aliases: ["gpt-5.6-sol", "gpt-5.6-terra"],
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-    supportsFastMode: true,
-  },
-  {
-    id: "gpt-6-luna",
-    label: "GPT-6-Luna",
-    description: "Efficient model for focused, repeatable work.",
-    aliases: ["gpt-5.6-luna"],
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-    supportsFastMode: true,
-  },
-]
+} as const
+
+export const CODEX_MODELS = CODEX_MODEL_POLICY.models
+export type CodexModelRole = keyof typeof CODEX_MODEL_POLICY.roles
+
+export function getCodexModelForRole(role: CodexModelRole): string {
+  return CODEX_MODEL_POLICY.roles[role]
+}
 
 export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
   return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
@@ -423,7 +436,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "codex",
     label: "Codex",
-    defaultModel: "gpt-6-sol",
+    defaultModel: getCodexModelForRole("conversation"),
     models: CODEX_MODELS,
     efforts: [...CODEX_REASONING_OPTIONS],
   },
@@ -459,7 +472,7 @@ export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "clau
   return normalizeProviderModelId("claude", modelId, fallbackModelId)
 }
 
-export function normalizeCodexModelId(modelId?: string, fallbackModelId = "gpt-6-sol"): string {
+export function normalizeCodexModelId(modelId?: string, fallbackModelId = getCodexModelForRole("conversation")): string {
   return normalizeProviderModelId("codex", modelId, fallbackModelId)
 }
 
@@ -493,6 +506,33 @@ export function normalizeCodexReasoningEffort(modelId: string, effort?: unknown)
 
 export function supportsCodexFastMode(modelId: string): boolean {
   return Boolean(getCodexModelOption(modelId)?.supportsFastMode)
+}
+
+export function normalizeCodexOptions(
+  modelId: string,
+  modelOptions?: Partial<Record<keyof CodexModelOptions, unknown>>,
+  legacyEffort?: unknown,
+): CodexModelOptions {
+  const model = normalizeCodexModelId(modelId)
+  const fastMode = modelOptions?.fastMode
+  return {
+    reasoningEffort: normalizeCodexReasoningEffort(model, modelOptions?.reasoningEffort ?? legacyEffort),
+    fastMode: supportsCodexFastMode(model) && (typeof fastMode === "boolean" ? fastMode : DEFAULT_CODEX_MODEL_OPTIONS.fastMode),
+  }
+}
+
+export function normalizeCodexPreference(value?: {
+  model?: unknown
+  effort?: unknown
+  modelOptions?: Partial<Record<keyof CodexModelOptions, unknown>>
+  permissionMode?: unknown
+}): ProviderPreference<CodexModelOptions, CodexPermissionMode> {
+  const model = normalizeCodexModelId(typeof value?.model === "string" ? value.model : undefined)
+  return {
+    model,
+    modelOptions: normalizeCodexOptions(model, value?.modelOptions, value?.effort),
+    permissionMode: normalizeCodexPermissionMode(value?.permissionMode),
+  }
 }
 
 export function supportsClaudeMaxReasoningEffort(modelId: string): boolean {

@@ -8,7 +8,7 @@ import {
   normalizeServerModel,
   resetServerProvidersForTests,
 } from "./provider-catalog"
-import { resolveClaudeApiModelId } from "../shared/types"
+import { getCodexModelForRole, resolveClaudeApiModelId } from "../shared/types"
 
 describe("provider catalog normalization", () => {
   afterEach(() => {
@@ -85,7 +85,7 @@ describe("provider catalog normalization", () => {
   })
 
   test("normalizes server model ids through the shared alias catalog", () => {
-    expect(normalizeServerModel("codex")).toBe("gpt-6-sol")
+    expect(normalizeServerModel("codex")).toBe(getCodexModelForRole("conversation"))
     expect(normalizeServerModel("claude", "fable")).toBe("claude-fable-5")
     expect(normalizeServerModel("claude", "opus")).toBe("claude-opus-4-8")
     expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-6-sol")

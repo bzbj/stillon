@@ -4,6 +4,7 @@ import {
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  CODEX_MODEL_POLICY,
   CODEX_MODELS,
   getCodexReasoningOptions,
   supportsCodexFastMode,
@@ -44,6 +45,20 @@ describe("shared model normalization", () => {
     expect(supportsCodexFastMode("gpt-6-sol")).toBe(true)
     expect(supportsCodexFastMode("gpt-6-luna")).toBe(true)
     expect(normalizeCodexModelId("gpt-5.6-luna")).toBe("gpt-6-luna")
+  })
+
+  test("keeps Codex IDs, legacy aliases, and model roles unambiguous", () => {
+    const models = CODEX_MODEL_POLICY.models
+    const ids = models.map((model) => model.id)
+    const names = models.flatMap((model) => [model.id, ...(model.aliases ?? [])])
+
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(new Set(names).size).toBe(names.length)
+    for (const modelId of Object.values(CODEX_MODEL_POLICY.roles)) {
+      expect(ids).toContain(modelId)
+    }
+    expect(normalizeCodexModelId("gpt-5.6-terra")).toBe(CODEX_MODEL_POLICY.roles.conversation)
+    expect(normalizeCodexModelId("gpt-5.6-luna")).toBe(CODEX_MODEL_POLICY.roles.background)
   })
 
   test("uses declarative metadata for Claude max-effort support", () => {
