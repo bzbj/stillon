@@ -225,7 +225,7 @@ describe("QuickResponseAdapter", () => {
     }
   })
 
-  test("uses gpt-5.4-mini for Codex title generation fallback", async () => {
+  test("uses gpt-6-luna for Codex title generation fallback", async () => {
     const requests: Array<{ cwd: string; prompt: string; model?: string }> = []
     const adapter = new QuickResponseAdapter({
       readLlmProvider: async () => ({
@@ -267,7 +267,7 @@ describe("QuickResponseAdapter", () => {
 
     expect(result).toBe("Codex title")
     expect(requests).toHaveLength(1)
-    expect(requests[0]?.model).toBe("gpt-5.4-mini")
+    expect(requests[0]?.model).toBe("gpt-6-luna")
   })
 
   test("falls through to Claude when the SDK is not configured", async () => {

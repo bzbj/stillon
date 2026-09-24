@@ -160,7 +160,6 @@ interface ChatPreferenceControlsProps {
   selectedProvider: AgentProvider
   showProviderPicker?: boolean
   providerLocked?: boolean
-  showCodexCliRequirementHints?: boolean
   model: string
   modelOptions: ClaudeModelOptions | CodexModelOptions
   onProviderChange?: (provider: AgentProvider) => void
@@ -176,7 +175,6 @@ export function ChatPreferenceControls({
   selectedProvider,
   showProviderPicker = true,
   providerLocked = false,
-  showCodexCliRequirementHints = false,
   model,
   modelOptions,
   onProviderChange,
@@ -268,18 +266,7 @@ export function ChatPreferenceControls({
               }}
               selected={model === candidate.id}
               icon={<Icon className="h-4 w-4 text-muted-foreground" />}
-              label={
-                showCodexCliRequirementHints && selectedProvider === "codex" && candidate.id === "gpt-5.5"
-                  ? (
-                    <>
-                      {candidate.label}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        codex-cli &gt;= 0.124
-                      </span>
-                    </>
-                  )
-                  : candidate.label
-              }
+              label={candidate.label}
               description={candidate.description}
             />
           )

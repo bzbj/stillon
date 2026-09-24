@@ -34,7 +34,7 @@ function createServerProviders(): ProviderCatalogEntry[] {
     provider.id === "codex"
       ? {
           ...provider,
-          defaultModel: "gpt-5.6-sol",
+          defaultModel: "gpt-6-sol",
           models: CODEX_MODELS,
         }
       : provider

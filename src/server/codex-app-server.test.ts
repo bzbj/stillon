@@ -362,8 +362,8 @@ describe("CodexAppServerManager", () => {
 
     expect(result).toBe("{\"title\":\"Codex title\"}")
     expect(process.killed).toBe(true)
-    expect((process.messages.find((message: any) => message.method === "thread/start") as any)?.params.model).toBe("gpt-5.5")
-    expect((process.messages.find((message: any) => message.method === "turn/start") as any)?.params.model).toBe("gpt-5.5")
+    expect((process.messages.find((message: any) => message.method === "thread/start") as any)?.params.model).toBe("gpt-6-sol")
+    expect((process.messages.find((message: any) => message.method === "turn/start") as any)?.params.model).toBe("gpt-6-sol")
   })
 
   test("maps command execution and agent output into the shared transcript stream", async () => {

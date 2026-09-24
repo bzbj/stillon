@@ -9,7 +9,7 @@ describe("ChatPreferenceControls", () => {
       <ChatPreferenceControls
         availableProviders={PROVIDERS}
         selectedProvider="codex"
-        model="gpt-5.6-sol"
+        model="gpt-6-sol"
         modelOptions={{ reasoningEffort: "xhigh", fastMode: true }}
         onProviderChange={() => {}}
         onModelChange={() => {}}
@@ -18,7 +18,7 @@ describe("ChatPreferenceControls", () => {
     )
 
     expect(html).toContain("Codex")
-    expect(html).toContain("GPT-5.6-Sol")
+    expect(html).toContain("GPT-6-Sol")
     expect(html).toContain("XHigh")
     expect(html).toContain("Fast Mode")
     expect(html).not.toContain("Run Mode")
@@ -44,22 +44,20 @@ describe("ChatPreferenceControls", () => {
     expect(html).not.toContain('disabled=""')
   })
 
-  test("locks unsupported Codex models to Standard mode", () => {
+  test("renders Luna with Fast Mode", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls
         availableProviders={PROVIDERS}
         selectedProvider="codex"
-        model="gpt-5.4-mini"
-        modelOptions={{ reasoningEffort: "high", fastMode: false }}
+        model="gpt-6-luna"
+        modelOptions={{ reasoningEffort: "high", fastMode: true }}
         onModelChange={() => {}}
         onModelOptionChange={() => {}}
       />
     )
 
-    expect(html).toContain("GPT-5.4-Mini")
-    expect(html).toContain("Standard")
-    expect(html).toContain("disabled=\"\"")
-    expect(html).not.toContain("Fast Mode")
+    expect(html).toContain("GPT-6-Luna")
+    expect(html).toContain("Fast Mode")
   })
 
   test("renders Claude controls without a run or plan mode selector", () => {

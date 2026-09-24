@@ -298,8 +298,7 @@ export const DEFAULT_CLAUDE_PERMISSION_MODE: ClaudePermissionMode = "acceptEdits
 export const DEFAULT_CODEX_PERMISSION_MODE: CodexPermissionMode = "full"
 
 const CODEX_STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const
-const CODEX_EXTENDED_REASONING_EFFORTS = [...CODEX_STANDARD_REASONING_EFFORTS, "max"] as const
-const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_EXTENDED_REASONING_EFFORTS, "ultra"] as const
+const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_STANDARD_REASONING_EFFORTS, "max", "ultra"] as const
 
 export const CODEX_MODELS: ProviderModelOption[] = [
   {
@@ -311,60 +310,22 @@ export const CODEX_MODELS: ProviderModelOption[] = [
     supportsFastMode: true,
   },
   {
-    id: "gpt-5.6-sol",
-    label: "GPT-5.6-Sol",
-    description: "Reliable agentic workhorse for everyday tasks.",
+    id: "gpt-6-sol",
+    label: "GPT-6-Sol",
+    description: "Strong reasoning for coding and demanding tasks.",
+    aliases: ["gpt-5.6-sol", "gpt-5.6-terra"],
     supportsEffort: true,
     supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
     supportsFastMode: true,
   },
   {
-    id: "gpt-5.6-terra",
-    label: "GPT-5.6-Terra",
-    description: "Balanced agentic coding model for everyday work.",
+    id: "gpt-6-luna",
+    label: "GPT-6-Luna",
+    description: "Efficient model for focused, repeatable work.",
+    aliases: ["gpt-5.6-luna"],
     supportsEffort: true,
     supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
     supportsFastMode: true,
-  },
-  {
-    id: "gpt-5.6-luna",
-    label: "GPT-5.6-Luna",
-    description: "Fast and affordable agentic coding model.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_EXTENDED_REASONING_EFFORTS,
-    supportsFastMode: true,
-  },
-  {
-    id: "gpt-5.5",
-    label: "GPT-5.5",
-    description: "Frontier model for complex coding, research, and real-world work.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
-    supportsFastMode: true,
-  },
-  {
-    id: "gpt-5.4",
-    label: "GPT-5.4",
-    description: "Strong model for everyday coding.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
-    supportsFastMode: true,
-  },
-  {
-    id: "gpt-5.4-mini",
-    label: "GPT-5.4-Mini",
-    description: "Small, fast, and cost-efficient model for simpler coding tasks.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
-    supportsFastMode: false,
-  },
-  {
-    id: "gpt-5.3-codex-spark",
-    label: "GPT-5.3-Codex-Spark",
-    description: "Ultra-fast coding model.",
-    supportsEffort: true,
-    supportedReasoningEfforts: CODEX_STANDARD_REASONING_EFFORTS,
-    supportsFastMode: false,
   },
 ]
 
@@ -462,7 +423,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "codex",
     label: "Codex",
-    defaultModel: "gpt-5.6-sol",
+    defaultModel: "gpt-6-sol",
     models: CODEX_MODELS,
     efforts: [...CODEX_REASONING_OPTIONS],
   },
@@ -498,7 +459,7 @@ export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "clau
   return normalizeProviderModelId("claude", modelId, fallbackModelId)
 }
 
-export function normalizeCodexModelId(modelId?: string, fallbackModelId = "gpt-5.6-sol"): string {
+export function normalizeCodexModelId(modelId?: string, fallbackModelId = "gpt-6-sol"): string {
   return normalizeProviderModelId("codex", modelId, fallbackModelId)
 }
 

@@ -508,7 +508,7 @@ export function createWsRouter({
         permissionMode: "acceptEdits",
       },
       codex: {
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         modelOptions: {
           reasoningEffort: "xhigh",
           fastMode: true,

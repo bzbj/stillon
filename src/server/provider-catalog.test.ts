@@ -44,12 +44,12 @@ describe("provider catalog normalization", () => {
   })
 
   test("normalizes Codex model options and fast mode defaults", () => {
-    expect(normalizeCodexModelOptions("gpt-5.6-sol", undefined)).toEqual({
+    expect(normalizeCodexModelOptions("gpt-6-sol", undefined)).toEqual({
       reasoningEffort: "xhigh",
       fastMode: true,
     })
 
-    const normalized = normalizeCodexModelOptions("gpt-5.6-sol", {
+    const normalized = normalizeCodexModelOptions("gpt-6-sol", {
       codex: {
         reasoningEffort: "ultra",
         fastMode: true,
@@ -62,13 +62,13 @@ describe("provider catalog normalization", () => {
     })
     expect(codexServiceTierFromModelOptions(normalized)).toBe("fast")
 
-    expect(normalizeCodexModelOptions("gpt-5.6-luna", {
+    expect(normalizeCodexModelOptions("gpt-6-luna", {
       codex: { reasoningEffort: "ultra", fastMode: true },
-    })).toEqual({ reasoningEffort: "xhigh", fastMode: true })
+    })).toEqual({ reasoningEffort: "ultra", fastMode: true })
 
     expect(normalizeCodexModelOptions("gpt-5.4-mini", {
       codex: { reasoningEffort: "high", fastMode: true },
-    })).toEqual({ reasoningEffort: "high", fastMode: false })
+    })).toEqual({ reasoningEffort: "high", fastMode: true })
   })
 
   test("keeps Astra model, reasoning effort, and service tier through server normalization", () => {
@@ -85,10 +85,10 @@ describe("provider catalog normalization", () => {
   })
 
   test("normalizes server model ids through the shared alias catalog", () => {
-    expect(normalizeServerModel("codex")).toBe("gpt-5.6-sol")
+    expect(normalizeServerModel("codex")).toBe("gpt-6-sol")
     expect(normalizeServerModel("claude", "fable")).toBe("claude-fable-5")
     expect(normalizeServerModel("claude", "opus")).toBe("claude-opus-4-8")
-    expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-5.6-sol")
+    expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-6-sol")
   })
 
   test("resolves Claude API model ids for 1m context window", () => {

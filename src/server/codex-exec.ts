@@ -519,7 +519,7 @@ export class CodexExecManager {
       await this.startSession({
         chatId,
         cwd: args.cwd,
-        model: args.model ?? "gpt-5.6-sol",
+        model: args.model ?? "gpt-6-sol",
         serviceTier: args.serviceTier,
         sessionToken: null,
         permissionMode: args.permissionMode,
@@ -527,7 +527,7 @@ export class CodexExecManager {
       })
       turn = await this.startTurn({
         chatId,
-        model: args.model ?? "gpt-5.6-sol",
+        model: args.model ?? "gpt-6-sol",
         effort: args.effort,
         serviceTier: args.serviceTier,
         permissionMode: args.permissionMode,

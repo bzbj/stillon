@@ -4,6 +4,7 @@ import {
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  CODEX_MODELS,
   getCodexReasoningOptions,
   supportsCodexFastMode,
   supportsClaudeMaxReasoningEffort,
@@ -25,8 +26,8 @@ describe("shared model normalization", () => {
   })
 
   test("normalizes legacy Codex aliases and defaults to the configured catalog model", () => {
-    expect(normalizeCodexModelId()).toBe("gpt-5.6-sol")
-    expect(normalizeCodexModelId("gpt-5-codex")).toBe("gpt-5.6-sol")
+    expect(normalizeCodexModelId()).toBe("gpt-6-sol")
+    expect(normalizeCodexModelId("gpt-5-codex")).toBe("gpt-6-sol")
   })
 
   test("recognizes Astra and all of its reasoning efforts and Fast Mode", () => {
@@ -36,12 +37,13 @@ describe("shared model normalization", () => {
   })
 
   test("uses model-specific Codex effort and Fast Mode metadata", () => {
-    expect(getCodexReasoningOptions("gpt-5.6-sol")).toContain("ultra")
-    expect(getCodexReasoningOptions("gpt-5.6-terra")).toContain("ultra")
-    expect(getCodexReasoningOptions("gpt-5.6-luna")).not.toContain("ultra")
-    expect(getCodexReasoningOptions("gpt-5.6-luna")).toContain("max")
-    expect(supportsCodexFastMode("gpt-5.6-sol")).toBe(true)
-    expect(supportsCodexFastMode("gpt-5.4-mini")).toBe(false)
+    expect(CODEX_MODELS.map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+    expect(getCodexReasoningOptions("gpt-6-sol")).toContain("ultra")
+    expect(getCodexReasoningOptions("gpt-6-luna")).toContain("ultra")
+    expect(getCodexReasoningOptions("gpt-6-luna")).toContain("max")
+    expect(supportsCodexFastMode("gpt-6-sol")).toBe(true)
+    expect(supportsCodexFastMode("gpt-6-luna")).toBe(true)
+    expect(normalizeCodexModelId("gpt-5.6-luna")).toBe("gpt-6-luna")
   })
 
   test("uses declarative metadata for Claude max-effort support", () => {
