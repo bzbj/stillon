@@ -39,6 +39,7 @@ import {
   type ParsedLocalFileLink,
 } from "../../lib/pathUtils"
 import { useTranscriptRenderOptions } from "./render-context"
+import { resolveMarkdownImageSrc } from "../../lib/markdownImageSrc"
 
 export type OpenLocalLinkTarget = {
   path: string
@@ -56,8 +57,8 @@ type ResolveLocalLinkHandler = (href: string | undefined | null) => ParsedLocalF
 const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/i
 
 export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => {
-  const normalizedUrl = key === "href" ? normalizeWindowsLocalFileTarget(url) : url
-  return key === "href" && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(normalizedUrl)
+  const normalizedUrl = key === "href" || key === "src" ? normalizeWindowsLocalFileTarget(url) : url
+  return (key === "href" || key === "src") && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(normalizedUrl)
     ? normalizedUrl
     : defaultUrlTransform(url)
 }
@@ -67,6 +68,8 @@ const defaultOpenLocalLink: OpenLocalLinkHandler = () => {}
 const OpenLocalLinkContext = createContext<{
   onOpenLocalLink: OpenLocalLinkHandler
   resolveLocalLink?: ResolveLocalLinkHandler
+  projectId?: string | null
+  localPath?: string | null
 }>({
   onOpenLocalLink: defaultOpenLocalLink,
 })
@@ -75,15 +78,21 @@ export function OpenLocalLinkProvider({
   children,
   onOpenLocalLink,
   resolveLocalLink,
+  projectId,
+  localPath,
 }: {
   children: ReactNode
   onOpenLocalLink?: OpenLocalLinkHandler
   resolveLocalLink?: ResolveLocalLinkHandler
+  projectId?: string | null
+  localPath?: string | null
 }) {
   return (
     <OpenLocalLinkContext.Provider value={{
       onOpenLocalLink: onOpenLocalLink ?? defaultOpenLocalLink,
       resolveLocalLink,
+      projectId,
+      localPath,
     }}>
       {children}
     </OpenLocalLinkContext.Provider>
@@ -400,6 +409,15 @@ export function createMarkdownComponents(options?: {
 }) {
   return {
     ...markdownComponents,
+    img: ({ src, alt, ...props }: ComponentPropsWithoutRef<"img">) => {
+      const { projectId, localPath } = useContext(OpenLocalLinkContext)
+      const renderOptions = useTranscriptRenderOptions()
+      const resolvedSrc = typeof src === "string" ? resolveMarkdownImageSrc(src, projectId, localPath) : src
+      if (resolvedSrc !== src && renderOptions.localLinkMode === "text") {
+        return <span>{alt ?? ""}</span>
+      }
+      return <img {...props} src={resolvedSrc || undefined} alt={alt ?? ""} />
+    },
     a: ({ children, href, onClick, ...props }: ComponentPropsWithoutRef<"a">) => {
       const linkContext = useContext(OpenLocalLinkContext)
       const onOpenLocalLink = options?.onOpenLocalLink ?? linkContext.onOpenLocalLink
