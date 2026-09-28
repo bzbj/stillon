@@ -2,6 +2,7 @@ export const STORE_VERSION = 2 as const
 export const PROTOCOL_VERSION = 1 as const
 
 export type AgentProvider = "claude" | "codex"
+export type CodexTransport = "exec" | "app-server"
 export type LlmProviderKind = "openai" | "openrouter" | "custom"
 export type AppThemePreference = "light" | "dark" | "system"
 export type ChatSoundPreference = "never" | "unfocused" | "always"
@@ -703,6 +704,7 @@ export interface AppSettingsSnapshot {
     commandTemplate: string
   }
   defaultProvider: DefaultProviderPreference
+  codexTransport: CodexTransport
   providerDefaults: ChatProviderPreferences
   network: AgentNetworkProxySettings
   warning: string | null
@@ -718,6 +720,7 @@ export interface AppSettingsPatch {
   terminal?: Partial<AppSettingsSnapshot["terminal"]>
   editor?: Partial<AppSettingsSnapshot["editor"]>
   defaultProvider?: DefaultProviderPreference
+  codexTransport?: CodexTransport
   providerDefaults?: {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>
     codex?: Partial<ProviderPreference<CodexModelOptions>>
@@ -1363,6 +1366,7 @@ export interface ChatRuntime {
   lastTurnPreferences: ChatTurnPreferences | null
   planMode: boolean
   sessionToken: string | null
+  codexTransport?: CodexTransport | null
 }
 
 export interface ChatHistorySnapshot {

@@ -30,6 +30,7 @@ export interface ThreadStartParams {
   cwd?: string | null
   serviceTier?: ServiceTier | null
   approvalPolicy?: "never" | "on-request" | "on-failure" | "untrusted" | null
+  approvalsReviewer?: "user" | "auto_review" | null
   sandbox?: "read-only" | "workspace-write" | "danger-full-access" | null
   experimentalRawEvents: boolean
   persistExtendedHistory: boolean
@@ -41,6 +42,7 @@ export interface ThreadResumeParams {
   cwd?: string | null
   serviceTier?: ServiceTier | null
   approvalPolicy?: "never" | "on-request" | "on-failure" | "untrusted" | null
+  approvalsReviewer?: "user" | "auto_review" | null
   sandbox?: "read-only" | "workspace-write" | "danger-full-access" | null
   persistExtendedHistory: boolean
 }
@@ -51,6 +53,7 @@ export interface ThreadForkParams {
   cwd?: string | null
   serviceTier?: ServiceTier | null
   approvalPolicy?: "never" | "on-request" | "on-failure" | "untrusted" | null
+  approvalsReviewer?: "user" | "auto_review" | null
   sandbox?: "read-only" | "workspace-write" | "danger-full-access" | null
   ephemeral?: boolean
   persistExtendedHistory: boolean
@@ -79,6 +82,14 @@ export interface TurnStartParams {
   threadId: string
   input: CodexUserInput[]
   approvalPolicy?: "never" | "on-request" | "on-failure" | "untrusted" | null
+  approvalsReviewer?: "user" | "auto_review" | null
+  sandboxPolicy?: { type: "dangerFullAccess" } | { type: "readOnly"; networkAccess: boolean } | {
+    type: "workspaceWrite"
+    writableRoots: string[]
+    networkAccess: boolean
+    excludeTmpdirEnvVar: boolean
+    excludeSlashTmp: boolean
+  } | null
   model?: string | null
   effort?: ReasoningEffort | null
   serviceTier?: ServiceTier | null

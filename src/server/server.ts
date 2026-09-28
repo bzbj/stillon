@@ -219,6 +219,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const agent = new AgentCoordinator({
     store,
     getEnvironment: getAgentEnvironment,
+    getCodexTransport: () => appSettings.getSnapshot().codexTransport,
     generateTitle: (messageContent, cwd) => generateTitleForChatDetailed(
       messageContent,
       cwd,

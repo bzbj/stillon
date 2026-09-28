@@ -720,6 +720,7 @@ describe("AgentCoordinator codex integration", () => {
 
   test("cancelling a waiting ask-user-question records a discarded tool result", async () => {
     let releaseInterrupt!: () => void
+    let questionResult: Promise<unknown> = Promise.resolve(null)
     const interrupted = new Promise<void>((resolve) => {
       releaseInterrupt = resolve
     })
@@ -742,7 +743,7 @@ describe("AgentCoordinator codex integration", () => {
               mcpServers: [],
             }),
           }
-          void args.onToolRequest({
+          questionResult = args.onToolRequest({
             tool: {
               kind: "tool",
               toolKind: "ask_user_question",
@@ -784,6 +785,8 @@ describe("AgentCoordinator codex integration", () => {
     await waitFor(() => coordinator.getPendingTool("chat-1")?.toolKind === "ask_user_question")
     await coordinator.cancel("chat-1")
 
+    expect(await questionResult).toEqual({ discarded: true, answers: {} })
+
     const discardedResult = store.messages.find((entry) => entry.kind === "tool_result" && entry.toolId === "question-1")
     expect(discardedResult).toBeDefined()
     if (!discardedResult || discardedResult.kind !== "tool_result") {
@@ -791,6 +794,50 @@ describe("AgentCoordinator codex integration", () => {
     }
     expect(discardedResult.content).toEqual({ discarded: true, answers: {} })
     expect(store.messages.some((entry) => entry.kind === "interrupted")).toBe(true)
+  })
+
+  test("serializes simultaneous Codex questions so each receives its own answer", async () => {
+    let answers: unknown[] = []
+    const question = (toolId: string) => ({
+      tool: {
+        kind: "tool",
+        toolKind: "ask_user_question",
+        toolName: "AskUserQuestion",
+        toolId,
+        input: { questions: [{ question: toolId }] },
+      },
+    })
+    const fakeCodexManager = {
+      async startSession() {},
+      async startTurn(args: { onToolRequest: (request: any) => Promise<unknown> }): Promise<HarnessTurn> {
+        async function* stream() {
+          answers = await Promise.all([
+            args.onToolRequest(question("question-1")),
+            args.onToolRequest(question("question-2")),
+          ])
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({ kind: "result", subtype: "success", isError: false, durationMs: 0, result: "" }),
+          }
+        }
+        return { provider: "codex", stream: stream(), interrupt: async () => {}, close: () => {} }
+      },
+    }
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      codexManager: fakeCodexManager as never,
+    })
+
+    await coordinator.send({ type: "chat.send", chatId: "chat-1", provider: "codex", content: "ask twice" })
+    await waitFor(() => coordinator.getPendingTool("chat-1")?.toolUseId === "question-1")
+    await coordinator.respondTool({ type: "chat.respondTool", chatId: "chat-1", toolUseId: "question-1", result: { answers: { first: ["A"] } } })
+    await waitFor(() => coordinator.getPendingTool("chat-1")?.toolUseId === "question-2")
+    await coordinator.respondTool({ type: "chat.respondTool", chatId: "chat-1", toolUseId: "question-2", result: { answers: { second: ["B"] } } })
+    await waitFor(() => store.turnFinishedCount === 1)
+
+    expect(answers).toEqual([{ answers: { first: ["A"] } }, { answers: { second: ["B"] } }])
   })
 
   test("UI unblocks immediately when result arrives even if stream stays open", async () => {

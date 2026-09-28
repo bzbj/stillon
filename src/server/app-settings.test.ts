@@ -26,6 +26,7 @@ function expectedDisplayPath(filePath: string) {
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
+    codexTransport: "exec",
     browserSettingsMigrated: false,
     machineName: "This Machine",
     theme: "system",
@@ -281,5 +282,20 @@ describe("AppSettingsManager", () => {
     expect(payload.machineName).toBe("Studio Mac")
 
     manager.dispose()
+  })
+
+  test("persists the Codex transport default and allows returning to exec", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+    expect(manager.getSnapshot().codexTransport).toBe("exec")
+    expect((await manager.writePatch({ codexTransport: "app-server" })).codexTransport).toBe("app-server")
+    manager.dispose()
+
+    const restarted = new AppSettingsManager(filePath)
+    await restarted.initialize()
+    expect(restarted.getSnapshot().codexTransport).toBe("app-server")
+    expect((await restarted.writePatch({ codexTransport: "exec" })).codexTransport).toBe("exec")
+    restarted.dispose()
   })
 })

@@ -205,6 +205,7 @@ export function deriveChatSnapshot(
     lastTurnPreferences: chat.lastTurnPreferences ?? null,
     planMode: chat.planMode,
     sessionToken: chat.sessionToken,
+    codexTransport: chat.codexTransport ?? (chat.provider === "codex" && chat.sessionToken ? "exec" : null),
   }
 
   const transcript = getMessages(chat.id)
