@@ -80,7 +80,11 @@ export function isLocalHtmlPreviewPath(filePath: string) {
 }
 
 export function isLocalFileContentPath(filePath: string) {
-  return isLocalMarkdownPreviewPath(filePath) || LOCAL_MARKDOWN_RESOURCE_EXTENSIONS.has(getLocalFileExtension(filePath))
+  return isLocalMarkdownPreviewPath(filePath) || isLocalImagePath(filePath)
+}
+
+export function isLocalImagePath(filePath: string) {
+  return LOCAL_MARKDOWN_RESOURCE_EXTENSIONS.has(getLocalFileExtension(filePath))
 }
 
 function isAbsoluteLocalPath(filePath: string) {

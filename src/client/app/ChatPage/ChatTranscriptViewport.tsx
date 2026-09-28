@@ -26,6 +26,7 @@ import type { EditorPreset } from "../../../shared/protocol"
 import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 
 interface ChatTranscriptViewportProps {
+  projectId?: string | null
   activeChatId: string | null
   listRef: React.RefObject<LegendListRef | null>
   messages: StillOnState["messages"]
@@ -101,6 +102,7 @@ export function consumeHistoryAutoLoadGate(
 }
 
 export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
+  projectId,
   activeChatId,
   listRef,
   messages,
@@ -369,7 +371,12 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   return (
     <>
-      <OpenLocalLinkProvider onOpenLocalLink={handleOpenLocalLinkClick} resolveLocalLink={resolveProjectFileLink}>
+      <OpenLocalLinkProvider
+        onOpenLocalLink={handleOpenLocalLinkClick}
+        resolveLocalLink={resolveProjectFileLink}
+        projectId={projectId}
+        localPath={localPath}
+      >
         <LegendList<ResolvedTranscriptRow>
           ref={listRef}
           data={resolvedRows}
