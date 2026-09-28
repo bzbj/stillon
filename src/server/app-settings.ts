@@ -26,6 +26,7 @@ import {
   type ClaudeModelOptions,
   type ClaudePermissionMode,
   type CodexModelOptions,
+  type CodexTransport,
   type DefaultProviderPreference,
   type EditorPreset,
   type ProviderPreference,
@@ -46,6 +47,7 @@ interface AppSettingsFile {
     commandTemplate?: unknown
   }
   defaultProvider?: unknown
+  codexTransport?: unknown
   providerDefaults?: {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
     codex?: Partial<ProviderPreference<Partial<CodexModelOptions>>> & { effort?: unknown }
@@ -150,6 +152,10 @@ function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
   return value === "claude" || value === "codex" || value === "last_used" ? value : "last_used"
 }
 
+function normalizeCodexTransport(value: unknown): CodexTransport {
+  return value === "app-server" ? "app-server" : "exec"
+}
+
 function normalizeEditorPreset(value: unknown): EditorPreset {
   return value === "vscode" || value === "xcode" || value === "windsurf" || value === "custom" || value === "cursor"
     ? value
@@ -203,6 +209,7 @@ function toFilePayload(state: AppSettingsState) {
     terminal: state.terminal,
     editor: state.editor,
     defaultProvider: state.defaultProvider,
+    codexTransport: state.codexTransport,
     providerDefaults: state.providerDefaults,
     network: state.network,
   }
@@ -218,6 +225,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     terminal: state.terminal,
     editor: state.editor,
     defaultProvider: state.defaultProvider,
+    codexTransport: state.codexTransport,
     providerDefaults: state.providerDefaults,
     network: state.network,
     warning: state.warning,
@@ -264,6 +272,7 @@ function normalizeAppSettings(
       commandTemplate: normalizeEditorCommandTemplate(source?.editor?.commandTemplate, editorPreset),
     },
     defaultProvider: normalizeDefaultProvider(source?.defaultProvider),
+    codexTransport: normalizeCodexTransport(source?.codexTransport),
     providerDefaults: normalizeProviderDefaults(source?.providerDefaults),
     network: normalizedNetwork.settings,
     warning: null,
@@ -293,6 +302,7 @@ function toComparablePayload(source: AppSettingsFile) {
     terminal: source.terminal,
     editor: source.editor,
     defaultProvider: source.defaultProvider,
+    codexTransport: source.codexTransport,
     providerDefaults: source.providerDefaults,
     network: source.network,
   }

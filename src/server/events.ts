@@ -1,4 +1,4 @@
-import type { AgentProvider, AsyncQuestionResponse, ChatTurnPreferences, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, AsyncQuestionResponse, ChatTurnPreferences, CodexTransport, ProjectSummary, QueuedChatMessage, TranscriptEntry } from "../shared/types"
 
 export interface ProjectRecord extends ProjectSummary {
   sidebarTitle?: string
@@ -18,6 +18,7 @@ export interface ChatRecord {
   lastTurnPreferences?: ChatTurnPreferences | null
   planMode: boolean
   sessionToken: string | null
+  codexTransport?: CodexTransport | null
   pendingForkSessionToken?: string | null
   hasMessages?: boolean
   lastMessageAt?: number
@@ -180,6 +181,13 @@ export type TurnEvent =
       timestamp: number
       chatId: string
       sessionToken: string | null
+    }
+  | {
+      v: 2
+      type: "codex_transport_set"
+      timestamp: number
+      chatId: string
+      codexTransport: CodexTransport
     }
   | {
       v: 2

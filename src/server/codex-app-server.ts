@@ -5,6 +5,7 @@ import type { Readable, Writable } from "node:stream"
 import type {
   AskUserQuestionItem,
   CodexReasoningEffort,
+  CodexPermissionMode,
   ContextWindowUsageSnapshot,
   ServiceTier,
   TodoItem,
@@ -130,6 +131,7 @@ export interface StartCodexSessionArgs {
   serviceTier?: ServiceTier
   sessionToken: string | null
   pendingForkSessionToken?: string | null
+  permissionMode?: CodexPermissionMode | "read-only"
 }
 
 export interface StartCodexTurnArgs {
@@ -139,6 +141,7 @@ export interface StartCodexTurnArgs {
   serviceTier?: ServiceTier
   content: string
   planMode: boolean
+  permissionMode?: CodexPermissionMode | "read-only"
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   onApprovalRequest?: PendingTurn["onApprovalRequest"]
 }
@@ -174,11 +177,6 @@ function codexSystemInitEntry(model: string): TranscriptEntry {
   })
 }
 
-function errorMessage(value: unknown): string {
-  if (value instanceof Error) return value.message
-  return String(value)
-}
-
 function parseJsonLine(line: string): unknown | null {
   try {
     return JSON.parse(line)
@@ -187,12 +185,26 @@ function parseJsonLine(line: string): unknown | null {
   }
 }
 
-function isRecoverableResumeError(error: unknown): boolean {
-  const message = errorMessage(error).toLowerCase()
-  if (!message.includes("thread/resume")) return false
-  return ["not found", "missing thread", "no such thread", "unknown thread", "does not exist"].some((snippet) =>
-    message.includes(snippet)
-  )
+function codexAppServerPermissions(mode: CodexPermissionMode | "read-only" | undefined) {
+  const full = !mode || mode === "full"
+  return {
+    approvalPolicy: full || mode === "read-only" ? "never" as const : "on-request" as const,
+    approvalsReviewer: mode === "auto" ? "auto_review" as const : "user" as const,
+    sandbox: full
+      ? "danger-full-access" as const
+      : mode === "read-only" ? "read-only" as const : "workspace-write" as const,
+    sandboxPolicy: (cwd: string): NonNullable<TurnStartParams["sandboxPolicy"]> => full
+      ? { type: "dangerFullAccess" }
+      : mode === "read-only"
+        ? { type: "readOnly", networkAccess: false }
+      : {
+          type: "workspaceWrite",
+          writableRoots: [cwd],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+  }
 }
 
 const MULTI_SELECT_HINT_PATTERN = /\b(all that apply|select all|choose all|pick all|select multiple|choose multiple|pick multiple|multiple selections?|multiple choice|more than one|one or more)\b/i
@@ -759,7 +771,8 @@ export class CodexAppServerManager {
 
   async startSession(args: StartCodexSessionArgs) {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd && !args.pendingForkSessionToken) {
+    if (existing && !existing.closed && existing.cwd === args.cwd
+      && existing.sessionToken === args.sessionToken && !args.pendingForkSessionToken) {
       return
     }
 
@@ -781,65 +794,66 @@ export class CodexAppServerManager {
     this.sessions.set(args.chatId, context)
     this.attachListeners(context)
 
-    await this.sendRequest(context, "initialize", {
-      clientInfo: {
-        name: "kanna_desktop",
-        title: APP_NAME,
-        version: APP_VERSION,
-      },
-      capabilities: {
-        experimentalApi: true,
-      },
-    } satisfies InitializeParams)
-    this.writeMessage(context, {
-      method: "initialized",
-    })
+    try {
+      await this.sendRequest(context, "initialize", {
+        clientInfo: {
+          name: "stillon",
+          title: APP_NAME,
+          version: APP_VERSION,
+        },
+        capabilities: {
+          experimentalApi: true,
+        },
+      } satisfies InitializeParams)
+      this.writeMessage(context, {
+        method: "initialized",
+      })
 
-    const threadParams = {
-      model: args.model,
-      cwd: args.cwd,
-      serviceTier: args.serviceTier,
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
-      experimentalRawEvents: false,
-      persistExtendedHistory: false,
-    } satisfies ThreadStartParams
-
-    let response: ThreadStartResponse | ThreadResumeResponse | ThreadForkResponse
-    if (args.pendingForkSessionToken) {
-      response = await this.sendRequest<ThreadForkResponse>(context, "thread/fork", {
-        threadId: args.pendingForkSessionToken,
+      const permissions = codexAppServerPermissions(args.permissionMode)
+      const threadParams = {
         model: args.model,
         cwd: args.cwd,
         serviceTier: args.serviceTier,
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        approvalPolicy: permissions.approvalPolicy,
+        approvalsReviewer: permissions.approvalsReviewer,
+        sandbox: permissions.sandbox,
+        experimentalRawEvents: false,
         persistExtendedHistory: false,
-      } satisfies ThreadForkParams)
-    } else if (args.sessionToken) {
-      try {
+      } satisfies ThreadStartParams
+
+      let response: ThreadStartResponse | ThreadResumeResponse | ThreadForkResponse
+      if (args.pendingForkSessionToken) {
+        response = await this.sendRequest<ThreadForkResponse>(context, "thread/fork", {
+          threadId: args.pendingForkSessionToken,
+          model: args.model,
+          cwd: args.cwd,
+          serviceTier: args.serviceTier,
+          approvalPolicy: permissions.approvalPolicy,
+          approvalsReviewer: permissions.approvalsReviewer,
+          sandbox: permissions.sandbox,
+          persistExtendedHistory: false,
+        } satisfies ThreadForkParams)
+      } else if (args.sessionToken) {
         response = await this.sendRequest<ThreadResumeResponse>(context, "thread/resume", {
           threadId: args.sessionToken,
           model: args.model,
           cwd: args.cwd,
           serviceTier: args.serviceTier,
-          approvalPolicy: "never",
-          sandbox: "danger-full-access",
+          approvalPolicy: permissions.approvalPolicy,
+          approvalsReviewer: permissions.approvalsReviewer,
+          sandbox: permissions.sandbox,
           persistExtendedHistory: false,
         } satisfies ThreadResumeParams)
-      } catch (error) {
-        if (!isRecoverableResumeError(error)) {
-          this.stopSession(args.chatId)
-          throw error
-        }
+      } else {
         response = await this.sendRequest<ThreadStartResponse>(context, "thread/start", threadParams)
       }
-    } else {
-      response = await this.sendRequest<ThreadStartResponse>(context, "thread/start", threadParams)
-    }
 
-    context.sessionToken = response.thread.id
-    return context.sessionToken
+      context.sessionToken = response.thread.id
+      return context.sessionToken
+    } catch (error) {
+      this.stopSession(args.chatId)
+      throw error
+    }
   }
 
   async startTurn(args: StartCodexTurnArgs): Promise<HarnessTurn> {
@@ -874,6 +888,7 @@ export class CodexAppServerManager {
     }
     context.pendingTurn = pendingTurn
 
+    const permissions = codexAppServerPermissions(args.permissionMode)
     try {
       const response = await this.sendRequest<TurnStartResponse>(context, "turn/start", {
         threadId: context.sessionToken ?? "",
@@ -884,7 +899,9 @@ export class CodexAppServerManager {
             text_elements: [],
           },
         ],
-        approvalPolicy: "never",
+        approvalPolicy: permissions.approvalPolicy,
+        approvalsReviewer: permissions.approvalsReviewer,
+        sandboxPolicy: permissions.sandboxPolicy(context.cwd),
         model: args.model,
         effort: args.effort,
         serviceTier: args.serviceTier,
@@ -1054,7 +1071,13 @@ export class CodexAppServerManager {
         }
 
         if (isServerRequest(parsed)) {
-          void this.handleServerRequest(context, parsed)
+          void this.handleServerRequest(context, parsed).catch((error) => {
+            if (context.closed) return
+            this.writeMessage(context, {
+              id: parsed.id,
+              error: { message: error instanceof Error ? error.message : String(error) },
+            })
+          })
           continue
         }
 
@@ -1220,7 +1243,7 @@ export class CodexAppServerManager {
         requestId: request.id,
         kind: "command_execution",
         params: request.params,
-      }) ?? "decline"
+      }) ?? await this.requestApprovalFromUser(pendingTurn, request.id, "command_execution", request.params)
       this.writeMessage(context, {
         id: request.id,
         result: {
@@ -1234,13 +1257,60 @@ export class CodexAppServerManager {
       requestId: request.id,
       kind: "file_change",
       params: request.params,
-    }) ?? "decline"
+    }) ?? await this.requestApprovalFromUser(pendingTurn, request.id, "file_change", request.params)
     this.writeMessage(context, {
       id: request.id,
       result: {
         decision,
       } satisfies FileChangeRequestApprovalResponse,
     })
+  }
+
+  private async requestApprovalFromUser(
+    pendingTurn: PendingTurn,
+    requestId: CodexRequestId,
+    kind: "command_execution" | "file_change",
+    params: CommandExecutionRequestApprovalParams | FileChangeRequestApprovalParams,
+  ): Promise<CommandExecutionApprovalDecision> {
+    const command = kind === "command_execution"
+      ? (params as CommandExecutionRequestApprovalParams).command
+      : null
+    const details = [
+      params.reason,
+      command ? `Command: ${command}` : null,
+      kind === "command_execution"
+        ? (params as CommandExecutionRequestApprovalParams).cwd
+        : (params as FileChangeRequestApprovalParams).grantRoot,
+    ].filter(Boolean).join("\n")
+    const toolId = `approval-${requestId}`
+    const question = {
+      id: "decision",
+      header: "Codex approval",
+      question: details || (kind === "command_execution" ? "Allow this command?" : "Allow this file change?"),
+      options: [
+        { label: "Allow once" },
+        { label: "Allow for session" },
+        { label: "Decline" },
+      ],
+    }
+    const tool: HarnessToolRequest["tool"] = {
+      kind: "tool",
+      toolKind: "ask_user_question",
+      toolName: "AskUserQuestion",
+      toolId,
+      input: { questions: [question] },
+      rawInput: { questions: [question], approvalKind: kind },
+    }
+    pendingTurn.queue.push({
+      type: "transcript",
+      entry: timestamped({ kind: "tool_call", tool }),
+    })
+    const result = await pendingTurn.onToolRequest({ tool })
+    const answers = (result as { answers?: Record<string, string[]> } | null)?.answers
+    const choice = answers?.decision?.[0]
+    if (choice === "Allow once") return "accept"
+    if (choice === "Allow for session") return "acceptForSession"
+    return "decline"
   }
 
   private async handleNotification(context: SessionContext, notification: ServerNotification) {

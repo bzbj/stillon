@@ -10,6 +10,7 @@ import type {
   ClaudePermissionMode,
   ContextWindowUsageSnapshot,
   CodexPermissionMode,
+  CodexTransport,
   CodexReasoningEffort,
   ModelOptions,
   NormalizedToolCall,
@@ -24,7 +25,7 @@ import { normalizeToolCall } from "../shared/tools"
 import type { AsyncQuestionAnswerResult, ClientCommand } from "../shared/protocol"
 import { EventStore } from "./event-store"
 import { buildAsyncQuestionAnswerText, asyncQuestionKey, validateAsyncQuestionAnswers } from "./async-question"
-import { CodexExecManager } from "./codex-exec"
+import { CodexTransportManager } from "./codex-transport"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
@@ -155,6 +156,7 @@ interface CodexManager {
   stopAll(): void | Promise<void>
   /** True only when the transport can append input to a running turn. */
   readonly supportsNativeSteer?: boolean
+  supportsNativeSteerForChat?(chatId: string): boolean
   getActiveTurnId?(chatId: string): string | null
   steerTurn?(args: {
     chatId: string
@@ -168,6 +170,7 @@ interface AgentCoordinatorArgs {
   store: EventStore
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   codexManager?: CodexManager
+  getCodexTransport?: () => CodexTransport
   stopConfirmTimeoutMs?: number
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   getEnvironment?: () => NodeJS.ProcessEnv
@@ -202,8 +205,12 @@ function logClaudeSteer(stage: string, details?: Record<string, unknown>) {
   }))
 }
 
-function createDefaultCodexManager(getEnvironment: () => NodeJS.ProcessEnv): CodexManager {
-  return new CodexExecManager({ getEnvironment })
+function createDefaultCodexManager(
+  store: EventStore,
+  getEnvironment: () => NodeJS.ProcessEnv,
+  getCodexTransport: () => CodexTransport,
+): CodexManager {
+  return new CodexTransportManager(store, getCodexTransport, getEnvironment)
 }
 
 const STEERED_MESSAGE_PREFIX = `<system-message>
@@ -878,7 +885,11 @@ export class AgentCoordinator {
     this.store = args.store
     this.onStateChange = args.onStateChange
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
-    this.codexManager = args.codexManager ?? createDefaultCodexManager(this.getEnvironment)
+    this.codexManager = args.codexManager ?? createDefaultCodexManager(
+      this.store,
+      this.getEnvironment,
+      args.getCodexTransport ?? (() => "exec"),
+    )
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
     this.stopConfirmTimeoutMs = args.stopConfirmTimeoutMs ?? DEFAULT_STOP_CONFIRM_TIMEOUT_MS
@@ -1398,22 +1409,33 @@ export class AgentCoordinator {
       void this.generateTitleInBackground(args.chatId, args.content, project.localPath, optimisticTitle ?? "New Chat")
     }
 
+    let previousToolRequest = Promise.resolve()
     const onToolRequest = async (request: HarnessToolRequest): Promise<unknown> => {
-      const active = this.activeTurns.get(args.chatId)
-      if (!active) {
-        throw new Error("Chat turn ended unexpectedly")
-      }
+      let release!: () => void
+      const nextToolRequest = new Promise<void>((resolve) => { release = resolve })
+      const predecessor = previousToolRequest
+      previousToolRequest = nextToolRequest
+      await predecessor
 
-      active.status = "waiting_for_user"
-      this.emitStateChange(args.chatId)
-
-      return await new Promise<unknown>((resolve) => {
-        active.pendingTool = {
-          toolUseId: request.tool.toolId,
-          tool: request.tool,
-          resolve,
+      try {
+        const active = this.activeTurns.get(args.chatId)
+        if (!active || active.cancelRequested) {
+          throw new Error("Chat turn ended unexpectedly")
         }
-      })
+
+        active.status = "waiting_for_user"
+        this.emitStateChange(args.chatId)
+
+        return await new Promise<unknown>((resolve) => {
+          active.pendingTool = {
+            toolUseId: request.tool.toolId,
+            tool: request.tool,
+            resolve,
+          }
+        })
+      } finally {
+        release()
+      }
     }
 
     let turn: HarnessTurn
@@ -2109,9 +2131,7 @@ export class AgentCoordinator {
           content: result,
         })
       )
-      if (active.provider === "codex" && pendingTool.tool.toolKind === "exit_plan_mode") {
-        pendingTool.resolve(result)
-      }
+      pendingTool.resolve(result)
     }
 
     await this.store.appendMessage(chatId, timestamped({ kind: "interrupted", hidden: options?.hideInterrupted }))
@@ -2202,8 +2222,10 @@ export class AgentCoordinator {
       return toAsyncAnswerResult(next, true)
     }
 
-    const canSteer = this.codexManager.supportsNativeSteer === true
-      && typeof this.codexManager.steerTurn === "function"
+    const canSteer = (
+      this.codexManager.supportsNativeSteerForChat?.(chatId)
+      ?? this.codexManager.supportsNativeSteer === true
+    ) && typeof this.codexManager.steerTurn === "function"
     const runningTurnId = this.getCodexActiveTurnId(chatId)
     if (canSteer && runningTurnId && runningTurnId === context.originTurnId) {
       const next = await this.updateAsyncQuestionResponse(chatId, response, {
@@ -2290,7 +2312,10 @@ export class AgentCoordinator {
       const runningTurnId = this.getCodexActiveTurnId(command.chatId)
       const originRunning = Boolean(runningTurnId && runningTurnId === context.originTurnId)
       const steer = this.codexManager.steerTurn?.bind(this.codexManager)
-      const canSteer = this.codexManager.supportsNativeSteer === true && typeof steer === "function"
+      const canSteer = (
+        this.codexManager.supportsNativeSteerForChat?.(command.chatId)
+        ?? this.codexManager.supportsNativeSteer === true
+      ) && typeof steer === "function"
 
       if (originRunning && canSteer && steer) {
         try {

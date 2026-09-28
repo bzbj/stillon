@@ -119,6 +119,7 @@ function getReplayEventPriority(event: StoreEvent) {
     case "turn_started":
       return 5
     case "session_token_set":
+    case "codex_transport_set":
       return 6
     case "pending_fork_session_token_set":
       return 6
@@ -523,6 +524,7 @@ export class EventStore {
           lastTurnPreferences: null,
           planMode: false,
           sessionToken: null,
+          codexTransport: null,
           pendingForkSessionToken: null,
           hasMessages: false,
           lastTurnOutcome: null,
@@ -676,6 +678,13 @@ export class EventStore {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
         chat.sessionToken = event.sessionToken
+        chat.updatedAt = event.timestamp
+        break
+      }
+      case "codex_transport_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.codexTransport = event.codexTransport
         chat.updatedAt = event.timestamp
         break
       }
@@ -875,6 +884,9 @@ export class EventStore {
     }
     await this.setPlanMode(chatId, sourceChat.planMode)
     await this.setPendingForkSessionToken(chatId, sourceSessionToken)
+    if (sourceChat.provider === "codex") {
+      await this.setCodexTransport(chatId, sourceChat.codexTransport ?? "exec")
+    }
 
     await this.waitForPendingWrites()
     const legacyEntries = this.legacyMessagesByChatId.get(sourceChatId)
@@ -1200,6 +1212,19 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
       sessionToken,
+    }
+    await this.append(this.turnsLogPath, event)
+  }
+
+  async setCodexTransport(chatId: string, codexTransport: "exec" | "app-server") {
+    const chat = this.requireChat(chatId)
+    if (chat.codexTransport === codexTransport) return
+    const event: TurnEvent = {
+      v: STORE_VERSION,
+      type: "codex_transport_set",
+      timestamp: Date.now(),
+      chatId,
+      codexTransport,
     }
     await this.append(this.turnsLogPath, event)
   }

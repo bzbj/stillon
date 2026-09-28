@@ -484,6 +484,7 @@ export function createWsRouter({
     },
   }
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {
+    codexTransport: "exec",
     browserSettingsMigrated: false,
     machineName: "This Machine",
     theme: "system",

@@ -35,6 +35,7 @@ import {
   DEFAULT_OPENROUTER_SDK_MODEL,
   PROVIDERS,
   type AgentProvider,
+  type CodexTransport,
   type AgentNetworkConnectionTestResult,
   type AgentNetworkDetectionResult,
   type AgentNetworkProxySettings,
@@ -2466,6 +2467,12 @@ export function SettingsPage() {
     })
   }
 
+  function handleCodexTransportChange(nextValue: CodexTransport) {
+    void handleWriteAppSettings({ codexTransport: nextValue }).catch((error) => {
+      setAppSettingsError(error instanceof Error ? error.message : "Unable to save Codex execution mode.")
+    })
+  }
+
   function handleProviderDefaultModelChange(provider: AgentProvider, model: string) {
     setProviderDefaultModel(provider, model)
     void handleWriteAppSettings({ providerDefaults: { [provider]: { model } } }).catch((error) => {
@@ -3125,6 +3132,26 @@ export function SettingsPage() {
                           className="justify-start flex-wrap"
                         />
                       </div>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Codex Execution Mode"
+                      description="Choose how new Codex chats run. Existing Codex chats keep the mode they started with."
+                    >
+                      <Select
+                        value={appSettings?.codexTransport ?? "exec"}
+                        onValueChange={(value) => handleCodexTransportChange(value as CodexTransport)}
+                      >
+                        <SelectTrigger className="min-w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="exec">Exec</SelectItem>
+                            <SelectItem value="app-server">App Server</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
                     </SettingsRow>
 
                     <SettingsRow

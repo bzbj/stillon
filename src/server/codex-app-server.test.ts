@@ -96,7 +96,7 @@ describe("CodexAppServerManager", () => {
     expect(spawnedEnvironments[0]?.ALL_PROXY).toBe("socks5://127.0.0.1:1080")
   })
 
-  test("falls back to thread/start when thread/resume is recoverably missing", async () => {
+  test("does not silently replace a missing resumed thread", async () => {
     const process = new FakeCodexProcess((message, child) => {
       if (message.method === "initialize") {
         child.writeServerMessage({ id: message.id, result: { userAgent: "codex-test" } })
@@ -117,18 +117,17 @@ describe("CodexAppServerManager", () => {
       spawnProcess: () => process as never,
     })
 
-    await manager.startSession({
+    await expect(manager.startSession({
       chatId: "chat-1",
       cwd: "/tmp/project",
       model: "gpt-5.4",
       sessionToken: "missing-thread",
-    })
+    })).rejects.toThrow("thread not found")
 
     expect(process.messages.map((message: any) => message.method)).toEqual([
       "initialize",
       "initialized",
       "thread/resume",
-      "thread/start",
     ])
   })
 
@@ -1638,6 +1637,51 @@ describe("CodexAppServerManager", () => {
       result: {
         decision: "accept",
       },
+    })
+  })
+
+  test("uses the selected sandbox and presents approval requests when no override is supplied", async () => {
+    const process = new FakeCodexProcess((message, child) => {
+      if (message.method === "initialize") {
+        child.writeServerMessage({ id: message.id, result: { userAgent: "codex-test" } })
+      } else if (message.method === "thread/start") {
+        child.writeServerMessage({ id: message.id, result: { thread: { id: "thread-1" } } })
+      } else if (message.method === "turn/start") {
+        child.writeServerMessage({ id: message.id, result: { turn: { id: "turn-1", status: "inProgress", error: null } } })
+        child.writeServerMessage({
+          id: "approval-1",
+          method: "item/commandExecution/requestApproval",
+          params: { threadId: "thread-1", turnId: "turn-1", itemId: "call-1", command: "bun test", cwd: "/tmp/project" },
+        })
+      } else if (message.id === "approval-1" && message.result) {
+        child.writeServerMessage({
+          method: "turn/completed",
+          params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed", error: null } },
+        })
+      }
+    })
+    const manager = new CodexAppServerManager({ spawnProcess: () => process as never })
+    await manager.startSession({
+      chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6-sol", sessionToken: null, permissionMode: "request",
+    })
+    const requests: string[] = []
+    const turn = await manager.startTurn({
+      chatId: "chat-1", model: "gpt-6-sol", content: "run tests", planMode: false, permissionMode: "request",
+      onToolRequest: async ({ tool }) => {
+        if (tool.toolKind !== "ask_user_question") throw new Error("expected approval question")
+        requests.push(tool.input.questions[0]?.question ?? "")
+        return { answers: { decision: ["Allow once"] } }
+      },
+    })
+    const events = await collectStream(turn.stream)
+    expect(requests[0]).toContain("bun test")
+    expect(events.some((event) => event.type === "transcript" && event.entry?.kind === "tool_call")).toBe(true)
+    expect((process.messages.find((message: any) => message.method === "thread/start") as any).params).toMatchObject({
+      approvalPolicy: "on-request", approvalsReviewer: "user", sandbox: "workspace-write",
+    })
+    expect((process.messages.find((message: any) => message.method === "turn/start") as any).params.sandboxPolicy.type).toBe("workspaceWrite")
+    expect(process.messages.find((message: any) => message.id === "approval-1")).toEqual({
+      id: "approval-1", result: { decision: "accept" },
     })
   })
 
