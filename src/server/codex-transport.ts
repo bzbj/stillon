@@ -24,7 +24,7 @@ export class CodexTransportManager {
   private transportFor(chatId: string): CodexTransport {
     const chat = this.store.requireChat(chatId)
     return chat.codexTransport
-      ?? (chat.sessionToken || chat.pendingForkSessionToken ? "exec" : this.getDefaultTransport())
+      ?? (chat.sessionToken || chat.pendingForkSessionToken || chat.lastTurnOutcome ? "exec" : this.getDefaultTransport())
   }
 
   private managerFor(chatId: string) {

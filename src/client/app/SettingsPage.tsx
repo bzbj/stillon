@@ -3139,7 +3139,7 @@ export function SettingsPage() {
                       description="Choose how new Codex chats run. Existing Codex chats keep the mode they started with."
                     >
                       <Select
-                        value={appSettings?.codexTransport ?? "exec"}
+                        value={appSettings?.codexTransport ?? "app-server"}
                         onValueChange={(value) => handleCodexTransportChange(value as CodexTransport)}
                       >
                         <SelectTrigger className="min-w-[180px]">

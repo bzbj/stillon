@@ -153,7 +153,7 @@ function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
 }
 
 function normalizeCodexTransport(value: unknown): CodexTransport {
-  return value === "app-server" ? "app-server" : "exec"
+  return value === "exec" ? "exec" : "app-server"
 }
 
 function normalizeEditorPreset(value: unknown): EditorPreset {

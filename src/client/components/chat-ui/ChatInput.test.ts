@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { PROVIDERS } from "../../../shared/types"
+import { NEW_CHAT_COMPOSER_ID, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import {
   ChatInput,
   createPendingComposerAttachment,
@@ -298,6 +299,35 @@ describe("isDesktopLikeInputDevice", () => {
 })
 
 describe("ChatInput", () => {
+  test("shows a subtle Exec indicator for Codex chats and the new-chat setting", () => {
+    const preferences = useChatPreferencesStore.getState()
+    const previousComposer = preferences.chatStates[NEW_CHAT_COMPOSER_ID]
+    preferences.resetChatComposerFromProvider(NEW_CHAT_COMPOSER_ID, "codex")
+
+    const render = (activeProvider: "codex" | "claude" | null, codexTransport: "exec" | "app-server") =>
+      renderToStaticMarkup(createElement(ChatInput, {
+        onSubmit: async () => undefined,
+        disabled: false,
+        activeProvider,
+        codexTransport,
+        availableProviders: PROVIDERS,
+      }))
+
+    try {
+      expect(render(null, "exec")).toContain('aria-label="Codex Exec mode"')
+      expect(render(null, "app-server")).not.toContain('aria-label="Codex Exec mode"')
+      expect(render("codex", "exec")).toContain('aria-label="Codex Exec mode"')
+      expect(render("claude", "exec")).not.toContain('aria-label="Codex Exec mode"')
+    } finally {
+      useChatPreferencesStore.setState((state) => {
+        const chatStates = { ...state.chatStates }
+        if (previousComposer) chatStates[NEW_CHAT_COMPOSER_ID] = previousComposer
+        else delete chatStates[NEW_CHAT_COMPOSER_ID]
+        return { chatStates }
+      })
+    }
+  })
+
   test("renders the composer on an opaque surface", () => {
     const html = renderToStaticMarkup(createElement(ChatInput, {
       onSubmit: async () => undefined,
