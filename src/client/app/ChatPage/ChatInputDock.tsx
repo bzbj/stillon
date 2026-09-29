@@ -46,11 +46,6 @@ export const ChatInputDock = memo(function ChatInputDock({
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
       <div className="bg-gradient-to-t from-background via-background pointer-events-auto" ref={inputRef}>
-        {activeProvider === "codex" && codexTransport ? (
-          <p className="px-4 pb-1 text-right text-xs text-muted-foreground">
-            Codex · {codexTransport === "exec" ? "Exec" : "App Server"}
-          </p>
-        ) : null}
         <ChatInput
           ref={chatInputRef}
           inputElementRef={chatInputElementRef}
@@ -63,6 +58,7 @@ export const ChatInputDock = memo(function ChatInputDock({
           chatId={activeChatId}
           projectId={projectId}
           activeProvider={activeProvider}
+          codexTransport={codexTransport}
           preferencesReady={preferencesReady}
           availableProviders={availableProviders}
           contextWindowSnapshot={contextWindowSnapshot}

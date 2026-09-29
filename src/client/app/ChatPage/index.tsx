@@ -1171,7 +1171,7 @@ export function ChatPage() {
           canCancel={state.canCancel}
           projectId={projectId}
           activeProvider={state.runtime?.provider ?? null}
-          codexTransport={state.runtime?.codexTransport ?? null}
+          codexTransport={state.runtime?.codexTransport ?? state.appSettings?.codexTransport ?? "app-server"}
           preferencesReady={state.composerPreferencesReady}
           availableProviders={state.availableProviders}
           contextWindowSnapshot={contextWindowSnapshot}

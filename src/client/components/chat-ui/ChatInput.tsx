@@ -1,5 +1,5 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { ArrowUp, CircleAlert, CircleDashed, Paperclip } from "lucide-react"
+import { ArrowUp, CircleAlert, CircleDashed, Paperclip, Wrench } from "lucide-react"
 import {
   type AgentProvider,
   type ChatAttachment,
@@ -8,6 +8,7 @@ import {
   type ClaudeReasoningEffort,
   type CodexPermissionMode,
   type CodexReasoningEffort,
+  type CodexTransport,
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_PERMISSION_MODE,
   type ModelOptions,
@@ -331,6 +332,7 @@ interface Props {
   projectId?: string | null
   inputElementRef?: React.Ref<HTMLTextAreaElement>
   activeProvider: AgentProvider | null
+  codexTransport?: CodexTransport | null
   preferencesReady?: boolean
   availableProviders: ProviderCatalogEntry[]
   contextWindowSnapshot?: ContextWindowSnapshot | null
@@ -390,6 +392,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   projectId,
   inputElementRef,
   activeProvider,
+  codexTransport,
   preferencesReady = true,
   availableProviders,
   contextWindowSnapshot = null,
@@ -1092,6 +1095,11 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
               className="h-8 w-56 shrink-0 animate-pulse rounded-full bg-muted"
             />
           )}
+          {preferencesReady && selectedProvider === "codex" && codexTransport === "exec" ? (
+            <span className="flex shrink-0 items-center px-1.5 text-muted-foreground/60" role="img" aria-label="Codex Exec mode" title="Codex Exec mode">
+              <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+          ) : null}
           {activeContextWindow ? (
             <div className="flex items-center md:hidden mx-[13px]">
               <ContextWindowMeter usage={activeContextWindow} />

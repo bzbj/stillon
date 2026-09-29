@@ -26,7 +26,7 @@ function expectedDisplayPath(filePath: string) {
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
-    codexTransport: "exec",
+    codexTransport: "app-server",
     browserSettingsMigrated: false,
     machineName: "This Machine",
     theme: "system",
@@ -288,14 +288,14 @@ describe("AppSettingsManager", () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)
     await manager.initialize()
-    expect(manager.getSnapshot().codexTransport).toBe("exec")
-    expect((await manager.writePatch({ codexTransport: "app-server" })).codexTransport).toBe("app-server")
+    expect(manager.getSnapshot().codexTransport).toBe("app-server")
+    expect((await manager.writePatch({ codexTransport: "exec" })).codexTransport).toBe("exec")
     manager.dispose()
 
     const restarted = new AppSettingsManager(filePath)
     await restarted.initialize()
-    expect(restarted.getSnapshot().codexTransport).toBe("app-server")
-    expect((await restarted.writePatch({ codexTransport: "exec" })).codexTransport).toBe("exec")
+    expect(restarted.getSnapshot().codexTransport).toBe("exec")
+    expect((await restarted.writePatch({ codexTransport: "app-server" })).codexTransport).toBe("app-server")
     restarted.dispose()
   })
 })

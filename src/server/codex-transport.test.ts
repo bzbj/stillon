@@ -88,4 +88,17 @@ describe("CodexTransportManager", () => {
     expect(fork.codexTransport).toBe("exec")
     expect(calls).toEqual(["exec"])
   })
+
+  test("legacy Codex chats with a finished turn stay on exec even without a session token", async () => {
+    const { store, project, manager, calls, setDefault } = await harness()
+    const legacy = await store.createChat(project.id)
+    await store.setChatProvider(legacy.id, "codex")
+    await store.recordTurnFailed(legacy.id, "Old exec session failed")
+    setDefault("app-server")
+
+    await manager.startSession({ chatId: legacy.id, cwd: project.localPath, model: "gpt-6-sol", sessionToken: null })
+
+    expect(store.requireChat(legacy.id).codexTransport).toBe("exec")
+    expect(calls).toEqual(["exec"])
+  })
 })

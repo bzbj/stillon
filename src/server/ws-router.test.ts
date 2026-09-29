@@ -79,7 +79,7 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
   browserSettingsMigrated: false,
   machineName: "Local Machine",
-  codexTransport: "exec",
+  codexTransport: "app-server",
   theme: "system",
   chatSoundPreference: "always",
   chatSoundId: "funk",
