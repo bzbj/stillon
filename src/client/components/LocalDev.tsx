@@ -3,6 +3,8 @@ import {
   ArrowLeftRight,
   Check,
   ChevronRight,
+  ChevronDown,
+  FolderOpen,
   CodeXml,
   Copy,
   Loader2,
@@ -20,7 +22,7 @@ import { PageHeader } from "../app/PageHeader"
 import { resolveHomeProject } from "../lib/defaultProject"
 import { NewProjectModal } from "./NewProjectModal"
 import { Button } from "./ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
 const ChatInput = lazy(() => import("./chat-ui/ChatInput").then(({ ChatInput }) => ({ default: ChatInput })))
 
@@ -154,6 +156,7 @@ export function LocalDev({
   onListDirectories,
   onResolveLocalPath,
 }: LocalDevProps) {
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const selectedProject = resolveHomeProject(projectGroups, selectedProjectId, defaultProjectId)
   const isConnecting = connectionStatus === "connecting" || !ready
@@ -241,44 +244,64 @@ export function LocalDev({
         </>
       ) : (
         <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-12 sm:px-8">
-          <div className="w-full max-w-[840px]">
-            <div className="mb-8 px-3">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">What would you like to build?</h1>
-              <p className="mt-2 text-sm text-muted-foreground">Start a conversation in a project.</p>
+          <div className="w-full max-w-[740px]">
+            <div className="mb-12 px-3 text-center">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">What would you like to build?</h1>
             </div>
 
-            <div className="mb-3 flex flex-wrap items-center gap-2 px-3">
-              <label htmlFor="home-project-select" className="text-sm font-medium text-muted-foreground">Project</label>
-              <Select
-                value={selectedProject?.groupKey}
-                onValueChange={setSelectedProjectId}
-                disabled={!sidebarReady || projectGroups.length === 0}
-              >
-                <SelectTrigger id="home-project-select" aria-label="Project" className="w-auto min-w-40 max-w-full sm:max-w-[360px]">
-                  <SelectValue placeholder={sidebarReady ? "Choose a project" : "Loading projects"} />
-                </SelectTrigger>
-                <SelectContent position="item-aligned">
-                  {projectGroups.map((group) => (
-                    <SelectItem key={group.groupKey} value={group.groupKey}>{group.sidebarTitle ?? group.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedProject ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDefaultProjectChange(defaultProjectId === selectedProject.groupKey ? null : selectedProject.groupKey)}
-                  aria-label={defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
-                  title={defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
-                  className="gap-1.5 text-muted-foreground"
-                >
-                  <Star className="h-4 w-4" fill={defaultProjectId === selectedProject.groupKey ? "currentColor" : "none"} />
-                  <span>{defaultProjectId === selectedProject.groupKey ? "Default project" : "Set as default"}</span>
-                </Button>
-              ) : null}
-              <Button variant="ghost" size="sm" onClick={() => onNewProjectOpenChange(true)} className="gap-1.5">
-                <Plus className="h-4 w-4" /> Add Project
-              </Button>
+            <div className="mb-1.5 flex items-center px-3">
+              <Popover open={projectMenuOpen} onOpenChange={setProjectMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Choose project"
+                    disabled={!sidebarReady}
+                    className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
+                  >
+                    <FolderOpen className="h-4 w-4 shrink-0" />
+                    <span className="max-w-[240px] truncate">{selectedProject?.sidebarTitle ?? selectedProject?.title ?? (sidebarReady ? "Choose a project" : "Loading projects")}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" sideOffset={5} className="w-60 rounded-xl p-1 text-[13px] shadow-md">
+                  <div className="max-h-64 overflow-y-auto" aria-label="Projects">
+                    {projectGroups.map((group) => (
+                      <button
+                        key={group.groupKey}
+                        type="button"
+                        aria-pressed={selectedProject?.groupKey === group.groupKey}
+                        onClick={() => { setSelectedProjectId(group.groupKey); setProjectMenuOpen(false) }}
+                        className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate">{group.sidebarTitle ?? group.title}</span>
+                        {selectedProject?.groupKey === group.groupKey ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="my-1 border-t border-border/70" />
+                  {selectedProject ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDefaultProjectChange(defaultProjectId === selectedProject.groupKey ? null : selectedProject.groupKey)
+                        setProjectMenuOpen(false)
+                      }}
+                      className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-muted-foreground hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                    >
+                      <Star className="h-4 w-4" fill={defaultProjectId === selectedProject.groupKey ? "currentColor" : "none"} />
+                      {defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => { setProjectMenuOpen(false); onNewProjectOpenChange(true) }}
+                    className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                  >
+                    <Plus className="h-4 w-4" /> Add project…
+                  </button>
+                </PopoverContent>
+              </Popover>
             </div>
 
             {sidebarReady && projectGroups.length === 0 ? (
