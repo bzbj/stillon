@@ -314,7 +314,9 @@ describe("ChatInput", () => {
       }))
 
     try {
-      expect(render(null, "exec")).toContain('aria-label="Codex Exec mode"')
+      const newExecChat = render(null, "exec")
+      expect(newExecChat).toContain('aria-label="Codex Exec mode"')
+      expect(newExecChat.indexOf('aria-label="Codex Exec mode"')).toBeLessThan(newExecChat.indexOf("GPT-6-Sol"))
       expect(render(null, "app-server")).not.toContain('aria-label="Codex Exec mode"')
       expect(render("codex", "exec")).toContain('aria-label="Codex Exec mode"')
       expect(render("claude", "exec")).not.toContain('aria-label="Codex Exec mode"')

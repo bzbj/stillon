@@ -1,5 +1,5 @@
 import { useState, type ComponentType, type SVGProps } from "react"
-import { Bot, Box, Brain, Gauge, LockOpen, Shield, ShieldCheck, ShieldQuestion, ShieldX, SquareMenu, SquareMinus } from "lucide-react"
+import { Bot, Box, Brain, Gauge, LockOpen, Shield, ShieldCheck, ShieldQuestion, ShieldX, SquareMenu, SquareMinus, Wrench } from "lucide-react"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
   CLAUDE_PERMISSION_OPTIONS,
@@ -158,6 +158,7 @@ export type PermissionModeChange =
 interface ChatPreferenceControlsProps {
   availableProviders: ProviderCatalogEntry[]
   selectedProvider: AgentProvider
+  showExecIndicator?: boolean
   showProviderPicker?: boolean
   providerLocked?: boolean
   model: string
@@ -173,6 +174,7 @@ interface ChatPreferenceControlsProps {
 export function ChatPreferenceControls({
   availableProviders,
   selectedProvider,
+  showExecIndicator = false,
   showProviderPicker = true,
   providerLocked = false,
   model,
@@ -226,6 +228,11 @@ export function ChatPreferenceControls({
             <>
               <ProviderIcon className="h-3.5 w-3.5" />
               <span>{providerConfig?.label ?? selectedProvider}</span>
+              {showExecIndicator && selectedProvider === "codex" ? (
+                <span role="img" aria-label="Codex Exec mode" title="Codex Exec mode" className="ml-0.5 inline-flex text-foreground/80">
+                  <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+              ) : null}
             </>
           )}
         >
