@@ -1,37 +1,43 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from "react"
+import { lazy, Suspense, useState, type ComponentType, type ReactNode } from "react"
 import {
   ArrowLeftRight,
   Check,
   ChevronRight,
   CodeXml,
   Copy,
-  Folder,
   Loader2,
   Monitor,
   Plus,
-  SquarePen,
+  Star,
   Terminal,
 } from "lucide-react"
 import { APP_NAME, getCliInvocation, SDK_CLIENT_APP } from "../../shared/branding"
 import type { LocalDirectoryListResult, ResolvedLocalPath } from "../../shared/protocol"
-import type { LocalProjectsSnapshot } from "../../shared/types"
+import type { CodexTransport, SidebarProjectGroup } from "../../shared/types"
 import type { SocketStatus } from "../app/socket"
+import type { StillOnState } from "../app/useStillOnState"
 import { PageHeader } from "../app/PageHeader"
-import { getPathBasename } from "../lib/formatters"
-import { cn } from "../lib/utils"
+import { resolveHomeProject } from "../lib/defaultProject"
 import { NewProjectModal } from "./NewProjectModal"
 import { Button } from "./ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+
+const ChatInput = lazy(() => import("./chat-ui/ChatInput").then(({ ChatInput }) => ({ default: ChatInput })))
 
 interface LocalDevProps {
   connectionStatus: SocketStatus
   ready: boolean
-  snapshot: LocalProjectsSnapshot | null
-  startingLocalPath: string | null
+  projectGroups: SidebarProjectGroup[]
+  sidebarReady: boolean
+  defaultProjectId: string | null
+  onDefaultProjectChange: (projectId: string | null) => void
+  onSend: StillOnState["handleSend"]
+  availableProviders: StillOnState["availableProviders"]
+  preferencesReady: boolean
+  codexTransport: CodexTransport | null
   commandError: string | null
   newProjectOpen: boolean
   onNewProjectOpenChange: (open: boolean) => void
-  onOpenProject: (localPath: string) => Promise<void>
   onCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
   onListDirectories: (localPath?: string) => Promise<LocalDirectoryListResult>
   onResolveLocalPath: (localPath: string) => Promise<ResolvedLocalPath>
@@ -130,59 +136,26 @@ function Step({
   )
 }
 
-function ProjectCard({
-  localPath,
-  loading,
-  onClick,
-}: {
-  localPath: string
-  loading: boolean
-  onClick: () => void
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className={cn(
-            "border border-border hover:border-primary/30 group rounded-lg bg-card px-4 py-3 flex items-center gap-3 w-full text-left hover:bg-muted/50 transition-colors",
-            loading && "opacity-50 cursor-not-allowed"
-          )}
-          disabled={loading}
-          onClick={onClick}
-        >
-          <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <span className="font-medium text-foreground truncate flex-1">
-            {getPathBasename(localPath)}
-          </span>
-          {loading ? (
-            <Loader2 className="h-4 w-4 text-muted-foreground group-hover:text-primary animate-spin flex-shrink-0" />
-          ) : (
-            <SquarePen className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{localPath}</p>
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 export function LocalDev({
   connectionStatus,
   ready,
-  snapshot,
-  startingLocalPath,
+  projectGroups,
+  sidebarReady,
+  defaultProjectId,
+  onDefaultProjectChange,
+  onSend,
+  availableProviders,
+  preferencesReady,
+  codexTransport,
   commandError,
   newProjectOpen,
   onNewProjectOpenChange,
-  onOpenProject,
   onCreateProject,
   onListDirectories,
   onResolveLocalPath,
 }: LocalDevProps) {
-  const projects = useMemo(() => snapshot?.projects ?? [], [snapshot?.projects])
-  const isDiscovering = snapshot?.isDiscovering ?? false
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const selectedProject = resolveHomeProject(projectGroups, selectedProjectId, defaultProjectId)
   const isConnecting = connectionStatus === "connecting" || !ready
   const isConnected = connectionStatus === "connected" && ready
 
@@ -267,57 +240,69 @@ export function LocalDev({
           </div>
         </>
       ) : (
-        <>
-          <PageHeader
-            title={snapshot?.machine.displayName ?? "Local Projects"}
-            subtitle={`${APP_NAME} is connected. Choose a project below to get started.`}
-          />
+        <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-12 sm:px-8">
+          <div className="w-full max-w-[840px]">
+            <div className="mb-8 px-3">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">What would you like to build?</h1>
+              <p className="mt-2 text-sm text-muted-foreground">Start a conversation in a project.</p>
+            </div>
 
-          <div className="w-full px-6 mb-10">
-            <div className="flex items-baseline justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Projects</h2>
-                {isDiscovering ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground normal-case">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading history
-                  </span>
-                ) : null}
-              </div>
-              <Button variant="default" size="sm" onClick={() => onNewProjectOpenChange(true)}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                Add Project
+            <div className="mb-3 flex flex-wrap items-center gap-2 px-3">
+              <label htmlFor="home-project-select" className="text-sm font-medium text-muted-foreground">Project</label>
+              <Select
+                value={selectedProject?.groupKey}
+                onValueChange={setSelectedProjectId}
+                disabled={!sidebarReady || projectGroups.length === 0}
+              >
+                <SelectTrigger id="home-project-select" aria-label="Project" className="w-auto min-w-40 max-w-full sm:max-w-[360px]">
+                  <SelectValue placeholder={sidebarReady ? "Choose a project" : "Loading projects"} />
+                </SelectTrigger>
+                <SelectContent position="item-aligned">
+                  {projectGroups.map((group) => (
+                    <SelectItem key={group.groupKey} value={group.groupKey}>{group.sidebarTitle ?? group.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedProject ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDefaultProjectChange(defaultProjectId === selectedProject.groupKey ? null : selectedProject.groupKey)}
+                  aria-label={defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
+                  title={defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
+                  className="gap-1.5 text-muted-foreground"
+                >
+                  <Star className="h-4 w-4" fill={defaultProjectId === selectedProject.groupKey ? "currentColor" : "none"} />
+                  <span>{defaultProjectId === selectedProject.groupKey ? "Default project" : "Set as default"}</span>
+                </Button>
+              ) : null}
+              <Button variant="ghost" size="sm" onClick={() => onNewProjectOpenChange(true)} className="gap-1.5">
+                <Plus className="h-4 w-4" /> Add Project
               </Button>
             </div>
-            {projects.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 3xl:grid-cols-5 gap-2">
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project.localPath}
-                    localPath={project.localPath}
-                    loading={startingLocalPath === project.localPath}
-                    onClick={() => {
-                      void onOpenProject(project.localPath)
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <InfoCard>
-                <p className="text-sm text-muted-foreground">
-                  {isDiscovering
-                    ? "Looking through your Claude and Codex project history..."
-                    : "No local projects discovered yet. Open one with Claude or Codex, or create a new project here."}
-                </p>
-              </InfoCard>
-            )}
+
+            {sidebarReady && projectGroups.length === 0 ? (
+              <p className="px-3 pb-3 text-sm text-muted-foreground">Add a project to start a conversation.</p>
+            ) : null}
+            <Suspense fallback={<div className="mx-3 h-16 animate-pulse rounded-[29px] border border-border bg-card" aria-label="Loading composer" />}>
+              <ChatInput
+                onSubmit={(content, options) => onSend(content, options, selectedProject?.groupKey)}
+                disabled={!sidebarReady || !selectedProject || !preferencesReady}
+                projectId={selectedProject?.groupKey ?? null}
+                chatId={null}
+                activeProvider={null}
+                codexTransport={codexTransport}
+                preferencesReady={preferencesReady}
+                availableProviders={availableProviders}
+              />
+            </Suspense>
             {commandError ? (
-              <div className="text-sm text-destructive border border-destructive/20 bg-destructive/5 rounded-xl px-4 py-3 mt-4">
+              <div role="alert" className="text-sm text-destructive border border-destructive/20 bg-destructive/5 rounded-xl px-4 py-3 mt-4">
                 {commandError}
               </div>
             ) : null}
           </div>
-        </>
+        </div>
       )}
 
       <NewProjectModal

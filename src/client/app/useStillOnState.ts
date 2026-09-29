@@ -19,6 +19,7 @@ import type { OpenLocalLinkTarget } from "../components/messages/shared"
 import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
 import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
+import { readDefaultProjectId, writeDefaultProjectId } from "../lib/defaultProject"
 import { processTranscriptMessages } from "../lib/parseTranscript"
 import {
   clearSidebarSnapshotsForScope,
@@ -721,6 +722,7 @@ export interface StillOnState {
   activeProjectId: string | null
   sidebarData: SidebarData
   localProjects: LocalProjectsSnapshot | null
+  defaultProjectId: string | null
   chatSnapshot: ChatSnapshot | null
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
@@ -765,6 +767,7 @@ export interface StillOnState {
   loadOlderHistory: () => Promise<void>
   loadToolDetails: (toolIds: string[]) => Promise<void>
   handleCreateChat: (projectId: string) => Promise<void>
+  setDefaultProjectId: (projectId: string | null) => void
   handleForkChat: (chat: SidebarChatRow) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: ProjectRequest) => Promise<void>
@@ -776,7 +779,7 @@ export interface StillOnState {
   handleWriteLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<void>
   handleValidateLlmProvider: (value: Pick<LlmProviderSnapshot, "provider" | "apiKey" | "model" | "baseUrl">) => Promise<LlmProviderValidationResult>
   handleSignOut: () => Promise<void>
-  handleSend: (content: string, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode }) => Promise<void>
+  handleSend: (content: string, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode; attachments?: ChatAttachment[] }, projectIdOverride?: string) => Promise<void>
   handleSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   handleRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
   handleCancel: () => Promise<void>
@@ -843,6 +846,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const sidebarSnapshotStatusRef = useRef(sidebarSnapshotStatus)
   const [optimisticSidebarProjectOrder, setOptimisticSidebarProjectOrder] = useState<string[] | null>(null)
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
+  const [defaultProjectId, setStoredDefaultProjectId] = useState(readDefaultProjectId)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [olderHistoryEntries, setOlderHistoryEntries] = useState<TranscriptEntry[]>([])
   const [toolDetailEntries, setToolDetailEntries] = useState<TranscriptEntry[]>([])
@@ -904,6 +908,19 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     ),
     [sidebarData, sidebarProjectGroups]
   )
+  const validDefaultProjectId = sidebarProjectGroups.some((group) => group.groupKey === defaultProjectId)
+    ? defaultProjectId
+    : null
+  const setDefaultProjectId = useCallback((projectId: string | null) => {
+    setStoredDefaultProjectId(projectId)
+    writeDefaultProjectId(projectId)
+  }, [])
+
+  useEffect(() => {
+    if (sidebarReady && defaultProjectId && !validDefaultProjectId) {
+      setDefaultProjectId(null)
+    }
+  }, [defaultProjectId, setDefaultProjectId, sidebarReady, validDefaultProjectId])
 
   const applyAppSettingsSnapshot = useCallback((snapshot: AppSettingsSnapshot) => {
     const confirmedIdentity = createSidebarSnapshotIdentity({
@@ -1645,7 +1662,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const handleSend = useCallback(async (
     content: string,
-    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode; attachments?: ChatAttachment[] }
+    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; permissionMode?: AgentPermissionMode; attachments?: ChatAttachment[] },
+    projectIdOverride?: string,
   ) => {
     const attachments = options?.attachments ?? []
     if (activeChatId && isProcessing) {
@@ -1714,7 +1732,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     })
 
     try {
-      let projectId = selectedProjectId
+      let projectId = projectIdOverride ?? selectedProjectId
         ?? (sidebarReady ? sidebarProjectGroups[0]?.groupKey : null)
       if (!activeChatId && !projectId && fallbackLocalProjectPath) {
         const project = await socket.command<{ projectId: string }>({
@@ -2105,9 +2123,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const handleCompose = useCallback(() => {
     const intent = resolveComposeIntent({
-      selectedProjectId,
+      selectedProjectId: validDefaultProjectId ?? selectedProjectId,
       sidebarProjectId: sidebarReady ? sidebarProjectGroups[0]?.groupKey : null,
-      fallbackLocalProjectPath,
+      fallbackLocalProjectPath: sidebarReady ? null : fallbackLocalProjectPath,
     })
     if (intent) {
       void startChatFromIntent(intent)
@@ -2115,7 +2133,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
 
     navigate("/")
-  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, sidebarReady, startChatFromIntent])
+  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, sidebarReady, startChatFromIntent, validDefaultProjectId])
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
@@ -2219,6 +2237,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     activeProjectId,
     sidebarData: resolvedSidebarData,
     localProjects,
+    defaultProjectId: validDefaultProjectId,
     chatSnapshot,
     chatDiffSnapshot,
     keybindings,
@@ -2263,6 +2282,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     loadOlderHistory,
     loadToolDetails,
     handleCreateChat,
+    setDefaultProjectId,
     handleForkChat,
     handleOpenLocalProject,
     handleCreateProject,
