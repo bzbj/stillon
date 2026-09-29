@@ -10,8 +10,14 @@ export function LocalProjectsPage() {
       <LocalDev
         connectionStatus={state.connectionStatus}
         ready={state.localProjectsReady}
-        snapshot={state.localProjects}
-        startingLocalPath={state.startingLocalPath}
+        projectGroups={state.sidebarData.projectGroups}
+        sidebarReady={state.sidebarReady}
+        defaultProjectId={state.defaultProjectId}
+        onDefaultProjectChange={state.setDefaultProjectId}
+        onSend={state.handleSend}
+        availableProviders={state.availableProviders}
+        preferencesReady={state.composerPreferencesReady}
+        codexTransport={state.appSettings?.codexTransport ?? "app-server"}
         commandError={state.commandError}
         newProjectOpen={state.addProjectModalOpen}
         onNewProjectOpenChange={(open) => {
@@ -21,7 +27,6 @@ export function LocalProjectsPage() {
           }
           state.closeAddProjectModal()
         }}
-        onOpenProject={state.handleOpenLocalProject}
         onCreateProject={state.handleCreateProject}
         onListDirectories={state.handleListLocalDirectories}
         onResolveLocalPath={state.handleResolveLocalPath}
