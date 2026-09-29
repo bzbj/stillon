@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom"
 import { StandaloneShareDialog } from "../components/chat-ui/StandaloneShareDialog"
 import { AppDialogProvider } from "../components/ui/app-dialog"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { TooltipProvider } from "../components/ui/tooltip"
-import { APP_NAME, SDK_CLIENT_APP } from "../../shared/branding"
+import { APP_NAME } from "../../shared/branding"
 import { useChatSoundPreferencesStore } from "../stores/chatSoundPreferencesStore"
 import type { ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
 import { playChatNotificationSound, shouldPlayChatSound } from "../lib/chatSounds"
@@ -16,7 +16,6 @@ import { LocalProjectsPage } from "./LocalProjectsPage"
 import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 
-const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
 const AUTH_STATUS_RETRY_DELAY_MS = 500
 
 const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
@@ -249,10 +248,6 @@ function useAppAuthState() {
   }
 }
 
-export function shouldRedirectToChangelog(pathname: string, currentVersion: string, seenVersion: string | null) {
-  return pathname === "/" && Boolean(currentVersion) && seenVersion !== currentVersion
-}
-
 export function shouldPlayChatNotificationSound(
   appSettings: AppSettingsSnapshot | null,
   preference: ChatSoundPreference,
@@ -263,13 +258,11 @@ export function shouldPlayChatNotificationSound(
 
 function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
   const location = useLocation()
-  const navigate = useNavigate()
   const params = useParams()
   const state = useStillOnState(params.chatId ?? null, cacheScope)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
-  const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const machineName = state.machineName
   const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
   const previousSidebarDataRef = useRef<ReturnType<typeof useStillOnState>["sidebarData"] | null>(null)
@@ -370,20 +363,12 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
     state.editorLabel,
     state.expandSidebar,
     state.openSidebar,
-    state.sidebarCollapsed,
     state.sidebarData,
+    state.sidebarCollapsed,
     state.sidebarOpen,
     state.sidebarReady,
     state.sidebarSnapshotStatus,
   ])
-
-  useEffect(() => {
-    const seenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY)
-    const shouldRedirect = shouldRedirectToChangelog(location.pathname, currentVersion, seenVersion)
-    window.localStorage.setItem(VERSION_SEEN_STORAGE_KEY, currentVersion)
-    if (!shouldRedirect) return
-    navigate("/settings/changelog", { replace: true })
-  }, [currentVersion, location.pathname, navigate])
 
   useLayoutEffect(() => {
     document.title = appPageTitle

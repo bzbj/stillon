@@ -114,6 +114,10 @@ describe("StillOnSidebar snapshot state", () => {
     })
 
     expect(html).toContain("Still On")
+    expect(html).toContain('aria-label="Go to home"')
+    expect(html).toContain("Search conversations")
+    expect(html).toContain("Close sidebar")
+    expect(html).toContain("New chat")
     expect(html).not.toContain("Last-known conversations")
     expect(html).toContain("Archive chat")
     expect(html).toContain("Fork chat")

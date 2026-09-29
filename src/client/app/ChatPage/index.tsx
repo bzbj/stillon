@@ -1093,7 +1093,6 @@ export function ChatPage() {
         <ChatNavbar
           sidebarCollapsed={state.sidebarCollapsed}
           onOpenSidebar={state.openSidebar}
-          onExpandSidebar={state.expandSidebar}
           onNewChat={state.handleCompose}
           localPath={state.navbarLocalPath}
           embeddedTerminalVisible={showTerminalPane}

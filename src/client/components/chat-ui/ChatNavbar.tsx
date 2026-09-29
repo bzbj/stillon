@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, GitBranch, Globe, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, GitBranch, Globe, Loader2, Menu, MoreHorizontal, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "../../../shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -93,7 +93,6 @@ function NavbarOverflowMenu({
 interface Props {
   sidebarCollapsed: boolean
   onOpenSidebar: () => void
-  onExpandSidebar: () => void
   onNewChat: () => void
   localPath?: string
   embeddedTerminalVisible?: boolean
@@ -121,7 +120,6 @@ interface Props {
 export function ChatNavbar({
   sidebarCollapsed,
   onOpenSidebar,
-  onExpandSidebar,
   onNewChat,
   localPath,
   embeddedTerminalVisible = false,
@@ -165,7 +163,7 @@ export function ChatNavbar({
     >
       <div className="absolute top-0 left-0 right-0 z-0 h-[100px] bg-gradient-to-b from-background via-background/50 pointer-events-none block"></div>
       <div className="relative flex items-center gap-2 w-full">
-        <div className={`h-[30px] flex items-center gap-0 flex-shrink-0 border border-border/0 rounded-[9px] ${sidebarCollapsed ? 'px-1.5  border-border' : ''} px-[2px]`}>
+        <div className={cn("h-[30px] flex items-center gap-0 flex-shrink-0 border border-border/0 rounded-[9px] px-[2px]", sidebarCollapsed && "md:hidden")}>
           <Button
             variant="ghost"
             size="icon"
@@ -174,22 +172,6 @@ export function ChatNavbar({
           >
             <Menu className="size-4" />
           </Button>
-          {sidebarCollapsed && (
-            <>
-              <div className="hidden md:flex items-center justify-center w-[36px] h-[36px]">
-                <img src="/stillon-mark.svg" alt="" className="ml-1 hidden h-4 w-4 rounded-md object-contain sm:h-5 sm:w-5 md:block" />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden md:flex  hover:!border-border/0 hover:!bg-transparent"
-                onClick={onExpandSidebar}
-                title="Expand sidebar"
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            </>
-          )}
           <Button
             variant="ghost"
             size="icon"
@@ -306,8 +288,8 @@ export function ChatNavbar({
                     variant="ghost"
                     size="none"
                     onClick={handleCloseRightPanel}
-                    title="Collapse sidebar"
-                    aria-label="Collapse sidebar"
+                    title="Close right panel"
+                    aria-label="Close right panel"
                     className="border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent text-foreground"
                   >
                     <PanelRight strokeWidth={2.25} className="h-4" />
