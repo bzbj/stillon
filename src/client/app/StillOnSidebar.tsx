@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { PanelLeft, X, Menu, Plus, Settings } from "lucide-react"
+import { X, Menu, Search, PanelLeftClose, PanelLeftOpen, MessageCirclePlus, Settings } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { Button } from "../components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog"
@@ -171,7 +171,17 @@ function StillOnSidebarImpl({
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const actionsEnabled = connectionStatus === "connected" && ready
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase()
+    if (!query) return []
+    return data.projectGroups.flatMap((group) => group.chats
+      .filter((chat) => `${chat.title} ${group.sidebarTitle ?? group.title}`.toLocaleLowerCase().includes(query))
+      .map((chat) => ({ chat, projectTitle: group.sidebarTitle ?? group.title })))
+      .sort((a, b) => (b.chat.lastMessageAt ?? b.chat._creationTime) - (a.chat.lastMessageAt ?? a.chat._creationTime))
+  }, [data.projectGroups, searchQuery])
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const visibleChats = useMemo(
     () => getVisibleSidebarChats(data.projectGroups, collapsedSections, expandedGroups),
@@ -399,9 +409,7 @@ function StillOnSidebarImpl({
   }, [isResizingSidebar])
 
   const hasVisibleChats = activeVisibleCount > 0
-  const isLocalProjectsActive = location.pathname === "/"
   const isSettingsActive = location.pathname.startsWith("/settings")
-  const isUtilityPageActive = isLocalProjectsActive || isSettingsActive
   const isConnecting = connectionStatus === "connecting" || !ready
   const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready, snapshotStatus)
 
@@ -418,17 +426,23 @@ function StillOnSidebarImpl({
         </Button>
       )}
 
-      {collapsed && isUtilityPageActive && (
-        <div className="hidden md:flex fixed left-0 top-0 h-full z-40 items-start pt-4 pl-5 border-l border-border/0">
-          <div className="flex items-center gap-1">
-            <BrandMark className="size-6 rounded-md object-contain" />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onExpand}
-              title="Expand sidebar"
-            >
-              <PanelLeft className="h-5 w-5" />
+      {collapsed && (
+        <div className="fixed left-5 top-5 z-40 hidden items-center gap-4 md:flex">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            aria-label="Go to home"
+            title="Go to home"
+            className="flex size-9 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <BrandMark className="size-8 rounded-md object-contain" />
+          </button>
+          <div className="flex items-center rounded-full border border-border bg-background p-1 shadow-sm">
+            <Button variant="ghost" size="icon" onClick={onExpand} title="Open sidebar" aria-label="Open sidebar" className="size-9 rounded-full">
+              <PanelLeftOpen className="size-5" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")} title="New chat" aria-label="New chat" className="size-9 rounded-full">
+              <MessageCirclePlus className="size-5" />
             </Button>
           </div>
         </div>
@@ -440,11 +454,11 @@ function StillOnSidebarImpl({
           "fixed inset-0 z-50 bg-background dark:bg-card flex flex-col h-[100dvh] select-none",
           "md:relative md:inset-auto md:w-[var(--sidebar-width)] md:mr-0 md:h-[calc(100dvh-16px)] md:my-2 md:ml-2 md:border md:border-border md:rounded-2xl",
           open ? "flex" : "hidden md:flex",
-          collapsed && "md:hidden"
+          collapsed && "md:hidden",
         )}
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
-        <div className="px-[5px] h-[47px] md:h-auto md:min-h-[64px] md:py-2 border-b grid grid-cols-[40px_minmax(0,1fr)_40px] items-center md:pl-3 md:pr-1 md:flex md:justify-between">
+        <div className="px-[5px] h-[47px] md:h-auto md:min-h-[64px] md:py-2 border-b grid grid-cols-[40px_minmax(0,1fr)_80px] items-center md:pl-3 md:pr-2 md:flex md:justify-between">
           <div className="md:hidden">
             <Button
               variant="ghost"
@@ -456,46 +470,79 @@ function StillOnSidebarImpl({
               <X className="h-5 w-5" />
             </Button>
           </div>
-          <div className="flex min-w-0 items-center justify-self-center gap-2 md:justify-self-auto">
-            <button
-              type="button"
-              onClick={onCollapse}
-              title="Collapse sidebar"
-              className="hidden md:flex group/sidebar-collapse relative items-center justify-center h-9 w-9"
-            >
-              <BrandMark className="absolute inset-0.5 h-[30px] w-[30px] rounded-md object-contain transition-all duration-200 ease-out opacity-100 scale-100 group-hover/sidebar-collapse:opacity-0 group-hover/sidebar-collapse:scale-0" />
-              <PanelLeft className="absolute inset-0 h-7 w-7 text-slate-500 dark:text-slate-400 transition-all duration-200 ease-out opacity-0 scale-0 group-hover/sidebar-collapse:opacity-100 group-hover/sidebar-collapse:scale-80 hover:opacity-50" />
-            </button>
-            <BrandMark className="h-5 w-5 rounded-md object-contain sm:h-6 sm:w-6 md:hidden" />
+          <button
+            type="button"
+            onClick={() => {
+              navigate("/")
+              onClose()
+            }}
+            aria-label="Go to home"
+            title="Go to home"
+            className="flex min-w-0 items-center justify-self-center gap-2 rounded-lg px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:justify-self-auto"
+          >
+            <BrandMark className="h-7 w-7 shrink-0 rounded-md object-contain sm:h-8 sm:w-8" />
             <SidebarIdentity machineName={machineName} />
-          </div>
+          </button>
           <div className="flex items-center justify-self-end md:justify-self-auto">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => {
-                navigate("/")
-                onClose()
+                setSearchOpen((current) => !current)
+                setSearchQuery("")
               }}
-              className="size-10 rounded-lg hover:!border-border/0 md:hidden"
-              title="New project"
+              className="size-10 rounded-full"
+              title="Search conversations"
+              aria-label="Search conversations"
             >
-              <Plus className="h-5 w-5" />
+              <Search className="size-5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => {
-                navigate("/")
-                onClose()
-              }}
-              className="hidden md:inline-flex size-10 rounded-lg hover:!border-border/0"
-              title="New project"
+              onClick={onCollapse}
+              className="hidden size-10 rounded-full md:inline-flex"
+              title="Close sidebar"
+              aria-label="Close sidebar"
             >
-              <Plus className="size-4" />
+              <PanelLeftClose className="size-5" />
             </Button>
           </div>
         </div>
+
+        <div className="px-3 pb-3 pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              navigate("/")
+              onClose()
+            }}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-base font-medium shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <MessageCirclePlus className="size-5" />
+            New chat
+          </button>
+        </div>
+
+        {searchOpen && (
+          <div className="border-b border-border px-3 pb-3">
+            <input
+              autoFocus
+              type="search"
+              aria-label="Search conversations"
+              placeholder="Search conversations"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearchOpen(false)
+                  setSearchQuery("")
+                }
+              }}
+              className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-ring"
+            />
+          </div>
+        )}
 
         <div
           ref={scrollContainerRef}
@@ -542,7 +589,28 @@ function StillOnSidebarImpl({
               <p className="text-sm text-slate-400 p-2 mt-6 text-center">No conversations yet</p>
             ) : null}
 
-            <LocalProjectsSection
+            {searchOpen && searchQuery.trim() ? (
+              <div className="space-y-1 px-1 pt-2">
+                {searchResults.length === 0 ? (
+                  <p className="px-3 py-5 text-center text-sm text-muted-foreground">No matching conversations</p>
+                ) : searchResults.map(({ chat, projectTitle }) => (
+                  <button
+                    key={chat.chatId}
+                    type="button"
+                    onClick={() => {
+                      navigate(`/chat/${chat.chatId}`)
+                      setSearchOpen(false)
+                      setSearchQuery("")
+                      onClose()
+                    }}
+                    className="w-full rounded-lg px-3 py-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="block truncate text-sm text-foreground">{chat.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{projectTitle}</span>
+                  </button>
+                ))}
+              </div>
+            ) : <LocalProjectsSection
               projectGroups={data.projectGroups}
               editorLabel={editorLabel}
               onReorderGroups={onReorderProjectGroups}
@@ -564,7 +632,7 @@ function StillOnSidebarImpl({
               onHideProject={onHideProject}
               isConnected={actionsEnabled}
               actionsEnabled={actionsEnabled}
-            />
+            />}
           </div>
         </div>
 

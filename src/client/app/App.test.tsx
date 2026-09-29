@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getAppAuthStateFromStatus, getAppPageTitle, shouldPlayChatNotificationSound, shouldRedirectToChangelog, shouldRetryAuthStatusRequest } from "./App"
+import { getAppAuthStateFromStatus, getAppPageTitle, shouldPlayChatNotificationSound, shouldRetryAuthStatusRequest } from "./App"
 import { getChatNotificationSnapshot, getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
 import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth, getConnectionStatusPresentation } from "./StillOnSidebar"
 import { isBrowserUnfocused, shouldPlayChatSound } from "../lib/chatSounds"
@@ -17,16 +17,6 @@ function createProjectGroup(chats: SidebarChatRow[]) {
     defaultCollapsed: false,
   }
 }
-
-describe("shouldRedirectToChangelog", () => {
-  test("redirects only from the root route when the version is unseen", () => {
-    expect(shouldRedirectToChangelog("/", "0.12.0", null)).toBe(true)
-    expect(shouldRedirectToChangelog("/", "0.12.0", "0.11.0")).toBe(true)
-    expect(shouldRedirectToChangelog("/settings/general", "0.12.0", "0.11.0")).toBe(false)
-    expect(shouldRedirectToChangelog("/chat/1", "0.12.0", "0.11.0")).toBe(false)
-    expect(shouldRedirectToChangelog("/", "0.12.0", "0.12.0")).toBe(false)
-  })
-})
 
 describe("getAppPageTitle", () => {
   test("places the Still On wordmark before the current machine name", () => {
