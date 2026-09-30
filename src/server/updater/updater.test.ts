@@ -33,6 +33,16 @@ describe("platform and architecture selection", () => {
     expect(updateRoot("darwin", "/Users/example")).toBe("/Users/example/Library/Application Support/StillOn/ManagedUpdates")
     expect(updateRoot("win32", "C:\\Users\\example", "D:\\User Data")).toBe("D:\\User Data\\StillOn\\ManagedUpdates")
   })
+  test("four-part hotfix releases work for requests and version ordering", () => {
+    expect(releaseTag("0.4.5.1")).toBe("v0.4.5.1")
+    expect(newerRelease("v0.4.5.1", "v0.4.5")).toBe(true)
+    expect(newerRelease("v0.4.6", "v0.4.5.1")).toBe(true)
+    expect(newerRelease("v0.4.5", "v0.4.5.1")).toBe(false)
+    expect(newerRelease("v0.4.5.0", "v0.4.5")).toBe(false)
+    expect(() => releaseTag("v0.4.5.01")).toThrow()
+    expect(() => releaseTag("v0.4.5.1.2")).toThrow()
+    expect(parseUpdateArgs(["request", "v0.4.5.1"])).toEqual({ action: "request", tag: "v0.4.5.1", prepareOnly: false })
+  })
   test("tags cannot become shell or Git options", () => {
     for (const tag of ["../main", "--upload-pack=bad", "v1.0.0;echo", "v01.2.3", "v1.2.3-beta"]) expect(() => releaseTag(tag)).toThrow()
     expect(newerRelease("v1.10.0", "1.9.9")).toBe(true)

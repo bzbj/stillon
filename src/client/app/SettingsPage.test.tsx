@@ -695,3 +695,10 @@ describe("source release upgrades", () => {
   })
 
 })
+
+
+test("release discovery compares four-part hotfix versions", () => {
+  expect(compareReleaseVersions("v0.4.5.1", "0.4.5")).toBe(1)
+  expect(compareReleaseVersions("v0.4.6", "0.4.5.1")).toBe(1)
+  expect(compareReleaseVersions("v0.4.5.0", "0.4.5")).toBe(0)
+})

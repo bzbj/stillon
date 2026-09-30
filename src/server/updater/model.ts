@@ -73,7 +73,7 @@ export function updateRoot(platform = process.platform, home = os.homedir(), loc
 }
 
 export function releaseTag(value: string) {
-  if (!/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) {
+  if (!/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?$/.test(value)) {
     throw new Error("Choose a stable release tag such as v0.2.15.")
   }
   return `v${value.replace(/^v/, "")}`
@@ -82,8 +82,8 @@ export function releaseTag(value: string) {
 export function newerRelease(target: string, current: string) {
   const a = releaseTag(target).slice(1).split(".").map(Number)
   const b = releaseTag(current).slice(1).split(".").map(Number)
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i]
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
   }
   return false
 }

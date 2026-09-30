@@ -315,15 +315,10 @@ function createComposerStateForNewChat(args: {
   legacyComposerState?: ComposerState | null
 }): ComposerState {
   if (args.defaultProvider === "last_used") {
-    if (args.sourceState) {
-      return cloneComposerState(args.sourceState)
-    }
-
-    if (args.legacyComposerState) {
-      return cloneComposerState(args.legacyComposerState)
-    }
-
-    return composerFromProviderDefaults("codex", args.providerDefaults)
+    // Last Used selects the harness only; every new conversation uses its
+    // current Settings defaults rather than the previous chat's parameters.
+    const provider = args.sourceState?.provider ?? args.legacyComposerState?.provider ?? "codex"
+    return composerFromProviderDefaults(provider, args.providerDefaults)
   }
 
   return composerFromProviderDefaults(args.defaultProvider, args.providerDefaults)
@@ -419,7 +414,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     chatStates: {},
     serverChatStates: {},
     legacyComposerState: null,
-    setDefaultProvider: (defaultProvider) => set({ defaultProvider }),
+    setDefaultProvider: (defaultProvider) => get().syncProviderDefaults(defaultProvider, get().providerDefaults),
     syncProviderDefaults: (defaultProvider, providerDefaults) =>
       set((state) => {
         const oldNewChatFallback = createComposerStateForNewChat({
@@ -433,12 +428,23 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
           legacyComposerState: state.legacyComposerState,
         })
         const chatStates = Object.fromEntries(
-          Object.entries(state.chatStates).map(([chatId, composerState]) => [
-            chatId,
-            !state.serverChatStates[chatId] && sameComposerState(composerState, oldNewChatFallback)
-              ? nextNewChatFallback
-              : composerState,
-          ])
+          Object.entries(state.chatStates).map(([chatId, composerState]) => {
+            const providerDefaultsChanged = !sameComposerState(
+              composerFromProviderDefaults(composerState.provider, state.providerDefaults),
+              composerFromProviderDefaults(composerState.provider, providerDefaults),
+            )
+            if (chatId === NEW_CHAT_COMPOSER_ID
+              && (providerDefaultsChanged || defaultProvider !== state.defaultProvider)) {
+              return [chatId, createComposerStateForNewChat({
+                defaultProvider, providerDefaults, sourceState: composerState,
+              })]
+            }
+            return [chatId,
+              !state.serverChatStates[chatId] && sameComposerState(composerState, oldNewChatFallback)
+                ? nextNewChatFallback
+                : composerState,
+            ]
+          })
         )
 
         return {
@@ -447,68 +453,53 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
           chatStates,
         }
       }),
-      setProviderDefaultModel: (provider, model) =>
-        set((state) => ({
-          providerDefaults: {
-            ...state.providerDefaults,
-            [provider]: provider === "claude"
-              ? normalizeClaudePreference({
-                ...state.providerDefaults.claude,
-                model,
-              })
-              : normalizeCodexPreference({
-                ...state.providerDefaults.codex,
-                model,
-              }),
+      setProviderDefaultModel: (provider, model) => {
+        const state = get()
+        state.syncProviderDefaults(state.defaultProvider, {
+          ...state.providerDefaults,
+          [provider]: provider === "claude"
+            ? normalizeClaudePreference({ ...state.providerDefaults.claude, model })
+            : normalizeCodexPreference({ ...state.providerDefaults.codex, model }),
+        })
+      },
+      setProviderDefaultModelOptions: (provider, modelOptions) => {
+        const state = get()
+        state.syncProviderDefaults(state.defaultProvider, {
+          ...state.providerDefaults,
+          [provider]: provider === "claude"
+            ? normalizeClaudePreference({
+              ...state.providerDefaults.claude,
+              modelOptions: { ...state.providerDefaults.claude.modelOptions, ...modelOptions as Partial<ClaudeModelOptions> },
+            })
+            : normalizeCodexPreference({
+              ...state.providerDefaults.codex,
+              modelOptions: { ...state.providerDefaults.codex.modelOptions, ...modelOptions as Partial<CodexModelOptions> },
+            }),
+        })
+      },
+      setProviderDefaultPermissionMode: (provider, permissionMode) => {
+        const state = get()
+        state.syncProviderDefaults(state.defaultProvider, {
+          ...state.providerDefaults,
+          [provider]: {
+            ...state.providerDefaults[provider],
+            permissionMode: provider === "claude"
+              ? normalizeClaudePermissionMode(permissionMode)
+              : normalizeCodexPermissionMode(permissionMode),
           },
-        })),
-      setProviderDefaultModelOptions: (provider, modelOptions) =>
-        set((state) => ({
-          providerDefaults: {
-            ...state.providerDefaults,
-            [provider]: provider === "claude"
-              ? normalizeClaudePreference({
-                ...state.providerDefaults.claude,
-                modelOptions: {
-                  ...state.providerDefaults.claude.modelOptions,
-                  ...modelOptions as Partial<ClaudeModelOptions>,
-                },
-              })
-              : normalizeCodexPreference({
-                ...state.providerDefaults.codex,
-                modelOptions: {
-                  ...state.providerDefaults.codex.modelOptions,
-                  ...modelOptions as Partial<CodexModelOptions>,
-                },
-              }),
-          },
-        })),
-      setProviderDefaultPermissionMode: (provider: AgentProvider, permissionMode: ClaudePermissionMode | CodexPermissionMode) =>
-        set((state) => ({
-          providerDefaults: {
-            ...state.providerDefaults,
-            [provider]: provider === "claude"
-              ? {
-                ...state.providerDefaults.claude,
-                permissionMode: normalizeClaudePermissionMode(permissionMode),
-              }
-              : {
-                ...state.providerDefaults.codex,
-                permissionMode: normalizeCodexPermissionMode(permissionMode),
-              },
-          },
-        })),
+        })
+      },
       getComposerState: (chatId) => cloneComposerState(getStoredComposerState(get(), chatId)),
       initializeComposerForChat: (chatId, options) =>
         set((state) => {
-          if (state.chatStates[chatId]) {
+          if (state.chatStates[chatId] && chatId !== NEW_CHAT_COMPOSER_ID) {
             return state
           }
 
           const composerState = createComposerStateForNewChat({
             defaultProvider: state.defaultProvider,
             providerDefaults: state.providerDefaults,
-            sourceState: options?.sourceState,
+            sourceState: options?.sourceState ?? (chatId === NEW_CHAT_COMPOSER_ID ? state.chatStates[chatId] : undefined),
             legacyComposerState: state.legacyComposerState,
           })
 

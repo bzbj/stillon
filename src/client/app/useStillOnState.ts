@@ -1630,9 +1630,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
         chatId: chat.chatId,
       })
       const chatPreferences = useChatPreferencesStore.getState()
-      chatPreferences.initializeComposerForChat(result.chatId, {
-        sourceState: chatPreferences.getComposerState(chat.chatId),
-      })
+      chatPreferences.setComposerState(result.chatId, chatPreferences.getComposerState(chat.chatId))
       setPendingChatId(result.chatId)
       navigate(`/chat/${result.chatId}`)
       setSidebarOpen(false)
