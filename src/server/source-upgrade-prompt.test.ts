@@ -21,6 +21,10 @@ function readContext(prompt: string) {
 }
 
 describe("source upgrade prompt generation", () => {
+  test("accepts the four-part hotfix release tag", () => {
+    expect(buildSourceUpgradePrompt("v0.4.5.1", CONTEXT)).toContain("releases/tag/v0.4.5.1")
+    expect(() => normalizeSourceReleaseTag("v0.4.5.01")).toThrow()
+  })
   test.each([
     CONTEXT,
     {

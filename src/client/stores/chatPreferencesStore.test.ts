@@ -501,7 +501,7 @@ describe("chat preference store", () => {
     })
   })
 
-  test("initializeComposerForChat with last_used copies the provided source state", () => {
+  test("last_used uses the source harness with current defaults for a project chat", () => {
     useChatPreferencesStore.setState({
       ...INITIAL_STATE,
       defaultProvider: "last_used",
@@ -519,9 +519,61 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
       provider: "codex",
-      model: "gpt-6-luna",
-      modelOptions: { reasoningEffort: "low", fastMode: false },
-      permissionMode: "full",
+      ...INITIAL_STATE.providerDefaults.codex,
+    })
+  })
+})
+
+
+describe("new conversation defaults across entry points", () => {
+  test("settings changes refresh the home composer and subsequent project chats", () => {
+    const store = useChatPreferencesStore.getState()
+    store.initializeComposerForChat(NEW_CHAT_COMPOSER_ID)
+    store.setChatComposerModelOptions(NEW_CHAT_COMPOSER_ID, { reasoningEffort: "ultra" })
+    store.setProviderDefaultModel("codex", "gpt-6-luna")
+    store.setProviderDefaultModelOptions("codex", { reasoningEffort: "low", fastMode: false })
+    store.setProviderDefaultPermissionMode("codex", "auto")
+    const expected = { provider: "codex", model: "gpt-6-luna",
+      modelOptions: { reasoningEffort: "low", fastMode: false }, permissionMode: "auto" }
+    expect(store.getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual(expected)
+    store.initializeComposerForChat("project-new", { sourceState: {
+      provider: "codex", model: "gpt-6-astra",
+      modelOptions: { reasoningEffort: "ultra", fastMode: true }, permissionMode: "full",
+    } })
+    expect(store.getComposerState("project-new")).toEqual(expected)
+  })
+
+  test("returning home resets previous draft selections to Settings defaults", () => {
+    const store = useChatPreferencesStore.getState()
+    store.setComposerState(NEW_CHAT_COMPOSER_ID, {
+      provider: "codex", model: "gpt-6-astra",
+      modelOptions: { reasoningEffort: "ultra", fastMode: false }, permissionMode: "auto",
+    })
+    store.initializeComposerForChat(NEW_CHAT_COMPOSER_ID)
+    expect(store.getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual({
+      provider: "codex", ...INITIAL_STATE.providerDefaults.codex,
+    })
+  })
+
+  test("legacy last-used preferences select a harness without overriding new defaults", () => {
+    useChatPreferencesStore.setState(migrateChatPreferencesState({
+      defaultProvider: "last_used", composerState: {
+        provider: "codex", model: "gpt-6-sol", effort: "low", permissionMode: "auto",
+      },
+    }))
+    const store = useChatPreferencesStore.getState()
+    store.initializeComposerForChat("new-after-upgrade")
+    expect(store.getComposerState("new-after-upgrade")).toEqual({
+      provider: "codex", ...INITIAL_STATE.providerDefaults.codex,
+    })
+  })
+
+  test("changing the default harness refreshes the home composer", () => {
+    const store = useChatPreferencesStore.getState()
+    store.initializeComposerForChat(NEW_CHAT_COMPOSER_ID)
+    store.setDefaultProvider("claude")
+    expect(store.getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual({
+      provider: "claude", ...INITIAL_STATE.providerDefaults.claude,
     })
   })
 })

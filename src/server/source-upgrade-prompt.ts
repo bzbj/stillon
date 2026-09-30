@@ -1,7 +1,7 @@
 import type { SourceUpgradePromptResult } from "../shared/protocol"
 
 const SOURCE_REPOSITORY_URL = "https://github.com/bzbj/stillon.git"
-const RELEASE_TAG_PATTERN = /^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const RELEASE_TAG_PATTERN = /^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
 /** Facts already available to the running server; no deployment discovery. */
 export interface SourceUpgradeContext {

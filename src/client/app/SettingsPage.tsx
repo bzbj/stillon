@@ -264,7 +264,7 @@ export function formatPublishedDate(value: string | null) {
 }
 
 type ParsedReleaseVersion = {
-  core: [number, number, number]
+  core: [number, number, number, number]
   prerelease: string[]
 }
 
@@ -273,14 +273,14 @@ export function normalizeReleaseVersion(version: string) {
 }
 
 function parseReleaseVersion(version: string): ParsedReleaseVersion | null {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
     normalizeReleaseVersion(version)
   )
   if (!match) return null
 
   return {
-    core: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4]?.split(".") ?? [],
+    core: [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4] ?? 0)],
+    prerelease: match[5]?.split(".") ?? [],
   }
 }
 
@@ -3049,7 +3049,7 @@ export function SettingsPage() {
                   <div className="border-b border-border">
                     <SettingsRow
                       title="Default Provider"
-                      description="The default harness used for new chats before a provider is locked by an existing session."
+                      description="The default harness for new chats. Last Used remembers the harness; new chats always use its defaults below."
                       bordered={false}
                     >
                       <Select
