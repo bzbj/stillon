@@ -707,6 +707,11 @@ export interface AppSettingsSnapshot {
   codexTransport: CodexTransport
   providerDefaults: ChatProviderPreferences
   network: AgentNetworkProxySettings
+  /**
+   * Server-persisted default project, so the choice follows the user across
+   * browsers, devices, and origins instead of living only in browser storage.
+   */
+  defaultProjectId: string | null
   warning: string | null
   filePathDisplay: string
 }
@@ -721,6 +726,7 @@ export interface AppSettingsPatch {
   editor?: Partial<AppSettingsSnapshot["editor"]>
   defaultProvider?: DefaultProviderPreference
   codexTransport?: CodexTransport
+  defaultProjectId?: string | null
   providerDefaults?: {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>
     codex?: Partial<ProviderPreference<CodexModelOptions>>

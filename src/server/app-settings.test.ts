@@ -41,6 +41,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
       commandTemplate: "cursor {path}",
     },
     defaultProvider: "last_used",
+    defaultProjectId: null,
     providerDefaults: {
       claude: {
         model: "claude-opus-4-8",
@@ -145,6 +146,59 @@ describe("AppSettingsManager", () => {
     expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
 
     manager.dispose()
+  })
+
+  test("persists the default project across manager restarts", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+
+    try {
+      const saved = await manager.writePatch({ defaultProjectId: "developer" })
+      expect(saved.defaultProjectId).toBe("developer")
+    } finally {
+      manager.dispose()
+    }
+
+    const restarted = new AppSettingsManager(filePath)
+    try {
+      await restarted.initialize()
+      expect(restarted.getSnapshot().defaultProjectId).toBe("developer")
+    } finally {
+      restarted.dispose()
+    }
+  })
+
+  test("clears the default project when patched with null", async () => {
+    const filePath = await createTempFilePath()
+    const manager = new AppSettingsManager(filePath)
+    await manager.initialize()
+
+    try {
+      await manager.writePatch({ defaultProjectId: "developer" })
+      const cleared = await manager.writePatch({ defaultProjectId: null })
+      expect(cleared.defaultProjectId).toBeNull()
+    } finally {
+      manager.dispose()
+    }
+
+    const restarted = new AppSettingsManager(filePath)
+    try {
+      await restarted.initialize()
+      expect(restarted.getSnapshot().defaultProjectId).toBeNull()
+    } finally {
+      restarted.dispose()
+    }
+  })
+
+  test("normalizes an invalid or blank default project to null", async () => {
+    const filePath = await createTempFilePath()
+    await writeFile(filePath, JSON.stringify({ defaultProjectId: "   " }), "utf8")
+
+    expect((await readAppSettingsSnapshot(filePath)).defaultProjectId).toBeNull()
+
+    await writeFile(filePath, JSON.stringify({ defaultProjectId: 42 }), "utf8")
+    expect((await readAppSettingsSnapshot(filePath)).defaultProjectId).toBeNull()
   })
 
   test("removes legacy analytics preferences and anonymous IDs", async () => {

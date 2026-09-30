@@ -48,6 +48,7 @@ interface AppSettingsFile {
   }
   defaultProvider?: unknown
   codexTransport?: unknown
+  defaultProjectId?: unknown
   providerDefaults?: {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
     codex?: Partial<ProviderPreference<Partial<CodexModelOptions>>> & { effort?: unknown }
@@ -152,6 +153,12 @@ function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
   return value === "claude" || value === "codex" || value === "last_used" ? value : "last_used"
 }
 
+function normalizeDefaultProjectId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
 function normalizeCodexTransport(value: unknown): CodexTransport {
   return value === "exec" ? "exec" : "app-server"
 }
@@ -210,6 +217,7 @@ function toFilePayload(state: AppSettingsState) {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
+    defaultProjectId: state.defaultProjectId,
     providerDefaults: state.providerDefaults,
     network: state.network,
   }
@@ -226,6 +234,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
+    defaultProjectId: state.defaultProjectId,
     providerDefaults: state.providerDefaults,
     network: state.network,
     warning: state.warning,
@@ -273,6 +282,7 @@ function normalizeAppSettings(
     },
     defaultProvider: normalizeDefaultProvider(source?.defaultProvider),
     codexTransport: normalizeCodexTransport(source?.codexTransport),
+    defaultProjectId: normalizeDefaultProjectId(source?.defaultProjectId),
     providerDefaults: normalizeProviderDefaults(source?.providerDefaults),
     network: normalizedNetwork.settings,
     warning: null,
@@ -303,6 +313,7 @@ function toComparablePayload(source: AppSettingsFile) {
     editor: source.editor,
     defaultProvider: source.defaultProvider,
     codexTransport: source.codexTransport,
+    defaultProjectId: source.defaultProjectId,
     providerDefaults: source.providerDefaults,
     network: source.network,
   }
@@ -319,6 +330,7 @@ function applyPatch(
   return normalizeAppSettings({
     ...toFilePayload(state),
     ...patch,
+    defaultProjectId: "defaultProjectId" in patch ? patch.defaultProjectId : state.defaultProjectId,
     terminal: {
       ...state.terminal,
       ...patch.terminal,
