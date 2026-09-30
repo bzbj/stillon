@@ -1350,9 +1350,22 @@ export class CodexAppServerManager {
       case "thread/compacted":
         this.handleContextCompacted(pendingTurn, notification.params)
         return
-      case "error":
-        this.failContext(context, notification.params.error.message)
+      case "error": {
+        const { threadId, turnId, willRetry, error } = notification.params
+        if (threadId && threadId !== context.sessionToken) return
+        if (turnId && pendingTurn.turnId && turnId !== pendingTurn.turnId) return
+        if (willRetry) {
+          // Even "Reconnecting... 5/5" is progress while the last retry runs.
+          // Keep the turn and pending RPCs alive for recovery or terminal events.
+          pendingTurn.queue.push({
+            type: "transcript",
+            entry: timestamped({ kind: "status", status: error.message }),
+          })
+          return
+        }
+        this.failContext(context, error.message)
         return
+      }
       default:
         return
     }
