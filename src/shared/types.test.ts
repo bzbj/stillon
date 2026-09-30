@@ -27,8 +27,11 @@ describe("shared model normalization", () => {
   })
 
   test("normalizes legacy Codex aliases and defaults to the configured catalog model", () => {
-    expect(normalizeCodexModelId()).toBe("gpt-6-sol")
-    expect(normalizeCodexModelId("gpt-5-codex")).toBe("gpt-6-sol")
+    expect(normalizeCodexModelId()).toBe("gpt-6.1-sol")
+    expect(normalizeCodexModelId("gpt-5-codex")).toBe("gpt-6.1-sol")
+    for (const alias of ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"]) {
+      expect(normalizeCodexModelId(alias)).toBe("gpt-6.1-sol")
+    }
   })
 
   test("recognizes Astra and all of its reasoning efforts and Fast Mode", () => {
@@ -38,11 +41,11 @@ describe("shared model normalization", () => {
   })
 
   test("uses model-specific Codex effort and Fast Mode metadata", () => {
-    expect(CODEX_MODELS.map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
-    expect(getCodexReasoningOptions("gpt-6-sol")).toContain("ultra")
+    expect(CODEX_MODELS.map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"])
+    expect(getCodexReasoningOptions("gpt-6.1-sol")).toContain("ultra")
     expect(getCodexReasoningOptions("gpt-6-luna")).toContain("ultra")
     expect(getCodexReasoningOptions("gpt-6-luna")).toContain("max")
-    expect(supportsCodexFastMode("gpt-6-sol")).toBe(true)
+    expect(supportsCodexFastMode("gpt-6.1-sol")).toBe(true)
     expect(supportsCodexFastMode("gpt-6-luna")).toBe(true)
     expect(normalizeCodexModelId("gpt-5.6-luna")).toBe("gpt-6-luna")
   })
