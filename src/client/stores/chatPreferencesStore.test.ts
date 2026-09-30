@@ -143,19 +143,19 @@ describe("migrateChatPreferencesState", () => {
     })
   })
 
-  test("rewrites persisted Codex defaults to gpt-6-sol during migration", () => {
+  test("rewrites persisted Codex defaults to gpt-6.1-sol during migration", () => {
     const migrated = migrateChatPreferencesState({
       defaultProvider: "last_used",
       providerDefaults: {
         codex: {
-          model: "gpt-5-codex",
+          model: "gpt-6-sol",
           modelOptions: { reasoningEffort: "low", fastMode: true },
         },
       },
     })
 
     expect(migrated.providerDefaults.codex).toEqual({
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "low", fastMode: true },
       permissionMode: "full",
     })
@@ -191,7 +191,7 @@ describe("migrateChatPreferencesState", () => {
     })
     expect(migrated.chatStates.chatA).toEqual({
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "medium", fastMode: false },
       permissionMode: "full",
     })
@@ -400,7 +400,7 @@ describe("chat preference store", () => {
 
     store.setComposerState(NEW_CHAT_COMPOSER_ID, {
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "low", fastMode: true },
       permissionMode: "full",
     })
@@ -414,7 +414,7 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual({
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "low", fastMode: true },
       permissionMode: "full",
     })
@@ -458,7 +458,7 @@ describe("chat preference store", () => {
     const store = useChatPreferencesStore.getState()
     store.syncComposerForChatFromServer("chat-a", {
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "high", fastMode: false },
       permissionMode: "full",
     })
@@ -481,7 +481,7 @@ describe("chat preference store", () => {
     const store = useChatPreferencesStore.getState()
     store.syncComposerForChatFromServer("chat-a", {
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "high", fastMode: false },
       permissionMode: "full",
     })
@@ -495,7 +495,7 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
       provider: "codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       modelOptions: { reasoningEffort: "ultra", fastMode: false },
       permissionMode: "full",
     })

@@ -44,12 +44,12 @@ describe("provider catalog normalization", () => {
   })
 
   test("normalizes Codex model options and fast mode defaults", () => {
-    expect(normalizeCodexModelOptions("gpt-6-sol", undefined)).toEqual({
+    expect(normalizeCodexModelOptions("gpt-6.1-sol", undefined)).toEqual({
       reasoningEffort: "xhigh",
       fastMode: true,
     })
 
-    const normalized = normalizeCodexModelOptions("gpt-6-sol", {
+    const normalized = normalizeCodexModelOptions("gpt-6.1-sol", {
       codex: {
         reasoningEffort: "ultra",
         fastMode: true,
@@ -88,7 +88,8 @@ describe("provider catalog normalization", () => {
     expect(normalizeServerModel("codex")).toBe(getCodexModelForRole("conversation"))
     expect(normalizeServerModel("claude", "fable")).toBe("claude-fable-5")
     expect(normalizeServerModel("claude", "opus")).toBe("claude-opus-4-8")
-    expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-6-sol")
+    expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-6.1-sol")
+    expect(normalizeServerModel("codex", "gpt-6-sol")).toBe("gpt-6.1-sol")
   })
 
   test("resolves Claude API model ids for 1m context window", () => {

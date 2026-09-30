@@ -1662,11 +1662,11 @@ describe("CodexAppServerManager", () => {
     })
     const manager = new CodexAppServerManager({ spawnProcess: () => process as never })
     await manager.startSession({
-      chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6-sol", sessionToken: null, permissionMode: "request",
+      chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: null, permissionMode: "request",
     })
     const requests: string[] = []
     const turn = await manager.startTurn({
-      chatId: "chat-1", model: "gpt-6-sol", content: "run tests", planMode: false, permissionMode: "request",
+      chatId: "chat-1", model: "gpt-6.1-sol", content: "run tests", planMode: false, permissionMode: "request",
       onToolRequest: async ({ tool }) => {
         if (tool.toolKind !== "ask_user_question") throw new Error("expected approval question")
         requests.push(tool.input.questions[0]?.question ?? "")

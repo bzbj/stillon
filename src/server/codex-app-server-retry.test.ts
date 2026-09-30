@@ -53,7 +53,7 @@ afterEach(() => {
 
 const turnArgs = {
   chatId: "chat-1",
-  model: "gpt-6-sol",
+  model: "gpt-6.1-sol",
   content: "Continue after retry",
   planMode: false,
   onToolRequest: async () => ({}),
@@ -67,7 +67,7 @@ async function startRetryTurn() {
     } else if (message.method === "thread/start") {
       process.writeServerMessage({
         id: message.id,
-        result: { thread: { id: "thread-1" }, model: "gpt-6-sol", reasoningEffort: "high" },
+        result: { thread: { id: "thread-1" }, model: "gpt-6.1-sol", reasoningEffort: "high" },
       })
     } else if (message.method === "turn/start") {
       process.writeServerMessage({
@@ -81,7 +81,7 @@ async function startRetryTurn() {
   const manager = new CodexAppServerManager({ spawnProcess: () => child as never })
   managers.push(manager)
   await manager.startSession({
-    chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6-sol", sessionToken: null,
+    chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: null,
   })
   const turn = await manager.startTurn(turnArgs)
   const iterator = turn.stream[Symbol.asyncIterator]()

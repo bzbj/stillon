@@ -1,3 +1,6 @@
+import { CODEX_MODEL_POLICY } from "./codex-model-policy"
+export { CODEX_MODEL_POLICY } from "./codex-model-policy"
+
 export const STORE_VERSION = 2 as const
 export const PROTOCOL_VERSION = 1 as const
 
@@ -299,43 +302,6 @@ export const DEFAULT_CLAUDE_PERMISSION_MODE: ClaudePermissionMode = "acceptEdits
 export const DEFAULT_CODEX_PERMISSION_MODE: CodexPermissionMode = "full"
 
 const CODEX_STANDARD_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const
-const CODEX_ULTRA_REASONING_EFFORTS = [...CODEX_STANDARD_REASONING_EFFORTS, "max", "ultra"] as const
-
-export const CODEX_MODEL_POLICY = {
-  models: [
-    {
-      id: "gpt-6-astra",
-      label: "GPT-6-Astra",
-      description: "Our most capable model for complex, demanding work.",
-      supportsEffort: true,
-      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-      supportsFastMode: true,
-    },
-    {
-      id: "gpt-6-sol",
-      label: "GPT-6-Sol",
-      description: "Strong reasoning for coding and demanding tasks.",
-      aliases: ["gpt-5.6-sol", "gpt-5.6-terra"],
-      supportsEffort: true,
-      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-      supportsFastMode: true,
-    },
-    {
-      id: "gpt-6-luna",
-      label: "GPT-6-Luna",
-      description: "Efficient model for focused, repeatable work.",
-      aliases: ["gpt-5.6-luna"],
-      supportsEffort: true,
-      supportedReasoningEfforts: CODEX_ULTRA_REASONING_EFFORTS,
-      supportsFastMode: true,
-    },
-  ] as ProviderModelOption[],
-  roles: {
-    conversation: "gpt-6-sol",
-    background: "gpt-6-luna",
-  },
-} as const
-
 export const CODEX_MODELS = CODEX_MODEL_POLICY.models
 export type CodexModelRole = keyof typeof CODEX_MODEL_POLICY.roles
 

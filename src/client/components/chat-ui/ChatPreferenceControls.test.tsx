@@ -9,7 +9,7 @@ describe("ChatPreferenceControls", () => {
       <ChatPreferenceControls
         availableProviders={PROVIDERS}
         selectedProvider="codex"
-        model="gpt-6-sol"
+        model="gpt-6.1-sol"
         modelOptions={{ reasoningEffort: "xhigh", fastMode: true }}
         onProviderChange={() => {}}
         onModelChange={() => {}}
@@ -18,7 +18,7 @@ describe("ChatPreferenceControls", () => {
     )
 
     expect(html).toContain("Codex")
-    expect(html).toContain("GPT-6-Sol")
+    expect(html).toContain("GPT-6.1-Sol")
     expect(html).toContain("XHigh")
     expect(html).toContain("Fast Mode")
     expect(html).not.toContain("Run Mode")
