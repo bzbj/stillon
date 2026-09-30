@@ -19,7 +19,7 @@ import type { OpenLocalLinkTarget } from "../components/messages/shared"
 import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
 import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
-import { readDefaultProjectId, writeDefaultProjectId } from "../lib/defaultProject"
+import { readCachedDefaultProjectId, resolveDefaultProjectId, writeCachedDefaultProjectId } from "../lib/defaultProject"
 import { processTranscriptMessages } from "../lib/parseTranscript"
 import {
   clearSidebarSnapshotsForScope,
@@ -846,7 +846,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const sidebarSnapshotStatusRef = useRef(sidebarSnapshotStatus)
   const [optimisticSidebarProjectOrder, setOptimisticSidebarProjectOrder] = useState<string[] | null>(null)
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
-  const [defaultProjectId, setStoredDefaultProjectId] = useState(readDefaultProjectId)
+  const [cachedDefaultProjectId, setCachedDefaultProjectId] = useState(readCachedDefaultProjectId)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [olderHistoryEntries, setOlderHistoryEntries] = useState<TranscriptEntry[]>([])
   const [toolDetailEntries, setToolDetailEntries] = useState<TranscriptEntry[]>([])
@@ -908,19 +908,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     ),
     [sidebarData, sidebarProjectGroups]
   )
-  const validDefaultProjectId = sidebarProjectGroups.some((group) => group.groupKey === defaultProjectId)
-    ? defaultProjectId
+  const effectiveDefaultProjectId = resolveDefaultProjectId(appSettings, cachedDefaultProjectId)
+  const validDefaultProjectId = sidebarProjectGroups.some((group) => group.groupKey === effectiveDefaultProjectId)
+    ? effectiveDefaultProjectId
     : null
-  const setDefaultProjectId = useCallback((projectId: string | null) => {
-    setStoredDefaultProjectId(projectId)
-    writeDefaultProjectId(projectId)
-  }, [])
-
-  useEffect(() => {
-    if (sidebarReady && defaultProjectId && !validDefaultProjectId) {
-      setDefaultProjectId(null)
-    }
-  }, [defaultProjectId, setDefaultProjectId, sidebarReady, validDefaultProjectId])
 
   const applyAppSettingsSnapshot = useCallback((snapshot: AppSettingsSnapshot) => {
     const confirmedIdentity = createSidebarSnapshotIdentity({
@@ -948,6 +939,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     setConfirmedMachineName(snapshot.machineName)
     persistMachineIdentityName(snapshot.machineName, getBrowserMachineIdentityStorage())
     syncRuntimeStoresFromAppSettings(snapshot)
+    // Keep the local cache aligned with the server value so this browser paints
+    // the right project immediately on the next load.
+    setCachedDefaultProjectId(snapshot.defaultProjectId)
+    writeCachedDefaultProjectId(snapshot.defaultProjectId)
   }, [cacheScope, sidebarBootstrap.identity])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
@@ -1049,6 +1044,25 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       throw error
     }
   }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
+
+  const setDefaultProjectId = useCallback((projectId: string | null) => {
+    // Update local state and cache first so the star reacts immediately, then
+    // persist server-side so the default follows the user across browsers,
+    // devices, and origins rather than living only in this browser.
+    setCachedDefaultProjectId(projectId)
+    writeCachedDefaultProjectId(projectId)
+    setAppSettings((current) => (current ? { ...current, defaultProjectId: projectId } : current))
+    void handleWriteAppSettings({ defaultProjectId: projectId }).catch(() => {
+      // handleWriteAppSettings already surfaces the error and re-syncs from the
+      // server; the optimistic update above keeps the UI responsive meanwhile.
+    })
+  }, [handleWriteAppSettings])
+
+  useEffect(() => {
+    if (sidebarReady && effectiveDefaultProjectId && !validDefaultProjectId) {
+      setDefaultProjectId(null)
+    }
+  }, [effectiveDefaultProjectId, setDefaultProjectId, sidebarReady, validDefaultProjectId])
 
   const handleReadLlmProvider = useCallback(async () => {
     try {

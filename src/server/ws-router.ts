@@ -524,6 +524,7 @@ export function createWsRouter({
       allProxy: "",
       noProxy: "localhost,127.0.0.1,::1",
     },
+    defaultProjectId: null,
     warning: null,
     filePathDisplay: "~/.stillon/data/settings.json",
   }

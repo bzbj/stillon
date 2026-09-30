@@ -92,6 +92,7 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
     commandTemplate: "cursor {path}",
   },
   defaultProvider: "last_used",
+  defaultProjectId: null,
   providerDefaults: {
     claude: {
       model: "claude-opus-4-8",
