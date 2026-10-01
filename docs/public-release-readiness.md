@@ -1,12 +1,15 @@
 # Public-release readiness
 
-StillOn's first public release should be treated as a **macOS-first, source-available beta**, not a finished cross-platform consumer application.
+StillOn is a **macOS-first, source-available public beta**, not a finished
+cross-platform consumer application. This document records the validated
+baseline and the remaining gates; it should be updated whenever a release
+changes a platform or security claim.
 
 ## Release tiers
 
-1. **GitHub source beta** — developers clone the repository and run it with Bun.
-2. **Packaged beta** — signed and notarized macOS artifacts, checksums, release notes, and an upgrade path.
-3. **Cross-platform release** — tested installers and feature parity targets for macOS, Linux, and Windows.
+1. **GitHub source beta (current)** — developers clone the repository and run it with Bun.
+2. **Packaged beta** — signed and notarized artifacts, checksums, release notes, and an upgrade path.
+3. **Cross-platform release** — tested installers and an explicit feature-parity contract for every supported platform.
 
 ## Privacy and repository hygiene
 
@@ -20,16 +23,25 @@ StillOn's first public release should be treated as a **macOS-first, source-avai
 
 | Capability | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| Bun server and browser UI | Primary | Beta | Needs CI validation |
-| Claude/Codex discovery | Primary | Beta | Needs path and CLI validation |
-| Embedded terminal | Primary | Beta | Disabled in current app code |
+| Bun server and browser UI | Primary | Beta | Beta; native CI passes |
+| Claude/Codex discovery and sessions | Primary | Beta | Beta; Codex startup manually validated, full Claude lifecycle pending |
+| Agent network settings | System proxy detection | GNOME detection; other desktops manual | User/WinHTTP detection manually validated |
+| Embedded terminal | Primary | Beta | Not available |
 | Open file/editor | Primary | Distribution-dependent | Partial implementation |
 | Local HTTP process discovery | lsof / ps | lsof / ps | Not implemented |
-| Local file-link parsing | Unix paths | Unix paths | Drive/UNC paths incomplete |
+| Local file-link parsing | Unix paths | Unix paths | Drive, UNC, and percent-encoded backslash handling implemented |
 | Installer | Not packaged | Not packaged | Not packaged |
-| Background auto-start | CLI-managed LaunchAgent | CLI-managed systemd user service | CLI-managed scheduled task; runtime experimental |
+| Background auto-start | CLI-managed LaunchAgent | CLI-managed systemd user service | CLI-managed Task Scheduler integration; runtime beta |
 
-Bun itself now provides Windows ConPTY support, so Windows work is primarily StillOn integration, path handling, process discovery, provider CLI validation, and CI—not a runtime rewrite.
+Bun itself provides Windows ConPTY support, so the embedded-terminal gap is
+StillOn integration work rather than a runtime rewrite.
+
+The `v0.2.5` baseline passes CI on macOS, Ubuntu, and Windows, plus CodeQL and
+the high-severity dependency audit. Windows manual acceptance covered system
+proxy detection, redacted Claude/Codex endpoint diagnostics, a real Codex
+session, agent restart behavior, and percent-encoded drive-link click-through.
+A real Claude session was not exercised on that host because its OAuth session
+had expired. Passing native CI establishes portability, not feature parity.
 
 ## Security gates
 
@@ -45,12 +57,15 @@ Bun itself now provides Windows ConPTY support, so Windows work is primarily Sti
 
 ## Distribution and operations
 
-- Keep source-only releases private and do not add an in-app updater. Revisit npm,
+- Keep the public source-beta distribution model explicit and do not add an
+  in-app updater without a verified update and rollback design. Revisit npm,
   standalone binaries, or a desktop wrapper only if the distribution model changes.
 - For macOS packaging, add code signing, notarization, checksums, and a verified update channel.
 - Add Linux packages only after testing shell, desktop opener, lsof, and the
   CLI-managed systemd user-service integration across target distributions.
-- Add Windows only after a native Windows CI job passes and embedded terminal/process discovery blockers are removed.
+- Do not describe Windows as feature-complete until embedded terminal and
+  process discovery are implemented and the Claude/Codex lifecycle matrix is
+  manually accepted.
 - Publish a rollback procedure and data-format compatibility policy.
 
 ## Legal and governance
