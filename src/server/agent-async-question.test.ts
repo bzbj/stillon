@@ -181,7 +181,7 @@ describe("AgentCoordinator.answerAsyncQuestion", () => {
     expect(harness.store.getQueuedMessages(harness.chatId)).toHaveLength(1)
   })
 
-  test("keeps a still-running steer failure as failed instead of resending", async () => {
+  test("keeps a still-running transport failure unknown instead of enabling resending", async () => {
     const harness = await createHarness({
       supportsNativeSteer: true,
       steerTurn: async (args: any) => {
@@ -193,7 +193,7 @@ describe("AgentCoordinator.answerAsyncQuestion", () => {
 
     const result = await harness.coordinator.answerAsyncQuestion(answerCommand(harness.chatId))
 
-    expect(result.status).toBe("failed")
+    expect(result.status).toBe("delivery_unknown")
     expect(harness.store.getQueuedMessages(harness.chatId)).toEqual([])
   })
 
@@ -226,7 +226,7 @@ describe("AgentCoordinator.answerAsyncQuestion", () => {
     expect(harness.store.getAsyncQuestionResponse(harness.chatId, KEY)?.status).toBe("delivery_unknown")
   })
 
-  test("recovers a crash-left submitting record as safely retryable", async () => {
+  test("keeps a crash-left submission unknown without proof of non-delivery", async () => {
     const { store, chatId, coordinator } = await createHarness()
     await store.recordAsyncQuestionResponse({
       schemaVersion: 1,
@@ -245,7 +245,7 @@ describe("AgentCoordinator.answerAsyncQuestion", () => {
     const result = await coordinator.answerAsyncQuestion(answerCommand(chatId, "submission-crashed"))
 
     expect(result.duplicate).toBe(true)
-    expect(result.status).toBe("failed")
+    expect(result.status).toBe("delivery_unknown")
     expect(store.getQueuedMessages(chatId)).toEqual([])
   })
 
@@ -277,4 +277,68 @@ describe("AgentCoordinator.answerAsyncQuestion", () => {
     expect(result.status).toBe("queued")
     expect(result.localMessageId).toBe(queued.id)
   })
+  test("status query sees a live submission without reconciling or sending twice", async () => {
+    let resolveSteer!: (value: { turnId: string }) => void
+    const harness = await createHarness({ supportsNativeSteer: true, steerTurn: (args: any) => {
+      harness.steerCalls.push(args)
+      return new Promise((resolve) => { resolveSteer = resolve })
+    } })
+    harness.setActiveTurnId("turn-1")
+    const sending = harness.coordinator.answerAsyncQuestion(answerCommand(harness.chatId))
+    while (!resolveSteer) await Bun.sleep(1)
+    const queried = await harness.coordinator.getAsyncQuestionResponse(harness.chatId, KEY)
+    expect(queried?.status).toBe("submitting")
+    expect(harness.steerCalls).toHaveLength(1)
+    resolveSteer({ turnId: "turn-1" })
+    await sending
+    expect((await harness.coordinator.getAsyncQuestionResponse(harness.chatId, KEY))?.status).toBe("accepted")
+    expect(await harness.coordinator.getAsyncQuestionResponse(harness.chatId, "other-key")).toBeNull()
+  })
+  test("confirmed failed submission can retry edited answers with a new ID", async () => {
+    let reject = true
+    const harness = await createHarness({ supportsNativeSteer: true, steerTurn: async (args: any) => {
+      harness.steerCalls.push(args)
+      if (reject) throw new Error("expectedTurnId mismatch")
+      return { turnId: "turn-1" }
+    } })
+    harness.setActiveTurnId("turn-1")
+    const failed = await harness.coordinator.answerAsyncQuestion(answerCommand(harness.chatId, "first"))
+    expect(failed.status).toBe("failed")
+    reject = false
+    const result = await harness.coordinator.answerAsyncQuestion({ ...answerCommand(harness.chatId, "second"), answers: [{ index: 0, value: "Markdown" }] })
+    expect(result.status).toBe("accepted")
+    expect(result.submissionId).toBe("second")
+    expect(result.answers[0]?.value).toBe("Markdown")
+    expect(harness.steerCalls).toHaveLength(2)
+  })
+  test("status query does not turn an incomplete record into a failed delivery", async () => {
+    const { store, chatId, coordinator, steerCalls } = await createHarness()
+    await store.recordAsyncQuestionResponse({ schemaVersion: 1, chatId, questionKey: KEY, submissionId: "crash", answers: [{ index: 0, value: "HTML" }], status: "submitting", error: null, localMessageId: null, providerTurnId: null, createdAt: 1, updatedAt: 1 })
+    expect((await coordinator.getAsyncQuestionResponse(chatId, KEY))?.status).toBe("submitting")
+    expect(steerCalls).toHaveLength(0)
+    expect(store.getQueuedMessages(chatId)).toHaveLength(0)
+  })
+
+  test("opt-in server state diagnostics contain IDs/timing but no question or answer", async () => {
+    const previous = process.env.STILLON_DEBUG_ASYNC_ANSWERS
+    const original = console.debug
+    const logs: unknown[][] = []
+    try {
+      process.env.STILLON_DEBUG_ASYNC_ANSWERS = "1"
+      console.debug = (...args) => { logs.push(args) }
+      const { chatId, coordinator } = await createHarness()
+      await coordinator.answerAsyncQuestion({ ...answerCommand(chatId), answers: [{ index: 0, value: "PRIVATE_SENTINEL" }] })
+      const serialized = JSON.stringify(logs)
+      expect(serialized).toContain("submission-1")
+      expect(serialized).toContain("server_state")
+      expect(serialized).not.toContain("PRIVATE_SENTINEL")
+      expect(serialized).not.toContain("Which output format?")
+      expect(logs).toHaveLength(2)
+    } finally {
+      console.debug = original
+      if (previous === undefined) delete process.env.STILLON_DEBUG_ASYNC_ANSWERS
+      else process.env.STILLON_DEBUG_ASYNC_ANSWERS = previous
+    }
+  })
+
 })

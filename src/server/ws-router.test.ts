@@ -2463,3 +2463,26 @@ describe("ws-router", () => {
     })
   })
 })
+
+
+describe("async answer status query", () => {
+  test("queries the requested chat/question and ACKs without delivery or broad broadcasts", async () => {
+    const queries: unknown[] = []
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: {
+        getAsyncQuestionResponse: async (chatId: string, questionKey: string) => {
+          queries.push([chatId, questionKey]); return null
+        },
+      } as never,
+      terminals: { getSnapshot: () => null, onEvent: () => () => {} } as never,
+      keybindings: { getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT, onChange: () => () => {} } as never,
+      refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Test machine",
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+    await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id: "query", command: { type: "chat.getAsyncQuestionResponse", chatId: "chat", questionKey: "question" } }))
+    expect(queries).toEqual([["chat", "question"]])
+    expect(ws.sent).toEqual([{ v: 1, type: "ack", id: "query", result: null }])
+  })
+})

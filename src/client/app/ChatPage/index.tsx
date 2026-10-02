@@ -1,3 +1,4 @@
+import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
@@ -1117,43 +1118,45 @@ export function ChatPage() {
           gitStatus={state.chatDiffSnapshot?.status}
         />
         <Suspense fallback={<ChatTranscriptLoadingFallback />}>
-          <ChatTranscriptViewport
-            projectId={projectId}
-            activeChatId={state.activeChatId}
-            listRef={transcriptListRef}
-            messages={state.messages}
-            queuedMessages={state.queuedMessages}
-            transcriptPaddingBottom={transcriptPaddingBottom}
-            localPath={state.runtime?.localPath ?? state.navbarLocalPath}
-            latestToolIds={state.latestToolIds}
-            isHistoryLoading={state.isHistoryLoading}
-            hasOlderHistory={state.hasOlderHistory}
-            isProcessing={state.isProcessing}
-            runtimeStatus={state.runtimeStatus}
-            isDraining={state.isDraining}
-            commandError={state.commandError}
-            loadOlderHistory={state.loadOlderHistory}
-            loadToolDetails={state.loadToolDetails}
-            onStopDraining={state.handleStopDraining}
-            onSteerQueuedMessage={state.handleSteerQueuedMessage}
-            onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
-            onOpenLocalLink={handleOpenTranscriptLocalLink}
-            canOpenHostFiles={canOpenHostFiles}
-            editorPreset={editorPreset}
-            editorCommandTemplate={editorCommandTemplate}
-            platform={state.localProjects?.machine.platform}
-            asyncQuestionResponses={state.asyncQuestionResponses}
-            onAskUserQuestionSubmit={state.handleAskUserQuestion}
-            onAnswerAsyncQuestion={state.handleAnswerAsyncQuestion}
-            onExitPlanModeConfirm={state.handleExitPlanMode}
-            showScrollButton={showScrollToBottom && state.messages.length > 0}
-            onIsAtEndChange={onIsAtEndChange}
-            scrollToBottom={() => scrollToTranscriptEnd(true)}
-            typedEmptyStateText={typedEmptyStateText}
-            isEmptyStateTypingComplete={isEmptyStateTypingComplete}
-            isPageFileDragActive={isPageFileDragActive}
-            showEmptyState={showEmptyState}
-          />
+          <AsyncQuestionDeliveryContext.Provider value={{ chatId: state.activeChatId ?? "", delivery: state.asyncQuestionDelivery }}>
+            <ChatTranscriptViewport
+              projectId={projectId}
+              activeChatId={state.activeChatId}
+              listRef={transcriptListRef}
+              messages={state.messages}
+              queuedMessages={state.queuedMessages}
+              transcriptPaddingBottom={transcriptPaddingBottom}
+              localPath={state.runtime?.localPath ?? state.navbarLocalPath}
+              latestToolIds={state.latestToolIds}
+              isHistoryLoading={state.isHistoryLoading}
+              hasOlderHistory={state.hasOlderHistory}
+              isProcessing={state.isProcessing}
+              runtimeStatus={state.runtimeStatus}
+              isDraining={state.isDraining}
+              commandError={state.commandError}
+              loadOlderHistory={state.loadOlderHistory}
+              loadToolDetails={state.loadToolDetails}
+              onStopDraining={state.handleStopDraining}
+              onSteerQueuedMessage={state.handleSteerQueuedMessage}
+              onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
+              onOpenLocalLink={handleOpenTranscriptLocalLink}
+              canOpenHostFiles={canOpenHostFiles}
+              editorPreset={editorPreset}
+              editorCommandTemplate={editorCommandTemplate}
+              platform={state.localProjects?.machine.platform}
+              asyncQuestionResponses={state.asyncQuestionResponses}
+              onAskUserQuestionSubmit={state.handleAskUserQuestion}
+              onAnswerAsyncQuestion={state.handleAnswerAsyncQuestion}
+              onExitPlanModeConfirm={state.handleExitPlanMode}
+              showScrollButton={showScrollToBottom && state.messages.length > 0}
+              onIsAtEndChange={onIsAtEndChange}
+              scrollToBottom={() => scrollToTranscriptEnd(true)}
+              typedEmptyStateText={typedEmptyStateText}
+              isEmptyStateTypingComplete={isEmptyStateTypingComplete}
+              isPageFileDragActive={isPageFileDragActive}
+              showEmptyState={showEmptyState}
+            />
+          </AsyncQuestionDeliveryContext.Provider>
         </Suspense>
       </CardContent>
 
