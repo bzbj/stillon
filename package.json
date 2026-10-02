@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.4.5.1",
   "private": true,
-  "description": "Still On — leave your Mac, keep your coding agents",
+  "description": "Still On \u2014 leave your Mac, keep your coding agents",
   "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://github.com/bzbj/stillon#readme",
   "bugs": {
@@ -54,7 +54,8 @@
     "install:dev": "bun install && bun run build && bun install -g .",
     "start": "bun run ./src/server/cli.ts",
     "test": "bun run ./scripts/run-tests.ts",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "test:async-answer:browser": "bun build ./scripts/verify-async-answer-browser.ts --target=node --packages=external --outfile=./test-artifacts/async-answer-runner.mjs && node ./test-artifacts/async-answer-runner.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.251",
@@ -108,6 +109,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.24.0",
+    "playwright": "1.62.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",

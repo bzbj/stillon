@@ -1,3 +1,4 @@
+import { traceAsyncAnswer } from "./asyncQuestionDiagnostics"
 import type {
   ClientCommand,
   ClientEnvelope,
@@ -146,11 +147,29 @@ export class StillOnSocket {
     }
   }
 
-  command<TResult = unknown>(command: ClientCommand) {
+  command<TResult = unknown>(command: ClientCommand, options?: { signal?: AbortSignal }) {
     const id = generateUUID()
     const envelope: ClientEnvelope = { v: 1, type: "command", id, command }
     return new Promise<TResult>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
+      const signal = options?.signal
+      const abort = () => {
+        this.pending.delete(id)
+        const index = this.outboundQueue.findIndex((entry) => entry.id === id)
+        if (index >= 0) this.outboundQueue.splice(index, 1)
+        reject(new Error("Command cancelled"))
+      }
+      if (signal?.aborted) { abort(); return }
+      signal?.addEventListener("abort", abort, { once: true })
+      const cleanup = () => signal?.removeEventListener("abort", abort)
+      this.pending.set(id, {
+        resolve: (value) => { cleanup(); resolve(value as TResult) },
+        reject: (error) => {
+          // A disconnect rejects the waiter but retains unsent envelopes.
+          // Keep answer-only cancellation attached until that queue is resolved.
+          if (!this.outboundQueue.some((entry) => entry.id === id)) cleanup()
+          reject(error)
+        },
+      })
       this.enqueue(envelope)
     })
   }
@@ -398,10 +417,16 @@ export class StillOnSocket {
       this.sendNow(envelope)
       return
     }
+    if (envelope.type === "command" && envelope.command.type === "chat.answerAsyncQuestion") {
+      traceAsyncAnswer("queued_locally", { commandId: envelope.id, submissionId: envelope.command.submissionId })
+    }
     this.outboundQueue.push(envelope)
   }
 
   private sendNow(envelope: ClientEnvelope) {
+    if (envelope.type === "command" && envelope.command.type === "chat.answerAsyncQuestion") {
+      traceAsyncAnswer("command_sent", { commandId: envelope.id, submissionId: envelope.command.submissionId })
+    }
     this.ws?.send(JSON.stringify(envelope))
   }
 }

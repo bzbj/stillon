@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react"
+import { AsyncQuestionDeliveryContext } from "../../app/asyncQuestionDeliveryContext"
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { Check, CircleAlert, Clock, Loader2, MessageCircleQuestion, Send } from "lucide-react"
 import type {
   AsyncQuestionAnswerInput,
@@ -11,6 +12,9 @@ import { asyncQuestionKey } from "../../../shared/types"
 import type { AsyncQuestionAnswerResult } from "../../../shared/protocol"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
+
+const noSubscription = () => () => {}
+const noDelivery = () => 0
 
 type AssistantTextMessage = Extract<HydratedTranscriptMessage, { kind: "assistant_text" }>
 
@@ -63,7 +67,7 @@ function statusLabel(status: AsyncQuestionDeliveryStatus) {
     case "submitting":
       return "发送中…"
     case "queued":
-      return "待发送（已进入队列，当前任务结束后发送）"
+      return "已排队"
     case "accepted":
       return "已发送"
     case "delivery_unknown":
@@ -75,13 +79,13 @@ function statusLabel(status: AsyncQuestionDeliveryStatus) {
   }
 }
 
-function StatusPill({ status }: { status: AsyncQuestionDeliveryStatus }) {
-  const label = statusLabel(status)
+function StatusPill({ status, label: override }: { status: AsyncQuestionDeliveryStatus; label?: string }) {
+  const label = override ?? statusLabel(status)
   if (!label) return null
   const icon =
     status === "accepted" ? <Check className="h-3.5 w-3.5" />
-      : status === "failed" ? <CircleAlert className="h-3.5 w-3.5" />
-        : status === "submitting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      : (status === "failed" || status === "delivery_unknown") ? <CircleAlert className="h-3.5 w-3.5" />
+        : status === "submitting" ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
           : <Clock className="h-3.5 w-3.5" />
   return (
     <span
@@ -105,7 +109,12 @@ function StatusPill({ status }: { status: AsyncQuestionDeliveryStatus }) {
  * types a free-form answer; nothing is submitted until the send button is
  * pressed. A closed card shows what was sent and the known delivery state.
  */
-export function AsyncQuestionMessage({ message, response, readOnly = false, onSubmit }: Props) {
+export function AsyncQuestionMessage({ message, response: serverResponse, readOnly = false, onSubmit }: Props) {
+  const transport = useContext(AsyncQuestionDeliveryContext)
+  useSyncExternalStore(transport?.delivery.subscribe ?? noSubscription, transport?.delivery.getVersion ?? noDelivery, noDelivery)
+  const submitting = useRef(false)
+  const card = useRef<HTMLDivElement>(null)
+  const [ack, setAck] = useState<AsyncQuestionAnswerResult | null>(null)
   const context = message.asyncQuestion
   const [selections, setSelections] = useState<Record<number, string>>({})
   const [customMode, setCustomMode] = useState<Record<number, boolean>>({})
@@ -116,9 +125,36 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
   const questions = context?.questions ?? []
   const key = useMemo(() => (context ? questionKeyOf(context) : ""), [context])
 
+  useEffect(() => {
+    if (transport && serverResponse && !readOnly) transport.delivery.observe(transport.chatId, serverResponse)
+  }, [transport?.delivery, transport?.chatId, serverResponse, readOnly])
+  const local = !readOnly && transport ? transport.delivery.get(transport.chatId, key) : undefined
+  const response = readOnly ? serverResponse : local ?? serverResponse ?? ack
+  const inFlight = pending || response?.status === "submitting"
+  const waiting = (inFlight || response?.status === "delivery_unknown") && transport && transport.delivery.connection !== "connected"
+  const status = response?.status ?? (pending ? "submitting" : undefined)
+  const label = waiting ? "等待连接恢复…" : inFlight && local?.overdue ? "尚未确认送达" : undefined
+  useEffect(() => {
+    if (response?.status === "failed") {
+      if (Object.keys(selections).length === 0 && Object.keys(customValues).length === 0) {
+        const values = Object.fromEntries(response.answers.map((answer) => [answer.index, answer.value]))
+        setCustomValues(values)
+        setSelections(values)
+        setCustomMode(Object.fromEntries(response.answers.map((answer) => [answer.index,
+          !questions.find((question) => question.index === answer.index)?.options?.includes(answer.value),
+        ])))
+      }
+      submitting.current = false
+    }
+  }, [response?.submissionId, response?.status])
+
   const settled = response?.status === "accepted"
     || response?.status === "queued"
     || response?.status === "delivery_unknown"
+
+  useEffect(() => {
+    if (settled && submitting.current && document.activeElement === document.body) card.current?.focus()
+  }, [settled])
 
   // A question without options is always free text; one with options uses the
   // typed value only after the user picks "other".
@@ -128,42 +164,50 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
   )
 
   const complete = isAsyncQuestionComplete(questions, draft)
-  const canSend = complete && !pending && !settled
+  const canSend = complete && !inFlight && !settled
 
   if (!context || questions.length === 0) {
     return null
   }
 
   const handleSubmit = async () => {
-    if (!canSend) return
+    if (!canSend || submitting.current) return
+    submitting.current = true
     const answers: AsyncQuestionAnswerInput[] = questions.map((question) => ({
       index: question.index,
       value: answersFor(question).trim(),
     }))
+    const submissionId = crypto.randomUUID()
+    if (transport) {
+      transport.delivery.submit(transport.chatId, key, answers, submissionId)
+      return
+    }
     setPending(true)
     setError(null)
     try {
-      await onSubmit(key, answers, crypto.randomUUID())
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : String(submitError))
+      setAck(await onSubmit(key, answers, submissionId))
+    } catch {
+      setAck({ questionKey: key, submissionId, answers, status: "delivery_unknown" })
+      setError("发送结果需要核对，请恢复连接后重试核对。")
     } finally {
+      submitting.current = false
       setPending(false)
     }
   }
 
-  const sentAnswers = response?.status === "failed" ? null : response?.answers ?? null
+  const sentAnswers = response?.status === "failed" && !readOnly ? null : response?.answers ?? null
 
   return (
-    <div className="rounded-2xl border border-border overflow-hidden bg-card">
-      <div className="flex flex-row items-center gap-2 p-3 px-4 border-b border-border bg-card">
+    <div ref={card} tabIndex={-1} className="min-w-0 [overflow-wrap:anywhere] rounded-2xl border border-border overflow-hidden bg-card">
+      <div className="flex flex-row flex-wrap items-center gap-2 p-3 px-4 border-b border-border bg-card">
         <MessageCircleQuestion className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium text-foreground">需要你的回答</span>
-        {response ? <span className="ml-auto"><StatusPill status={response.status} /></span> : null}
+        {status ? <span className="ml-auto"><StatusPill status={status} label={label} /></span> : null}
       </div>
 
       <div className="p-3 px-4 space-y-4">
         {questions.map((question) => {
-          const locked = settled
+          const locked = settled || inFlight || readOnly
           const sentValue = sentAnswers?.find((answer) => answer.index === question.index)?.value
           return (
             <fieldset key={question.index} className="space-y-2" disabled={locked}>
@@ -171,7 +215,7 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
                 {questions.length > 1 ? `${question.index + 1}. ` : ""}{question.title}
               </legend>
               {sentValue !== undefined ? (
-                <div className="text-sm text-muted-foreground">答案：{sentValue}</div>
+                <div className="text-sm text-muted-foreground break-words [overflow-wrap:anywhere]">答案：{sentValue}</div>
               ) : question.options && question.options.length > 0 ? (
                 <div role="radiogroup" aria-label={question.title} className="space-y-1">
                   {question.options.map((option) => {
@@ -195,7 +239,7 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
                             setCustomMode((current) => ({ ...current, [question.index]: false }))
                           }}
                         />
-                        <span className="text-foreground">{option}</span>
+                        <span className="text-foreground break-words [overflow-wrap:anywhere] min-w-0">{option}</span>
                       </label>
                     )
                   })}
@@ -232,21 +276,30 @@ export function AsyncQuestionMessage({ message, response, readOnly = false, onSu
           )
         })}
 
-        {response?.status === "failed" && response.error ? (
-          <p className="text-xs text-destructive">{response.error}</p>
+        {response?.status === "failed" ? (
+          <p className="text-xs text-destructive">{"回答未被接收，可编辑答案后重新发送。"}</p>
         ) : null}
         {response?.status === "delivery_unknown" ? (
-          <p className="text-xs text-muted-foreground">发送结果无法确认，请核对聊天记录后再决定是否重发。</p>
+          <p className="text-xs text-muted-foreground">发送结果待核实，请核对状态。</p>
+        ) : null}
+        {response?.status === "queued" ? <p className="text-xs text-muted-foreground">当前任务结束后发送</p> : null}
+        {local?.overdue && inFlight ? <p className="text-xs text-muted-foreground">正在核对发送状态…</p> : null}
+        {local?.error && response?.status !== "failed" ? <p className="text-xs text-destructive">{local.error}</p> : null}
+        {(response?.status === "delivery_unknown" || (inFlight && local?.overdue)) && !readOnly ? (
+          <Button size="sm" disabled={local?.checking} onClick={() => {
+            if (transport) void transport.delivery.check(transport.chatId, key)
+            else setError("暂时无法核对，请恢复连接后重试核对。")
+          }}>{local?.checking ? "核对中…" : "核对状态"}</Button>
         ) : null}
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
         {!settled && !readOnly ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" disabled={!canSend} onClick={() => void handleSubmit()}>
               <Send className="h-3.5 w-3.5" />
-              {response?.status === "failed" ? "重新发送" : "发送"}
+              {waiting ? "等待连接…" : inFlight ? "发送中…" : response?.status === "failed" ? "重新发送" : "发送"}
             </Button>
-            <span className="text-xs text-muted-foreground">选择与发送分开，未点击发送不会回复。</span>
+            <span className="text-xs text-muted-foreground">{inFlight ? "答案已锁定，正在等待送达确认。" : "选择与发送分开，未点击发送不会回复。"}</span>
           </div>
         ) : null}
         {readOnly && !settled ? (

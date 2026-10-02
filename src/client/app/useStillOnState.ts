@@ -1,3 +1,4 @@
+import { AsyncQuestionDelivery, getAsyncQuestionDelivery } from "./asyncQuestionDelivery"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
@@ -802,6 +803,7 @@ export interface StillOnState {
     questions: AskUserQuestionItem[],
     answers: AskUserQuestionAnswerMap
   ) => Promise<void>
+  asyncQuestionDelivery: AsyncQuestionDelivery
   handleAnswerAsyncQuestion: (
     questionKey: string,
     answers: AsyncQuestionAnswerInput[],
@@ -822,6 +824,7 @@ export interface StillOnState {
 export function useStillOnState(activeChatId: string | null, cacheScope: string | null): StillOnState {
   const navigate = useNavigate()
   const socket = useStillOnSocket()
+  const asyncQuestionDelivery = useMemo(() => getAsyncQuestionDelivery(socket), [socket])
   const dialog = useAppDialog()
   const { resolvedTheme } = useTheme()
 
@@ -2257,6 +2260,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     composerPreferencesReady,
     machineName,
     llmProvider,
+    asyncQuestionDelivery,
     connectionStatus,
     sidebarReady,
     sidebarSnapshotStatus,

@@ -265,6 +265,7 @@ export type ClientCommand =
     }
   | { type: "chat.loadHistory"; chatId: string; beforeCursor: string; limit: number }
   | { type: "chat.loadToolDetails"; chatId: string; toolIds: string[] }
+  | { type: "chat.getAsyncQuestionResponse"; chatId: string; questionKey: string }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
   | {
       type: "chat.answerAsyncQuestion"

@@ -2196,19 +2196,19 @@ export class AgentCoordinator {
   ): Promise<AsyncQuestionResponse> {
     const next: AsyncQuestionResponse = { ...response, ...patch, updatedAt: Date.now() }
     await this.store.recordAsyncQuestionResponse(next)
+    if (process.env.STILLON_DEBUG_ASYNC_ANSWERS === "1") console.debug("[stillon/async-answer]", { stage: "server_state", submissionId: next.submissionId, status: next.status, elapsedMs: next.updatedAt - next.createdAt })
     this.emitStateChange(chatId)
     return next
   }
 
   /**
    * Re-read the durable state after a crash that left a `submitting` record.
-   * Only a provably unsent submission may be retried; an unconfirmable
-   * provider-side send becomes `delivery_unknown`.
+   * A surviving queue entry proves it is queued. Without one, provider
+   * delivery cannot be disproved, so keep the result `delivery_unknown`.
    */
   private async reconcileSubmitting(
     chatId: string,
     response: AsyncQuestionResponse,
-    context: AsyncQuestionContext,
   ): Promise<AsyncQuestionAnswerResult> {
     const queued = this.store
       .getQueuedMessages(chatId)
@@ -2222,26 +2222,20 @@ export class AgentCoordinator {
       return toAsyncAnswerResult(next, true)
     }
 
-    const canSteer = (
-      this.codexManager.supportsNativeSteerForChat?.(chatId)
-      ?? this.codexManager.supportsNativeSteer === true
-    ) && typeof this.codexManager.steerTurn === "function"
-    const runningTurnId = this.getCodexActiveTurnId(chatId)
-    if (canSteer && runningTurnId && runningTurnId === context.originTurnId) {
-      const next = await this.updateAsyncQuestionResponse(chatId, response, {
-        status: "delivery_unknown",
-        error: "服务重启时发送结果未知，请核对聊天记录后再决定是否重发",
-      })
-      return toAsyncAnswerResult(next, true)
-    }
-
-    // The provider never received it: the durable queue has no entry and the
-    // transport had no in-flight channel. Safe to retry with a new submission.
+    // No durable queue entry is not proof that the provider never received a
+    // native steer or a follow-up that already left the queue before the crash.
     const next = await this.updateAsyncQuestionResponse(chatId, response, {
-      status: "failed",
-      error: "上次发送未完成，可安全重试",
+      status: "delivery_unknown",
+      error: "服务重启时发送结果未知，请核对发送状态",
     })
     return toAsyncAnswerResult(next, true)
+  }
+
+  getAsyncQuestionResponse(chatId: string, questionKey: string): AsyncQuestionResponse | null {
+    this.store.requireChat(chatId)
+    // Do not reconcile or acquire the submission lock here: a live steer or
+    // queued follow-up may still be completing. This query never sends.
+    return this.store.getAsyncQuestionResponse(chatId, questionKey) ?? null
   }
 
   /**
@@ -2268,7 +2262,7 @@ export class AgentCoordinator {
           throw new Error("提交标识已用于其他问题")
         }
         if (priorSubmission.status === "submitting") {
-          return await this.reconcileSubmitting(command.chatId, priorSubmission, context)
+          return await this.reconcileSubmitting(command.chatId, priorSubmission)
         }
         return toAsyncAnswerResult(priorSubmission, true)
       }
@@ -2276,7 +2270,7 @@ export class AgentCoordinator {
       const existing = this.store.getAsyncQuestionResponse(command.chatId, command.questionKey)
       if (existing && existing.status === "submitting") {
         // A crash left an in-flight record; re-derive its provable state.
-        return await this.reconcileSubmitting(command.chatId, existing, context)
+        return await this.reconcileSubmitting(command.chatId, existing)
       }
       if (existing && existing.status !== "failed") {
         // Answered or in flight already: never send a second copy.
@@ -2308,6 +2302,8 @@ export class AgentCoordinator {
         updatedAt: now,
       }
       await this.store.recordAsyncQuestionResponse(response)
+      if (process.env.STILLON_DEBUG_ASYNC_ANSWERS === "1") console.debug("[stillon/async-answer]", { stage: "server_state", submissionId: response.submissionId, status: response.status, elapsedMs: 0 })
+      this.emitStateChange(command.chatId)
 
       const runningTurnId = this.getCodexActiveTurnId(command.chatId)
       const originRunning = Boolean(runningTurnId && runningTurnId === context.originTurnId)
@@ -2334,7 +2330,7 @@ export class AgentCoordinator {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           const stillRunning = this.getCodexActiveTurnId(command.chatId) === context.originTurnId
-          if (stillRunning) {
+          if (stillRunning && isConfirmedTurnSteerRejection(message)) {
             response = await this.updateAsyncQuestionResponse(command.chatId, response, {
               status: "failed",
               error: message,

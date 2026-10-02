@@ -1600,8 +1600,16 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           return
         }
+        case "chat.getAsyncQuestionResponse": {
+          const result = await agent.getAsyncQuestionResponse(command.chatId, command.questionKey)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
         case "chat.answerAsyncQuestion": {
+          const receivedAt = Date.now()
+          if (process.env.STILLON_DEBUG_ASYNC_ANSWERS === "1") console.debug("[stillon/async-answer]", { stage: "server_received", commandId: id, submissionId: command.submissionId })
           const result = await agent.answerAsyncQuestion(command)
+          if (process.env.STILLON_DEBUG_ASYNC_ANSWERS === "1") console.debug("[stillon/async-answer]", { stage: "server_ack", commandId: id, submissionId: result.submissionId, status: result.status, elapsedMs: Date.now() - receivedAt })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           await broadcastChatAndSidebar(command.chatId)
           return
