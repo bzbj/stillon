@@ -90,7 +90,7 @@ export class AsyncQuestionDelivery {
     if (current?.status === "accepted" && response.status !== "accepted") return
     if (current?.status === "queued" && (response.status === "submitting" || response.status === "delivery_unknown")) return
     if (current && current.submissionId !== response.submissionId && response.status === "failed") return
-    this.put({ ...current, ...response, chatId, startedAt: current?.startedAt ?? Date.now(), checking: false, error: response.status === "failed" ? "回答未被接收，可编辑答案后重新发送。" : null })
+    this.put({ ...current, ...response, chatId, startedAt: current?.startedAt ?? Date.now(), checking: (response.status === "submitting" || response.status === "delivery_unknown") ? current?.checking ?? false : false, error: response.status === "failed" ? "回答未被接收，可编辑答案后重新发送。" : null })
   }
   submit(chatId: string, questionKey: string, answers: AsyncQuestionAnswerInput[], submissionId: string) {
     const prior = this.get(chatId, questionKey)
@@ -136,7 +136,7 @@ export class AsyncQuestionDelivery {
       }
     } catch {
       const latest = this.get(chatId, questionKey)!
-      this.put({ ...latest, checking: false, error: "暂时无法核对，请恢复连接后重试核对。" })
+      if (latest.status !== "accepted" && latest.status !== "queued") this.put({ ...latest, checking: false, error: "暂时无法核对，请恢复连接后重试核对。" })
     } finally {
       clearTimeout(timer); controller.abort()
       const latest = this.get(chatId, questionKey)

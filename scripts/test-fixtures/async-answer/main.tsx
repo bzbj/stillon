@@ -71,6 +71,12 @@ Object.assign(window, { fixture: {
     record = { ...command, schemaVersion: 1, status, error: null, localMessageId: null, providerTurnId: null, createdAt: 1, updatedAt: Date.now(), ...overrides }
   },
   queryMode: (mode: string) => { queryMode = mode },
+  queryReply: (error = false) => {
+    const query = commands.findLast((entry) => entry.command.type === "chat.getAsyncQuestionResponse")!
+    ControlledSocket.instances.at(-1)!.emit("message", { data: JSON.stringify(error
+      ? { v: 1, type: "error", id: query.id, message: "fixture-only error" }
+      : { v: 1, type: "ack", id: query.id, result: record }) })
+  },
   ack: (status: string) => {
     const command = commands.findLast((entry) => entry.command.type === "chat.answerAsyncQuestion")!
     ControlledSocket.instances.at(-1)!.emit("message", { data: JSON.stringify({ v: 1, type: "ack", id: command.id, result: { ...command.command, status } }) })
