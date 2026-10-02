@@ -76,13 +76,13 @@ try {
     await text(page, "答案：CSV")
     assert.equal(await count(page), 1)
   })
-  for (const first of ["ack", "snapshot"]) {
-    await scenario(`T04 ${first} first; late submitting cannot regress accepted`, async (page) => {
+  for (const status of ["accepted", "queued"]) for (const first of ["ack", "snapshot"]) {
+    await scenario(`T04 ${first} first; late submitting cannot regress ${status}`, async (page) => {
       await fill(page); await send(page)
-      await control(page, `fixture.record('accepted'); fixture.${first === "ack" ? "ack('accepted')" : "snapshot()"}`)
-      await text(page, "已发送")
+      await control(page, `fixture.record('${status}'); fixture.${first === "ack" ? `ack('${status}')` : "snapshot()"}`)
+      await text(page, status === "accepted" ? "已发送" : "已排队")
       await control(page, first === "ack" ? "fixture.record('submitting'); fixture.snapshot()" : "fixture.ack('submitting')")
-      await text(page, "已发送")
+      await text(page, status === "accepted" ? "已发送" : "已排队")
       assert.equal(await page.getByRole("button").count(), 0)
       assert.equal(await count(page), 1)
     })
@@ -115,6 +115,7 @@ try {
     await fill(page); await send(page)
     await control(page, "fixture.record('accepted'); fixture.disconnect()")
     await text(page, "等待连接恢复…")
+    assert.equal(await page.getByRole("button", { name: "等待连接…", exact: true }).isDisabled(), true)
     await control(page, "fixture.reconnect()")
     await text(page, "已发送")
     assert.equal(await count(page), 1)
@@ -125,6 +126,7 @@ try {
     await control(page, "fixture.record('queued'); fixture.snapshot()")
     await text(page, "已排队")
     await control(page, "fixture.disconnect(); fixture.mount(false)")
+    await page.getByText("需要你的回答", { exact: true }).waitFor({ state: "hidden" })
     await control(page, "fixture.mount(true); fixture.reconnect()")
     await text(page, "已排队")
     await page.reload(); await text(page, "已排队")
@@ -164,7 +166,7 @@ try {
   await scenario("T11 original chat binding and unresolved reload", async (page) => {
     await fill(page); await send(page)
     await control(page, "fixture.chat('other-chat')")
-    await text(page, "需要你的回答")
+    await page.getByRole("textbox", { name: "Any constraints? 的答案" }).waitFor()
     assert.equal(await page.getByRole("textbox").count(), 1)
     await control(page, "fixture.chat('chat-fixture')")
     await text(page, "答案：keep it short")
@@ -193,6 +195,7 @@ try {
   await scenario("T15 mobile widths/long answers/reduced motion/focus", async (page) => {
     await fill(page, "Synthetic".repeat(80)); await send(page)
     await control(page, "fixture.longQuestions()")
+    await page.locator("legend").first().filter({ hasText: "SyntheticLongQuestion".repeat(50) }).waitFor()
     for (const width of [320, 375, 1280]) {
       await page.setViewportSize({ width, height: 812 })
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)

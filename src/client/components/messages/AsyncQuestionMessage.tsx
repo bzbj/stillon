@@ -83,7 +83,8 @@ function StatusPill({ status, label: override }: { status: AsyncQuestionDelivery
   const label = override ?? statusLabel(status)
   if (!label) return null
   const icon =
-    status === "accepted" ? <Check className="h-3.5 w-3.5" />
+    override ? <Clock className="h-3.5 w-3.5" />
+      : status === "accepted" ? <Check className="h-3.5 w-3.5" />
       : (status === "failed" || status === "delivery_unknown") ? <CircleAlert className="h-3.5 w-3.5" />
         : status === "submitting" ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
           : <Clock className="h-3.5 w-3.5" />

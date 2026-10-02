@@ -106,7 +106,9 @@ export class AsyncQuestionDelivery {
       .catch(() => {
         const current = this.get(chatId, questionKey)
         if (current?.submissionId === submissionId && current.status === "submitting") {
-          this.put({ ...current, status: "delivery_unknown", error: "连接中断，发送结果需要核对。" })
+          this.put(this.connection !== "connected"
+            ? { ...current, error: null }
+            : { ...current, status: "delivery_unknown", error: "发送结果需要核对。" })
         }
       })
   }
