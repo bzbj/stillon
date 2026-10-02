@@ -90,7 +90,16 @@ export class AsyncQuestionDelivery {
     if (current?.status === "accepted" && response.status !== "accepted") return
     if (current?.status === "queued" && (response.status === "submitting" || response.status === "delivery_unknown")) return
     if (current && current.submissionId !== response.submissionId && response.status === "failed") return
-    this.put({ ...current, ...response, chatId, startedAt: current?.startedAt ?? Date.now(), checking: (response.status === "submitting" || response.status === "delivery_unknown") ? current?.checking ?? false : false, error: response.status === "failed" ? "回答未被接收，可编辑答案后重新发送。" : null })
+    const unresolved = response.status === "submitting" || response.status === "delivery_unknown"
+    this.put({
+      ...current, ...response, chatId,
+      startedAt: current?.startedAt ?? Date.now(),
+      checking: unresolved ? current?.checking ?? false : false,
+      // A passive unresolved snapshot must not erase a failed query's feedback.
+      // Starting a new query clears it; durable success also clears it.
+      error: response.status === "failed" ? "回答未被接收，可编辑答案后重新发送。"
+        : unresolved ? current?.error ?? null : null,
+    })
   }
   submit(chatId: string, questionKey: string, answers: AsyncQuestionAnswerInput[], submissionId: string) {
     const prior = this.get(chatId, questionKey)

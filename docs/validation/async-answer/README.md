@@ -56,7 +56,7 @@ Local browser verification used headless Edge on Windows ARM64 with a real React
 
 ## Local checks
 
-- Required four-file regression plus router: **70 passed, 0 failed** (the original four-file baseline was 27).
+- Required four-file regression plus router and query-race store tests: **73 passed, 0 failed** (the original four-file baseline was 27).
 - `bun run check`: passed (TypeScript, client build, export-viewer build).
 - `bun run audit`: passed.
 - Initial full suite: 1,159 passed, 9 skipped, 11 failed. All 11 failures are `EPERM` at fixture symlink creation in the unchanged updater `source-links.test.ts`, because this workstation lacks Windows symlink creation privilege. The updater directory is byte-for-byte unchanged against main. The separate router/terminal run passed 36 with 8 platform skips. Cross-platform CI is required before merge; this local limitation is not represented as a full-suite pass.
