@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { BUNDLE_FILE, artifactName, bundleFiles, bunRelativePath, selectArtifact, sha256, unpackBundle, validateBundlePath, verifyBundle, type RuntimeBundle } from "./bundle"
+import { BUNDLE_FILE, artifactName, bundleFiles, bunRelativePath, copyBundle, selectArtifact, sha256, unpackBundle, validateBundlePath, verifyBundle, type RuntimeBundle } from "./bundle"
 import { preparePackage } from "./updates"
 import { atomicJson, json } from "../updater/files"
 import type { UpdateDeployment, UpdateState } from "../updater/model"
@@ -48,6 +48,16 @@ describe("complete runtime bundles", () => {
     await expect(unpackBundle(f.bytes, path.join(root, "wrong"), { platform: "win32", architecture: "arm64" })).rejects.toThrow("mismatch")
     await expect(unpackBundle(f.bytes, path.join(root, "wrong"), { ...target, tag: "2.0.0" })).rejects.toThrow("mismatch")
     expect(await Bun.file(path.join(root, "wrong", BUNDLE_FILE)).exists()).toBe(false)
+  })
+  test("desktop staging preserves the manifest and rejects source changes during copying", async () => {
+    const root = await temp(); const source = path.join(root, "source")
+    const f = await fixture(source)
+    const destination = path.join(root, "installed")
+    await copyBundle(source, destination, f.bundle)
+    expect(await verifyBundle(destination, target)).toEqual(f.bundle)
+    await expect(copyBundle(source, destination, f.bundle)).rejects.toThrow("overwrite")
+    await writeFile(path.join(source, "src/server/cli.ts"), "changed after verification")
+    await expect(copyBundle(source, path.join(root, "changed"), f.bundle)).rejects.toThrow("files changed")
   })
   test("altered code and added private files stop automatic package upgrades", async () => {
     const root = await temp(); await fixture(root)

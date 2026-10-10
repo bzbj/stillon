@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { chmod, lstat, mkdir, readdir, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { chmod, copyFile, lstat, mkdir, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { gunzipSync } from "node:zlib"
 import { exists, inside, json } from "../updater/files"
@@ -135,6 +136,30 @@ export async function runtimeExecutable(runtime: string, fallback: string) {
   if (!await exists(path.join(runtime, BUNDLE_FILE))) return fallback
   const bundle = validateBundle(await json(path.join(runtime, BUNDLE_FILE)))
   return inside(runtime, bunRelativePath(bundle.platform))
+}
+
+/** Copy a previously verified vendor manifest; verify every copied byte before use. */
+export async function copyBundle(source: string, destination: string, verified: RuntimeBundle) {
+  validateBundle(verified)
+  if (await exists(destination)) throw new Error("Refusing to overwrite an installed runtime")
+  await mkdir(destination, { recursive: true, mode: 0o700 })
+  const entries = Object.entries(verified.files)
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(8, entries.length) }, async () => {
+    for (;;) {
+      const index = cursor++
+      if (index >= entries.length) return
+      const [name, metadata] = entries[index]
+      const from = inside(source, name); const to = inside(destination, name)
+      const info = await lstat(from)
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Runtime file changed type: ${name}`)
+      await mkdir(path.dirname(to), { recursive: true, mode: 0o700 })
+      await copyFile(from, to, constants.COPYFILE_EXCL)
+      if (process.platform !== "win32") await chmod(to, metadata.executable ? 0o755 : 0o644)
+    }
+  }))
+  await writeFile(path.join(destination, BUNDLE_FILE), JSON.stringify(verified, null, 2) + "\n", { flag: "wx", mode: 0o644 })
+  await verifyBundle(destination, { platform: verified.platform, architecture: verified.architecture, tag: verified.version })
 }
 
 /** Write regular files ourselves. Archive symlinks/hardlinks never reach disk. */

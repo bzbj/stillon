@@ -8,13 +8,13 @@ import { getWindowsServicePaths } from "../service/windows"
 import { assertCommandSucceeded } from "../service/types"
 import { appCommand, appStatus, leaseAlive, localFetch, pauseManagedServer, waitUntil } from "../updater/control"
 import { setupManagedUpdates } from "../updater/cli"
-import { atomicJson, copyTree, exists, inside, json } from "../updater/files"
+import { atomicJson, exists, inside, json } from "../updater/files"
 import { FINISHED_PHASES, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
 import { stopWindowsServiceProcesses } from "../updater/processes"
 import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
-import { BUNDLE_FILE, bunRelativePath, validateBundle, verifyBundle } from "./bundle"
+import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
 
 interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
@@ -122,8 +122,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       throw new Error("The StillOn port is already in use")
     } catch (error) { if (error instanceof Error && error.message === "The StillOn port is already in use") throw error }
     const runtime = path.join(root, "releases", `desktop-${sourceBundle.buildId}-${randomUUID()}`)
-    await copyTree(source, runtime)
-    await verifyBundle(runtime, target)
+    await copyBundle(source, runtime, sourceBundle)
     install = { schema: 1, runtime, phase: "staged" }
     await atomicJson(marker, install)
   }
