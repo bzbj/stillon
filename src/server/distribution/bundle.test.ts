@@ -6,7 +6,8 @@ import { BUNDLE_FILE, artifactName, bundleFiles, bunRelativePath, selectArtifact
 import { preparePackage } from "./updates"
 import { atomicJson, json } from "../updater/files"
 import type { UpdateDeployment, UpdateState } from "../updater/model"
-import { desktopPath } from "./desktop"
+import { desktopPath, verifyDesktopReceipt } from "./desktop"
+import { hashServiceFile } from "../updater/registration"
 
 const roots: string[] = []
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }) })
@@ -113,4 +114,20 @@ test("prepared packages are reused, reprobed and invalidated by configuration ch
 test("desktop PATH includes provider CLI locations without shell evaluation", () => {
   expect(desktopPath("/Users/example", "darwin", "/usr/bin:/custom/bin")).toContain("/Users/example/.local/bin")
   expect(desktopPath("C:\\Users\\example", "win32", "C:\\Windows")).toContain("C:\\Users\\example\\AppData\\Roaming\\npm")
+})
+
+test("desktop uninstall rejects service definitions changed after installation", async () => {
+  const root = await temp()
+  const app = path.join(root, "app.plist"); const updater = path.join(root, "updater.plist")
+  await writeFile(app, "owned application service"); await writeFile(updater, "owned updater service")
+  await atomicJson(path.join(root, "desktop-receipt.json"), {
+    service: { schema: 1, platform: "darwin", serviceFile: app, serviceHash: await hashServiceFile(app) },
+    updaterFile: updater, updaterHash: await hashServiceFile(updater),
+  })
+  await verifyDesktopReceipt(root)
+  await writeFile(app, "user-customized application service")
+  await expect(verifyDesktopReceipt(root)).rejects.toThrow("service definition changed")
+  await writeFile(app, "owned application service")
+  await writeFile(updater, "user-customized updater service")
+  await expect(verifyDesktopReceipt(root)).rejects.toThrow("updater service definition changed")
 })

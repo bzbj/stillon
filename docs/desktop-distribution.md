@@ -141,6 +141,14 @@ A hardware-backed/cloud Windows signing service can replace `sign-windows.ps1`.
 Missing signing credentials fail public installer publication; PR builds remain
 available for development acceptance. No signing credentials are bundled.
 
+The macOS build signs Bun before creating the file manifest, verifies native helper
+signatures, then signs and notarizes the containing app/DMG, following
+[Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+Windows signs the launcher, installer and uninstaller through
+[Inno Setup's SignTool integration](https://jrsoftware.org/ishelp/topic_setup_signtool.htm).
+These production signing paths require acceptance with the project's certificates;
+successful unsigned CI builds do not demonstrate trusted signature validation.
+
 The controller protocol starts at 1. Each runtime declares the minimum compatible
 updater protocol; an incompatible future release fails before switching. Controller
 replacement remains a separate maintenance transaction, never an overwrite of a

@@ -42,6 +42,10 @@ UninstallDisplayIcon={app}\StillOn.exe
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
+#ifdef SignedRelease
+SignTool=stillon
+SignedUninstaller=yes
+#endif
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

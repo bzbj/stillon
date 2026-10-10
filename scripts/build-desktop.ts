@@ -59,7 +59,8 @@ async function buildMacInstaller() {
   if (process.env.MACOS_SIGN_IDENTITY) {
     await run(["/usr/bin/codesign", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, dmg])
     if (!process.env.MACOS_NOTARY_PROFILE) throw new Error("A signed public installer requires MACOS_NOTARY_PROFILE")
-    await run(["/usr/bin/xcrun", "notarytool", "submit", dmg, "--keychain-profile", process.env.MACOS_NOTARY_PROFILE, "--wait"])
+    await run(["/usr/bin/xcrun", "notarytool", "submit", dmg, "--keychain-profile", process.env.MACOS_NOTARY_PROFILE,
+      ...(process.env.MACOS_NOTARY_KEYCHAIN ? ["--keychain", process.env.MACOS_NOTARY_KEYCHAIN] : []), "--wait"])
     await run(["/usr/bin/xcrun", "stapler", "staple", dmg])
     await run(["/usr/sbin/spctl", "--assess", "--type", "open", "--context", "context:primary-signature", dmg])
   }
@@ -72,12 +73,15 @@ async function buildWindowsInstaller() {
   const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
   await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
   const iscc = process.env.ISCC_PATH ?? "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-  await run([iscc, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DUnsignedSuffix=${process.env.STILLON_REQUIRE_SIGNING === "1" ? "" : "-unsigned"}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, path.join(repository, "packaging", "windows", "stillon.iss")])
+  const signing: string[] = []
   if (process.env.STILLON_REQUIRE_SIGNING === "1") {
     if (!process.env.WINDOWS_SIGN_SCRIPT) throw new Error("A public Windows installer requires WINDOWS_SIGN_SCRIPT")
+    const script = path.resolve(process.env.WINDOWS_SIGN_SCRIPT)
     await run(["pwsh", "-NoProfile", "-NonInteractive", "-File", process.env.WINDOWS_SIGN_SCRIPT,
-      path.join(release, `StillOn-${pkg.version}-windows-${target.architecture}-setup.exe`)])
+      path.join(app, "StillOn.exe")])
+    signing.push("/DSignedRelease=1", `/Sstillon=pwsh -NoProfile -NonInteractive -File $q${script}$q $f`)
   }
+  await run([iscc, ...signing, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DUnsignedSuffix=${process.env.STILLON_REQUIRE_SIGNING === "1" ? "" : "-unsigned"}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, path.join(repository, "packaging", "windows", "stillon.iss")])
 }
 
 async function main() {
@@ -106,6 +110,14 @@ async function main() {
   if (target.platform === "darwin" && process.env.MACOS_SIGN_IDENTITY) {
     await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", process.env.MACOS_SIGN_IDENTITY,
       path.join(runtime, bunRelativePath("darwin"))])
+    // Keep third-party Developer ID signatures intact, but reject unsigned or
+    // damaged native helpers before the runtime manifest seals their bytes.
+    const macho = new Set([0xfeedface, 0xcefaedfe, 0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca])
+    for await (const name of new Bun.Glob("**/*").scan({ cwd: runtime, onlyFiles: true, dot: true })) {
+      const file = path.join(runtime, name)
+      const prefix = Buffer.from(await Bun.file(file).slice(0, 4).arrayBuffer())
+      if (prefix.length === 4 && macho.has(prefix.readUInt32BE())) await run(["/usr/bin/codesign", "--verify", "--strict", file])
+    }
   }
   const revision = await capture(["git", "rev-parse", "HEAD"])
   const buildId = `${pkg.version}-${revision.slice(0, 12)}-${target.platform}-${target.architecture}`

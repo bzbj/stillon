@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { brotliCompressSync, gzipSync } from "node:zlib"
 import { BUNDLE_FILE, artifactName, bunRelativePath, sha256, verifyBundle, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { preparePackage } from "../src/server/distribution/updates"
 import { appStatus, pauseManagedServer, waitUntil } from "../src/server/updater/control"
@@ -21,7 +22,12 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
   pkg.version = version
   files["package.json"] = new TextEncoder().encode(JSON.stringify(pkg, null, 2) + "\n")
   files["dist/client/index.html"] = new TextEncoder().encode(new TextDecoder().decode(files["dist/client/index.html"]) + `\n<!-- update rehearsal ${version} -->\n`)
-  for (const name of ["package.json", "dist/client/index.html"]) candidate.files[name] = { ...candidate.files[name], sha256: sha256(files[name]), size: files[name].byteLength }
+  const changed = ["package.json", "dist/client/index.html"]
+  for (const [suffix, compress] of [[".gz", gzipSync], [".br", brotliCompressSync]] as const) {
+    const name = `dist/client/index.html${suffix}`
+    if (files[name]) { files[name] = compress(files["dist/client/index.html"]); changed.push(name) }
+  }
+  for (const name of changed) candidate.files[name] = { ...candidate.files[name], sha256: sha256(files[name]), size: files[name].byteLength }
   files[BUNDLE_FILE] = new TextEncoder().encode(JSON.stringify(candidate))
   const bytes = await new Bun.Archive(files, { compress: "gzip" }).bytes()
   const artifact = { platform: candidate.platform, architecture: candidate.architecture, name: artifactName(version, candidate.platform, candidate.architecture),
@@ -52,20 +58,20 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
     const verify = effects.verify
     let fail = true
     effects.verify = async (selected) => {
-      if (fail && selected !== runtime) { await writeFile(skin, "failed-version-migration"); throw new Error("Intentional candidate health failure") }
       await verify(selected)
+      if (fail && selected !== runtime) { await writeFile(skin, "failed-version-migration"); throw new Error("Intentional candidate health failure") }
     }
     await enqueueUpdate(deployment, `v${version}`)
     await worker(deployment, { update: effects })
     const rolledBack = await json<UpdateState>(path.join(root, "state.json"))
-    if (rolledBack.phase !== "rolled-back" || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error("Packaged rollback did not restore the original skin")
+    if (rolledBack.phase !== "rolled-back" || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error(`Packaged rollback did not restore the original skin (${rolledBack.phase}: ${rolledBack.error ?? "no transaction error"})`)
     const quarantine = path.join(home, `.stillon-after-failed-${rolledBack.id}`, "customizations/skins/personal/custom.css")
     if (await readFile(quarantine, "utf8") !== "failed-version-migration") throw new Error("Failed-version customizations were not quarantined")
     fail = false
     await enqueueUpdate(deployment, `v${version}`)
     await worker(deployment, { update: effects })
     const success = await json<UpdateState>(path.join(root, "state.json"))
-    if (success.phase !== "succeeded" || (await appStatus(deployment))?.version !== version || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error("Packaged upgrade did not preserve the personal skin")
+    if (success.phase !== "succeeded" || (await appStatus(deployment))?.version !== version || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error(`Packaged upgrade did not preserve the personal skin (${success.phase}: ${success.error ?? "no transaction error"})`)
     if (downloads !== 2) throw new Error("The prepared candidate was downloaded again instead of reused")
     return { status: "passed", oldVersion: previous.version, fixtureVersion: version, downloads,
       checks: ["real bundled controller and application", "download/unpack/probe/switch", "failed-version skin quarantined and rollback restored", "prepared package reused", "successful upgrade preserved personal skin"] }

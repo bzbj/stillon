@@ -18,3 +18,4 @@ security import "$stillon_certificate" -P "$MACOS_CERTIFICATE_PASSWORD" -k "$sti
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$stillon_password" "$stillon_keychain" >/dev/null
 security list-keychains -d user -s "$stillon_keychain"
 xcrun notarytool store-credentials stillon-ci --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$stillon_keychain"
+printf 'MACOS_NOTARY_KEYCHAIN=%s\n' "$stillon_keychain" >> "$GITHUB_ENV"

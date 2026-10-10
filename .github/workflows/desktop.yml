@@ -70,8 +70,8 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ inputs.require-signing && secrets.MACOS_SIGN_IDENTITY || '' }}
           MACOS_NOTARY_PROFILE: ${{ inputs.require-signing && 'stillon-ci' || '' }}
           WINDOWS_SIGN_SCRIPT: scripts/sign-windows.ps1
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_CERTIFICATE_BASE64: ${{ inputs.require-signing && secrets.WINDOWS_CERTIFICATE_BASE64 || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ inputs.require-signing && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
       - name: Verify runtime, native services and user-data preservation
         run: bun scripts/verify-desktop.ts --native
       - name: Exercise Windows installer and uninstaller

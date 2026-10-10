@@ -22,8 +22,8 @@ export async function hashServiceFile(file: string) {
   return createHash("sha256").update(Buffer.from(await Bun.file(file).arrayBuffer())).digest("hex")
 }
 
-export async function windowsServiceHash(run: ServiceCommandRunner = runServiceCommand) {
-  const result = await run("schtasks.exe", ["/Query", "/TN", "StillOn", "/XML"])
+export async function windowsServiceHash(run: ServiceCommandRunner = runServiceCommand, task = "StillOn") {
+  const result = await run("schtasks.exe", ["/Query", "/TN", task, "/XML"])
   assertCommandSucceeded("Read registered Windows service definition", result)
   if (!result.stdout.includes("<Task")) throw new Error("Cannot verify the registered Windows service definition")
   return createHash("sha256").update(result.stdout.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").trim()).digest("hex")
@@ -46,8 +46,12 @@ export async function verifyServiceRegistration(registration: ServiceRegistratio
 
 export async function recordServiceRegistration(platform: NodeJS.Platform, launch: ServiceLaunchSpec) {
   if (platform !== "darwin" && platform !== "win32") return
+  await atomicJson(path.join(updateRoot(platform, launch.homeDirectory, launch.localAppDataDirectory), "service-registration.json"), await captureServiceRegistration(platform, launch))
+}
+
+export async function captureServiceRegistration(platform: "darwin" | "win32", launch: ServiceLaunchSpec) {
   const serviceFile = platform === "win32" ? getWindowsServicePaths(launch).taskXml : getMacosServicePaths(launch.homeDirectory).plistPath
   const record: ServiceRegistration = { schema: 1, platform, launch, serviceFile, serviceHash: await hashServiceFile(serviceFile),
     ...(platform === "win32" ? { nativeHash: await windowsServiceHash(), windowsCommand: await windowsServiceCommand(serviceFile) } : {}) }
-  await atomicJson(path.join(updateRoot(platform, launch.homeDirectory, launch.localAppDataDirectory), "service-registration.json"), record)
+  return record
 }

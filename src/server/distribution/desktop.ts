@@ -12,11 +12,31 @@ import { atomicJson, copyTree, exists, inside, json } from "../updater/files"
 import { FINISHED_PHASES, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
 import { stopWindowsServiceProcesses } from "../updater/processes"
-import { verifyServiceRegistration, type ServiceRegistration } from "../updater/registration"
+import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
 import { BUNDLE_FILE, bunRelativePath, validateBundle, verifyBundle } from "./bundle"
 
 interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
+
+interface DesktopReceipt { service: ServiceRegistration; updaterFile: string; updaterHash: string; updaterNativeHash?: string }
+
+async function saveDesktopReceipt(deployment: UpdateDeployment) {
+  const launch = { ...deployment.launch, args: [deployment.controller, "serve", deployment.root], workingDirectory: deployment.root, environmentFile: undefined }
+  const updaterFile = deployment.platform === "win32" ? path.join(deployment.root, "updater-task.xml")
+    : path.join(deployment.launch.homeDirectory, "Library", "LaunchAgents", `${UPDATE_AGENT}.plist`)
+  const receipt: DesktopReceipt = { service: await captureServiceRegistration(deployment.platform, launch), updaterFile,
+    updaterHash: await hashServiceFile(updaterFile), ...(deployment.platform === "win32" ? { updaterNativeHash: await windowsServiceHash(runServiceCommand, UPDATE_TASK) } : {}) }
+  await atomicJson(path.join(deployment.root, "desktop-receipt.json"), receipt)
+}
+
+export async function verifyDesktopReceipt(root: string) {
+  const receipt = await json<DesktopReceipt>(path.join(root, "desktop-receipt.json"))
+  await verifyServiceRegistration(receipt.service)
+  if (await hashServiceFile(receipt.updaterFile) !== receipt.updaterHash
+    || (receipt.service.platform === "win32" && await windowsServiceHash(runServiceCommand, UPDATE_TASK) !== receipt.updaterNativeHash)) {
+    throw new Error("The updater service definition changed. Review the custom service before uninstalling.")
+  }
+}
 
 export function desktopPath(home: string, platform = process.platform, inherited = process.env.PATH ?? "") {
   const paths = platform === "win32"
@@ -58,6 +78,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       }
       const runner = await json<UpdateRunnerStatus>(path.join(root, "runner.json"))
       if (health.updateInstance !== runner.instance) throw new Error("Another application owns the StillOn port")
+      if (!await exists(path.join(root, "desktop-receipt.json")) && (await json<DesktopInstallation>(marker)).phase === "staged") await saveDesktopReceipt(deployment)
       await atomicJson(marker, { schema: 1, runtime: runner.runtime, phase: "installed" } satisfies DesktopInstallation)
       if (options.open !== false) await openBrowser(deployment.port)
       return
@@ -122,6 +143,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
     if (["failed", "restored", "recovery-required"].includes(setup.phase)) throw new Error(setup.error ?? "Desktop setup needs recovery")
     return setup.phase === "enabled"
   }, 120_000)
+  await saveDesktopReceipt(await json<UpdateDeployment>(path.join(root, "deployment.json")))
   await atomicJson(marker, { ...install, phase: "installed" })
   if (options.open !== false) await openBrowser(port)
 }
@@ -131,7 +153,9 @@ export async function uninstallDesktop() {
   const root = updateRoot()
   if (!await exists(path.join(root, "desktop.json"))) return
   const { deployment } = await verifyOwnedDeployment(root)
+  await verifyDesktopReceipt(root)
   if (await leaseAlive(root)) throw new Error("Wait for the current update to finish before uninstalling")
+  if (await exists(path.join(root, "request.json"))) throw new Error("Wait for the queued update to finish before uninstalling")
   if (await exists(path.join(root, "state.json")) && !FINISHED_PHASES.has((await json<UpdateState>(path.join(root, "state.json"))).phase)) {
     throw new Error("Finish update recovery before uninstalling")
   }
