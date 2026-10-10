@@ -1,3 +1,4 @@
+import { CodexModelPolicyPanel } from "./CodexModelPolicyPanel"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
@@ -3081,7 +3082,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={state.availableProviders}
                           selectedProvider="claude"
                           showProviderPicker={false}
                           providerLocked
@@ -3111,7 +3112,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={state.availableProviders}
                           selectedProvider="codex"
                           showProviderPicker={false}
                           providerLocked
@@ -3132,6 +3133,10 @@ export function SettingsPage() {
                           className="justify-start flex-wrap"
                         />
                       </div>
+                    </SettingsRow>
+
+                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." alignStart>
+                      <CodexModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
                     </SettingsRow>
 
                     <SettingsRow

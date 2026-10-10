@@ -218,7 +218,10 @@ function toFilePayload(state: AppSettingsState) {
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
     defaultProjectId: state.defaultProjectId,
-    providerDefaults: state.providerDefaults,
+    providerDefaults: {
+      ...state.providerDefaults,
+      codex: normalizeCodexPreference(state.providerDefaults.codex),
+    },
     network: state.network,
   }
 }
@@ -235,7 +238,10 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
     defaultProjectId: state.defaultProjectId,
-    providerDefaults: state.providerDefaults,
+    providerDefaults: {
+      ...state.providerDefaults,
+      codex: normalizeCodexPreference(state.providerDefaults.codex),
+    },
     network: state.network,
     warning: state.warning,
     filePathDisplay: state.filePathDisplay,

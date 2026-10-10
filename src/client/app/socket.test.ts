@@ -1,3 +1,6 @@
+import { BUNDLED_CODEX_MODEL_POLICY } from "../../shared/codex-model-policy"
+import { applyCodexModelPolicy, normalizeCodexModelId, getCodexModelForRole } from "../../shared/types"
+import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { StillOnSocket } from "./socket"
 
@@ -156,9 +159,39 @@ describe("StillOnSocket", () => {
   })
 
   afterEach(() => {
+    applyCodexModelPolicy(BUNDLED_CODEX_MODEL_POLICY)
+    useCodexModelPolicyStore.setState({ snapshot: null })
     restoreGlobalProperty("window", originalWindowDescriptor)
     restoreGlobalProperty("document", originalDocumentDescriptor)
     restoreGlobalProperty("WebSocket", originalWebSocketDescriptor)
+  })
+
+  test("installs server policy before first settings callback and updates again on reconnect", () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    const seen: string[] = []
+    socket.subscribe({ type: "app-settings" }, () => seen.push(normalizeCodexModelId("gpt-6.1-sol")))
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    ws.open()
+    const subscription = ws.sent.find((entry) => entry.type === "subscribe")!
+    const policy = { models: [{ id: "next-codex", label: "Next Codex", aliases: ["gpt-6.1-sol"],
+      supportsEffort: true, supportedReasoningEfforts: ["high"], supportsFastMode: false }],
+      roles: { conversation: "next-codex", background: "next-codex" } }
+    ws.receive({ v: 1, type: "snapshot", id: subscription.id,
+      codexModelPolicy: { schemaVersion: 1, revision: "next", policy, source: "local", filePath: "/models.json", warning: null, canRestore: true },
+      snapshot: { type: "app-settings", data: {} } })
+    expect(seen).toEqual(["next-codex"])
+    expect(getCodexModelForRole("background")).toBe("next-codex")
+    ws.close()
+    for (const id of [...timers.timeouts.keys()]) timers.runTimeout(id)
+    const reconnected = FakeWebSocket.instances.at(-1)!
+    reconnected.open()
+    reconnected.receive({ v: 1, type: "snapshot", id: subscription.id,
+      codexModelPolicy: { schemaVersion: 1, revision: "bundled", policy: BUNDLED_CODEX_MODEL_POLICY,
+        source: "builtin", filePath: "/models.json", warning: null, canRestore: true },
+      snapshot: { type: "app-settings", data: {} } })
+    expect(seen).toEqual(["next-codex", "gpt-6.1-sol"])
+    socket.dispose()
   })
 
   test("does not ping when the connection is already fresh", async () => {

@@ -13,9 +13,12 @@ import {
   PROVIDERS,
   normalizeClaudeContextWindow,
   normalizeCodexOptions,
+  applyCodexModelPolicy,
   normalizeProviderModelId,
   isClaudeReasoningEffort,
 } from "../shared/types"
+
+import type { CodexModelPolicy } from "../shared/codex-model-policy"
 
 export interface ClaudeSdkModelInfo {
   value: string
@@ -31,6 +34,12 @@ function createServerProviders(): ProviderCatalogEntry[] {
 }
 
 export const SERVER_PROVIDERS: ProviderCatalogEntry[] = createServerProviders()
+
+export function applyServerCodexModelPolicy(policy: CodexModelPolicy) {
+  applyCodexModelPolicy(policy)
+  const index = SERVER_PROVIDERS.findIndex((provider) => provider.id === "codex")
+  SERVER_PROVIDERS.splice(index, 1, { ...PROVIDERS.find((provider) => provider.id === "codex")! })
+}
 
 export function resetServerProvidersForTests() {
   SERVER_PROVIDERS.splice(0, SERVER_PROVIDERS.length, ...createServerProviders())

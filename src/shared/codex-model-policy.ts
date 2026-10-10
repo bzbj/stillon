@@ -35,4 +35,48 @@ export const codexModelPolicySchema = z.object({
   }
 })
 
-export const CODEX_MODEL_POLICY = codexModelPolicySchema.parse(policy)
+export type CodexModelPolicy = z.infer<typeof codexModelPolicySchema>
+
+export const codexModelPolicyFileSchema = z.object({
+  schemaVersion: z.literal(1),
+  policy: codexModelPolicySchema,
+}).strict()
+
+export interface CodexModelPolicySnapshot {
+  schemaVersion: 1
+  revision: string
+  policy: CodexModelPolicy
+  source: "builtin" | "local" | "last-good"
+  filePath: string
+  warning: string | null
+  canRestore: boolean
+}
+
+export interface CodexModelCandidate {
+  model: CodexModelPolicy["models"][number]
+  available: boolean
+  disabledReason?: string
+}
+
+export interface CodexModelSelectionDraft {
+  id: string
+  baseRevision: string
+  fetchedAt: string
+  expiresAt: string
+  cliVersion: string
+  candidates: CodexModelCandidate[]
+  selectedModelIds: string[]
+  roles: CodexModelPolicy["roles"]
+  warnings: string[]
+}
+
+export interface CodexModelSelection {
+  draftId: string
+  modelIds: string[]
+  roles: CodexModelPolicy["roles"]
+}
+
+// The bundled policy remains a recovery baseline. Effective policy is replaced
+// in place so existing imports of the catalog and roles stay synchronized.
+export const BUNDLED_CODEX_MODEL_POLICY = codexModelPolicySchema.parse(policy)
+export const CODEX_MODEL_POLICY = structuredClone(BUNDLED_CODEX_MODEL_POLICY)

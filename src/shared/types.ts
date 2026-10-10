@@ -1,4 +1,4 @@
-import { CODEX_MODEL_POLICY } from "./codex-model-policy"
+import { CODEX_MODEL_POLICY, codexModelPolicySchema, type CodexModelPolicy } from "./codex-model-policy"
 export { CODEX_MODEL_POLICY } from "./codex-model-policy"
 
 export const STORE_VERSION = 2 as const
@@ -408,6 +408,15 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
     efforts: [...CODEX_REASONING_OPTIONS],
   },
 ]
+
+export function applyCodexModelPolicy(value: CodexModelPolicy) {
+  const validated = codexModelPolicySchema.parse(value)
+  CODEX_MODELS.splice(0, CODEX_MODELS.length, ...validated.models)
+  Object.assign(CODEX_MODEL_POLICY.roles, validated.roles)
+  const codex = PROVIDERS.find((provider) => provider.id === "codex")!
+  codex.defaultModel = validated.roles.conversation
+  codex.models = CODEX_MODELS
+}
 
 export function getProviderCatalog(provider: AgentProvider): ProviderCatalogEntry {
   const entry = PROVIDERS.find((candidate) => candidate.id === provider)

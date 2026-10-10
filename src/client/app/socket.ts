@@ -1,3 +1,4 @@
+import { receiveCodexModelPolicy } from "../stores/codexModelPolicyStore"
 import { traceAsyncAnswer } from "./asyncQuestionDiagnostics"
 import type {
   ClientCommand,
@@ -225,6 +226,15 @@ export class StillOnSocket {
         payload = JSON.parse(rawText) as ServerEnvelope
       } catch {
         return
+      }
+
+      if (payload.codexModelPolicy) {
+        try {
+          receiveCodexModelPolicy(payload.codexModelPolicy)
+        } catch (error) {
+          console.error(LOG_PREFIX, "Rejected server model catalog", error)
+          return
+        }
       }
 
       const payloadBytes = isSendToStartingProfilingEnabled()
