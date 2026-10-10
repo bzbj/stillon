@@ -26,6 +26,13 @@ async function buildMacInstaller() {
   const contents = path.join(app, "Contents")
   await mkdir(path.join(contents, "MacOS"), { recursive: true })
   await mkdir(path.join(contents, "Resources"), { recursive: true })
+  const iconset = path.join(output, "StillOn.iconset")
+  await mkdir(iconset, { recursive: true })
+  for (const size of [16, 32, 128, 256, 512]) {
+    await run(["/usr/bin/sips", "-z", String(size), String(size), "public/icon-512.png", "--out", path.join(iconset, `icon_${size}x${size}.png`)])
+    if (size < 512) await run(["/usr/bin/sips", "-z", String(size * 2), String(size * 2), "public/icon-512.png", "--out", path.join(iconset, `icon_${size}x${size}@2x.png`)])
+  }
+  await run(["/usr/bin/iconutil", "-c", "icns", iconset, "-o", path.join(contents, "Resources", "StillOn.icns")])
   await cp(runtime, path.join(contents, "Resources", "payload"), { recursive: true })
   await run(["/usr/bin/clang", "-fobjc-arc", "-framework", "Cocoa", "-mmacosx-version-min=13.0", "packaging/macos/launcher.m", "-o", path.join(contents, "MacOS", "StillOn")])
   await writeFile(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
@@ -33,6 +40,7 @@ async function buildMacInstaller() {
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>StillOn</string><key>CFBundleDisplayName</key><string>StillOn</string>
 <key>CFBundleIdentifier</key><string>com.bzbj.stillon.desktop</string>
+<key>CFBundleIconFile</key><string>StillOn.icns</string>
 <key>CFBundleExecutable</key><string>StillOn</string><key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${pkg.version.split(".").slice(0, 3).join(".")}</string>
 <key>CFBundleVersion</key><string>${process.env.GITHUB_RUN_NUMBER ?? "1"}</string>
@@ -45,7 +53,7 @@ async function buildMacInstaller() {
   // Runtime bytes must not be changed by signing the app. Bun is signed in the
   // payload before its manifest is created; signing again must be avoided.
   await symlink("/Applications", path.join(output, "macos", "Applications"))
-  await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo remove background services, run the app executable with --uninstall before removing the app.\nChats, settings, themes and skins remain in your user directory.\n")
+  await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo uninstall, hold Option while opening StillOn, choose Remove background services, then remove the app.\nChats, settings, themes and skins remain in your user directory.\n")
   const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}.dmg`)
   await run(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
   if (process.env.MACOS_SIGN_IDENTITY) {
@@ -62,9 +70,9 @@ async function buildWindowsInstaller() {
   await mkdir(app, { recursive: true })
   await cp(runtime, path.join(app, "payload"), { recursive: true })
   const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
-  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", `/out:${path.join(app, "StillOn.exe")}`, "packaging/windows/Launcher.cs"])
+  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
   const iscc = process.env.ISCC_PATH ?? "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-  await run([iscc, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, "packaging/windows/stillon.iss"])
+  await run([iscc, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, path.join(repository, "packaging", "windows", "stillon.iss")])
   if (process.env.STILLON_REQUIRE_SIGNING === "1") {
     if (!process.env.WINDOWS_SIGN_SCRIPT) throw new Error("A public Windows installer requires WINDOWS_SIGN_SCRIPT")
     await run(["pwsh", "-NoProfile", "-NonInteractive", "-File", process.env.WINDOWS_SIGN_SCRIPT,

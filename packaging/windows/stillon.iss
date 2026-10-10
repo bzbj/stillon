@@ -24,11 +24,12 @@ PrivilegesRequired=lowest
 #if AppArch == "arm64"
 ArchitecturesAllowed=arm64
 ArchitecturesInstallIn64BitMode=arm64
+MinVersion=10.0.22000
 #else
 ArchitecturesAllowed=x64compatible and not arm64
 ArchitecturesInstallIn64BitMode=x64compatible
-#endif
 MinVersion=10.0
+#endif
 OutputDir={#OutputDir}
 OutputBaseFilename=StillOn-{#AppVersion}-windows-{#AppArch}-setup
 Compression=lzma2
@@ -41,6 +42,9 @@ SetupLogging=yes
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\payload"
 
 [Icons]
 Name: "{group}\StillOn"; Filename: "{app}\StillOn.exe"

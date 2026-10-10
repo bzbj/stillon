@@ -65,6 +65,12 @@ try {
   console.log(JSON.stringify(report, null, 2))
 } catch (error) {
   report.status = "failed"; report.error = error instanceof Error ? error.message : String(error)
+  // Only disposable acceptance logs, never real user profiles or controller secrets.
+  const diagnostics: Record<string, string> = {}
+  for await (const name of new Bun.Glob("**/*.log").scan({ cwd: root, dot: true })) {
+    diagnostics[name] = (await Bun.file(path.join(root, name)).text()).slice(-12_000)
+  }
+  report.diagnostics = diagnostics
   console.error(JSON.stringify(report, null, 2)); process.exitCode = 1
 } finally {
   await mkdir("dist/desktop/reports", { recursive: true })

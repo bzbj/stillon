@@ -7,6 +7,14 @@ int main(int argc, const char *argv[]) {
     NSString *bundle = [[NSBundle mainBundle] resourcePath];
     NSString *runtime = [bundle stringByAppendingPathComponent:@"payload"];
     BOOL uninstall = argc > 1 && strcmp(argv[1], "--uninstall") == 0;
+    if ([NSEvent modifierFlags] & NSEventModifierFlagOption) {
+      NSAlert *actions = [[NSAlert alloc] init]; actions.messageText = @"StillOn";
+      actions.informativeText = @"Open your workspace, or remove the background services before uninstalling the app.";
+      [actions addButtonWithTitle:@"Open workspace"]; [actions addButtonWithTitle:@"Remove background services"]; [actions addButtonWithTitle:@"Cancel"];
+      NSModalResponse choice = [actions runModal];
+      if (choice == NSAlertThirdButtonReturn) return 0;
+      uninstall = choice == NSAlertSecondButtonReturn;
+    }
     NSString *marker = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/StillOn/ManagedUpdates/desktop.json"];
     if (uninstall || ![[NSFileManager defaultManager] fileExistsAtPath:marker]) {
       NSAlert *prompt = [[NSAlert alloc] init];

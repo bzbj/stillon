@@ -91,3 +91,57 @@ just because the installer preserves their directories.
   separate acceptance evidence.
 - Public release installers require trusted OS signing. Unsigned CI artifacts are
   development builds and labelled as such; signing secrets are never committed.
+
+## Install, update and uninstall
+
+On macOS, download the DMG for Intel or Apple Silicon, drag StillOn to Applications,
+and open it. Confirm first-time background setup. To remove background services,
+hold Option while opening StillOn and choose Remove background services, then
+remove the app from Applications.
+
+On Windows, use the x64 EXE for Intel/AMD PCs or the ARM64 EXE for Windows on Arm.
+The installer is per-user and adds a Start menu entry. First launch confirms the
+background service. Windows Settings -> Apps -> StillOn -> Uninstall stops the
+owned services before removing the desktop files. Active agent/terminal work must
+finish first. User data is preserved on both platforms.
+
+In Settings -> Changelog, Prepare only downloads and verifies the package without
+switching. Upgrade reuses a still-valid prepared package and checks the current
+runtime/configuration again. Package installations never replay source patches.
+Source installations retain the existing source updater; the desktop installer
+detects them and refuses to replace their service or customizations implicitly.
+Migration into the package channel requires a separate reviewed migration; current
+source changes must be exported/moved into supported theme/skin interfaces first.
+
+## Build and signing
+
+```
+bun install --frozen-lockfile
+bun run check
+bun run build:desktop
+bun run verify:desktop
+```
+
+Run natively on each target architecture. Windows requires the Inno Setup compiler
+(`scripts/install-inno-setup.ps1` installs a pinned, SHA-256 verified CI version).
+Artifacts are in `dist/desktop/release`; runtime/installer acceptance reports are in
+`dist/desktop/reports`. `verify-desktop.ts --native` is restricted to disposable CI
+runners because it exercises real per-user native service registrations.
+
+The release workflow waits for all four installer jobs, validates their archive
+hashes, uploads packages/installers, then publishes `stillon-release.json` last.
+Updates fetch metadata only from the official GitHub release over HTTPS, and verify
+archive and per-file SHA-256. These checks rely on the official GitHub publication
+trust boundary; the metadata is not a separately signed offline update feed.
+
+Signing secrets: `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`,
+`MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`,
+`WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`.
+A hardware-backed/cloud Windows signing service can replace `sign-windows.ps1`.
+Missing signing credentials fail public installer publication; PR builds remain
+available for development acceptance. No signing credentials are bundled.
+
+The controller protocol starts at 1. Each runtime declares the minimum compatible
+updater protocol; an incompatible future release fails before switching. Controller
+replacement remains a separate maintenance transaction, never an overwrite of a
+running helper. A subsequent controller upgrade mechanism must retain this boundary.
