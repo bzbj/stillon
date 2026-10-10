@@ -150,8 +150,9 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
 
 /** Stop only a desktop-owned managed installation; preserve all user data. */
 export async function uninstallDesktop() {
-  const root = updateRoot()
-  if (!await exists(path.join(root, "desktop.json"))) return
+  const directory = updateRoot()
+  if (!await exists(path.join(directory, "desktop.json"))) return
+  const root = await realpath(directory)
   const { deployment } = await verifyOwnedDeployment(root)
   await verifyDesktopReceipt(root)
   if (await leaseAlive(root)) throw new Error("Wait for the current update to finish before uninstalling")
