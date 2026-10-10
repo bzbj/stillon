@@ -2,7 +2,7 @@
 
 StillOn reads its selectable Codex models, capabilities, aliases and default
 roles from `<data directory>/codex-model-policy.json` (normally
-`~/.stillon/codex-model-policy.json`). It creates this editable file on first
+`~/.stillon/data/codex-model-policy.json`). It creates this editable file on first
 startup. The file lives outside the installed runtime and survives application
 updates. Model catalog changes no longer require a frontend rebuild or an
 application release.
