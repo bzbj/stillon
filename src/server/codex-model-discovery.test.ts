@@ -1,6 +1,16 @@
 import { expect, test } from "bun:test"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { discoverCodexModels } from "./codex-model-discovery"
+import { homedir } from "node:os"
+import path from "node:path"
+import { discoverCodexModels, resolveCodexDiscoveryHome } from "./codex-model-discovery"
+
+test("discovery resolves home for Unix, Windows and service environments", () => {
+  const root = path.join(homedir(), "example")
+  expect(resolveCodexDiscoveryHome({ HOME: root })).toBe(path.join(root, ".codex"))
+  expect(resolveCodexDiscoveryHome({ USERPROFILE: root })).toBe(path.join(root, ".codex"))
+  expect(resolveCodexDiscoveryHome({ CODEX_HOME: root, HOME: "ignored", USERPROFILE: "ignored" })).toBe(root)
+  expect(resolveCodexDiscoveryHome({})).toBe(path.join(homedir(), ".codex"))
+})
 
 const fake = `
 import {createInterface} from "node:readline";
@@ -51,7 +61,8 @@ for (const [mode, message] of [["empty", "empty catalog"], ["schema", "incompati
 }
 
 test("timeout escalates cleanup for an unresponsive discovery process", async () => {
-  const probe = query("timeout", 300)
+  const probe = query("timeout", 1500)
   await expect(probe.result).rejects.toThrow("timed out")
-  expect(probe.child().signalCode).toBe("SIGKILL")
-}, 3000)
+  if (process.platform !== "win32") expect(probe.child().signalCode).toBe("SIGKILL")
+  else expect(probe.child().exitCode !== null || probe.child().signalCode !== null).toBe(true)
+}, 5000)

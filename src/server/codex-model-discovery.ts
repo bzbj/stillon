@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFile, stat } from "node:fs/promises"
+import { homedir } from "node:os"
 import path from "node:path"
 import { z } from "zod"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
@@ -19,6 +20,14 @@ const pageSchema = z.object({ data: z.array(modelSchema).max(2000), nextCursor: 
 export type DiscoveredCodexModel = z.infer<typeof modelSchema>
 export interface CodexModelDiscoveryResult { models: DiscoveredCodexModel[]; cliVersion: string }
 
+function discoveryHome(environment: NodeJS.ProcessEnv) {
+  return environment.HOME || environment.USERPROFILE || homedir()
+}
+
+export function resolveCodexDiscoveryHome(environment: NodeJS.ProcessEnv) {
+  return environment.CODEX_HOME || path.join(discoveryHome(environment), ".codex")
+}
+
 /** Isolated metadata connection: never start/resume a thread or request inference. */
 export async function discoverCodexModels(options: {
   environment: NodeJS.ProcessEnv
@@ -26,7 +35,7 @@ export async function discoverCodexModels(options: {
   spawnProcess?: () => ChildProcessWithoutNullStreams
 }): Promise<CodexModelDiscoveryResult> {
   const child = options.spawnProcess?.() ?? spawn(getCodexCliCommand(), ["app-server"], {
-    cwd: options.environment.HOME || process.cwd(), env: options.environment, stdio: ["pipe", "pipe", "pipe"],
+    cwd: discoveryHome(options.environment), env: options.environment, stdio: ["pipe", "pipe", "pipe"],
   })
   let buffer = "", totalBytes = 0, serial = 0
   let closed = false
@@ -129,7 +138,7 @@ export async function codexDiscoveryContext(environment: NodeJS.ProcessEnv) {
     const info = await stat(command)
     hash.update(JSON.stringify([command, info.size, info.mtimeMs, info.ino]))
   }
-  const home = environment.CODEX_HOME || path.join(environment.HOME || "", ".codex")
+  const home = resolveCodexDiscoveryHome(environment)
   for (const file of ["auth.json", "config.toml"]) {
     try { hash.update(await readFile(path.join(home, file))) }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("Could not verify Codex discovery context.") }
