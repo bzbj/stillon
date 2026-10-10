@@ -6,6 +6,7 @@ import { localFetch } from "../src/server/updater/control"
 import { probeRuntime } from "../src/server/updater/engine"
 import { updateRoot, updateTarget, type UpdateDeployment } from "../src/server/updater/model"
 import pkg from "../package.json"
+import { rehearseDesktopUpdate } from "./rehearse-desktop-update"
 
 const target = updateTarget()
 const archive = path.resolve("dist/desktop/release", artifactName(pkg.version, target.platform, target.architecture))
@@ -43,6 +44,8 @@ try {
       workingDirectory: runtime, homeDirectory: profile, localAppDataDirectory: env.LOCALAPPDATA, pathEnvironment: env.PATH } }
   await probeRuntime(deployment, runtime, path.join(root, "probe"))
   checks.push("packaged server isolated start, health/version/identity, HTML/assets, authenticated shutdown")
+  report.updateRehearsal = await rehearseDesktopUpdate(runtime, path.join(root, "update-rehearsal"), env)
+  checks.push("real packaged update and rollback; prepared candidate reuse; personal skin preserved")
   if (native) {
     if (process.env.CI !== "true") throw new Error("Native acceptance is restricted to clean disposable CI runners")
     const custom = path.join(profile, ".stillon/customizations/skins/personal/custom.css")
