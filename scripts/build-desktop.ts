@@ -109,7 +109,9 @@ async function main() {
   const inputs: Record<string, Blob> = Object.create(null)
   for (const name of [BUNDLE_FILE, ...Object.keys(bundle.files)]) inputs[name] = new Blob([await Bun.file(path.join(runtime, name)).bytes()])
   const archive = path.join(release, artifactName(pkg.version, target.platform, target.architecture))
-  await Bun.write(archive, new Bun.Archive(inputs, { compress: "gzip" }))
+  // Bun 1.3.x's direct Bun.write(Archive) path does not preserve compression.
+  // Materialize the explicitly compressed bytes, as exercised by unpack tests.
+  await Bun.write(archive, await new Bun.Archive(inputs, { compress: "gzip" }).bytes())
   const bytes = await Bun.file(archive).bytes()
   const artifact: ReleaseArtifact = { ...target, buildId, name: path.basename(archive), size: bytes.byteLength, sha256: sha256(bytes) }
   await writeFile(path.join(release, `artifact-${target.platform}-${target.architecture}.json`), JSON.stringify(artifact, null, 2) + "\n")

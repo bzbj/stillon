@@ -21,7 +21,7 @@ interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "i
 export function desktopPath(home: string, platform = process.platform, inherited = process.env.PATH ?? "") {
   const paths = platform === "win32"
     ? [path.win32.join(home, ".local", "bin"), path.win32.join(home, "AppData", "Roaming", "npm"), path.win32.join(home, ".bun", "bin")]
-    : [path.join(home, ".local", "bin"), path.join(home, ".bun", "bin"), path.join(home, ".npm-global", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    : [path.posix.join(home, ".local", "bin"), path.posix.join(home, ".bun", "bin"), path.posix.join(home, ".npm-global", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
   return [...new Set([...paths, ...inherited.split(platform === "win32" ? ";" : ":")].filter(Boolean))].join(platform === "win32" ? ";" : ":")
 }
 
