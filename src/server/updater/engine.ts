@@ -3,6 +3,7 @@ import { mkdir, open, rename, stat, unlink } from "node:fs/promises"
 import path from "node:path"
 import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
 import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
+import { BUNDLE_FILE, runtimeExecutable } from "../distribution/bundle"
 import { FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
 export interface UpdateEffects {
@@ -238,7 +239,7 @@ export async function probeRuntime(deployment: UpdateDeployment, runtime: string
   for (const key of Object.keys(env)) {
     if (/^(?:OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|STILLON_)/.test(key) && key !== "STILLON_UPDATE_PROBE") delete env[key as keyof typeof env]
   }
-  const child = Bun.spawn([deployment.launch.executable, "--no-env-file", deployment.controller, "app", root, runtime, instance, secret, "1"], {
+  const child = Bun.spawn([await runtimeExecutable(runtime, deployment.launch.executable), "--no-env-file", deployment.controller, "app", root, runtime, instance, secret, "1"], {
     cwd: runtime, env, stdin: "ignore", stdout: Bun.file(path.join(root, "stdout.log")), stderr: Bun.file(path.join(root, "stderr.log")),
   })
   try { await verifyRuntime(probe, runtime) } finally {
@@ -294,6 +295,12 @@ export async function claimRequest(deployment: UpdateDeployment) {
 }
 
 export function realUpdateEffects(deployment: UpdateDeployment): UpdateEffects {
-  return { prepare: (state) => prepareSource(deployment, state), pause: () => pauseManagedServer(deployment),
+  return { prepare: async (state) => {
+    if (await exists(path.join(state.oldRuntime, BUNDLE_FILE))) {
+      const { preparePackage } = await import("../distribution/updates")
+      return preparePackage(deployment, state)
+    }
+    return prepareSource(deployment, state)
+  }, pause: () => pauseManagedServer(deployment),
     resume: (runtime) => resumeManagedServer(deployment, runtime), verify: (runtime) => verifyRuntime(deployment, runtime) }
 }

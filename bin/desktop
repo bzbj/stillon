@@ -1,0 +1,6 @@
+#!/usr/bin/env bun
+import { desktopMain } from "../src/server/distribution/desktop.ts"
+try { await desktopMain() } catch (error) {
+  console.error(error instanceof Error ? error.message : "StillOn could not start")
+  process.exitCode = 1
+}

@@ -3,6 +3,7 @@ import path from "node:path"
 import { atomicJson, exists, json } from "./files"
 import { SETUP_SWITCH_PHASES, SWITCH_PHASES, UPDATE_PHASES, type UpdateControl, type UpdateDeployment, type UpdateLease, type UpdateRunnerStatus, type UpdateState } from "./model"
 import { stopOrphanedApp } from "./processes"
+import { runtimeExecutable } from "../distribution/bundle"
 
 export async function localFetch(url: string, init: RequestInit = {}) {
   const options = { ...init, proxy: null, signal: AbortSignal.timeout(3_000) }
@@ -113,7 +114,7 @@ export async function runServerController(deployment: UpdateDeployment) {
           // Persist identity before spawn, so an interrupted spawn can be recovered.
           await atomicJson(statusFile, last)
           const envArgs = deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]
-          child = Bun.spawn([deployment.launch.executable, ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
+          child = Bun.spawn([await runtimeExecutable(control.runtime, deployment.launch.executable), ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
             await verificationPending(root) ? "1" : "0"], {
             cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: "inherit",
             env: { ...process.env, HOME: deployment.launch.homeDirectory, USERPROFILE: deployment.launch.homeDirectory,

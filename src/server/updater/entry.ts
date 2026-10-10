@@ -68,7 +68,7 @@ export async function controllerMain(args = process.argv.slice(2)) {
     const sourceEntry = path.join(deployment.launch.workingDirectory, "bin", "stillon")
     const index = deployment.launch.args.indexOf(sourceEntry)
     if (index < 0) throw new Error("Unrecognized StillOn CLI layout.")
-    process.argv = [deployment.launch.executable, entrypoint, ...deployment.launch.args.slice(index + 1)]
+    process.argv = [process.execPath, entrypoint, ...deployment.launch.args.slice(index + 1)]
     await import(pathToFileURL(entrypoint).href)
     return
   }

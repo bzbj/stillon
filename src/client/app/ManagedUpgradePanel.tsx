@@ -11,17 +11,19 @@ export const UPDATE_PHASE_LABELS: Record<string, string> = {
   succeeded: "Upgrade complete", "rolled-back": "Previous version restored", failed: "Upgrade stopped before switching versions",
 }
 
-export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatus }: {
+export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatus, onEnabledChange }: {
   targetTag?: string
   onRead: () => Promise<ManagedUpdateStatus>
   onRequest: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
   initialStatus?: ManagedUpdateStatus
+  onEnabledChange?: (enabled: boolean) => void
 }) {
   const [status, setStatus] = useState<ManagedUpdateStatus | null>(initialStatus ?? null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const callbacks = useRef({ onRead, onRequest })
   callbacks.current = { onRead, onRequest }
+  useEffect(() => { if (status) onEnabledChange?.(status.enabled) }, [status?.enabled, onEnabledChange])
   useEffect(() => {
     if (status?.phase === "succeeded" && status.targetTag && status.targetTag.replace(/^v/, "") !== APP_VERSION) {
       window.location.reload()

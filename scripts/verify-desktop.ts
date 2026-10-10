@@ -1,0 +1,77 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { artifactName, bunRelativePath, unpackBundle, verifyBundle } from "../src/server/distribution/bundle"
+import { localFetch } from "../src/server/updater/control"
+import { probeRuntime } from "../src/server/updater/engine"
+import { updateRoot, updateTarget, type UpdateDeployment } from "../src/server/updater/model"
+import pkg from "../package.json"
+
+const target = updateTarget()
+const archive = path.resolve("dist/desktop/release", artifactName(pkg.version, target.platform, target.architecture))
+const root = await mkdtemp(path.join(os.tmpdir(), "stillon-desktop-acceptance-"))
+const runtime = path.join(root, "extracted", "runtime with spaces")
+const profile = path.join(root, "profile")
+const native = process.argv.includes("--native")
+const report: Record<string, unknown> = { target, archive: path.basename(archive), checks: [] }
+const checks = report.checks as string[]
+let nativeStarted = false
+
+async function run(command: string[], env: NodeJS.ProcessEnv) {
+  const child = Bun.spawn(command, { cwd: root, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+  if (code !== 0) throw new Error(`${path.basename(command[0])} failed (${code}): ${stdout}\n${stderr}`)
+  return stdout.trim()
+}
+
+const env: NodeJS.ProcessEnv = { ...process.env, HOME: profile, USERPROFILE: profile, LOCALAPPDATA: path.join(profile, "AppData", "Local") }
+for (const key of Object.keys(env)) if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|STILLON_)/.test(key)) delete env[key]
+// A clean PATH proves that the embedded Bun is used, not a developer install.
+env.PATH = process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0` : "/usr/bin:/bin:/usr/sbin:/sbin"
+
+try {
+  const bundle = await unpackBundle(await Bun.file(archive).bytes(), runtime, target)
+  await verifyBundle(runtime, target)
+  checks.push("archive integrity; clean extraction outside repository; no source dependencies")
+  const executable = path.join(runtime, bunRelativePath(target.platform))
+  const actual = JSON.parse(await run([executable, "--no-env-file", "-e", "console.log(JSON.stringify({platform:process.platform,architecture:process.arch}))"], env))
+  if (actual.platform !== target.platform || actual.architecture !== target.architecture) throw new Error("Bundled runtime architecture mismatch")
+  if (await run([executable, "--no-env-file", path.join(runtime, "bin/stillon"), "--version"], env) !== bundle.version) throw new Error("Packaged CLI version mismatch")
+  checks.push("bundled runtime executes at expected architecture; CLI works without Bun in PATH")
+  const deployment: UpdateDeployment = { schema: 1, ...target, root: path.join(root, "managed"), controller: path.join(runtime, "runtime/controller.js"),
+    dataRoot: path.join(profile, ".stillon"), port: 3210, launch: { executable, args: [path.join(runtime, "bin/stillon"), "--no-open", "--strict-port", "--port", "3210"],
+      workingDirectory: runtime, homeDirectory: profile, localAppDataDirectory: env.LOCALAPPDATA, pathEnvironment: env.PATH } }
+  await probeRuntime(deployment, runtime, path.join(root, "probe"))
+  checks.push("packaged server isolated start, health/version/identity, HTML/assets, authenticated shutdown")
+  if (native) {
+    if (process.env.CI !== "true") throw new Error("Native acceptance is restricted to clean disposable CI runners")
+    const custom = path.join(profile, ".stillon/customizations/skins/personal/custom.css")
+    await mkdir(path.dirname(custom), { recursive: true }); await writeFile(custom, "/* personal skin: preserve */")
+    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
+    nativeStarted = true
+    const health = await (await localFetch("http://127.0.0.1:3210/health")).json() as { ok?: boolean; version?: string }
+    if (!health.ok || health.version !== bundle.version) throw new Error("Native installed service is unhealthy")
+    checks.push("native per-user service and independent updater setup, no local build")
+    // Launching again must open the existing deployment, preserving identity.
+    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
+    if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin changed during installation")
+    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--uninstall"], env)
+    nativeStarted = false
+    if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin removed during uninstall")
+    if (await Bun.file(path.join(updateRoot(target.platform, profile, env.LOCALAPPDATA), "deployment.json")).exists()) throw new Error("Uninstall left an active deployment")
+    checks.push("repeat launch; native uninstall; user skin retained")
+  }
+  report.status = "passed"
+  console.log(JSON.stringify(report, null, 2))
+} catch (error) {
+  report.status = "failed"; report.error = error instanceof Error ? error.message : String(error)
+  console.error(JSON.stringify(report, null, 2)); process.exitCode = 1
+} finally {
+  await mkdir("dist/desktop/reports", { recursive: true })
+  await writeFile(`dist/desktop/reports/${target.platform}-${target.architecture}.json`, JSON.stringify(report, null, 2) + "\n")
+  if (nativeStarted) {
+    try { await run([path.join(runtime, bunRelativePath(target.platform)), "--no-env-file", path.join(runtime, "bin/desktop"), "--uninstall"], env); nativeStarted = false } catch { /* Preserve paths needed for recovery on the disposable runner. */ }
+  }
+  if (!nativeStarted) await rm(root, { recursive: true, force: true })
+  else console.error(`Retained failed native acceptance for inspection: ${root}`)
+}
