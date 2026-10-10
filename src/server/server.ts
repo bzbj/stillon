@@ -8,6 +8,7 @@ import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
+import { CodexModelPolicyManager } from "./codex-model-policy-manager"
 import { AppSettingsManager } from "./app-settings"
 import { getAgentNetworkStatus, mergeAgentNetworkEnvironment } from "./agent-environment"
 import { detectSystemProxy, testAgentNetworkConnection } from "./agent-network"
@@ -112,6 +113,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
   }
   const store = new EventStore(options.dataDir)
+  const codexModelPolicy = new CodexModelPolicyManager(store.dataDir)
+  await codexModelPolicy.initialize()
   const machineDisplayName = getMachineDisplayName()
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
     defaultMachineName: machineDisplayName,
@@ -245,6 +248,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     terminals,
     keybindings,
     appSettings,
+    codexModelPolicy,
     agentNetwork: {
       readStatus: () => getAgentNetworkStatus(appSettings.getSnapshot().network),
       detect: detectSystemProxy,
@@ -391,6 +395,24 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
                 busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 } : {}),
               ...(managedUpdate.instance ? { updateInstance: managedUpdate.instance, updateProtocol: 1, version: APP_VERSION } : {}),
             })
+          }
+
+          if (["/api/codex/model-policy", "/api/codex/model-policy/refresh", "/api/codex/model-policy/restore"].includes(url.pathname)) {
+            const reading = url.pathname === "/api/codex/model-policy"
+            const method = reading ? "GET" : "POST"
+            if (req.method !== method) return new Response(null, { status: 405, headers: { Allow: method } })
+            if (!reading && (auth ? !auth.validateOrigin(req)
+              : req.headers.has("origin") && req.headers.get("origin") !== url.origin)) {
+              return Response.json({ error: "Forbidden" }, { status: 403 })
+            }
+            try {
+              const snapshot = reading ? codexModelPolicy.getSnapshot()
+                : url.pathname.endsWith("/refresh") ? await codexModelPolicy.refresh()
+                  : await codexModelPolicy.restore((await req.json()).target)
+              return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } })
+            } catch (error) {
+              return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 })
+            }
           }
 
           const browserPreviewProxyResponse = await handleBrowserPreviewProxy(req, url, {

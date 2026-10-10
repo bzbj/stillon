@@ -1,3 +1,4 @@
+import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
 import { AsyncQuestionDelivery, getAsyncQuestionDelivery } from "./asyncQuestionDelivery"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
@@ -824,6 +825,7 @@ export interface StillOnState {
 export function useStillOnState(activeChatId: string | null, cacheScope: string | null): StillOnState {
   const navigate = useNavigate()
   const socket = useStillOnSocket()
+  const modelPolicy = useCodexModelPolicyStore((store) => store.snapshot)
   const asyncQuestionDelivery = useMemo(() => getAsyncQuestionDelivery(socket), [socket])
   const dialog = useAppDialog()
   const { resolvedTheme } = useTheme()
@@ -949,6 +951,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [cacheScope, sidebarBootstrap.identity])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
+
+  useEffect(() => socket.subscribe({ type: "codex-model-policy" }, () => {}), [socket])
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
@@ -1375,7 +1379,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     ? "starting"
     : null
   const effectiveRuntimeStatus = optimisticRuntimeStatus ?? runtime?.status ?? null
-  const availableProviders = activeChatSnapshot?.availableProviders ?? PROVIDERS
+  const availableProviders = useMemo(() => (activeChatSnapshot?.availableProviders ?? PROVIDERS).map((provider) => (
+    provider.id === "codex" && modelPolicy ? { ...provider, models: modelPolicy.policy.models,
+      defaultModel: modelPolicy.policy.roles.conversation } : provider
+  )), [activeChatSnapshot?.availableProviders, modelPolicy])
   const asyncQuestionResponses: AsyncQuestionResponse[] = activeChatSnapshot?.asyncQuestionResponses ?? []
   const isProcessing = isProcessingStatus(effectiveRuntimeStatus ?? undefined)
   const canCancel = canCancelStatus(effectiveRuntimeStatus ?? undefined)

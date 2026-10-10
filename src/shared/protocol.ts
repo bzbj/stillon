@@ -1,3 +1,4 @@
+import type { CodexModelPolicySnapshot } from "./codex-model-policy"
 import type {
   AppSettingsSnapshot,
   AppSettingsPatch,
@@ -91,6 +92,7 @@ export type SubscriptionTopic =
   | { type: "local-projects" }
   | { type: "keybindings" }
   | { type: "app-settings" }
+  | { type: "codex-model-policy" }
   | { type: "chat"; chatId: string; recentLimit?: number }
   | { type: "project-git"; projectId: string }
   | { type: "terminal"; terminalId: string }
@@ -130,6 +132,9 @@ export type ClientCommand =
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.readAppSettings" }
+  | { type: "settings.readCodexModelPolicy" }
+  | { type: "settings.refreshCodexModelPolicy" }
+  | { type: "settings.restoreCodexModelPolicy"; target: "previous" | "builtin" }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
   | { type: "settings.readAgentNetworkStatus" }
   | { type: "settings.detectSystemProxy" }
@@ -311,16 +316,19 @@ export type ServerSnapshot =
   | { type: "local-projects"; data: LocalProjectsSnapshot }
   | { type: "keybindings"; data: KeybindingsSnapshot }
   | { type: "app-settings"; data: AppSettingsSnapshot }
+  | { type: "codex-model-policy"; data: CodexModelPolicySnapshot }
   | { type: "llm-provider"; data: LlmProviderSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
   | { type: "project-git"; data: ChatDiffSnapshot | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 
-export type ServerEnvelope =
+export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot } & (
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
   | { v: 1; type: "event"; id: string; event: TerminalEvent }
   | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult }
   | { v: 1; type: "error"; id?: string; message: string }
+
+)
 
 export function isClientEnvelope(value: unknown): value is ClientEnvelope {
   if (!value || typeof value !== "object") return false

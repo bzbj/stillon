@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION, getCodexModelForRole, normalizeClaudePermissionMode, 
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
+import type { CodexModelPolicyManager } from "./codex-model-policy-manager"
 import type { AppSettingsManager } from "./app-settings"
 import type { DiscoveredProject } from "./discovery"
 import { DiffStore } from "./diff-store"
@@ -124,6 +125,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
+  modelPolicySignature?: string
   protectedDraftChatIds?: Set<string>
 }
 
@@ -133,6 +135,7 @@ interface CreateWsRouterArgs {
   agent: AgentCoordinator
   terminals: TerminalManager
   keybindings: KeybindingsManager
+  codexModelPolicy?: CodexModelPolicyManager
   appSettings?: Pick<AppSettingsManager, "getSnapshot"> & Partial<Pick<AppSettingsManager, "writePatch" | "onChange">>
   llmProvider?: {
     read: () => Promise<LlmProviderSnapshot>
@@ -179,7 +182,7 @@ function getSidebarProjectOrder(store: EventStore) {
     : []
 }
 
-function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
+function sendEnvelope(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
   const payload = JSON.stringify(message)
   ws.send(payload)
   return Buffer.byteLength(payload, "utf8")
@@ -401,6 +404,7 @@ export function createWsRouter({
   terminals,
   keybindings,
   appSettings,
+  codexModelPolicy,
   llmProvider,
   subscriptionUsage,
   sourceUpgradePrompt,
@@ -411,6 +415,18 @@ export function createWsRouter({
   isDiscoveryInProgress,
   machineDisplayName,
 }: CreateWsRouterArgs) {
+  function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
+    if (codexModelPolicy) {
+      const snapshot = codexModelPolicy.getSnapshot()
+      const signature = JSON.stringify(snapshot)
+      if (ws.data.modelPolicySignature !== signature) {
+        ws.data.modelPolicySignature = signature
+        return sendEnvelope(ws, { ...message, codexModelPolicy: snapshot })
+      }
+    }
+    return sendEnvelope(ws, message)
+  }
+
   const getCurrentMachineDisplayName = typeof machineDisplayName === "function"
     ? machineDisplayName
     : () => machineDisplayName
@@ -661,6 +677,8 @@ export function createWsRouter({
       return true
     }
 
+    if (topic.type === "codex-model-policy") return false
+
     if (topic.type === "sidebar") {
       return Boolean(filter.includeSidebar)
     }
@@ -728,6 +746,12 @@ export function createWsRouter({
     topic: SubscriptionTopic,
     cache?: SnapshotComputationCache,
   ): Promise<ServerEnvelope> {
+    if (topic.type === "codex-model-policy") {
+      if (!codexModelPolicy) throw new Error("Runtime model configuration is unavailable")
+      return { v: PROTOCOL_VERSION, type: "snapshot", id,
+        snapshot: { type: "codex-model-policy", data: codexModelPolicy.getSnapshot() } }
+    }
+
     if (topic.type === "sidebar") {
       const sidebar = getSidebarSnapshotCacheEntry(cache)
       return {
@@ -1101,6 +1125,12 @@ export function createWsRouter({
     })
   })
 
+  const disposeModelPolicyEvents = codexModelPolicy?.onChange(() => {
+    void broadcastSnapshots().catch((error: unknown) => {
+      broadcastError(error instanceof Error ? error.message : String(error))
+    })
+  })
+
   agent.setBackgroundErrorReporter?.(broadcastError)
 
   function resolveChatProject(chatId: string) {
@@ -1168,6 +1198,18 @@ export function createWsRouter({
         case "settings.writeKeybindings": {
           const snapshot = await keybindings.write(command.bindings)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "settings.readCodexModelPolicy":
+        case "settings.refreshCodexModelPolicy":
+        case "settings.restoreCodexModelPolicy": {
+          if (!codexModelPolicy) throw new Error("Runtime model configuration is unavailable")
+          const result = command.type === "settings.refreshCodexModelPolicy"
+            ? await codexModelPolicy.refresh()
+            : command.type === "settings.restoreCodexModelPolicy"
+              ? await codexModelPolicy.restore(command.target)
+              : codexModelPolicy.getSnapshot()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
         case "settings.readAppSettings": {
@@ -1742,6 +1784,7 @@ export function createWsRouter({
       disposeTerminalEvents()
       disposeKeybindingEvents()
       disposeAppSettingsEvents()
+      disposeModelPolicyEvents?.()
     },
   }
 }
