@@ -47,8 +47,8 @@ try {
     if (process.env.CI !== "true") throw new Error("Native acceptance is restricted to clean disposable CI runners")
     const custom = path.join(profile, ".stillon/customizations/skins/personal/custom.css")
     await mkdir(path.dirname(custom), { recursive: true }); await writeFile(custom, "/* personal skin: preserve */")
-    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
     nativeStarted = true
+    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
     const health = await (await localFetch("http://127.0.0.1:3210/health")).json() as { ok?: boolean; version?: string }
     if (!health.ok || health.version !== bundle.version) throw new Error("Native installed service is unhealthy")
     checks.push("native per-user service and independent updater setup, no local build")

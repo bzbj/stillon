@@ -10,6 +10,9 @@
 #ifndef OutputDir
   #error OutputDir is required
 #endif
+#ifndef UnsignedSuffix
+  #define UnsignedSuffix "-unsigned"
+#endif
 
 [Setup]
 AppId={{85A34765-6311-41BB-A86D-5AB8FB4FA0A1}
@@ -31,7 +34,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 #endif
 OutputDir={#OutputDir}
-OutputBaseFilename=StillOn-{#AppVersion}-windows-{#AppArch}-setup
+OutputBaseFilename=StillOn-{#AppVersion}-windows-{#AppArch}{#UnsignedSuffix}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

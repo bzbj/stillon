@@ -54,7 +54,7 @@ async function buildMacInstaller() {
   // payload before its manifest is created; signing again must be avoided.
   await symlink("/Applications", path.join(output, "macos", "Applications"))
   await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo uninstall, hold Option while opening StillOn, choose Remove background services, then remove the app.\nChats, settings, themes and skins remain in your user directory.\n")
-  const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}.dmg`)
+  const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}${process.env.MACOS_SIGN_IDENTITY ? "" : "-unsigned"}.dmg`)
   await run(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
   if (process.env.MACOS_SIGN_IDENTITY) {
     await run(["/usr/bin/codesign", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, dmg])
@@ -72,7 +72,7 @@ async function buildWindowsInstaller() {
   const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
   await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
   const iscc = process.env.ISCC_PATH ?? "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-  await run([iscc, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, path.join(repository, "packaging", "windows", "stillon.iss")])
+  await run([iscc, `/DAppVersion=${pkg.version}`, `/DAppArch=${target.architecture}`, `/DUnsignedSuffix=${process.env.STILLON_REQUIRE_SIGNING === "1" ? "" : "-unsigned"}`, `/DPayloadDir=${app}`, `/DOutputDir=${release}`, path.join(repository, "packaging", "windows", "stillon.iss")])
   if (process.env.STILLON_REQUIRE_SIGNING === "1") {
     if (!process.env.WINDOWS_SIGN_SCRIPT) throw new Error("A public Windows installer requires WINDOWS_SIGN_SCRIPT")
     await run(["pwsh", "-NoProfile", "-NonInteractive", "-File", process.env.WINDOWS_SIGN_SCRIPT,

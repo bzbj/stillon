@@ -14,7 +14,7 @@ import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
 import { stopWindowsServiceProcesses } from "../updater/processes"
 import { verifyServiceRegistration, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
-import { bunRelativePath, verifyBundle } from "./bundle"
+import { BUNDLE_FILE, bunRelativePath, validateBundle, verifyBundle } from "./bundle"
 
 interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
@@ -36,7 +36,7 @@ async function verifyOwnedDeployment(root: string) {
   const control = await json<UpdateControl>(path.join(root, "control.json"))
   const releases = path.join(root, "releases")
   inside(releases, path.relative(releases, control.runtime))
-  await verifyBundle(control.runtime, deployment)
+  validateBundle(await json(path.join(control.runtime, BUNDLE_FILE)), deployment)
   return { deployment, control }
 }
 
@@ -46,7 +46,6 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   const home = os.homedir()
   const root = updateRoot()
   const marker = path.join(root, "desktop.json")
-  const sourceBundle = await verifyBundle(source, target)
   if (await exists(marker) && await exists(path.join(root, "deployment.json"))) {
     const { deployment } = await verifyOwnedDeployment(root)
     const setup = await exists(path.join(root, "setup.json")) ? await json<SetupState>(path.join(root, "setup.json")) : null
@@ -67,6 +66,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       throw new Error("StillOn setup or recovery is still pending. Reopen StillOn after the independent updater finishes.")
     }
   }
+  const sourceBundle = await verifyBundle(source, target)
   let install: DesktopInstallation
   if (await exists(marker)) {
     install = await json<DesktopInstallation>(marker)
@@ -77,6 +77,12 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       const registration = await json<ServiceRegistration>(registrationFile)
       if (registration.launch.workingDirectory !== install.runtime) throw new Error("An existing custom service must be migrated explicitly")
       await verifyServiceRegistration(registration)
+      const portIndex = registration.launch.args.indexOf("--port")
+      const response = await localFetch(`http://127.0.0.1:${registration.launch.args[portIndex + 1]}/health?update-setup=1`).catch(() => null)
+      if (response) {
+        const health = await response.json() as { ok?: boolean; busy?: boolean; managedUpdateProtocol?: number }
+        if (!health.ok || health.managedUpdateProtocol !== 1 || health.busy !== false) throw new Error("Finish active work before retrying desktop setup")
+      }
     }
   } else {
     // Refuse both recorded and unrecorded legacy services before copying anything.
@@ -106,8 +112,8 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   await waitUntil(async () => {
     try {
       const response = await localFetch(`http://127.0.0.1:${port}/health?update-setup=1`)
-      const data = await response.json() as { ok?: boolean; busy?: boolean; version?: string }
-      return response.ok && data.ok === true && data.busy === false && data.version === sourceBundle.version
+      const data = await response.json() as { ok?: boolean; busy?: boolean; managedUpdateProtocol?: number; runtimeProfile?: string }
+      return response.ok && data.ok === true && data.busy === false && data.managedUpdateProtocol === 1 && data.runtimeProfile === "prod"
     } catch { return false }
   })
   await setupManagedUpdates(root)
