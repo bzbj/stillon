@@ -80,25 +80,42 @@ export function validateBundle(value: unknown, expected?: { platform: UpdatePlat
 }
 
 export async function bundleFiles(root: string): Promise<Record<string, BundleFile>> {
-  const result: Record<string, BundleFile> = Object.create(null)
+  const names: string[] = []
   async function walk(directory: string) {
     const details = await lstat(directory)
     if (details.isSymbolicLink() || !details.isDirectory()) throw new Error("Linked runtime directory")
-    for (const entry of (await readdir(directory)).sort()) {
-      const file = path.join(directory, entry)
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(directory, entry.name)
       const name = path.relative(root, file).split(path.sep).join("/")
-      const stat = await lstat(file)
-      if (stat.isSymbolicLink()) throw new Error(`Runtime links are not supported: ${name}`)
-      if (stat.isDirectory()) { await walk(file); continue }
-      if (!stat.isFile()) throw new Error("Special runtime file")
+      if (entry.isSymbolicLink()) throw new Error(`Runtime links are not supported: ${name}`)
+      if (entry.isDirectory()) { await walk(file); continue }
+      if (!entry.isFile()) throw new Error("Special runtime file")
       if (name === BUNDLE_FILE) continue
-      validateBundlePath(name)
-      const hash = createHash("sha256")
-      for await (const chunk of Bun.file(file).stream()) hash.update(chunk)
-      result[name] = { sha256: hash.digest("hex"), size: stat.size, executable: !!(stat.mode & 0o111) }
+      names.push(validateBundlePath(name))
     }
   }
   await walk(root)
+  // Thousands of dependency files must not turn a prebuilt install into a long
+  // serial I/O queue. Bound concurrent handles and memory, keeping large binaries
+  // streamed and final manifest ordering independent of worker completion order.
+  names.sort()
+  const files: BundleFile[] = new Array(names.length)
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(8, names.length) }, async () => {
+    for (;;) {
+      const index = cursor++
+      if (index >= names.length) return
+      const file = path.join(root, names[index])
+      const stat = await lstat(file)
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Runtime file changed type: ${names[index]}`)
+      const hash = createHash("sha256")
+      if (stat.size <= 1024 * 1024) hash.update(await Bun.file(file).bytes())
+      else for await (const chunk of Bun.file(file).stream()) hash.update(chunk)
+      files[index] = { sha256: hash.digest("hex"), size: stat.size, executable: !!(stat.mode & 0o111) }
+    }
+  }))
+  const result: Record<string, BundleFile> = Object.create(null)
+  for (let index = 0; index < names.length; index++) result[names[index]] = files[index]
   return result
 }
 
@@ -137,12 +154,23 @@ export async function unpackBundle(bytes: Uint8Array, destination: string, expec
   }
   if (await exists(destination)) throw new Error("Refusing to overwrite an installed runtime")
   await mkdir(destination, { recursive: true, mode: 0o700 })
-  for (const [name, file] of files) {
+  async function write(name: string, file: Blob) {
     const target = inside(destination, name)
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 })
     await writeFile(target, new Uint8Array(await file.arrayBuffer()), { flag: "wx", mode: bundle.files[name]?.executable ? 0o755 : 0o644 })
     if (process.platform !== "win32") await chmod(target, bundle.files[name]?.executable ? 0o755 : 0o644)
   }
+  const small = [...files].filter(([, file]) => file.size <= 1024 * 1024)
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(8, small.length) }, async () => {
+    for (;;) {
+      const index = cursor++
+      if (index >= small.length) return
+      await write(...small[index])
+    }
+  }))
+  // Large native binaries stay sequential to avoid multiplying memory use.
+  for (const [name, file] of files) if (file.size > 1024 * 1024) await write(name, file)
   await verifyBundle(destination, expected)
   return bundle
 }

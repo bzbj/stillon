@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rename, rmdir, stat, unlink } from "node:fs/promises"
+import { mkdir, realpath, rename, rmdir, stat, unlink } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createServiceLaunchSpec, manageService, resolveServiceBackend, runServiceCommand } from "../service"
@@ -51,6 +51,7 @@ async function openBrowser(port: number) {
 }
 
 async function verifyOwnedDeployment(root: string) {
+  root = await realpath(root)
   const deployment = await json<UpdateDeployment>(path.join(root, "deployment.json"))
   if (deployment.root !== root) throw new Error("Managed installation directory changed")
   const control = await json<UpdateControl>(path.join(root, "control.json"))
