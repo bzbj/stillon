@@ -7,15 +7,43 @@ startup. The file lives outside the installed runtime and survives application
 updates. Model catalog changes no longer require a frontend rebuild or an
 application release.
 
-Edit the local JSON, then open **Settings → Providers → Codex Model
-Configuration → Refresh models**. Connected clients update automatically,
-including their model menus, supported reasoning efforts and Fast option.
-Clients that reconnect receive the active policy before settings or chat
-preferences are normalized. Saved valid preferences are preserved; aliases
-migrate replaced model IDs and unsupported options normalize to valid values.
-Unknown IDs fall back to the conversation role. Historical transcript entries
-and current turn preferences are not rewritten, and refresh does not restart
-agent sessions. A subsequent turn uses the refreshed catalog.
+Open **Settings → Providers → Codex Model Configuration → Fetch models from
+Codex** after updating Codex CLI. This starts an isolated `codex app-server`
+metadata connection and fetches all visible models through `model/list`. It
+never starts a thread or turn and does not modify the active configuration.
+There is no automatic startup or per-turn model discovery.
+
+Review the candidate list, check the models you want to enable, and select the
+conversation/background defaults from those models. Newly discovered models
+are unchecked. Existing enabled models remain selected; those absent from the
+returned catalog are marked as unverified and retained until you deselect them.
+Unsupported models cannot be enabled. Click **Confirm and apply** to persist
+only your selection, or **Cancel** to keep the current configuration.
+
+Confirmation uses a server-owned draft, expires after 30 minutes, and rejects
+changes to the active policy or Codex account/CLI/configuration since discovery.
+Concurrent refresh requests share one metadata query. Discovery has a bounded
+20-second timeout and response/page limits; failure preserves the current policy.
+Candidates are temporary; confirmed models remain in the external configuration
+and recovery journal across application restarts and upgrades. Codex's returned
+catalog depends on the installed CLI, account and global provider configuration;
+it is not a guarantee of global newest models or continuing remote availability.
+
+Reasoning options come from discovery; unsupported options are omitted with a
+warning, and models with no compatible options are disabled. Fast capability is
+not inferred from `model/list`: existing local Fast configuration is preserved,
+and new models default to Standard. Existing aliases are preserved unless they
+conflict with a selected canonical ID. Official `isDefault`/`upgrade` hints do not
+silently replace local defaults or selections. Saved valid preferences take
+priority over role defaults. Active turn parameters and historical transcripts
+are never rewritten; subsequent turns use the accepted policy. Connected clients
+receive the authoritative policy before settings or chat preference normalization,
+including reconnects. Restore previous/bundled configuration remains available.
+
+For manual overrides, edit the local JSON and use **Advanced: local configuration
+→ Reload local file**. CLI model additions using existing supported capabilities
+need no StillOn reinstall or frontend rebuild. Protocol or new UI capabilities
+may still require a StillOn application update.
 
 The local file wraps the same validated policy used by the bundled catalog:
 
@@ -95,8 +123,16 @@ that file; save a copy first if those edits are needed.
 Changing that baseline still requires a build/release, but ordinary model
 upgrades use the external file. Codex CLI itself is installed separately and can
 be upgraded without rebuilding StillOn when its protocol remains compatible.
-Automatic discovery through Codex `model/list` is optional future work; runtime
-refresh deliberately works without a discovery or inference request.
+Manual discovery through Codex `model/list` uses explicit selection and
+confirmation. Reloading the local file works without discovery or inference.
+
+The authenticated POST `/api/codex/model-policy/discover` returns a selection
+draft, leaving the active policy untouched. POST `/api/codex/model-policy/apply`
+accepts `{ "draftId": "…", "modelIds": ["…"], "roles": { "conversation": "…",
+"background": "…" } }`; model IDs and capabilities are validated against the
+server-owned draft. Mutations use the same authentication and Origin checks as
+refresh/restore. WebSocket commands are `settings.discoverCodexModels` and
+`settings.applyCodexModelSelection` (with `selection` containing that payload).
 
 Run `bun run check` and `bun run test` before merging an application change.
 Runtime policy tests cover atomic rejection, restart recovery, restoration,

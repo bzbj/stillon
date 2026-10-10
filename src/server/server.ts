@@ -8,7 +8,7 @@ import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
-import { CodexModelPolicyManager } from "./codex-model-policy-manager"
+import { CodexModelPolicyManager, type CodexModelDiscoveryOptions } from "./codex-model-policy-manager"
 import { AppSettingsManager } from "./app-settings"
 import { getAgentNetworkStatus, mergeAgentNetworkEnvironment } from "./agent-environment"
 import { detectSystemProxy, testAgentNetworkConnection } from "./agent-network"
@@ -78,6 +78,7 @@ export async function persistUploadedFiles(args: {
 }
 
 export interface StartStillOnServerOptions {
+  codexModelDiscovery?: CodexModelDiscoveryOptions
   port?: number
   host?: string
   openBrowser?: boolean
@@ -113,7 +114,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
   }
   const store = new EventStore(options.dataDir)
-  const codexModelPolicy = new CodexModelPolicyManager(store.dataDir)
+  const codexModelPolicy = new CodexModelPolicyManager(store.dataDir, {
+    ...options.codexModelDiscovery,
+    getEnvironment: () => getAgentEnvironment(),
+  })
   await codexModelPolicy.initialize()
   const machineDisplayName = getMachineDisplayName()
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
@@ -300,7 +304,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     instance: process.env.STILLON_UPDATE_INSTANCE,
     secret: process.env.STILLON_UPDATE_SECRET,
     verifying: process.env.STILLON_UPDATE_VERIFYING === "1",
-    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0,
+    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy,
     shutdown: async () => { await shutdown(); process.emit("SIGTERM") },
   })
 
@@ -392,12 +396,12 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({ ok: true, port: actualPort,
               ...(url.searchParams.get("update-setup") === "1" ? { managedUpdateProtocol: 1,
                 runtimeProfile: getRuntimeProfile(),
-                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 } : {}),
+                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy } : {}),
               ...(managedUpdate.instance ? { updateInstance: managedUpdate.instance, updateProtocol: 1, version: APP_VERSION } : {}),
             })
           }
 
-          if (["/api/codex/model-policy", "/api/codex/model-policy/refresh", "/api/codex/model-policy/restore"].includes(url.pathname)) {
+          if (["/api/codex/model-policy", "/api/codex/model-policy/refresh", "/api/codex/model-policy/restore", "/api/codex/model-policy/discover", "/api/codex/model-policy/apply"].includes(url.pathname)) {
             const reading = url.pathname === "/api/codex/model-policy"
             const method = reading ? "GET" : "POST"
             if (req.method !== method) return new Response(null, { status: 405, headers: { Allow: method } })
@@ -407,7 +411,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
             try {
               const snapshot = reading ? codexModelPolicy.getSnapshot()
-                : url.pathname.endsWith("/refresh") ? await codexModelPolicy.refresh()
+                : url.pathname.endsWith("/discover") ? await codexModelPolicy.discover()
+                  : url.pathname.endsWith("/apply") ? await codexModelPolicy.applySelection(await req.json())
+                  : url.pathname.endsWith("/refresh") ? await codexModelPolicy.refresh()
                   : await codexModelPolicy.restore((await req.json()).target)
               return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } })
             } catch (error) {
@@ -514,6 +520,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       // the server unwind before compacting EventStore or returning to callers
       // that may remove the data directory.
       await server.stop(true)
+      await codexModelPolicy.close()
       await Promise.allSettled([...pendingServerOperations])
       await discoveryRefresh
       // Stop every run and wait for its processes, so none outlives the service.

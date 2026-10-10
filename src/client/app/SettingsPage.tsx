@@ -3135,7 +3135,7 @@ export function SettingsPage() {
                       </div>
                     </SettingsRow>
 
-                    <SettingsRow title="Codex Model Configuration" description="Refresh or restore the model list without rebuilding StillOn." alignStart>
+                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." alignStart>
                       <CodexModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
                     </SettingsRow>
 

@@ -97,3 +97,64 @@ test("runtime policy endpoint and two live clients refresh, reject, restore and 
     await rm(dataDir, { recursive: true, force: true })
   }
 }, 15_000)
+
+test("discovered candidates only become active after confirmation, synchronize clients and survive restart", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-selection-integration-"))
+  const clients: ReturnType<typeof connect>[] = []
+  let server: Awaited<ReturnType<typeof startStillOnServer>> | undefined
+  const discovery = { getContext: async () => "test-account", discover: async () => ({ cliVersion: "0.159.2", models: [
+    { id: "new-codex", model: "new-codex", displayName: "New Codex", supportedReasoningEfforts: [{ reasoningEffort: "high" }] },
+  ] }) }
+  try {
+    const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
+    const port = reserve.port!
+    await reserve.stop(true)
+    server = await startStillOnServer({ dataDir, port, strictPort: true, openBrowser: false, codexModelDiscovery: discovery })
+    const project = await server.store.openProject(dataDir, "Selection test")
+    const chat = await server.store.createChat(project.id)
+    await server.store.setChatTurnPreferences(chat.id, { provider: "codex", model: "gpt-6.1-sol",
+      modelOptions: { reasoningEffort: "high", fastMode: true }, permissionMode: "full" })
+    const before = structuredClone(server.store.getChat(chat.id)?.lastTurnPreferences)
+    const a = connect(port), b = connect(port)
+    clients.push(a, b)
+    await Promise.all([a.opened, b.opened])
+    b.ws.send(JSON.stringify({ v: 1, type: "subscribe", id: "catalog", topic: { type: "codex-model-policy" } }))
+    const response = await a.command({ type: "settings.discoverCodexModels" })
+    expect(response.type).toBe("ack")
+    if (response.type !== "ack") throw new Error("No draft")
+    const draft = response.result as any
+    const read = () => fetch(`http://127.0.0.1:${port}/api/codex/model-policy`).then((response) => response.json())
+    expect((await read()).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
+    const selection = { draftId: draft.id, modelIds: ["new-codex"], roles: { conversation: "new-codex", background: "new-codex" } }
+    const forbidden = await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/apply`, {
+      method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: JSON.stringify(selection) })
+    expect(forbidden.status).toBe(403)
+    expect((await a.command({ type: "settings.applyCodexModelSelection", selection })).type).toBe("ack")
+    await b.command({ type: "settings.readCodexModelPolicy" })
+    expect(b.messages.some((message) => message.type === "snapshot" && message.snapshot.type === "codex-model-policy"
+      && message.snapshot.data.policy.models[0]?.id === "new-codex")).toBe(true)
+    expect(server.store.getChat(chat.id)?.lastTurnPreferences).toEqual(before)
+    const accepted = (await read()).policy
+    for (const client of clients) client.ws.close()
+    await server.stop()
+    server = await startStillOnServer({ dataDir, port, strictPort: true, openBrowser: false, codexModelDiscovery: discovery })
+    expect((await read()).policy).toEqual(accepted)
+    expect(server.store.getChat(chat.id)?.lastTurnPreferences).toEqual(before)
+    const c = connect(port)
+    clients.push(c)
+    await c.opened
+    const settings = await c.command({ type: "settings.readAppSettings" })
+    expect(settings.codexModelPolicy?.policy).toEqual(accepted)
+    const httpDraft = await (await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/discover`, { method: "POST" })).json()
+    const applied = await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/apply`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ ...selection, draftId: httpDraft.id }) })
+    expect(applied.status).toBe(200)
+    expect((await c.command({ type: "settings.restoreCodexModelPolicy", target: "previous" })).type).toBe("ack")
+    expect((await read()).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
+  } finally {
+    for (const client of clients) client.ws.close()
+    await server?.stop()
+    applyServerCodexModelPolicy(BUNDLED_CODEX_MODEL_POLICY)
+    await rm(dataDir, { recursive: true, force: true })
+  }
+}, 15000)

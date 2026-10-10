@@ -52,6 +52,30 @@ export interface CodexModelPolicySnapshot {
   canRestore: boolean
 }
 
+export interface CodexModelCandidate {
+  model: CodexModelPolicy["models"][number]
+  available: boolean
+  disabledReason?: string
+}
+
+export interface CodexModelSelectionDraft {
+  id: string
+  baseRevision: string
+  fetchedAt: string
+  expiresAt: string
+  cliVersion: string
+  candidates: CodexModelCandidate[]
+  selectedModelIds: string[]
+  roles: CodexModelPolicy["roles"]
+  warnings: string[]
+}
+
+export interface CodexModelSelection {
+  draftId: string
+  modelIds: string[]
+  roles: CodexModelPolicy["roles"]
+}
+
 // The bundled policy remains a recovery baseline. Effective policy is replaced
 // in place so existing imports of the catalog and roles stay synchronized.
 export const BUNDLED_CODEX_MODEL_POLICY = codexModelPolicySchema.parse(policy)

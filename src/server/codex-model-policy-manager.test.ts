@@ -97,3 +97,124 @@ describe("runtime Codex model configuration", () => {
     expect(JSON.parse(await readFile(manager.filePath, "utf8")).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
   })
 })
+
+const discovered = () => ({ cliVersion: "0.159.2", models: [
+  { id: "gpt-6.1-sol", model: "gpt-6.1-sol", displayName: "Sol", supportedReasoningEfforts: [{ reasoningEffort: "high" }] },
+  { id: "gpt-6-sol", model: "gpt-6-sol", displayName: "Previous Sol", supportedReasoningEfforts: [{ reasoningEffort: "medium" }] },
+  { id: "future", model: "future", displayName: "Future", supportedReasoningEfforts: [{ reasoningEffort: "high" }, { reasoningEffort: "new-effort" }] },
+  { id: "incompatible", model: "incompatible", displayName: "Incompatible", supportedReasoningEfforts: [{ reasoningEffort: "new-effort" }] },
+  { id: "no-effort", model: "no-effort", displayName: "No effort", supportedReasoningEfforts: [] },
+] })
+
+test("discovery is a read-only draft; explicit selection persists capabilities, aliases, roles and rollback", async () => {
+  const manager = new CodexModelPolicyManager(directory, { discover: async () => discovered(), getContext: async () => "account-a" })
+  await manager.initialize()
+  const before = manager.getSnapshot()
+  const beforeFile = await readFile(manager.filePath, "utf8")
+  const draft = await manager.discover()
+  expect(manager.getSnapshot()).toEqual(before)
+  expect(await readFile(manager.filePath, "utf8")).toBe(beforeFile)
+  expect(draft.selectedModelIds).toEqual(before.policy.models.map((model) => model.id))
+  expect(draft.candidates.find((candidate) => candidate.model.id === "gpt-6-luna")?.available).toBe(false)
+  expect(draft.candidates.find((candidate) => candidate.model.id === "incompatible")?.disabledReason).toBeDefined()
+  expect(draft.candidates.find((candidate) => candidate.model.id === "future")?.model.supportsFastMode).toBe(false)
+  expect(draft.candidates.find((candidate) => candidate.model.id === "no-effort")?.disabledReason).toBeDefined()
+  expect(draft.warnings.length).toBe(2)
+  const selection = { draftId: draft.id, modelIds: ["gpt-6.1-sol", "gpt-6-sol", "future"], roles: { conversation: "gpt-6.1-sol", background: "future" } }
+  const accepted = await manager.applySelection(selection)
+  expect(accepted.policy.models.map((model) => model.id)).toEqual(selection.modelIds)
+  expect(accepted.policy.models[0]?.aliases).not.toContain("gpt-6-sol")
+  expect(accepted.policy.models[0]?.aliases).toContain("gpt-5.6-sol")
+  expect(accepted.policy.models[0]?.supportsFastMode).toBe(true)
+  expect(accepted.policy.models[2]?.supportedReasoningEfforts).toEqual(["high"])
+  expect(accepted.policy.roles).toEqual(selection.roles)
+  const restarted = new CodexModelPolicyManager(directory)
+  await restarted.initialize()
+  expect(restarted.getSnapshot().policy).toEqual(accepted.policy)
+  await restarted.restore("previous")
+  expect(restarted.getSnapshot().policy).toEqual(before.policy)
+  await expect(manager.applySelection(selection)).rejects.toThrow("expired")
+})
+
+test("confirmation rejects tampered, incompatible, stale and account-changed drafts without replacing files", async () => {
+  let context = "account-a"
+  const manager = new CodexModelPolicyManager(directory, { discover: async () => discovered(), getContext: async () => context })
+  await manager.initialize()
+  const draft = await manager.discover()
+  const beforeFile = await readFile(manager.filePath, "utf8")
+  const selection = { draftId: draft.id, modelIds: ["future"], roles: { conversation: "future", background: "future" } }
+  for (const modelIds of [[], ["future", "future"], ["invented"], ["incompatible"]]) {
+    await expect(manager.applySelection({ ...selection, modelIds })).rejects.toThrow()
+    expect(await readFile(manager.filePath, "utf8")).toBe(beforeFile)
+  }
+  await expect(manager.applySelection({ ...selection, roles: { conversation: "missing", background: "future" } })).rejects.toThrow()
+  context = "account-b"
+  await expect(manager.applySelection(selection)).rejects.toThrow("account or CLI changed")
+  context = "account-a"
+  await configure(manager, replacementPolicy())
+  await manager.refresh()
+  await expect(manager.applySelection(selection)).rejects.toThrow("configuration changed")
+  expect(manager.getSnapshot().policy).toEqual(replacementPolicy())
+})
+
+test("failed discovery retains policy; concurrent discovery shares one bounded request and shutdown awaits it", async () => {
+  let calls = 0
+  let finish!: (value: ReturnType<typeof discovered>) => void
+  const manager = new CodexModelPolicyManager(directory, { getContext: async () => "same", discover: () => {
+    calls++
+    return new Promise((resolve) => { finish = resolve })
+  } })
+  await manager.initialize()
+  const a = manager.discover(), b = manager.discover()
+  await Bun.sleep(0)
+  expect(calls).toBe(1)
+  expect(manager.busy).toBe(true)
+  const close = manager.close()
+  finish(discovered())
+  const [first, second] = await Promise.all([a, b])
+  expect(first.id).toBe(second.id)
+  await close
+  expect(manager.busy).toBe(false)
+  await expect(manager.discover()).rejects.toThrow("shutting down")
+  const failing = new CodexModelPolicyManager(directory, { getContext: async () => "same", discover: async () => { throw new Error("offline") } })
+  await failing.initialize()
+  const initial = failing.getSnapshot()
+  await expect(failing.discover()).rejects.toThrow("offline")
+  expect(failing.getSnapshot()).toEqual(initial)
+})
+
+test("confirmation journal failure restores editable file and preserves the draft for retry", async () => {
+  const manager = new CodexModelPolicyManager(directory, { discover: async () => discovered(), getContext: async () => "same" })
+  await manager.initialize()
+  const before = await readFile(manager.filePath, "utf8")
+  const draft = await manager.discover()
+  const selection = { draftId: draft.id, modelIds: ["future"], roles: { conversation: "future", background: "future" } }
+  const journal = path.join(directory, "codex-model-policy-state.json")
+  await mkdir(journal)
+  await expect(manager.applySelection(selection)).rejects.toThrow()
+  expect(await readFile(manager.filePath, "utf8")).toBe(before)
+  expect(manager.getSnapshot().policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
+  await rm(journal, { recursive: true })
+  await manager.applySelection(selection)
+  expect(manager.getSnapshot().policy.models.map((model) => model.id)).toEqual(["future"])
+})
+
+test("expired confirmation and context changes during discovery preserve active configuration", async () => {
+  let now = Date.now()
+  const manager = new CodexModelPolicyManager(directory, { now: () => now,
+    discover: async () => discovered(), getContext: async () => "account" })
+  await manager.initialize()
+  const draft = await manager.discover()
+  const before = await readFile(manager.filePath, "utf8")
+  now += 31 * 60_000
+  await expect(manager.applySelection({ draftId: draft.id, modelIds: ["future"],
+    roles: { conversation: "future", background: "future" } })).rejects.toThrow("expired")
+  expect(await readFile(manager.filePath, "utf8")).toBe(before)
+  let reads = 0
+  const changing = new CodexModelPolicyManager(directory, {
+    discover: async () => discovered(), getContext: async () => ++reads === 1 ? "before" : "after" })
+  await changing.initialize()
+  const initial = changing.getSnapshot()
+  await expect(changing.discover()).rejects.toThrow("changed during discovery")
+  expect(changing.getSnapshot()).toEqual(initial)
+})

@@ -1,4 +1,4 @@
-import type { CodexModelPolicySnapshot } from "./codex-model-policy"
+import type { CodexModelPolicySnapshot, CodexModelSelection } from "./codex-model-policy"
 import type {
   AppSettingsSnapshot,
   AppSettingsPatch,
@@ -134,6 +134,8 @@ export type ClientCommand =
   | { type: "settings.readAppSettings" }
   | { type: "settings.readCodexModelPolicy" }
   | { type: "settings.refreshCodexModelPolicy" }
+  | { type: "settings.discoverCodexModels" }
+  | { type: "settings.applyCodexModelSelection"; selection: CodexModelSelection }
   | { type: "settings.restoreCodexModelPolicy"; target: "previous" | "builtin" }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
   | { type: "settings.readAgentNetworkStatus" }

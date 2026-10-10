@@ -1202,13 +1202,19 @@ export function createWsRouter({
         }
         case "settings.readCodexModelPolicy":
         case "settings.refreshCodexModelPolicy":
+        case "settings.discoverCodexModels":
+        case "settings.applyCodexModelSelection":
         case "settings.restoreCodexModelPolicy": {
           if (!codexModelPolicy) throw new Error("Runtime model configuration is unavailable")
-          const result = command.type === "settings.refreshCodexModelPolicy"
-            ? await codexModelPolicy.refresh()
-            : command.type === "settings.restoreCodexModelPolicy"
-              ? await codexModelPolicy.restore(command.target)
-              : codexModelPolicy.getSnapshot()
+          const result = command.type === "settings.discoverCodexModels"
+            ? await codexModelPolicy.discover()
+            : command.type === "settings.applyCodexModelSelection"
+              ? await codexModelPolicy.applySelection(command.selection)
+              : command.type === "settings.refreshCodexModelPolicy"
+                ? await codexModelPolicy.refresh()
+                : command.type === "settings.restoreCodexModelPolicy"
+                  ? await codexModelPolicy.restore(command.target)
+                  : codexModelPolicy.getSnapshot()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
