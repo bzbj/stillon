@@ -1,4 +1,4 @@
-import { chmod, copyFile, cp, mkdir, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
@@ -73,20 +73,19 @@ async function buildWindowsInstaller() {
 }
 
 async function main() {
+  console.time("desktop build")
   await rm(output, { recursive: true, force: true })
   await mkdir(runtime, { recursive: true })
   await mkdir(release, { recursive: true })
   // CI does all installation/build work. The distributed launcher never does it.
   await copyFile(path.join(repository, "package.json"), path.join(runtime, "package.json"))
   await copyFile(path.join(repository, "bun.lock"), path.join(runtime, "bun.lock"))
-  await run([process.execPath, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], runtime)
+  console.log("Installing production dependencies in the build staging directory…")
+  await run([process.execPath, "install", "--production", "--frozen-lockfile", "--ignore-scripts", "--linker=hoisted"], runtime)
   await rm(path.join(runtime, "node_modules", ".bin"), { recursive: true, force: true })
-  // No symlinks in the on-disk distribution, even when the package manager used
-  // an isolated linker. Dereference into a second staging directory in CI only.
-  const modules = path.join(output, "modules")
-  await cp(path.join(runtime, "node_modules"), modules, { recursive: true, dereference: true })
-  await rm(path.join(runtime, "node_modules"), { recursive: true, force: true })
-  await rename(modules, path.join(runtime, "node_modules"))
+  // Hoisted packages are ordinary files. bundleFiles rejects any unexpected
+  // package symlinks; never copy dependencies between OS/architecture targets.
+  console.log("Assembling the server, clients and independent updater…")
   for (const name of ["bin", "src/server", "src/shared", "dist/client", "dist/export-viewer", "LICENSE", "README.md"]) {
     await cp(path.join(repository, name), path.join(runtime, name), { recursive: true,
       filter: (source) => !/\.test\.tsx?$/.test(source) })
@@ -106,6 +105,7 @@ async function main() {
     bunVersion: Bun.version, minimumUpdaterProtocol: 1, files: await bundleFiles(runtime) }
   validateBundle(bundle)
   await writeFile(path.join(runtime, BUNDLE_FILE), JSON.stringify(bundle, null, 2) + "\n")
+  console.log(`Packing ${Object.keys(bundle.files).length} verified runtime files…`)
   const inputs: Record<string, Blob> = Object.create(null)
   for (const name of [BUNDLE_FILE, ...Object.keys(bundle.files)]) inputs[name] = new Blob([await Bun.file(path.join(runtime, name)).bytes()])
   const archive = path.join(release, artifactName(pkg.version, target.platform, target.architecture))
@@ -118,6 +118,7 @@ async function main() {
   if (process.argv.includes("--runtime-only")) return
   if (target.platform === "darwin") await buildMacInstaller()
   else await buildWindowsInstaller()
+  console.timeEnd("desktop build")
   console.log(`Desktop artifacts: ${release}`)
   console.log(`Signing: ${process.env.STILLON_REQUIRE_SIGNING === "1" ? "required" : "development artifacts; not a signed public release"}`)
   console.log((await readdir(release)).join("\n"))
