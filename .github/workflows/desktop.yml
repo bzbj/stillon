@@ -3,6 +3,11 @@ name: Desktop installers
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      require-signing:
+        description: Build signed installers for acceptance without publishing a release
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       require-signing:

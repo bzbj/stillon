@@ -16,6 +16,8 @@ const profile = path.join(root, "profile")
 const native = process.argv.includes("--native")
 const report: Record<string, unknown> = { target, archive: path.basename(archive), checks: [] }
 const checks = report.checks as string[]
+const timings: Record<string, number> = {}
+report.timingsMs = timings
 let nativeStarted = false
 
 async function run(command: string[], env: NodeJS.ProcessEnv) {
@@ -31,8 +33,10 @@ for (const key of Object.keys(env)) if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|STI
 env.PATH = process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0` : "/usr/bin:/bin:/usr/sbin:/sbin"
 
 try {
+  let started = performance.now()
   const bundle = await unpackBundle(await Bun.file(archive).bytes(), runtime, target)
   await verifyBundle(runtime, target)
+  timings.unpackAndVerify = Math.round(performance.now() - started)
   checks.push("archive integrity; clean extraction outside repository; no source dependencies")
   const executable = path.join(runtime, bunRelativePath(target.platform))
   const actual = JSON.parse(await run([executable, "--no-env-file", "-e", "console.log(JSON.stringify({platform:process.platform,architecture:process.arch}))"], env))
@@ -44,21 +48,29 @@ try {
       workingDirectory: runtime, homeDirectory: profile, localAppDataDirectory: env.LOCALAPPDATA, pathEnvironment: env.PATH } }
   await probeRuntime(deployment, runtime, path.join(root, "probe"))
   checks.push("packaged server isolated start, health/version/identity, HTML/assets, authenticated shutdown")
+  started = performance.now()
   report.updateRehearsal = await rehearseDesktopUpdate(runtime, path.join(root, "update-rehearsal"), env)
+  timings.failedUpdateRollbackAndRetry = Math.round(performance.now() - started)
   checks.push("real packaged update and rollback; prepared candidate reuse; personal skin preserved")
   if (native) {
     if (process.env.CI !== "true") throw new Error("Native acceptance is restricted to clean disposable CI runners")
     const custom = path.join(profile, ".stillon/customizations/skins/personal/custom.css")
     await mkdir(path.dirname(custom), { recursive: true }); await writeFile(custom, "/* personal skin: preserve */")
     nativeStarted = true
+    started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
+    timings.firstNativeSetup = Math.round(performance.now() - started)
     const health = await (await localFetch("http://127.0.0.1:3210/health")).json() as { ok?: boolean; version?: string }
     if (!health.ok || health.version !== bundle.version) throw new Error("Native installed service is unhealthy")
     checks.push("native per-user service and independent updater setup, no local build")
     // Launching again must open the existing deployment, preserving identity.
+    started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
+    timings.repeatLaunch = Math.round(performance.now() - started)
     if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin changed during installation")
+    started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--uninstall"], env)
+    timings.nativeUninstall = Math.round(performance.now() - started)
     nativeStarted = false
     if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin removed during uninstall")
     if (await Bun.file(path.join(updateRoot(target.platform, profile, env.LOCALAPPDATA), "deployment.json")).exists()) throw new Error("Uninstall left an active deployment")

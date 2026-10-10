@@ -140,6 +140,9 @@ Signing secrets: `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`,
 A hardware-backed/cloud Windows signing service can replace `sign-windows.ps1`.
 Missing signing credentials fail public installer publication; PR builds remain
 available for development acceptance. No signing credentials are bundled.
+Run the Desktop installers workflow manually with `require-signing` enabled to
+validate signed artifacts before publishing a release; manual builds only upload
+CI artifacts and never publish release assets.
 
 The macOS build signs Bun before creating the file manifest, verifies native helper
 signatures, then signs and notarizes the containing app/DMG, following
