@@ -1,3 +1,4 @@
+import type { ChatDelta, ChatStreamStamp } from "./chat-stream"
 import type { CodexModelPolicySnapshot, CodexModelSelection } from "./codex-model-policy"
 import type {
   AppSettingsSnapshot,
@@ -93,7 +94,7 @@ export type SubscriptionTopic =
   | { type: "keybindings" }
   | { type: "app-settings" }
   | { type: "codex-model-policy" }
-  | { type: "chat"; chatId: string; recentLimit?: number }
+  | { type: "chat"; chatId: string; recentLimit?: number; streamVersion?: 1; streamId?: string }
   | { type: "project-git"; projectId: string }
   | { type: "terminal"; terminalId: string }
 
@@ -325,7 +326,8 @@ export type ServerSnapshot =
   | { type: "terminal"; data: TerminalSnapshot | null }
 
 export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot } & (
-  | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
+  | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot; stream?: ChatStreamStamp }
+  | { v: 1; type: "chat-delta"; id: string; delta: ChatDelta; stream: ChatStreamStamp; baseRevision: number }
   | { v: 1; type: "event"; id: string; event: TerminalEvent }
   | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult }
   | { v: 1; type: "error"; id?: string; message: string }

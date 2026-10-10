@@ -39,11 +39,26 @@ function getStructuredToolResultFromDebug(entry: Extract<TranscriptEntry, { kind
   }
 }
 
-export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedTranscriptMessage[] {
-  const pendingToolCalls = new Map<string, { hydrated: HydratedToolCall; normalized: NormalizedToolCall }>()
+interface TranscriptProcessingCache {
+  entries: WeakMap<TranscriptEntry, HydratedTranscriptMessage>
+  tools: WeakMap<TranscriptEntry, WeakMap<TranscriptEntry, HydratedToolCall>>
+}
+
+/** Cache lifetime follows entry objects; replacing an entry invalidates its result. */
+export function createTranscriptProcessor() {
+  const cache: TranscriptProcessingCache = { entries: new WeakMap(), tools: new WeakMap() }
+  return (entries: TranscriptEntry[]) => processTranscriptMessages(entries, cache)
+}
+
+export function processTranscriptMessages(entries: TranscriptEntry[], cache?: TranscriptProcessingCache): HydratedTranscriptMessage[] {
+  const pendingToolCalls = new Map<string, { hydrated: HydratedToolCall; normalized: NormalizedToolCall; entry: TranscriptEntry; index: number }>()
   const messages: HydratedTranscriptMessage[] = []
 
   for (const entry of entries) {
+    const cacheable = entry.kind !== "tool_call" && entry.kind !== "tool_result"
+    const cached = cacheable ? cache?.entries.get(entry) : undefined
+    if (cached) { messages.push(cached); continue }
+    const messageCount = messages.length
     switch (entry.kind) {
       case "user_prompt":
         messages.push({
@@ -84,7 +99,7 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
         break
       case "tool_call": {
         const toolCall = hydrateToolCall(entry)
-        pendingToolCalls.set(entry.tool.toolId, { hydrated: toolCall, normalized: entry.tool })
+        pendingToolCalls.set(entry.tool.toolId, { hydrated: toolCall, normalized: entry.tool, entry, index: messages.length })
         messages.push(toolCall)
         break
       }
@@ -101,6 +116,14 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
       case "tool_result": {
         const pendingCall = pendingToolCalls.get(entry.toolId)
         if (pendingCall) {
+          const reused = cache?.tools.get(pendingCall.entry)?.get(entry)
+          if (reused) {
+            pendingCall.hydrated = reused
+            messages[pendingCall.index] = reused
+            break
+          }
+          // Never mutate a hydrated result already published by an earlier pass.
+          pendingCall.hydrated = { ...pendingCall.hydrated }
           const rawResult = (
             pendingCall.normalized.toolKind === "ask_user_question" ||
             pendingCall.normalized.toolKind === "exit_plan_mode"
@@ -111,6 +134,12 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
           pendingCall.hydrated.result = hydrateToolResult(pendingCall.normalized, rawResult) as never
           pendingCall.hydrated.rawResult = rawResult
           pendingCall.hydrated.isError = entry.isError
+          messages[pendingCall.index] = pendingCall.hydrated
+          if (cache) {
+            let results = cache.tools.get(pendingCall.entry)
+            if (!results) { results = new WeakMap(); cache.tools.set(pendingCall.entry, results) }
+            results.set(entry, pendingCall.hydrated)
+          }
         }
         break
       }
@@ -172,6 +201,7 @@ export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedT
         })
         break
     }
+    if (cache && cacheable && messages.length > messageCount) cache.entries.set(entry, messages[messages.length - 1]!)
   }
 
   return messages
