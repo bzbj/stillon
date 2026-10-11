@@ -1,4 +1,4 @@
-import { CornerDownLeft, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
+import { ArrowLeft, ArrowRight, CornerDownLeft, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
@@ -88,9 +88,14 @@ function BrowserPanelImpl({
 }: BrowserPanelProps) {
   const browserState = useRightSidebarStore((store) => store.projectBrowser[projectId])
   const navigateBrowser = useRightSidebarStore((store) => store.navigateBrowser)
+  const goBrowserBack = useRightSidebarStore((store) => store.goBrowserBack)
+  const goBrowserForward = useRightSidebarStore((store) => store.goBrowserForward)
   const setBrowserZoom = useRightSidebarStore((store) => store.setBrowserZoom)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const address = browserState?.address ?? ""
+  const historyIndex = browserState?.historyIndex ?? -1
+  const canGoBack = Boolean(address) && historyIndex > 0
+  const canGoForward = Boolean(address) && historyIndex >= 0 && historyIndex < (browserState?.history.length ?? 0) - 1
   const projectMarkdownPreviewTarget = parseProjectMarkdownPreviewUrl(address)
   const localMarkdownPreviewTarget = parseLocalMarkdownPreviewUrl(address)
   const previewAddress = address ? buildBrowserPreviewProxyUrl(address) : ""
@@ -348,6 +353,12 @@ function BrowserPanelImpl({
     <div className="h-full min-h-0 border-l border-border bg-background md:min-w-[370px]">
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-2">
+          <BrowserToolbarButton label="Back" disabled={!canGoBack} onClick={() => goBrowserBack(projectId)}>
+            <ArrowLeft className="h-4 w-4" />
+          </BrowserToolbarButton>
+          <BrowserToolbarButton label="Forward" disabled={!canGoForward} onClick={() => goBrowserForward(projectId)}>
+            <ArrowRight className="h-4 w-4" />
+          </BrowserToolbarButton>
           <BrowserToolbarButton label="Home" onClick={() => navigateBrowser(projectId, "")}>
             <Home className="h-4 w-4" />
           </BrowserToolbarButton>
