@@ -690,7 +690,7 @@ function StillOnSidebarImpl({
             if (safeMode || appearanceContext?.preview) return
             resizeStartRef.current = {
               pointerX: event.clientX,
-              width: sidebarWidth,
+              width: event.currentTarget.parentElement?.getBoundingClientRect().width ?? sidebarWidth,
             }
             setIsResizingSidebar(true)
           }}
@@ -702,9 +702,10 @@ function StillOnSidebarImpl({
           }}
           onKeyDown={(event) => {
             if (safeMode || appearanceContext?.preview) return
+            const visibleWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? sidebarWidth
             let nextWidth: number | null = null
-            if (event.key === "ArrowLeft") nextWidth = sidebarWidth - 16
-            else if (event.key === "ArrowRight") nextWidth = sidebarWidth + 16
+            if (event.key === "ArrowLeft") nextWidth = visibleWidth - 16
+            else if (event.key === "ArrowRight") nextWidth = visibleWidth + 16
             else if (event.key === "Home") nextWidth = MIN_SIDEBAR_WIDTH
             else if (event.key === "End") nextWidth = MAX_SIDEBAR_WIDTH
             else if (event.key === "Enter") nextWidth = DEFAULT_SIDEBAR_WIDTH

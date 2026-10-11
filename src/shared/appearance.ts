@@ -129,7 +129,7 @@ export function appearanceVariables(raw: AppearanceSettings, mode: "light" | "da
   }
   const primary = a.accent ?? (a.palette === "default" && mode === "dark" ? "#fafafa" : accent)
   const variables: Record<string, string> = {
-    "--radius": `${a.cornerRadius / 16}rem`,
+    "--radius": `${a.cornerRadius}px`,
     "--stillon-font": a.font === "system" ? "system-ui, -apple-system, 'Segoe UI', sans-serif" : a.font === "mono" ? "ui-monospace, SFMono-Regular, Consolas, monospace" : "'Body', sans-serif",
     "--stillon-font-size": `${a.fontSize}px`,
     "--stillon-chat-width": a.chatWidth === "full" ? "100%" : a.chatWidth === "wide" ? "1200px" : "800px",

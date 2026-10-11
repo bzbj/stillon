@@ -5,6 +5,8 @@ You can also set typography, corners, list density, panel style, sidebar and
 conversation widths, and a local background image. Text colors adjust for the
 selected background and accent.
 
+![Appearance settings preview](images/appearance.png)
+
 The small workspace card shows the draft. **Preview in workspace** applies it
 temporarily across the app. **Apply appearance** saves it on this machine and
 updates connected clients. **Cancel**, **End preview**, leaving Appearance, or
