@@ -115,6 +115,10 @@ Signing secrets: `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`,
 A hardware-backed/cloud Windows signing service can replace `sign-windows.ps1`.
 Missing signing credentials fail public installer publication; PR builds remain
 available for development acceptance. No signing credentials are bundled.
+An explicitly selected [source-only release](releasing.md#source-only-publication)
+publishes no desktop installers or package update manifest. Its unsigned development
+installers remain in GitHub Actions, built at the exact release tag and linked
+from the notes; public installer signing requirements remain unchanged.
 Run the Desktop installers workflow manually with `require-signing` enabled to
 validate signed artifacts before publishing a release; manual builds only upload
 CI artifacts and never publish release assets.

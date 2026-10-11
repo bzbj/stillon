@@ -61,6 +61,23 @@ met. Patch and minor releases do not advance the edition automatically.
 7. Confirm the workflow passed and that the new release appears in
    **Settings → Changelog**.
 
+### Source-only publication
+
+A release may publish source and export-viewer assets while desktop installers
+remain in GitHub Actions for development testing. State that choice in the
+public release notes and add the exact marker
+`<!-- stillon-release: source-only -->` to the release body. The publication
+workflow skips desktop build/upload for that release; source validation and
+export-viewer publication still run. Without this marker, desktop publication
+requires the signing credentials described in
+[desktop distribution](desktop-distribution.md).
+
+For a source-only release, run **Desktop installers** manually at the exact
+release tag with `require-signing` disabled. Link that run's artifacts in the
+notes, label them as unsigned development installers and note their expiration.
+Never rename artifacts from an earlier version. Publishing source does not
+install or restart a user's running instance.
+
 For enabled managed deployments, request preparation or an upgrade as described
 in [managed-updates.md](managed-updates.md); application upgrades keep the
 installed controller and updater pinned. For first-time setup or other source

@@ -6,6 +6,7 @@ on:
 
 jobs:
   desktop:
+    if: "${{ !contains(github.event.release.body, '<!-- stillon-release: source-only -->') }}"
     uses: ./.github/workflows/desktop.yml
     with:
       require-signing: true
