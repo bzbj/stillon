@@ -261,6 +261,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   const header = (
     <div
       ref={setActivatorNodeRef}
+      data-stillon-part="project-header"
       className={cn(
         "sticky top-0 bg-background dark:bg-card z-10 relative p-[10px] flex items-center justify-between",
         isReorderEnabled && "md:cursor-grab md:active:cursor-grabbing md:select-none md:touch-none",

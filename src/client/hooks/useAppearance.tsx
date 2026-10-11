@@ -53,6 +53,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.stillonAppearance = safeMode ? "safe" : "custom"
     root.dataset.stillonDensity = appearance.density
     root.dataset.stillonSurface = appearance.surface
+    root.dataset.stillonWallpaper = !safeMode && appearance.backgroundAsset && appearance.backgroundOpacity > 0 ? "visible" : "hidden"
     const cleanup = safeMode ? () => {} : applyAppearanceToRoot(root, appearanceVariables(appearance, resolvedTheme))
     syncThemeMetadata(resolvedTheme)
     return () => {
@@ -60,6 +61,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       delete root.dataset.stillonAppearance
       delete root.dataset.stillonDensity
       delete root.dataset.stillonSurface
+      delete root.dataset.stillonWallpaper
     }
   }, [appearance, resolvedTheme, safeMode])
 

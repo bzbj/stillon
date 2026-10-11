@@ -2655,7 +2655,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="relative flex h-full flex-1 min-w-0 bg-background">
+    <div data-stillon-part="page" className="relative flex h-full flex-1 min-w-0 bg-background">
       <div className="flex min-w-0 flex-1">
         <aside className={`hidden w-[200px] shrink-0 md:block ${showFooter ? "pb-[89px]" : ""}`}>
           <div className="flex flex-col gap-1 px-4 py-6">
