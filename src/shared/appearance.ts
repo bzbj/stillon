@@ -139,6 +139,7 @@ export function appearanceVariables(raw: AppearanceSettings, mode: "light" | "da
     "--stillon-wallpaper": a.backgroundAsset ? `url('/api/appearance/assets/${a.backgroundAsset}')` : "none",
     "--stillon-wallpaper-opacity": String(a.backgroundOpacity),
     "--stillon-surface": a.surface === "glass" ? `hsl(${hexToHsl(surface)} / 0.88)` : `hsl(${hexToHsl(a.surface === "soft" ? surface : background)})`,
+    "--stillon-sidebar-surface": a.backgroundAsset && a.backgroundOpacity > 0 ? "transparent" : "var(--stillon-surface)",
     "--stillon-surface-shadow": a.surface === "solid" ? "none" : "0 6px 24px rgb(0 0 0 / 0.06)",
   }
   if (a.sidebarWidth !== null) variables["--stillon-sidebar-width"] = `${a.sidebarWidth}px`

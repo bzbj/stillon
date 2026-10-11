@@ -5,6 +5,12 @@ You can also set typography, corners, list density, panel style, sidebar and
 conversation widths, and a local background image. Text colors adjust for the
 selected background and accent.
 
+Background images cover the conversation sidebar and chat area. Artifact previews
+keep their reading surface. With no image or zero background strength, the sidebar
+uses the selected panel style.
+
+![Background image across the sidebar and chat, with a separate artifact surface](images/appearance-wallpaper.png)
+
 ![Appearance settings preview](images/appearance.png)
 
 The small workspace card shows the draft. **Preview in workspace** applies it
