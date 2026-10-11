@@ -892,7 +892,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   return (
     <div>
       <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
-        <div className="max-w-[840px] mx-auto rounded-[32px]">
+        <div data-stillon-part="composer-column" className="max-w-[840px] mx-auto rounded-[32px]">
           {uploadActivityNotice || hasFailedUploads || uploadError ? (
             <div className="mb-2 space-y-1.5 px-1 text-sm">
               {uploadActivityNotice ? (
@@ -960,7 +960,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </ScrollArea>
           ) : null}
 
-          <div className="flex items-end max-w-[840px] mx-auto border bg-background border-border rounded-[29px] pr-1.5">
+          <div data-stillon-part="composer" className="flex items-end max-w-[840px] mx-auto border bg-background border-border rounded-[29px] pr-1.5">
             <label
               aria-label="Add attachment"
               className={cn(
@@ -1043,7 +1043,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       </div>
 
-      <div className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
+      <div data-stillon-part="composer-column" className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
         <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
           <div className="min-w-3" />
           {preferencesReady ? <ChatPreferenceControls

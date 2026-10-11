@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { X, Menu, Search, PanelLeftClose, PanelLeftOpen, MessageCirclePlus, Settings } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
+import { useOptionalAppearance } from "../hooks/useAppearance"
 import { Button } from "../components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { formatSidebarAgeLabel } from "../lib/formatters"
@@ -126,6 +127,7 @@ interface StillOnSidebarProps {
   onHideProject: (projectId: string) => void
   onReorderProjectGroups: (projectIds: string[]) => void
   editorLabel: string
+  onResizeSidebar?: (width: number) => void
 }
 
 function StillOnSidebarImpl({
@@ -158,7 +160,11 @@ function StillOnSidebarImpl({
   onHideProject,
   onReorderProjectGroups,
   editorLabel,
+  onResizeSidebar,
 }: StillOnSidebarProps) {
+  const appearanceContext = useOptionalAppearance()
+  const configuredWidth = appearanceContext?.appearance.sidebarWidth
+  const safeMode = appearanceContext?.safeMode ?? false
   const location = useLocation()
   const navigate = useNavigate()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -169,6 +175,10 @@ function StillOnSidebarImpl({
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [showNumberJumpHints, setShowNumberJumpHints] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth)
+  useEffect(() => {
+    if (safeMode) setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
+    else if (configuredWidth !== undefined) setSidebarWidth(configuredWidth ?? readStoredSidebarWidth())
+  }, [configuredWidth, safeMode])
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -387,14 +397,15 @@ function StillOnSidebarImpl({
       setSidebarWidth(clampSidebarWidth(resizeStart.width + event.clientX - resizeStart.pointerX))
     }
 
-    function handlePointerUp() {
+    function handlePointerUp(event: PointerEvent) {
+      const start = resizeStartRef.current
       setIsResizingSidebar(false)
       resizeStartRef.current = null
-      setSidebarWidth((current) => {
-        const next = clampSidebarWidth(current)
-        persistSidebarWidth(next)
-        return next
-      })
+      if (!start) return
+      const next = clampSidebarWidth(start.width + event.clientX - start.pointerX)
+      setSidebarWidth(next)
+      persistSidebarWidth(next)
+      onResizeSidebar?.(next)
     }
 
     window.addEventListener("pointermove", handlePointerMove)
@@ -406,7 +417,7 @@ function StillOnSidebarImpl({
       document.body.style.cursor = previousCursor
       document.body.style.userSelect = previousUserSelect
     }
-  }, [isResizingSidebar])
+  }, [isResizingSidebar, onResizeSidebar])
 
   const hasVisibleChats = activeVisibleCount > 0
   const isSettingsActive = location.pathname.startsWith("/settings")
@@ -449,6 +460,7 @@ function StillOnSidebarImpl({
       )}
 
       <div
+        data-stillon-part="sidebar"
         data-sidebar="open"
         className={cn(
           "fixed inset-0 z-50 bg-background dark:bg-card flex flex-col h-[100dvh] select-none",
@@ -675,20 +687,25 @@ function StillOnSidebarImpl({
           )}
           onPointerDown={(event) => {
             event.preventDefault()
+            if (safeMode || appearanceContext?.preview) return
             resizeStartRef.current = {
               pointerX: event.clientX,
-              width: sidebarWidth,
+              width: event.currentTarget.parentElement?.getBoundingClientRect().width ?? sidebarWidth,
             }
             setIsResizingSidebar(true)
           }}
           onDoubleClick={() => {
+            if (safeMode || appearanceContext?.preview) return
             setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
             persistSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
+            onResizeSidebar?.(DEFAULT_SIDEBAR_WIDTH)
           }}
           onKeyDown={(event) => {
+            if (safeMode || appearanceContext?.preview) return
+            const visibleWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? sidebarWidth
             let nextWidth: number | null = null
-            if (event.key === "ArrowLeft") nextWidth = sidebarWidth - 16
-            else if (event.key === "ArrowRight") nextWidth = sidebarWidth + 16
+            if (event.key === "ArrowLeft") nextWidth = visibleWidth - 16
+            else if (event.key === "ArrowRight") nextWidth = visibleWidth + 16
             else if (event.key === "Home") nextWidth = MIN_SIDEBAR_WIDTH
             else if (event.key === "End") nextWidth = MAX_SIDEBAR_WIDTH
             else if (event.key === "Enter") nextWidth = DEFAULT_SIDEBAR_WIDTH
@@ -697,6 +714,7 @@ function StillOnSidebarImpl({
             const clampedWidth = clampSidebarWidth(nextWidth)
             setSidebarWidth(clampedWidth)
             persistSidebarWidth(clampedWidth)
+            onResizeSidebar?.(clampedWidth)
           }}
         />
       </div>

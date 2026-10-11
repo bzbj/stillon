@@ -1,3 +1,4 @@
+import { assertAppearanceFixture, seedAppearanceFixture } from "../../../scripts/appearance-fixture"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -157,6 +158,26 @@ describe("durable update and recovery", () => {
       await f.engine.execute()
       expect(f.engine.state.phase).toBe(fail ? "rolled-back" : "succeeded")
       for (const file of [theme, skin, settings]) expect(await readFile(file, "utf8")).toBe("user-owned-original")
+    }
+  })
+  test("appearance API settings, background and portable skin survive update and rollback", async () => {
+    for (const fail of [false, true]) {
+      const f = await fixture()
+      const personal = await seedAppearanceFixture(f.config.dataRoot)
+      const originals = await Promise.all([personal.settingsPath, personal.assetPath, personal.skinPath].map((file) => readFile(file)))
+      const resume = f.effects.resume
+      f.effects.resume = async (runtime) => {
+        await resume(runtime)
+        if (fail && runtime === f.state.newRuntime) {
+          for (const file of [personal.settingsPath, personal.assetPath, personal.skinPath]) await writeFile(file, "failed-version-migration")
+        }
+      }
+      if (fail) f.effects.verify = async (runtime) => { if (runtime === f.state.newRuntime) throw new Error("candidate failed") }
+      await f.engine.execute()
+      expect(f.engine.state.phase).toBe(fail ? "rolled-back" : "succeeded")
+      const restored = await Promise.all([personal.settingsPath, personal.assetPath, personal.skinPath].map((file) => readFile(file)))
+      expect(restored).toEqual(originals)
+      await assertAppearanceFixture(f.config.dataRoot)
     }
   })
   test("data backup is complete before starting new code", async () => {

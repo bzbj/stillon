@@ -1,3 +1,4 @@
+import { defaultAppearance } from "../shared/appearance"
 import { describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -78,6 +79,7 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 
 const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
   browserSettingsMigrated: false,
+  appearance: defaultAppearance(),
   machineName: "Local Machine",
   codexTransport: "app-server",
   theme: "system",

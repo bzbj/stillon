@@ -7,6 +7,7 @@ interface ThemeContextValue {
   theme: ThemePreference
   resolvedTheme: "light" | "dark"
   setTheme: (theme: ThemePreference) => void
+  setPreviewTheme: (theme: ThemePreference | null) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
@@ -62,6 +63,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const settingsTheme = useAppSettingsStore((store) => store.settings?.theme)
   const applyOptimisticPatch = useAppSettingsStore((store) => store.applyOptimisticPatch)
   const [theme, setTheme] = useState<ThemePreference>(getInitialTheme)
+  const [previewTheme, setPreviewTheme] = useState<ThemePreference | null>(null)
+  const [systemTheme, setSystemTheme] = useState(getSystemTheme)
+  const effectiveTheme = previewTheme ?? theme
+  const resolvedTheme = effectiveTheme === "system" ? systemTheme : effectiveTheme
 
   useEffect(() => {
     if (!settingsTheme || settingsTheme === theme) return
@@ -69,42 +74,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [settingsTheme, theme])
 
   useEffect(() => {
-    applyThemeClass(theme)
-  }, [theme])
-
-  useEffect(() => {
-    const resolvedTheme = theme === "system" ? getSystemTheme() : theme
+    applyThemeClass(resolvedTheme)
     syncThemeMetadata(resolvedTheme)
-  }, [theme])
+  }, [resolvedTheme])
 
   useEffect(() => {
-    if (theme !== "system") return
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-    const handleChange = () => {
-      applyThemeClass("system")
-      syncThemeMetadata(getSystemTheme())
-    }
-
+    const handleChange = () => setSystemTheme(getSystemTheme())
     if (mediaQuery.addEventListener) {
       mediaQuery.addEventListener("change", handleChange)
       return () => mediaQuery.removeEventListener("change", handleChange)
     }
-
     mediaQuery.addListener(handleChange)
     return () => mediaQuery.removeListener(handleChange)
-  }, [theme])
+  }, [])
 
   const value = useMemo<ThemeContextValue>(() => {
-    const resolvedTheme = theme === "system" ? getSystemTheme() : theme
     return {
       theme,
       resolvedTheme,
+      setPreviewTheme,
       setTheme: (nextTheme) => {
         setTheme(nextTheme)
         applyOptimisticPatch({ theme: nextTheme })
       },
     }
-  }, [applyOptimisticPatch, theme])
+  }, [applyOptimisticPatch, resolvedTheme, theme])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

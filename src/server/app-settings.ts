@@ -1,3 +1,4 @@
+import { mergeAppearance, normalizeAppearance } from "../shared/appearance"
 import { watch, type FSWatcher } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -33,6 +34,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  appearance?: unknown
   browserSettingsMigrated?: unknown
   machineName?: unknown
   theme?: unknown
@@ -211,6 +213,7 @@ function toFilePayload(state: AppSettingsState) {
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
+    appearance: state.appearance,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -231,6 +234,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
+    appearance: state.appearance,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -270,12 +274,17 @@ function normalizeAppSettings(
   const machineName = normalizeMachineName(source?.machineName)
     ?? normalizeMachineName(defaultMachineName)
     ?? "This Machine"
+  const storedAppearance = source?.appearance as { schemaVersion?: unknown } | undefined
+  if (storedAppearance?.schemaVersion !== undefined && storedAppearance.schemaVersion !== 1) {
+    warnings.push("Appearance version is unsupported; personal skin files were kept")
+  }
   const normalizedNetwork = normalizeAgentNetworkSettings(source?.network)
   warnings.push(...normalizedNetwork.warnings)
   const state: AppSettingsState = {
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     machineName,
     theme: normalizeTheme(source?.theme),
+    appearance: normalizeAppearance(source?.appearance),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -313,6 +322,7 @@ function toComparablePayload(source: AppSettingsFile) {
     browserSettingsMigrated: source.browserSettingsMigrated,
     machineName: source.machineName,
     theme: source.theme,
+    appearance: source.appearance,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -336,6 +346,7 @@ function applyPatch(
   return normalizeAppSettings({
     ...toFilePayload(state),
     ...patch,
+    appearance: mergeAppearance(state.appearance, patch.appearance),
     defaultProjectId: "defaultProjectId" in patch ? patch.defaultProjectId : state.defaultProjectId,
     terminal: {
       ...state.terminal,

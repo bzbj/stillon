@@ -1,3 +1,4 @@
+import { assertAppearanceFixture, seedAppearanceFixture } from "./appearance-fixture"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -56,6 +57,7 @@ try {
     if (process.env.CI !== "true") throw new Error("Native acceptance is restricted to clean disposable CI runners")
     const custom = path.join(profile, ".stillon/customizations/skins/personal/custom.css")
     await mkdir(path.dirname(custom), { recursive: true }); await writeFile(custom, "/* personal skin: preserve */")
+    await seedAppearanceFixture(path.join(profile, ".stillon"))
     nativeStarted = true
     started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
@@ -68,13 +70,15 @@ try {
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
     timings.repeatLaunch = Math.round(performance.now() - started)
     if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin changed during installation")
+    await assertAppearanceFixture(path.join(profile, ".stillon"))
     started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--uninstall"], env)
     timings.nativeUninstall = Math.round(performance.now() - started)
     nativeStarted = false
     if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin removed during uninstall")
+    await assertAppearanceFixture(path.join(profile, ".stillon"))
     if (await Bun.file(path.join(updateRoot(target.platform, profile, env.LOCALAPPDATA), "deployment.json")).exists()) throw new Error("Uninstall left an active deployment")
-    checks.push("repeat launch; native uninstall; user skin retained")
+    checks.push("repeat launch; native uninstall; user skin and appearance files retained")
   }
   report.status = "passed"
   console.log(JSON.stringify(report, null, 2))

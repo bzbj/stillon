@@ -26,55 +26,30 @@ check idle state, back up data, switch, verify, and roll back on failure.
   matched snapshot only before allowing new user work.
 - Project workspaces and provider data: outside the installer/update boundary.
 
-## Customization architecture (planned API)
+## Customization
 
-Keeping files and maintaining rendering compatibility are separate promises.
-Upgrades must always preserve user files. Rendering guarantees are tied to a
-versioned public interface, not private React structure or Tailwind class names.
+Settings → Appearance implements theme palettes and editable colors, fonts, size,
+corners, density, panel style, sidebar width, conversation width and local image
+backgrounds. Drafts preview before applying and revert after 60 seconds, on cancel
+or when leaving the page. Applied settings synchronize through the existing
+settings channel and survive refresh. Restore defaults remains available in safe
+mode at `/settings/appearance?safe-mode=1`.
 
-| Layer | User changes | Storage | Compatibility |
-| --- | --- | --- | --- |
-| Theme | Colors, font roles, radius, spacing and density | `~/.stillon/customizations/themes/<id>/theme.json` | Versioned semantic tokens; unknown tokens ignored with diagnostics |
-| Skin | Theme plus local fonts, images, icon overrides and optional CSS | `~/.stillon/customizations/skins/<id>/` | `skin.json` declares API range; public `data-stillon-part` hooks |
-| UI preferences | Supported sidebar width, panel visibility/order and density | User settings, with a schema version | Validated settings migrated additively; original retained on failure |
-| UI extensions | New panels/actions/renderers through named slots | `~/.stillon/customizations/extensions/<id>/` | Future versioned host API and explicit capabilities; no arbitrary code loader in v1 |
-| Source customization | Arbitrary component/behavior changes | Developer checkout plus saved patch | Explicit source-build channel; conflicts require review, no overwrite |
+Preferences are stored in `.stillon/data/settings.json`. Images and portable skin
+packages are stored under `.stillon/data/customizations/appearance/`, outside the
+immutable runtime. Install/update/uninstall preserve that user data; rollback
+restores originals and quarantines failed-version changes.
 
-Token layers are primitive values -> semantic roles -> component aliases.
-Examples: `palette.accent` -> `color.action` -> `button.primary.background`.
-Existing CSS variables (background, foreground, primary, border, radius) provide a
-migration starting point. New public names must have documented value types,
-light/dark variants, defaults, and deprecation aliases. Skin CSS loads after the
-vendor stylesheet and targets documented hooks. Arbitrary private selectors are
-best-effort and may need edits after structural UI changes.
+The data-only theme/UI API is version 1. Skin files are bounded JSON containing
+validated preferences and an optional embedded PNG/JPEG/WebP background, with no
+external asset paths or executable hooks. Unsupported API versions are retained
+on disk without changing the active appearance. See [appearance API and recovery](appearance.md)
+for schema, public component hooks and import/export instructions.
 
-A skin package declares `schemaVersion`, `id`, `name`, `version`, `themeApi`,
-`uiApi`, token overrides, and local asset references. Paths must stay inside the
-package. Assets are served through authenticated app routes; skin imports do not
-load remote scripts or execute installation hooks. A future executable UI plugin
-needs a separate capability and isolation design, not CSS privileges.
-
-Settings -> Appearance should offer import/export, preview, apply, and restore
-defaults. Preview is reversible until confirmed. Invalid/incompatible packages
-remain on disk but are disabled with a useful reason. `?safe-mode=1` loads the
-vendor UI and exposes recovery controls even when custom CSS hid normal settings.
-Safe mode suppresses all custom CSS and future extensions before they load.
-Failed migrations retain originals and never silently rewrite user packages.
-
-## Delivery stages
-
-1. Ship bundled runtimes, native installers and artifact-backed updates. Test
-   user-owned settings/theme/skin fixture preservation through success and rollback.
-2. Add semantic theme tokens, skin manifest/import/export and public UI hooks,
-   with safe mode and light/dark/accessibility checks. Migrate existing custom CSS
-   and icon/font edits into user packages where feasible; show a migration report.
-3. Add supported layout preferences, then design panel/action extension APIs from
-   concrete UI-change requirements. Arbitrary component replacements continue
-   through the source channel until an explicit supported API exists.
-
-Stage 1 establishes the storage/update invariant. The theme editor, package loader
-and extension SDK are subsequent product work; do not describe them as implemented
-just because the installer preserves their directories.
+Primitive palette values map to semantic CSS variables, then stable component
+aliases for sidebar, conversation and composer. Arbitrary component behavior and
+executable extension APIs remain future product work. Pet development is paused
+and is excluded from this implementation.
 
 ## Acceptance
 

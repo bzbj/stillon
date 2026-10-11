@@ -665,6 +665,7 @@ export interface AgentNetworkConnectionTestResult {
 }
 
 export interface AppSettingsSnapshot {
+  appearance: import("./appearance").AppearanceSettings
   browserSettingsMigrated: boolean
   machineName: string
   theme: AppThemePreference
@@ -692,6 +693,7 @@ export interface AppSettingsSnapshot {
 }
 
 export interface AppSettingsPatch {
+  appearance?: Partial<import("./appearance").AppearanceSettings>
   browserSettingsMigrated?: boolean
   machineName?: string
   theme?: AppThemePreference

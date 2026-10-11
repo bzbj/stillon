@@ -1,0 +1,58 @@
+/* Theme API 1 semantic tokens above; UI API 1 public component aliases below. */
+html[data-stillon-appearance="custom"] {
+  font-size: calc(var(--stillon-font-size, 14px) * 16 / 14);
+}
+html[data-stillon-appearance="custom"] body {
+  font-family: var(--stillon-font, "Body", sans-serif);
+}
+[data-stillon-part="workspace"] {
+  position: relative;
+  isolation: isolate;
+}
+[data-stillon-part="workspace"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--stillon-wallpaper, none);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--stillon-wallpaper-opacity, 0);
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
+  max-width: 35vw;
+  background: var(--stillon-surface);
+  box-shadow: var(--stillon-surface-shadow);
+  border-radius: calc(var(--radius) + 8px);
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="composer"] {
+  max-width: var(--stillon-composer-width);
+  box-shadow: var(--stillon-surface-shadow);
+  border-radius: calc(var(--radius) + 21px);
+}
+html[data-stillon-surface="glass"] [data-stillon-part="sidebar"],
+html[data-stillon-surface="glass"] [data-stillon-part="composer"] {
+  backdrop-filter: blur(14px);
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="chat"] {
+  background: transparent;
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="chat-column"] {
+  max-width: var(--stillon-chat-width);
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="composer-column"] {
+  max-width: var(--stillon-composer-width);
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="chat-row"] {
+  min-height: var(--stillon-row-height);
+  padding-block: var(--stillon-row-padding);
+}
+@media (max-width: 767px) {
+  html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
+    max-width: none;
+    border-radius: 0;
+    background: hsl(var(--background));
+    backdrop-filter: none;
+  }
+}
