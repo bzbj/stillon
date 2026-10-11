@@ -3,6 +3,7 @@ import { mkdir, open, rename, stat, unlink } from "node:fs/promises"
 import path from "node:path"
 import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
 import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
+import { BUNDLE_FILE, runtimeExecutable } from "../distribution/bundle"
 import { FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
 export interface UpdateEffects {
@@ -135,22 +136,25 @@ export async function verifyRuntime(deployment: UpdateDeployment, runtime: strin
   const html = Buffer.from(await Bun.file(path.join(runtime, "dist/client/index.html")).arrayBuffer())
   const assets = [...html.toString().matchAll(/(?:src|href)="(\/assets\/[^"?#]+)/g)].map((match) => match[1])
   if (!assets.length) throw new Error("The prepared application has no built client assets.")
-  await waitUntil(async () => {
+  let waiting = "application health"
+  try { await waitUntil(async () => {
     try {
       const health = await appStatus(deployment)
       const runner = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
       if (runner.error) throw new Error(runner.error)
-      if (!health?.ok || health.updateProtocol !== 1 || health.version !== version || health.updateInstance !== runner.instance || runner.runtime !== runtime) return false
+      if (!health?.ok) { waiting = "application health"; return false }
+      if (health.version !== version) { waiting = `version ${version} (received ${health.version ?? "none"})`; return false }
+      if (health.updateProtocol !== 1 || health.updateInstance !== runner.instance || runner.runtime !== runtime) { waiting = "managed application identity"; return false }
       const response = await localFetch(`http://127.0.0.1:${deployment.port}/`)
-      if (!Buffer.from(await response.arrayBuffer()).equals(html)) return false
+      if (!Buffer.from(await response.arrayBuffer()).equals(html)) { waiting = "matching client HTML"; return false }
       for (const asset of new Set(assets)) {
         const expected = Buffer.from(await Bun.file(inside(path.join(runtime, "dist/client"), asset.slice(1))).arrayBuffer())
         const served = await localFetch(`http://127.0.0.1:${deployment.port}${asset}`)
-        if (!served.ok || !Buffer.from(await served.arrayBuffer()).equals(expected)) return false
+        if (!served.ok || !Buffer.from(await served.arrayBuffer()).equals(expected)) { waiting = `matching client asset ${asset}`; return false }
       }
       return true
-    } catch { return false }
-  })
+    } catch (error) { waiting = error instanceof Error ? error.message : "application response"; return false }
+  }) } catch { throw new Error(`Timed out waiting for the managed server: ${waiting}.`) }
   await Bun.sleep(2_000)
   const health = await appStatus(deployment)
   if (!health?.ok || health.version !== version) throw new Error("New runtime stopped during the stability check.")
@@ -238,7 +242,7 @@ export async function probeRuntime(deployment: UpdateDeployment, runtime: string
   for (const key of Object.keys(env)) {
     if (/^(?:OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|STILLON_)/.test(key) && key !== "STILLON_UPDATE_PROBE") delete env[key as keyof typeof env]
   }
-  const child = Bun.spawn([deployment.launch.executable, "--no-env-file", deployment.controller, "app", root, runtime, instance, secret, "1"], {
+  const child = Bun.spawn([await runtimeExecutable(runtime, deployment.launch.executable), "--no-env-file", deployment.controller, "app", root, runtime, instance, secret, "1"], {
     cwd: runtime, env, stdin: "ignore", stdout: Bun.file(path.join(root, "stdout.log")), stderr: Bun.file(path.join(root, "stderr.log")),
   })
   try { await verifyRuntime(probe, runtime) } finally {
@@ -294,6 +298,12 @@ export async function claimRequest(deployment: UpdateDeployment) {
 }
 
 export function realUpdateEffects(deployment: UpdateDeployment): UpdateEffects {
-  return { prepare: (state) => prepareSource(deployment, state), pause: () => pauseManagedServer(deployment),
+  return { prepare: async (state) => {
+    if (await exists(path.join(state.oldRuntime, BUNDLE_FILE))) {
+      const { preparePackage } = await import("../distribution/updates")
+      return preparePackage(deployment, state)
+    }
+    return prepareSource(deployment, state)
+  }, pause: () => pauseManagedServer(deployment),
     resume: (runtime) => resumeManagedServer(deployment, runtime), verify: (runtime) => verifyRuntime(deployment, runtime) }
 }

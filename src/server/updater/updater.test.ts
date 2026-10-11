@@ -141,6 +141,24 @@ async function fixture() {
 }
 
 describe("durable update and recovery", () => {
+  test("themes, skins and UI settings survive a successful update and failed-version rollback", async () => {
+    for (const fail of [false, true]) {
+      const f = await fixture()
+      const theme = path.join(f.config.dataRoot, "customizations", "themes", "personal", "theme.json")
+      const skin = path.join(f.config.dataRoot, "customizations", "skins", "personal", "custom.css")
+      const settings = path.join(f.config.dataRoot, "data", "settings.json")
+      for (const file of [theme, skin, settings]) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, "user-owned-original") }
+      const resume = f.effects.resume
+      f.effects.resume = async (runtime) => {
+        await resume(runtime)
+        if (fail && runtime === f.state.newRuntime) await writeFile(theme, "failed-migration")
+      }
+      if (fail) f.effects.verify = async (runtime) => { if (runtime === f.state.newRuntime) throw new Error("failed") }
+      await f.engine.execute()
+      expect(f.engine.state.phase).toBe(fail ? "rolled-back" : "succeeded")
+      for (const file of [theme, skin, settings]) expect(await readFile(file, "utf8")).toBe("user-owned-original")
+    }
+  })
   test("data backup is complete before starting new code", async () => {
     const f = await fixture()
     const resume = f.effects.resume

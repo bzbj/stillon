@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, realpath } from "node:fs/promises"
+import { chmod, copyFile, mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { runServiceCommand } from "../service"
 import { assertCommandSucceeded } from "../service/types"
 import { atomicJson, exists, json, manifest, sameManifest } from "./files"
-import { enqueueUpdate, prepareSource } from "./engine"
+import { enqueueUpdate, prepareSource, probeRuntime } from "./engine"
+import { BUNDLE_FILE, bunRelativePath, verifyBundle } from "../distribution/bundle"
 import { installUpdateWorker, wakeUpdateWorker } from "./native"
 import { leaseAlive } from "./control"
 import { releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
@@ -67,12 +68,22 @@ export async function setupManagedUpdates(root = updateRoot()) {
   root = await realpath(root)
   const bundleDirectory = path.join(root, "controllers", randomUUID())
   await mkdir(bundleDirectory, { recursive: true, mode: 0o700 })
-  const build = await Bun.build({ entrypoints: [path.join(import.meta.dir, "entry.ts")], outdir: bundleDirectory,
-    naming: "controller.js", target: "bun", packages: "bundle" })
-  if (!build.success) throw new AggregateError(build.logs, "Could not build the independent controller.")
+  const packaged = await exists(path.join(runtime, BUNDLE_FILE))
+  let controllerExecutable = await realpath(launch.executable)
+  if (packaged) {
+    await verifyBundle(runtime, serviceTarget)
+    await copyFile(path.join(runtime, "runtime", "controller.js"), path.join(bundleDirectory, "controller.js"))
+    controllerExecutable = path.join(bundleDirectory, target.platform === "win32" ? "bun.exe" : "bun")
+    await copyFile(path.join(runtime, bunRelativePath(target.platform)), controllerExecutable)
+    await chmod(controllerExecutable, 0o755)
+  } else {
+    const build = await Bun.build({ entrypoints: [path.join(import.meta.dir, "entry.ts")], outdir: bundleDirectory,
+      naming: "controller.js", target: "bun", packages: "bundle" })
+    if (!build.success) throw new AggregateError(build.logs, "Could not build the independent controller.")
+  }
   const deployment: UpdateDeployment = { schema: 1, ...serviceTarget, root, controller: path.join(bundleDirectory, "controller.js"),
     port, dataRoot: path.join(launch.homeDirectory, ".stillon"),
-    launch: { ...launch, executable: await realpath(launch.executable), workingDirectory: runtime,
+    launch: { ...launch, executable: controllerExecutable, workingDirectory: runtime,
       args: launch.args.map((arg) => arg === previousEntry ? entrypoint : arg) } }
   const baseline = await manifest(path.join(runtime, "dist"))
   await atomicJson(path.join(root, "build-manifests.json"), { [runtime]: baseline })
@@ -81,9 +92,13 @@ export async function setupManagedUpdates(root = updateRoot()) {
     prepareOnly: true, oldRuntime: runtime, newRuntime: path.join(root, "rehearsals", id), updatedAt: new Date().toISOString() }
   // This one-time rebuild detects existing edits to generated dist, before adopting
   // the service. No service or data changes occur during this rehearsal.
-  await prepareSource(deployment, rehearsal)
-  if (!sameManifest(baseline, await manifest(path.join(rehearsal.newRuntime, "dist")))) {
-    throw new Error("The rebuilt source differs from the existing dist. Preserve those customizations in source before enabling managed updates.")
+  if (packaged) {
+    await probeRuntime(deployment, runtime, path.join(root, "rehearsals", id))
+  } else {
+    await prepareSource(deployment, rehearsal)
+    if (!sameManifest(baseline, await manifest(path.join(rehearsal.newRuntime, "dist")))) {
+      throw new Error("The rebuilt source differs from the existing dist. Preserve those customizations in source before enabling managed updates.")
+    }
   }
   await verifyServiceRegistration(registration)
   await checkSetupReadiness(deployment)

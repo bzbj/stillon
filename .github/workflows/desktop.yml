@@ -1,0 +1,106 @@
+name: Desktop installers
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      require-signing:
+        description: Build signed installers for acceptance without publishing a release
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      require-signing:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            platform: darwin
+            architecture: x64
+          - os: macos-15
+            platform: darwin
+            architecture: arm64
+          - os: windows-latest
+            platform: win32
+            architecture: x64
+          - os: windows-11-arm
+            platform: win32
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      STILLON_REQUIRE_SIGNING: ${{ inputs.require-signing && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Verify native build architecture
+        run: bun -e "if(process.arch !== process.env.EXPECTED_ARCH) throw new Error('Wrong Bun architecture')"
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+      - run: bun run check
+      - run: bun test src/server/distribution src/server/updater --timeout 30000
+      - name: Install pinned Inno Setup compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-inno-setup.ps1
+      - name: Prepare macOS signing
+        if: runner.os == 'macOS' && inputs.require-signing
+        run: bash scripts/prepare-macos-signing.sh
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      - name: Build runtime and native installer
+        run: bun scripts/build-desktop.ts
+        env:
+          MACOS_SIGN_IDENTITY: ${{ inputs.require-signing && secrets.MACOS_SIGN_IDENTITY || '' }}
+          MACOS_NOTARY_PROFILE: ${{ inputs.require-signing && 'stillon-ci' || '' }}
+          WINDOWS_SIGN_SCRIPT: scripts/sign-windows.ps1
+          WINDOWS_CERTIFICATE_BASE64: ${{ inputs.require-signing && secrets.WINDOWS_CERTIFICATE_BASE64 || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ inputs.require-signing && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+      - name: Verify runtime, native services and user-data preservation
+        run: bun scripts/verify-desktop.ts --native
+      - name: Exercise Windows installer and uninstaller
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-windows-installer.ps1
+      - name: Exercise macOS disk image and installed app
+        if: runner.os == 'macOS'
+        run: bun scripts/verify-macos-installer.ts
+      - name: Upload installers and runtime packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: dist/desktop/release/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-evidence-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: dist/desktop/reports/
+          if-no-files-found: ignore
+      - name: Remove signing keychain
+        if: always() && runner.os == 'macOS' && inputs.require-signing
+        run: security delete-keychain "$RUNNER_TEMP/stillon-signing.keychain-db" || true

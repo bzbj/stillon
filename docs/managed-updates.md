@@ -1,8 +1,10 @@
-# Managed source updates (opt-in)
+# Managed updates
 
 Managed updates replace the normal two-agent upgrade workflow with a persistent,
-independent updater. The first implementation builds source releases locally;
-it does not download unsigned third-party executables or require Python.
+independent updater. Source installations build releases locally. Desktop package installations download
+prebuilt official runtime archives, verify them and reuse prepared candidates. See
+[desktop distribution](desktop-distribution.md) for the package/signing contract.
+Neither path requires Python.
 
 ## Platforms
 
@@ -182,3 +184,5 @@ preflight rather than bypassing the controller.
 Relevant platform references:
 [Bun installation](https://bun.com/docs/installation),
 [GitHub-hosted runner architectures](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+Desktop packages keep themes, skins and settings under the user data root, outside the immutable runtime. They are included in the same verified data backup and rollback as chat history. The planned theme/skin/UI-extension API is documented in desktop-distribution.md; arbitrary source edits still use the source channel.

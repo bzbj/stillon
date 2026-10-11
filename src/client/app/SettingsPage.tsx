@@ -507,6 +507,7 @@ export function ChangelogSection({
   onRequestManagedUpdate?: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
 }) {
   const normalizedCurrentVersion = currentVersion.replace(/^v/i, "")
+  const [managedEnabled, setManagedEnabled] = useState<boolean | null>(null)
   const availableSourceRelease = status === "success"
     ? getAvailableSourceRelease(releases, currentVersion)
     : null
@@ -514,7 +515,7 @@ export function ChangelogSection({
   return (
     <div className="space-y-4">
       {onReadManagedUpdate && onRequestManagedUpdate ? (
-        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} />
+        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} onEnabledChange={setManagedEnabled} />
       ) : null}
       {status === "loading" || status === "idle" ? (
         <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-border bg-card/40 px-6 py-8 text-sm text-muted-foreground">
@@ -554,7 +555,7 @@ export function ChangelogSection({
         </div>
       ) : null}
 
-      {availableSourceRelease ? (
+      {availableSourceRelease && ((!onReadManagedUpdate || !onRequestManagedUpdate) || managedEnabled === false) ? (
         <SourceUpgradePrompt
           key={availableSourceRelease.id}
           release={availableSourceRelease}
