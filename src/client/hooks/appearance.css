@@ -22,7 +22,7 @@ html[data-stillon-appearance="custom"] body {
 }
 html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
   max-width: 35vw;
-  background: var(--stillon-surface);
+  background: var(--stillon-sidebar-surface, var(--stillon-surface));
   box-shadow: var(--stillon-surface-shadow);
   border-radius: calc(var(--radius) + 8px);
 }
@@ -54,5 +54,17 @@ html[data-stillon-appearance="custom"] [data-stillon-part="chat-row"] {
     border-radius: 0;
     background: hsl(var(--background));
     backdrop-filter: none;
+  }
+  /* Keep the fullscreen sidebar opaque to chat content while showing its wallpaper. */
+  html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: var(--stillon-wallpaper, none);
+    background-size: cover;
+    background-position: center;
+    opacity: var(--stillon-wallpaper-opacity, 0);
   }
 }
