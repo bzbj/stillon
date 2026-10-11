@@ -20,6 +20,11 @@ html[data-stillon-appearance="custom"] body {
   background-position: center;
   opacity: var(--stillon-wallpaper-opacity, 0);
 }
+/* Route containers and project headings share the workspace image when it is visible. */
+html[data-stillon-wallpaper="visible"] [data-stillon-part="page"],
+html[data-stillon-wallpaper="visible"] [data-stillon-part="project-header"] {
+  background: transparent;
+}
 html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
   max-width: 35vw;
   background: var(--stillon-sidebar-surface, var(--stillon-surface));

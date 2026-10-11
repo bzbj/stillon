@@ -31,7 +31,7 @@ function RouteLoadingFallback({ page }: { page: "chat" | "settings" }) {
   const loadingLabel = page === "chat" ? "Loading conversation…" : "Loading settings…"
 
   return (
-    <div className="relative flex flex-1 min-w-0 overflow-hidden bg-background" aria-busy="true">
+    <div data-stillon-part="page" className="relative flex flex-1 min-w-0 overflow-hidden bg-background" aria-busy="true">
       <span className="sr-only" role="status">{loadingLabel}</span>
       {page === "chat" ? (
         <div className="flex min-h-0 flex-1 flex-col">

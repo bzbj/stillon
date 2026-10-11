@@ -5,13 +5,16 @@ You can also set typography, corners, list density, panel style, sidebar and
 conversation widths, and a local background image. Text colors adjust for the
 selected background and accent.
 
-Background images cover the conversation sidebar and chat area. Artifact previews
-keep their reading surface. With no image or zero background strength, the sidebar
-uses the selected panel style.
+Background images cover the conversation sidebar, New Chat, all Settings pages
+and chat area. Project headings reveal the same background. Inputs, menus and
+artifact previews keep their reading surfaces. With no image, zero background
+strength or safe mode, pages and headings keep their built-in backgrounds.
 
 ![Background image across the sidebar and chat, with a separate artifact surface](images/appearance-wallpaper.png)
 
-![Appearance settings preview](images/appearance.png)
+![Wallpaper on New Chat with transparent project headings](images/appearance-new-chat.png)
+
+![Wallpaper on Settings](images/appearance-settings-wallpaper.png)
 
 The small workspace card shows the draft. **Preview in workspace** applies it
 temporarily across the app. **Apply appearance** saves it on this machine and
@@ -101,8 +104,8 @@ those values. Schema changes require an explicit API version and migration.
 
 ## Public UI hooks
 
-`data-stillon-part` names are `workspace`, `sidebar`, `chat`, `chat-column`,
-`chat-row`, `composer`, `composer-column`, and `appearance-settings`.
+`data-stillon-part` names are `workspace`, `page`, `sidebar`, `project-header`,
+`chat`, `chat-column`, `chat-row`, `composer`, `composer-column`, and `appearance-settings`.
 The implementation maps palette primitives to existing semantic tokens such as
 `--background`, `--foreground`, `--primary`, `--border`, `--radius`, then to
 `--stillon-font`, `--stillon-font-size`, `--stillon-row-height`,
