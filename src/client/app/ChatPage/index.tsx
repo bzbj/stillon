@@ -1083,6 +1083,7 @@ export function ChatPage() {
 
   const chatCard = (
     <Card
+      data-stillon-part="chat"
       ref={chatCardRef}
       className="bg-background h-full flex flex-col overflow-hidden border-0 rounded-none relative"
       onDragEnter={handleTranscriptDragEnter}

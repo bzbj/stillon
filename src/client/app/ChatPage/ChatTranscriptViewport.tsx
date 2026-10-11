@@ -304,7 +304,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   )
 
   const renderItem = useCallback(({ item }: { item: ResolvedTranscriptRow }) => (
-    <div className="mx-auto w-full max-w-[800px] pb-5" data-transcript-row-id={item.id}>
+    <div data-stillon-part="chat-column" className="mx-auto w-full max-w-[800px] pb-5" data-transcript-row-id={item.id}>
       <StillOnTranscriptRow
         row={item}
         toolGroupExpanded={item.kind === "tool-group" ? (toolGroupExpanded[item.id] ?? false) : undefined}
@@ -319,7 +319,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   ), [handleToolGroupExpandedChange, asyncQuestionResponseByKey, asyncQuestionsReadOnly, onAskUserQuestionSubmit, onAnswerAsyncQuestion, onExitPlanModeConfirm, toolGroupExpanded])
 
   const listHeader = (
-    <div className="mx-auto w-full max-w-[800px]" style={{ paddingTop: `${headerOffsetPx}px` }}>
+    <div data-stillon-part="chat-column" className="mx-auto w-full max-w-[800px]" style={{ paddingTop: `${headerOffsetPx}px` }}>
       {isHistoryLoading ? (
         <div className="flex justify-center pb-4">
           <span className="text-sm translate-y-[-0.5px]">
@@ -346,7 +346,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   )
 
   const listFooter = (
-    <div className="mx-auto w-full max-w-[800px]">
+    <div data-stillon-part="chat-column" className="mx-auto w-full max-w-[800px]">
       {isProcessing || isStoppingStatus(runtimeStatus ?? undefined) ? (
         <ProcessingMessage status={runtimeStatus ?? undefined} />
       ) : null}

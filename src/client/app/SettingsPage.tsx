@@ -89,6 +89,7 @@ import {
 } from "../stores/terminalPreferencesStore"
 import { NEW_CHAT_COMPOSER_ID, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, type ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
+import { AppearanceSettingsPanel } from "./AppearanceSettings"
 import type { StillOnState } from "./useStillOnState"
 
 const sidebarItems = [
@@ -103,6 +104,12 @@ const sidebarItems = [
     label: "General",
     icon: Settings2,
     subtitle: "Manage this machine's identity, appearance, editor behavior, and embedded terminal defaults.",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: Sun,
+    subtitle: "Make this workspace yours. Preview themes, skins and layout before applying.",
   },
   {
     id: "network",
@@ -2799,6 +2806,8 @@ export function SettingsPage() {
 
                 {selectedPage === "welcome" ? (
                   <WelcomeChecklist state={state} />
+                ) : selectedPage === "appearance" ? (
+                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} />
                 ) : selectedPage === "general" ? (
                   <>
                     {appSettingsError ? (

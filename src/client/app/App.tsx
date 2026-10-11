@@ -306,8 +306,12 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
   const handleSidebarReorderProjectGroups = useCallback((projectIds: string[]) => {
     void state.handleReorderProjectGroups(projectIds)
   }, [state.handleReorderProjectGroups])
+  const handleSidebarResize = useCallback((width: number) => {
+    void state.handleWriteAppSettings({ appearance: { sidebarWidth: width } }).catch(() => undefined)
+  }, [state.handleWriteAppSettings])
   const sidebarElement = useMemo(() => (
     <StillOnSidebar
+      onResizeSidebar={handleSidebarResize}
       data={state.sidebarData}
       activeChatId={state.activeChatId}
       machineName={machineName}
@@ -339,6 +343,7 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
       editorLabel={state.editorLabel}
     />
   ), [
+    handleSidebarResize,
     handleOpenAddProjectModal,
     handleSidebarCopyPath,
     handleSidebarCreateChat,
@@ -405,7 +410,7 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
   }, [chatSoundId, chatSoundPreference, state.appSettings, state.sidebarData, state.sidebarSnapshotStatus])
 
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
+    <div data-stillon-part="workspace" className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
       {sidebarElement}
       <Outlet context={state} />
       <StandaloneShareDialog

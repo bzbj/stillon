@@ -1,3 +1,4 @@
+import { mergeAppearance } from "../../shared/appearance"
 import { create } from "zustand"
 import {
   normalizeClaudePermissionMode,
@@ -23,6 +24,7 @@ export function mergeAppSettingsPatch(
   return {
     ...settings,
     ...patch,
+    appearance: mergeAppearance(settings.appearance, patch.appearance),
     terminal: {
       ...settings.terminal,
       ...patch.terminal,

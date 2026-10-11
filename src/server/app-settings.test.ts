@@ -1,3 +1,4 @@
+import { defaultAppearance } from "../shared/appearance"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
@@ -28,6 +29,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
   return {
     codexTransport: "app-server",
     browserSettingsMigrated: false,
+    appearance: defaultAppearance(),
     machineName: "This Machine",
     theme: "system",
     chatSoundPreference: "always",

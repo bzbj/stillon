@@ -1,3 +1,4 @@
+import { handleAppearanceRequest } from "./appearance-assets"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
 import { APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
@@ -420,6 +421,14 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 })
             }
           }
+
+          const appearanceResponse = await handleAppearanceRequest(req, url, {
+            dataDir: store.dataDir,
+            getAppearance: () => appSettings.getSnapshot().appearance,
+            validateOrigin: (request) => auth ? auth.validateOrigin(request)
+              : !request.headers.has("origin") || request.headers.get("origin") === url.origin,
+          })
+          if (appearanceResponse) return appearanceResponse
 
           const browserPreviewProxyResponse = await handleBrowserPreviewProxy(req, url, {
             blockedPorts: [actualPort],

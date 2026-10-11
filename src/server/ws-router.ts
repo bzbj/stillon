@@ -1,3 +1,4 @@
+import { defaultAppearance, mergeAppearance } from "../shared/appearance"
 import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -500,6 +501,7 @@ export function createWsRouter({
     },
   }
   let fallbackAppSettingsSnapshot: AppSettingsSnapshot = {
+    appearance: defaultAppearance(),
     codexTransport: "app-server",
     browserSettingsMigrated: false,
     machineName: "This Machine",
@@ -547,6 +549,7 @@ export function createWsRouter({
   const mergeAppSettingsPatch = (snapshot: AppSettingsSnapshot, patch: AppSettingsPatch): AppSettingsSnapshot => ({
     ...snapshot,
     ...patch,
+    appearance: mergeAppearance(snapshot.appearance, patch.appearance),
     terminal: {
       ...snapshot.terminal,
       ...patch.terminal,

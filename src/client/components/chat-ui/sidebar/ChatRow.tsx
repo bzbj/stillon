@@ -50,6 +50,7 @@ function ChatRowImpl({
   const row = (
     <div
       key={chat._id}
+      data-stillon-part="chat-row"
       data-chat-id={normalizedChatId}
       className={cn(
         "group flex items-center gap-2 pl-[9px] pr-0.5 py-0.5 rounded-lg cursor-pointer border-border/0 hover:border-border hover:bg-muted/20 active:scale-[0.985] border transition-all",

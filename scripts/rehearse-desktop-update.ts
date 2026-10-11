@@ -1,3 +1,4 @@
+import { assertAppearanceFixture, seedAppearanceFixture } from "./appearance-fixture"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { brotliCompressSync, gzipSync } from "node:zlib"
@@ -45,6 +46,7 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
       workingDirectory: runtime, homeDirectory: home, pathEnvironment: env.PATH ?? "", localAppDataDirectory: path.join(home, "AppData/Local") } }
   const skin = path.join(deployment.dataRoot, "customizations/skins/personal/custom.css")
   await mkdir(path.dirname(skin), { recursive: true }); await writeFile(skin, "user-owned-skin")
+  const personalAppearance = await seedAppearanceFixture(deployment.dataRoot)
   await atomicJson(path.join(root, "deployment.json"), deployment)
   await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
   const controller = Bun.spawn([deployment.launch.executable, "--no-env-file", deployment.controller, "serve", root], {
@@ -59,7 +61,11 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
     let fail = true
     effects.verify = async (selected) => {
       await verify(selected)
-      if (fail && selected !== runtime) { await writeFile(skin, "failed-version-migration"); throw new Error("Intentional candidate health failure") }
+      if (fail && selected !== runtime) {
+        await writeFile(skin, "failed-version-migration")
+        for (const file of [personalAppearance.settingsPath, personalAppearance.assetPath, personalAppearance.skinPath]) await writeFile(file, "failed-version-appearance")
+        throw new Error("Intentional candidate health failure")
+      }
     }
     await enqueueUpdate(deployment, `v${version}`)
     await worker(deployment, { update: effects })
@@ -67,14 +73,16 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
     if (rolledBack.phase !== "rolled-back" || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error(`Packaged rollback did not restore the original skin (${rolledBack.phase}: ${rolledBack.error ?? "no transaction error"})`)
     const quarantine = path.join(home, `.stillon-after-failed-${rolledBack.id}`, "customizations/skins/personal/custom.css")
     if (await readFile(quarantine, "utf8") !== "failed-version-migration") throw new Error("Failed-version customizations were not quarantined")
+    await assertAppearanceFixture(deployment.dataRoot)
     fail = false
     await enqueueUpdate(deployment, `v${version}`)
     await worker(deployment, { update: effects })
     const success = await json<UpdateState>(path.join(root, "state.json"))
     if (success.phase !== "succeeded" || (await appStatus(deployment))?.version !== version || await readFile(skin, "utf8") !== "user-owned-skin") throw new Error(`Packaged upgrade did not preserve the personal skin (${success.phase}: ${success.error ?? "no transaction error"})`)
+    await assertAppearanceFixture(deployment.dataRoot)
     if (downloads !== 2) throw new Error("The prepared candidate was downloaded again instead of reused")
     return { status: "passed", oldVersion: previous.version, fixtureVersion: version, downloads,
-      checks: ["real bundled controller and application", "download/unpack/probe/switch", "failed-version skin quarantined and rollback restored", "prepared package reused", "successful upgrade preserved personal skin"] }
+      checks: ["real bundled controller and application", "download/unpack/probe/switch", "failed-version skin quarantined and rollback restored", "prepared package reused", "successful upgrade preserved personal skin", "appearance settings and portable background survived update/rollback"] }
   } finally {
     await pauseManagedServer(deployment).catch(() => {})
     controller.kill(); await controller.exited
