@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -7,6 +7,7 @@ import type { TranscriptEntry } from "../shared/types"
 import type { SnapshotFile } from "./events"
 import { EventStore } from "./event-store"
 import { getTranscriptMessagesSerializedBytes } from "./transcript-window"
+import { deriveSidebarData } from "./read-models"
 
 const originalRuntimeProfile = process.env.STILLON_RUNTIME_PROFILE
 const tempDirs: string[] = []
@@ -206,6 +207,100 @@ describe("EventStore", () => {
     const snapshot = JSON.parse(await readFile(join(dataDir, "snapshot.json"), "utf8")) as SnapshotFile
     expect(snapshot.messages).toBeUndefined()
     expect(existsSync(join(dataDir, "transcripts", `${chat.id}.jsonl`))).toBe(true)
+  })
+
+  test("restores sidebar order after an unclean restart without compaction", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const older = await store.createChat(project.id)
+    const newer = await store.createChat(project.id)
+    const now = Date.now()
+    await store.appendMessage(older.id, entry("user_prompt", now + 1))
+    await store.appendMessage(newer.id, entry("user_prompt", now + 2))
+    await store.appendMessage(older.id, entry("user_prompt", now + 3))
+    await store.appendMessage(older.id, entry("assistant_text", now + 4))
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    expect(reloaded.getChat(older.id)?.lastMessageAt).toBe(now + 3)
+    expect(reloaded.getChat(older.id)?.hasMessages).toBe(true)
+    expect(deriveSidebarData(reloaded.state, new Map()).projectGroups[0]?.chats.map((chat) => chat.chatId))
+      .toEqual([older.id, newer.id])
+    expect(await reloaded.pruneStaleEmptyChats({ now: now + 60 * 60 * 1000 })).toEqual([])
+  })
+
+  test("recovers existing transcript activity newer than the saved snapshot", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const now = Date.now()
+    await store.appendMessage(chat.id, entry("user_prompt", now + 1))
+    await store.compact()
+    const snapshotPath = join(dataDir, "snapshot.json")
+    const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as SnapshotFile
+    delete snapshot.chats[0]!.transcriptMetadataOffset
+    await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8")
+
+    // Older releases persisted these entries without journaling their metadata.
+    const transcriptPath = join(dataDir, "transcripts", `${chat.id}.jsonl`)
+    await writeFile(transcriptPath, [
+      entry("user_prompt", now + 1),
+      entry("assistant_text", now + 2),
+      entry("user_prompt", now + 3, { content: "中文新消息" }),
+      entry("assistant_text", now + 4),
+    ].map((value) => JSON.stringify(value)).join("\r\n"), "utf8")
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    expect(reloaded.getChat(chat.id)?.lastMessageAt).toBe(now + 3)
+    const recoveredLog = await readFile(join(dataDir, "chats.jsonl"), "utf8")
+    const again = new EventStore(dataDir)
+    await again.initialize()
+    expect(again.getChat(chat.id)?.lastMessageAt).toBe(now + 3)
+    expect(await again.readAllMessages(chat.id)).toHaveLength(4)
+    expect(await readFile(join(dataDir, "chats.jsonl"), "utf8")).toBe(recoveredLog)
+  })
+
+  test("recovers a prompt written before its metadata journal entry", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const chat = await store.createChat(project.id)
+    const now = Date.now()
+    await store.appendMessage(chat.id, entry("user_prompt", now + 1))
+    await appendFile(join(dataDir, "transcripts", `${chat.id}.jsonl`),
+      `${JSON.stringify(entry("assistant_text", now + 2))}\n${JSON.stringify(entry("user_prompt", now + 3))}\n`, "utf8")
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    expect(reloaded.getChat(chat.id)?.lastMessageAt).toBe(now + 3)
+    expect(await reloaded.readAllMessages(chat.id)).toHaveLength(3)
+  })
+
+  test("keeps copied fork history from changing sidebar activity on restart", async () => {
+    const dataDir = await createTempDataDir()
+    const store = new EventStore(dataDir)
+    await store.initialize()
+    const project = await store.openProject("/tmp/project")
+    const source = await store.createChat(project.id)
+    await store.setChatProvider(source.id, "claude")
+    await store.setSessionToken(source.id, "session-1")
+    await store.appendMessage(source.id, entry("user_prompt", Date.now() + 1))
+    const fork = await store.forkChat(source.id)
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+    expect(reloaded.getChat(fork.id)?.lastMessageAt).toBeUndefined()
+    expect(reloaded.getChat(fork.id)?.hasMessages).toBe(true)
+    await reloaded.appendMessage(fork.id, entry("user_prompt", Date.now() + 2))
+    const again = new EventStore(dataDir)
+    await again.initialize()
+    expect(again.getChat(fork.id)?.lastMessageAt).toBeDefined()
   })
 
   test("pages recent transcript history and older entries by cursor", async () => {

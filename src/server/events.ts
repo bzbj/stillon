@@ -22,6 +22,8 @@ export interface ChatRecord {
   pendingForkSessionToken?: string | null
   hasMessages?: boolean
   lastMessageAt?: number
+  /** Bytes already reflected in the persisted transcript metadata. */
+  transcriptMetadataOffset?: number
   lastTurnOutcome: "success" | "failed" | "cancelled" | null
 }
 
@@ -63,6 +65,15 @@ export type ProjectEvent = {
 }
 
 export type ChatEvent =
+  | {
+      v: 2
+      type: "chat_transcript_metadata_set"
+      timestamp: number
+      chatId: string
+      hasMessages: boolean
+      lastMessageAt?: number
+      transcriptMetadataOffset: number
+    }
   | {
       v: 2
       type: "chat_created"
