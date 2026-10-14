@@ -112,6 +112,7 @@ function getReplayEventPriority(event: StoreEvent) {
     case "chat_plan_mode_set":
       return 2
     case "message_appended":
+    case "chat_transcript_metadata_set":
       return 3
     case "queued_message_enqueued":
     case "queued_message_removed":
@@ -221,6 +222,7 @@ export class EventStore {
     await this.ensureFile(this.asyncResponsesLogPath)
     await this.loadSnapshot()
     await this.replayLogs()
+    await this.restoreTranscriptMetadata()
     await this.loadSidebarProjectOrder()
     if (!(await this.hasLegacyTranscriptData()) && await this.shouldCompact()) {
       await this.compact()
@@ -532,6 +534,17 @@ export class EventStore {
         this.state.chatsById.set(chat.id, chat)
         break
       }
+      case "chat_transcript_metadata_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.hasMessages = event.hasMessages
+        if (event.lastMessageAt !== undefined) {
+          chat.lastMessageAt = Math.max(chat.lastMessageAt ?? event.lastMessageAt, event.lastMessageAt)
+        }
+        chat.transcriptMetadataOffset = event.transcriptMetadataOffset
+        chat.updatedAt = Math.max(chat.updatedAt, event.timestamp)
+        break
+      }
       case "chat_renamed": {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
@@ -703,9 +716,62 @@ export class EventStore {
     if (!chat) return
     chat.hasMessages = true
     if (entry.kind === "user_prompt") {
-      chat.lastMessageAt = entry.createdAt
+      chat.lastMessageAt = Math.max(chat.lastMessageAt ?? entry.createdAt, entry.createdAt)
     }
     chat.updatedAt = Math.max(chat.updatedAt, entry.createdAt)
+  }
+
+  private async persistTranscriptMetadata(chatId: string, transcriptMetadataOffset: number) {
+    const chat = this.requireChat(chatId)
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_transcript_metadata_set",
+      timestamp: Date.now(),
+      chatId,
+      hasMessages: chat.hasMessages ?? false,
+      lastMessageAt: chat.lastMessageAt,
+      transcriptMetadataOffset,
+    }
+    // Called inside the write chain or during initialization; using append()
+    // here would queue behind the write that is waiting for this operation.
+    await appendFile(this.chatsLogPath, `${JSON.stringify(event)}\n`, "utf8")
+    this.applyEvent(event)
+  }
+
+  private async restoreTranscriptMetadata() {
+    for (const chat of this.state.chatsById.values()) {
+      if (chat.deletedAt || this.legacyMessagesByChatId.has(chat.id)) continue
+      try {
+        const snapshotEnd = await this.getTranscriptSize(chat.id)
+        const savedOffset = chat.transcriptMetadataOffset
+        const start = savedOffset !== undefined && savedOffset <= snapshotEnd ? savedOffset : 0
+        if (start === snapshotEnd) continue
+        const input = createReadStream(this.transcriptPath(chat.id), {
+          encoding: "utf8",
+          start,
+          end: snapshotEnd - 1,
+        })
+        const lines = createInterface({ input, crlfDelay: Infinity })
+        try {
+          for await (const rawLine of lines) {
+            const line = rawLine.trim()
+            if (!line) continue
+            const entry = JSON.parse(line) as TranscriptEntry
+            chat.hasMessages = true
+            // Old forks have no byte checkpoint. Their inherited prompts
+            // predate creation and must not replace the fork's own activity.
+            if (savedOffset === undefined && chat.pendingForkSessionToken && entry.createdAt < chat.createdAt) continue
+            this.applyMessageMetadata(chat.id, entry)
+          }
+        } finally {
+          lines.close()
+          input.destroy()
+        }
+        await this.persistTranscriptMetadata(chat.id, snapshotEnd)
+      } catch (error) {
+        console.warn(`${LOG_PREFIX} Failed to restore transcript metadata for ${chat.id}:`, error)
+      }
+    }
   }
 
   private append<TEvent extends StoreEvent>(filePath: string, event: TEvent) {
@@ -915,6 +981,7 @@ export class EventStore {
           chat.hasMessages = true
           chat.updatedAt = Math.max(chat.updatedAt, createdAt)
         }
+        await this.persistTranscriptMetadata(chatId, await this.getTranscriptSize(chatId))
       })
       await this.writeChain
     }
@@ -1104,6 +1171,9 @@ export class EventStore {
       await appendFile(transcriptPath, payload, "utf8")
       const afterAppendAt = performance.now()
       this.applyMessageMetadata(chatId, entry)
+      if (entry.kind === "user_prompt") {
+        await this.persistTranscriptMetadata(chatId, await this.getTranscriptSize(chatId))
+      }
       logSendToStartingProfile("event_store.append_message", {
         chatId,
         entryId: entry._id,
