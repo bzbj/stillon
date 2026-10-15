@@ -183,7 +183,15 @@ export async function uninstallDesktop() {
   }
   // Retain runtimes and recovery records under a distinct inactive directory.
   // A later fresh install can reuse ~/.stillon without reviving old supervisors.
-  await rename(root, `${root}-uninstalled-${Date.now()}`)
+  const retired = `${root}-uninstalled-${Date.now()}`
+  // Windows may retain a stopped service's directory handle briefly. Keep the
+  // intact installation if it cannot be retired; never delete it as a fallback.
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(root, retired); break } catch (error) {
+      if (deployment.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+      await Bun.sleep(250)
+    }
+  }
   console.log("StillOn background services removed. Your chats, themes, skins and settings were preserved.")
 }
 
