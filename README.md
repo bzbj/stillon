@@ -330,6 +330,11 @@ trusted proxy is the sole route to the local origin.
 
 ## Development
 
+The separate managed-access account entry has an initial email-login
+implementation. See [Connect email login](docs/connect-email-login.md) for its
+sender setup and local commands. Computer enrollment and remote tunneling are
+not yet part of that service.
+
 ```bash
 bun run dev
 bun run check
