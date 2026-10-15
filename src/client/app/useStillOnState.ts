@@ -22,7 +22,7 @@ import { useAppDialog } from "../components/ui/app-dialog"
 import { useTheme } from "../hooks/useTheme"
 import { getBrowserMachineIdentityStorage, persistMachineIdentityName, readStoredMachineIdentityName } from "../lib/machineIdentity"
 import { readCachedDefaultProjectId, resolveDefaultProjectId, writeCachedDefaultProjectId } from "../lib/defaultProject"
-import { processTranscriptMessages } from "../lib/parseTranscript"
+import { createTranscriptProcessor, processTranscriptMessages } from "../lib/parseTranscript"
 import {
   clearSidebarSnapshotsForScope,
   createSidebarSnapshotIdentity,
@@ -52,13 +52,14 @@ function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: Ch
     && JSON.stringify(left.lastTurnPreferences) === JSON.stringify(right.lastTurnPreferences)
     && left.planMode === right.planMode
     && left.sessionToken === right.sessionToken
+    && left.codexTransport === right.codexTransport
 }
 
 function sameTranscriptEntries(left: ChatSnapshot["messages"] | null | undefined, right: ChatSnapshot["messages"] | null | undefined) {
   if (left === right) return true
   if (!left || !right) return false
   if (left.length !== right.length) return false
-  return left.every((entry, index) => entry._id === right[index]?._id)
+  return left.every((entry, index) => entry === right[index])
 }
 
 function sameProviders(left: ProviderCatalogEntry[] | null | undefined, right: ProviderCatalogEntry[] | null | undefined) {
@@ -190,6 +191,7 @@ function sameChatSnapshotCore(left: ChatSnapshot | null, right: ChatSnapshot | n
     && sameTranscriptEntries(left.messages, right.messages)
     && sameHistory(left.history, right.history)
     && sameProviders(left.availableProviders, right.availableProviders)
+    && left.asyncQuestionResponses === right.asyncQuestionResponses
 }
 
 function mergeTranscriptEntries(olderHistoryEntries: TranscriptEntry[], recentEntries: TranscriptEntry[]) {
@@ -1367,7 +1369,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     () => [...hydrateTranscriptToolSummaries(serverTranscriptEntries, toolDetailEntries), ...optimisticTranscriptEntries],
     [optimisticTranscriptEntries, serverTranscriptEntries, toolDetailEntries]
   )
-  const messages = useMemo(() => processTranscriptMessages(transcriptEntries), [transcriptEntries])
+  const processMessages = useMemo(() => createTranscriptProcessor(), [activeChatId])
+  const messages = useMemo(() => processMessages(transcriptEntries), [processMessages, transcriptEntries])
   const previousPrompt = useMemo(() => getPreviousPrompt(messages), [messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
   const runtime = activeChatSnapshot?.runtime ?? null

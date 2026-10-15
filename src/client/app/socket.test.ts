@@ -194,6 +194,48 @@ describe("StillOnSocket", () => {
     socket.dispose()
   })
 
+  test("negotiates deltas, resynchronizes once on a gap, rejects old epochs and accepts legacy servers", () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    const seen: any[] = []
+    socket.subscribe({ type: "chat", chatId: "chat" }, (value) => seen.push(value))
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    ws.open()
+    const subscriptions = ws.sent.filter((entry) => entry.type === "subscribe")
+    expect(subscriptions).toHaveLength(1)
+    const subscription = subscriptions[0] as any
+    expect(subscription.topic.streamVersion).toBe(1)
+    const stream = { streamId: subscription.topic.streamId, revision: 1 }
+    const snapshot = { messages: [{ _id: "a", kind: "assistant_text", text: "a", createdAt: 1 }],
+      runtime: { chatId: "chat", title: "Chat" }, history: { revision: "history" },
+      queuedMessages: [], availableProviders: [], asyncQuestionResponses: [] }
+    ws.receive({ v: 1, type: "snapshot", id: subscription.id, stream, snapshot: { type: "chat", data: snapshot } })
+    const delta = { v: 1, type: "chat-delta", id: subscription.id, stream: { ...stream, revision: 2 }, baseRevision: 1,
+      delta: { set: {}, upsert: [{ ...snapshot.messages[0], text: "replaced" }] } }
+    ws.receive(delta)
+    expect(seen.at(-1).messages[0].text).toBe("replaced")
+    ws.receive(delta)
+    expect(seen).toHaveLength(2)
+    const gap = { ...delta, stream: { ...stream, revision: 4 }, baseRevision: 3 }
+    ws.receive(gap); ws.receive(gap)
+    expect(ws.sent.filter((entry) => entry.type === "subscribe")).toHaveLength(2)
+    const resync = ws.sent.at(-1) as any
+    expect(resync.topic.streamId).not.toBe(stream.streamId)
+    ws.receive({ v: 1, type: "snapshot", id: subscription.id, stream, snapshot: { type: "chat", data: snapshot } })
+    expect(seen).toHaveLength(2)
+    ws.receive({ v: 1, type: "snapshot", id: subscription.id,
+      stream: { streamId: resync.topic.streamId, revision: 1 }, snapshot: { type: "chat", data: snapshot } })
+    expect(seen).toHaveLength(3)
+    ws.close()
+    for (const id of [...timers.timeouts.keys()]) timers.runTimeout(id)
+    const next = FakeWebSocket.instances.at(-1)!
+    next.open()
+    expect((next.sent[0] as any).topic.streamId).not.toBe(resync.topic.streamId)
+    next.receive({ v: 1, type: "snapshot", id: subscription.id, snapshot: { type: "chat", data: snapshot } })
+    expect(seen).toHaveLength(4)
+    socket.dispose()
+  })
+
   test("does not ping when the connection is already fresh", async () => {
     const socket = new StillOnSocket("ws://localhost/ws")
     socket.start()

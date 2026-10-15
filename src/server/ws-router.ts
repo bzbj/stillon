@@ -1,4 +1,5 @@
 import { defaultAppearance, mergeAppearance } from "../shared/appearance"
+import { ChatStreamEncoder, prepareChatSnapshot, type PreparedChatSnapshot } from "../shared/chat-stream"
 import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -126,6 +127,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
+  chatStreams?: Map<string, ChatStreamEncoder>
   modelPolicySignature?: string
   protectedDraftChatIds?: Set<string>
 }
@@ -174,6 +176,7 @@ interface SnapshotComputationCache {
     data: ReturnType<typeof deriveSidebarData>
     signature: string
   }
+  preparedChats?: Map<string, PreparedChatSnapshot>
   chatHistories?: Map<string, ReturnType<EventStore["getRecentChatHistory"]>>
 }
 
@@ -880,7 +883,7 @@ export function createWsRouter({
     }
   }
 
-  async function pushSnapshots(
+  async function pushSnapshotsNow(
     ws: ServerWebSocket<ClientState>,
     options?: { skipPrune?: boolean; filter?: SnapshotBroadcastFilter; cache?: SnapshotComputationCache }
   ) {
@@ -898,7 +901,28 @@ export function createWsRouter({
       const envelopeStartedAt = performance.now()
       const envelope = await createEnvelope(id, topic, options?.cache)
       const createdAt = performance.now()
+      if (ws.data.subscriptions.get(id) !== topic) continue
       if (envelope.type !== "snapshot") continue
+      if (topic.type === "chat" && topic.streamVersion === 1 && typeof topic.streamId === "string"
+        && topic.streamId.length <= 128 && envelope.snapshot.type === "chat") {
+        const streams = ws.data.chatStreams ??= new Map()
+        let encoder = streams.get(id)
+        if (!encoder && streams.size < 4) {
+          encoder = new ChatStreamEncoder(topic.streamId)
+          streams.set(id, encoder)
+        }
+        if (encoder) {
+          const key = `${topic.chatId}:${normalizeInitialChatHistoryEntryLimit(topic.recentLimit)}`
+          const prepared = options?.cache?.preparedChats?.get(key) ?? prepareChatSnapshot(envelope.snapshot.data)
+          if (options?.cache) (options.cache.preparedChats ??= new Map()).set(key, prepared)
+          const frame = encoder.encode(prepared)
+          if (frame) {
+            if (frame.type === "snapshot") send(ws, { ...envelope, snapshot: { type: "chat", data: frame.data }, stream: frame.stream })
+            else send(ws, { v: PROTOCOL_VERSION, id, ...frame })
+          }
+          continue
+        }
+      }
       const signature = topic.type === "sidebar"
         ? getSidebarSnapshotCacheEntry(options?.cache).signature
         : JSON.stringify(envelope.snapshot)
@@ -939,6 +963,23 @@ export function createWsRouter({
         ...countSubscriptionsByTopic(ws),
       }))
     }
+  }
+
+  // At most one in-flight and one coalesced refresh per connection. This also
+  // prevents async history reads from publishing revisions out of order.
+  const pushes = new WeakMap<ServerWebSocket<ClientState>, Promise<void>>()
+  const refreshPending = new WeakSet<ServerWebSocket<ClientState>>()
+  function pushSnapshots(ws: ServerWebSocket<ClientState>, options?: Parameters<typeof pushSnapshotsNow>[1]): Promise<void> {
+    const running = pushes.get(ws)
+    if (running) { refreshPending.add(ws); return running }
+    const operation = (async () => {
+      try {
+        await pushSnapshotsNow(ws, options)
+        while (refreshPending.delete(ws)) await pushSnapshotsNow(ws, { skipPrune: true })
+      } finally { pushes.delete(ws); refreshPending.delete(ws) }
+    })()
+    pushes.set(ws, operation)
+    return operation
   }
 
   async function broadcastSnapshots() {
@@ -1734,6 +1775,9 @@ export function createWsRouter({
     },
     handleClose(ws: ServerWebSocket<ClientState>) {
       sockets.delete(ws)
+      ws.data.subscriptions.clear()
+      ws.data.chatStreams?.clear()
+      ws.data.snapshotSignatures?.clear()
     },
     broadcastSnapshots,
     broadcastLocalProjectsSnapshots: () => broadcastFilteredSnapshots({ includeLocalProjects: true }),
@@ -1759,6 +1803,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)
+        ws.data.chatStreams?.delete(parsed.id)
         if (parsed.topic.type === "local-projects") {
           // Saved StillOn projects can be rendered immediately. Provider
           // history discovery continues in the background and pushes updates.
@@ -1779,6 +1824,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         ws.data.subscriptions.delete(parsed.id)
         snapshotSignatures.delete(parsed.id)
+        ws.data.chatStreams?.delete(parsed.id)
         send(ws, { v: PROTOCOL_VERSION, type: "ack", id: parsed.id })
         return
       }
