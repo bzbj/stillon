@@ -1,3 +1,4 @@
+import { ChatStreamDecoder, type ChatStreamFrame } from "../../shared/chat-stream"
 import { receiveCodexModelPolicy } from "../stores/codexModelPolicyStore"
 import { traceAsyncAnswer } from "./asyncQuestionDiagnostics"
 import type {
@@ -23,6 +24,7 @@ const SEND_TO_STARTING_PROFILE_STORAGE_KEY = "kanna:profile-send-to-starting"
 
 interface SubscriptionEntry<TSnapshot, TEvent = never> {
   topic: SubscriptionTopic
+  chatStream?: ChatStreamDecoder
   listener: SnapshotListener<TSnapshot>
   eventListener?: EventListener<TEvent>
 }
@@ -115,8 +117,10 @@ export class StillOnSocket {
     eventListener?: EventListener<TEvent>
   ) {
     const id = generateUUID()
+    if (topic.type === "chat") topic = { ...topic, streamVersion: 1, streamId: generateUUID() }
     this.subscriptions.set(id, {
       topic,
+      ...(topic.type === "chat" ? { chatStream: new ChatStreamDecoder(topic.streamId!) } : {}),
       listener: listener as SnapshotListener<unknown>,
       eventListener: eventListener as EventListener<unknown> | undefined,
     })
@@ -192,14 +196,23 @@ export class StillOnSocket {
     return this.sendPing()
   }
 
+  private resetChatStream(subscription: SubscriptionEntry<unknown, unknown>) {
+    if (subscription.topic.type !== "chat") return
+    const streamId = generateUUID()
+    subscription.topic = { ...subscription.topic, streamVersion: 1, streamId }
+    subscription.chatStream = new ChatStreamDecoder(streamId)
+  }
+
   private connect() {
     if (!this.started) {
       return
     }
     this.emitStatus("connecting")
     this.ws = new WebSocket(this.url)
+    const connection = this.ws
 
     this.ws.addEventListener("open", () => {
+      if (this.ws !== connection) return
       this.reconnectDelayMs = 750
       this.reconnectImmediatelyOnClose = false
       this.lastOpenAt = Date.now()
@@ -207,17 +220,19 @@ export class StillOnSocket {
       this.emitStatus("connected")
       this.startHeartbeat()
       for (const [id, subscription] of this.subscriptions.entries()) {
+        this.resetChatStream(subscription)
         this.sendNow({ v: 1, type: "subscribe", id, topic: subscription.topic })
       }
       while (this.outboundQueue.length > 0) {
         const envelope = this.outboundQueue.shift()
-        if (envelope) {
+        if (envelope?.type === "command") {
           this.sendNow(envelope)
         }
       }
     })
 
     this.ws.addEventListener("message", (event) => {
+      if (this.ws !== connection) return
       this.lastMessageAt = Date.now()
       const receivedAt = performance.now()
       const rawText = String(event.data)
@@ -260,6 +275,21 @@ export class StillOnSocket {
         })
       }
 
+      if (payload.type === "chat-delta" || (payload.type === "snapshot" && payload.snapshot.type === "chat" && payload.stream)) {
+        const subscription = this.subscriptions.get(payload.id)
+        if (!subscription?.chatStream) return
+        const frame: ChatStreamFrame = payload.type === "chat-delta" ? payload : {
+          type: "snapshot", data: payload.snapshot.data as import("../../shared/types").ChatSnapshot | null, stream: payload.stream!,
+        }
+        const result = subscription.chatStream.receive(frame)
+        if (result.kind === "apply") subscription.listener(result.snapshot)
+        else if (result.kind === "resync") {
+          this.resetChatStream(subscription)
+          this.enqueue({ v: 1, type: "subscribe", id: payload.id, topic: subscription.topic })
+        }
+        return
+      }
+
       if (payload.type === "snapshot") {
         const subscription = this.subscriptions.get(payload.id)
         subscription?.listener(payload.snapshot.data)
@@ -293,6 +323,7 @@ export class StillOnSocket {
     })
 
     this.ws.addEventListener("close", () => {
+      if (this.ws !== connection) return
       if (!this.started) {
         return
       }

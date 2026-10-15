@@ -1,3 +1,4 @@
+import { createTranscriptProcessor } from "./parseTranscript"
 import { describe, expect, test } from "bun:test"
 import { processTranscriptMessages } from "./parseTranscript"
 import { getLatestToolIds } from "../app/derived"
@@ -272,4 +273,23 @@ describe("getLatestToolIds", () => {
     if (plain?.kind !== "assistant_text") throw new Error("unexpected message")
     expect(plain.asyncQuestion).toBeUndefined()
   })
+})
+
+
+test("cached processing reuses unchanged entries and replaces same-ID content without mutating earlier results", () => {
+  const process = createTranscriptProcessor()
+  const first: any = { _id: "a", kind: "assistant_text", createdAt: 1, text: "before" }
+  const call: any = { _id: "call", kind: "tool_call", createdAt: 2,
+    tool: { kind: "tool", toolKind: "bash", toolName: "Bash", toolId: "tool", input: { command: "echo example" } } }
+  const result: any = { _id: "result", kind: "tool_result", toolId: "tool", createdAt: 3, content: "first", isError: false }
+  const a = process([first, call, result])
+  const b = process([first, call, result, { ...first, _id: "b" }])
+  expect(a[0]).toBe(b[0])
+  expect(a[1]).toBe(b[1])
+  const before = JSON.stringify(a)
+  const c = process([{ ...first, text: "after" }, call, { ...result, content: "second" }])
+  expect(c).toEqual(processTranscriptMessages([{ ...first, text: "after" }, call, { ...result, content: "second" }]))
+  expect(c[0]).not.toBe(a[0])
+  expect(c[1]).not.toBe(a[1])
+  expect(JSON.stringify(a)).toBe(before)
 })

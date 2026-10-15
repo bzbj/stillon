@@ -1,3 +1,4 @@
+import { ChatStreamEncoder, ChatStreamDecoder, prepareChatSnapshot } from "../../shared/chat-stream"
 import { describe, expect, test } from "bun:test"
 import {
   applySidebarProjectOrder,
@@ -377,6 +378,28 @@ describe("reconcileHistoryPaginationSnapshot", () => {
       asyncQuestionResponses: [],
     }
   }
+
+  test("delta window slides retain loaded history and new history epochs reset pagination", () => {
+    const encoder = new ChatStreamEncoder("stream")
+    const decoder = new ChatStreamDecoder("stream")
+    const initial = snapshot("revision-1", [transcriptEntry(1), transcriptEntry(2)], "cursor", true)
+    const first = decoder.receive(encoder.encode(prepareChatSnapshot(initial))!)
+    if (first.kind !== "apply" || !first.snapshot) throw new Error("No initial snapshot")
+    const pagination = reconcileHistoryPaginationSnapshot(null, first.snapshot)
+    const next = { ...initial, messages: [transcriptEntry(2), transcriptEntry(3)] }
+    const frame = encoder.encode(prepareChatSnapshot(next))!
+    expect(frame.type).toBe("chat-delta")
+    const merged = decoder.receive(frame)
+    if (merged.kind !== "apply" || !merged.snapshot) throw new Error("No delta snapshot")
+    const reconciled = reconcileHistoryPaginationSnapshot(pagination.state, merged.snapshot)
+    expect(reconciled.reset).toBe(false)
+    expect(reconciled.fallenOutEntries).toEqual([transcriptEntry(1)])
+    expect(reconciled.state.olderCursor).toBe(pagination.state.olderCursor)
+    const reset = decoder.receive(encoder.encode(prepareChatSnapshot({ ...next,
+      history: { ...next.history, revision: "revision-2" }, messages: [] }))!)
+    if (reset.kind !== "apply" || !reset.snapshot) throw new Error("No reset")
+    expect(reconcileHistoryPaginationSnapshot(reconciled.state, reset.snapshot).reset).toBe(true)
+  })
 
   test("preserves fallen-out tail entries and the earliest loaded cursor during live updates", () => {
     const initial = reconcileHistoryPaginationSnapshot(

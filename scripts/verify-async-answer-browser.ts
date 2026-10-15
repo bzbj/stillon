@@ -194,6 +194,8 @@ try {
     for (const status of ["delivery_unknown", "failed"]) {
       await control(page, `fixture.record('${status}'); fixture.snapshot(); fixture.readOnly(true)`)
       await text(page, "答案：keep it short")
+      // The answer can already be visible before React commits readOnly.
+      await page.waitForFunction(() => document.querySelectorAll("button").length === 0)
       assert.equal(await page.getByRole("button").count(), 0)
     }
   })
