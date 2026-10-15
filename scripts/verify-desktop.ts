@@ -93,7 +93,7 @@ try {
     for (const task of ["StillOn", "StillOn Updater"]) {
       try { diagnostics[`task ${task}`] = await run(["schtasks.exe", "/Query", "/TN", task, "/V", "/FO", "LIST"], process.env) } catch (error) { diagnostics[`task ${task}`] = String(error) }
     }
-    try { diagnostics.processes = await run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('conhost.exe','powershell.exe','bun.exe') } | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Depth 3"], process.env) } catch (error) { diagnostics.processes = String(error) }
+    try { diagnostics.processes = await run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('conhost.exe','powershell.exe','bun.exe') } | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CreationDate,KernelModeTime,UserModeTime | ConvertTo-Json -Depth 3"], process.env) } catch (error) { diagnostics.processes = String(error) }
     try { diagnostics.taskEvents = await run(["wevtutil.exe", "qe", "Microsoft-Windows-TaskScheduler/Operational", "/c:30", "/rd:true", "/f:text"], process.env) } catch (error) { diagnostics.taskEvents = String(error) }
   }
   report.diagnostics = diagnostics
