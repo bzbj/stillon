@@ -9,6 +9,7 @@ const checksums: Record<string, string> = {
   linux_amd64: "1d9875210972a5d1a62b2dc4c48df45ab0af05d3ca1b5e494a014428259df803",
   linux_arm64: "8edf590b0c396fa42f9c147121a76af83cfc2002b08f5aef0ea1008c43482019",
   windows_amd64: "b90074b2b6a1d792a7a40f085ac6d276bcab2d1bc60201f8a86ca53ce65ce821",
+  windows_arm64: "6c25afb4058f7708937db7064836fec593e941de0e6c2c255982335a9b16d370",
 }
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
 export async function prepareConnectRuntime(output: string, target = `${process.platform === "win32" ? "windows" : process.platform}_${process.arch === "x64" ? "amd64" : process.arch}`, includeServer = false) {

@@ -3,7 +3,7 @@ import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { updateTarget } from "../src/server/updater/model"
-import { prepareConnectRuntime } from "./prepare-connect-runtime"
+import { FRP_VERSION, prepareConnectRuntime } from "./prepare-connect-runtime"
 
 const repository = path.resolve(import.meta.dir, "..")
 const output = path.join(repository, "dist", "desktop")
@@ -124,6 +124,8 @@ async function main() {
     const origin = new URL(connectOrigin)
     if (origin.protocol !== "https:" || origin.origin !== connectOrigin || origin.username || origin.password) throw new Error("Desktop Connect origin must be an HTTPS origin")
     await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
+    const frpc = path.join(runtime, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
+    if (await capture([frpc, "--version"]) !== FRP_VERSION) throw new Error("Bundled connector cannot run on this build target")
     // Only public configuration enters the desktop artifact. Never copy an env file.
     await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify({ origin: origin.origin }) + "\n")
   }
