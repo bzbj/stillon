@@ -16,9 +16,10 @@ await writeFile(path.join(destination, "package.json"), JSON.stringify({ name: "
 const install = Bun.spawn([process.execPath, "install", "--production", "--ignore-scripts"], { cwd: destination, stdout: "inherit", stderr: "inherit" })
 if (await install.exited !== 0) throw new Error("Cloud dependency installation failed")
 await prepareConnectRuntime(path.join(destination, "runtime/frp"), process.argv.find(arg => arg.startsWith("--target="))?.slice(9) ?? "linux_amd64", true)
-await copyFile("docs/connect-remote-access.md", path.join(destination, "README.md"))
+await writeFile(path.join(destination, "README.md"), (await readFile("docs/connect-remote-access.md", "utf8")).replace("(connect-email-login.md)", "(docs/connect-email-login.md)"))
 await mkdir(path.join(destination, "docs"), { recursive: true })
 await copyFile("docs/connect-email-login.md", path.join(destination, "docs/connect-email-login.md"))
+await copyFile("docs/connect-remote-access.md", path.join(destination, "docs/connect-remote-access.md"))
 await copyFile("src/connect/.env.example", path.join(destination, "connect.env.example"))
 const files: Record<string, { sha256: string; bytes: number }> = {}
 for await (const file of new Bun.Glob("**/*").scan({ cwd: destination, onlyFiles: true, dot: true })) {
