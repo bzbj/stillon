@@ -168,6 +168,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     origin,
     resolveSession,
     identityById,
+    checkStorage() { db.query("SELECT id FROM user LIMIT 1").get(); guardDb.query("SELECT id FROM connect_challenge LIMIT 1").get() },
     revokeById(id: string) { db.query("DELETE FROM session WHERE id=?").run(id) },
     close: () => { guardDb.close(true); db.close(true) },
     async handle(request: Request, peer: string): Promise<Response> {

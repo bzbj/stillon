@@ -18,7 +18,7 @@ const sockets: WebSocket[] = []
 const checks: string[] = []
 async function local(index: number, action = "status") {
   const origin = `http://127.0.0.1:${fixture.hosts[index]!.port}`
-  return fetch(`${origin}/api/connect-local/${action}`, { method: action === "status" ? "GET" : "POST", headers: { Origin: origin } })
+  return fetch(`${origin}/api/connect-local/${action}`, { method: ["status", "diagnostics"].includes(action) ? "GET" : "POST", headers: { Origin: origin } })
 }
 async function central(route: string, body?: unknown, cookie = "") {
   return fetch(`${fixture.origin}/api/connect/${route}`, { method: body === undefined ? "GET" : "POST", headers: { Origin: fixture.origin, "Content-Type": "application/json", Cookie: cookie }, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -61,6 +61,14 @@ async function command(ws: WebSocket, type: object, id = `${Date.now()}-${crypto
   })
 }
 try {
+  assert.equal((await fetch(`${fixture.origin}/ready`)).status, 200)
+  const cancelled = await eventually(async () => { const response = await local(0, "enroll"); return response.ok ? response.json() : null }, value => Boolean(value?.id))
+  await eventually(async () => { const response = await local(0, "unbind"); return response.ok ? response.json() : null }, value => value?.state === "unbound")
+  assert.equal((await central(`enrollments/${cancelled.id}`)).status, 410)
+  const diagnostic = await (await local(0, "diagnostics")).json()
+  assert.equal(diagnostic.scope, "local-connector"); assert.equal(diagnostic.bound, false)
+  for (const value of [fixture.root, fixture.origin, cancelled.id]) assert.equal(JSON.stringify(diagnostic).includes(value), false)
+  checks.push("dependency readiness, pending enrollment cancellation and redacted local diagnostics")
   const email = "tester@example.com"
   for (let i = 0; i < 2; i++) {
     const enrollment = await eventually(async () => { const response = await local(i, "enroll"); return response.ok ? response.json() : null }, value => Boolean(value?.id))
@@ -87,6 +95,7 @@ try {
     const status = await (await host(i, "/auth/status")).json()
     assert.equal(status.authenticated, true); assert.equal(status.host.id, bound[i]!.hostId)
     assert.equal((await host(i, "/api/connect-local/unbind", { method: "POST" })).status, 403)
+    assert.equal((await host(i, "/api/connect-local/diagnostics")).status, 403)
     assert.equal((await host(i, "/_stillon/update/pause", { method: "POST" })).status, 403)
     assert.equal((await host(i, "/api/browser-proxy/80/")).status, 403)
   }

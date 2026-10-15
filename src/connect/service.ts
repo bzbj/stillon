@@ -11,7 +11,7 @@ import { checkBrowserRequest, cookie, cookieName, cookieValue, faultResponse, js
 
 const id = z.string().regex(/^[a-f0-9]{32}$/)
 const name = z.string().trim().min(1).max(80).refine(v => !/[\u0000-\u001f]/.test(v))
-const deviceActions = z.enum(["enroll", "claim", "connect", "heartbeat", "pause", "resume", "unbind", "rotate"])
+const deviceActions = z.enum(["enroll", "claim", "cancel-enrollment", "connect", "heartbeat", "pause", "resume", "unbind", "rotate"])
 const proofSchema = z.object({ subject: z.string().max(128), challenge: z.string().regex(/^[\w-]{43}$/),
   action: deviceActions, payload: z.record(z.string(), z.unknown()), signature: z.string().regex(/^[\w-]{86}$/) }).strict()
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw new ConnectFault("INVALID_BODY", 400); return result.data }
@@ -90,7 +90,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
     const proof = parse(proofSchema, await jsonBody(request, 256 * 1024)) as DeviceProof
     const key = registry.consumeProof(proof)
     const provisional = proof.subject.startsWith("key:")
-    if ((proof.action === "enroll" || proof.action === "claim") !== provisional) throw new ConnectFault("INVALID_PROOF", 403)
+    if (["enroll", "claim", "cancel-enrollment"].includes(proof.action) !== provisional) throw new ConnectFault("INVALID_PROOF", 403)
     if (proof.action === "enroll") {
       const payload = parse(z.object({ name, protocol: z.literal(CONNECT_PROTOCOL) }).strict(), proof.payload)
       registry.limited(`enroll:${peer}`, 10, 3_600)
@@ -103,6 +103,11 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
       const host = registry.claimEnrollment(enrollmentId, key)
       return json(host ? { state: "bound", hostId: host.id, name: host.name, email: host.email, epoch: host.epoch,
         gatewayPublicKey: keys.publicKey, url: registry.hostOrigin(host.id) } : { state: "pending" })
+    }
+    if (proof.action === "cancel-enrollment") {
+      const { enrollmentId } = parse(z.object({ enrollmentId: id }).strict(), proof.payload)
+      registry.cancelEnrollment(enrollmentId, key)
+      return json({ success: true })
     }
     const host = registry.requireHost(proof.subject)
     if (proof.action === "connect") {

@@ -6,6 +6,7 @@ import { createConnectService, type ConnectTransportOptions } from "./service"
 import { CONNECT_MAX_HTTP_BYTES } from "../shared/connect"
 import type { RelaySocket } from "../server/connect/relay"
 import { stopConnectListener } from "../server/connect/stop-server"
+import { createReadinessProbe } from "./readiness"
 
 /** Collapse IPv6 privacy addresses into a /64 budget; ignore spoofed headers. */
 export function connectPeerKey(address: string) {
@@ -26,6 +27,7 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
   if (!await index.exists()) throw new Error("Build the Connect page first: bun run build:connect")
   const remote = options.remote ? await createConnectService({ ...options, origin, transport: options.remote }) : null
   const auth = remote?.auth ?? await createConnectAuth({ ...options, origin })
+  const ready = createReadinessProbe(() => { auth.checkStorage(); remote?.registry.db.query("SELECT id FROM host LIMIT 1").get() }, options.remote?.upstreamOrigin)
   function secure(response: Response) {
     response.headers.set("X-Content-Type-Options", "nosniff")
     response.headers.set("Referrer-Policy", "no-referrer")
@@ -70,6 +72,10 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
       }
       if (!["GET", "HEAD"].includes(request.method)) return secure(new Response("Method not allowed", { status: 405 }))
       if (url.pathname === "/health") return secure(Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } }))
+      if (url.pathname === "/ready") {
+        const ok = await track(ready())
+        return secure(Response.json({ ok }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } }))
+      }
       if (["/", "/login", "/bind", "/authorize", "/logout/complete", "/computers", "/revoke-host"].includes(url.pathname)) {
         return secure(new Response(request.method === "HEAD" ? null : index, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }))
       }

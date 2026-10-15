@@ -9,6 +9,7 @@ export async function handleConnectLocal(request: Request, ingress: Ingress, con
   if (ingress.kind !== "local") return json({ error: "LOCAL_ONLY" }, 403)
   if (!connector) return json({ error: "CONNECTOR_STARTING" }, 503)
   if (route === "/api/connect-local/status" && request.method === "GET") return json(connector.status())
+  if (route === "/api/connect-local/diagnostics" && request.method === "GET") return json(connector.diagnostics())
   if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405)
   // No caller-supplied URL, private key, port or cloud credential is accepted.
   if (request.headers.get("content-length") && Number(request.headers.get("content-length")) > 32) return json({ error: "INVALID_BODY" }, 400)

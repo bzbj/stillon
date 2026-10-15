@@ -140,6 +140,27 @@ the recovery script; keep the real environment outside its release directory.
 
 ## Deployment and recovery
 
+Pending enrollment can be cancelled from the local settings page. Cancellation
+is signed by the enrolling device; a lost claim response does not leave an
+active orphan host. If the cloud is unreachable, the local channel stays closed
+and the saved cancellation retries after restart before a new binding can begin.
+
+The local/remote settings page offers **Copy connection diagnostics**. Local
+reports include version, protocol, state, bounded error codes and the last cloud
+response time. Remote reports contain browser connection status only. Neither
+includes device keys, email, host IDs, paths, URLs or file contents; the local
+diagnostic endpoint is denied through the remote gateway.
+
+`/health` reports process liveness. `/ready` returns 200 only when the account,
+budget and host databases can be read and the frps HTTP listener responds; it
+returns 503 otherwise. Probes are coalesced/cached for five seconds, with a
+1.5-second dependency deadline and no redirects. This does not prove outbound
+mail delivery, disk write capacity, TLS validity or connectivity to every host.
+Operations should poll both endpoints and alert after repeated readiness
+failures, separately monitor certificate expiry, disk/RAM and mail failures,
+and rehearse those alerts before inviting users. Probe the central authority,
+not a host origin; preserve its Host header when checking loopback directly.
+
 1. Create a dedicated unprivileged account, `/var/lib/stillon-connect` and a
    root-managed private environment file. Configure [mail](connect-email-login.md).
    Preserve existing apps, personal Feishu ingress, VPN and SSH.

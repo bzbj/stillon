@@ -13,6 +13,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [copied, setCopied] = useState(false)
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false)
   const [confirmUnbind, setConfirmUnbind] = useState(false)
   async function refresh() {
     const response = await fetch("/auth/status", { cache: "no-store" })
@@ -39,6 +40,19 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
     } catch (e) { setError(e instanceof Error ? e.message : "操作未完成。") }
     finally { setBusy(false) }
   }
+  async function copyDiagnostics() {
+    try {
+      let report: unknown
+      if (remote) report = { schema: 1, scope: "remote-browser", generatedAt: new Date().toISOString(), authenticated: remote.authenticated, online: remote.host?.online ?? false, paused: remote.host?.paused ?? false }
+      else {
+        const response = await fetch("/api/connect-local/diagnostics", { cache: "no-store" })
+        if (!response.ok) throw new Error("无法读取诊断信息。")
+        report = await response.json()
+      }
+      await navigator.clipboard.writeText(JSON.stringify(report, null, 2)); setDiagnosticsCopied(true)
+      setTimeout(() => setDiagnosticsCopied(false), 2_000)
+    } catch { setError("无法复制诊断信息，请稍后再试。") }
+  }
   return <section className="max-w-xl space-y-6 py-6">
     {remote ? <>
       <div className="flex items-center gap-3"><Monitor className="size-5" /><div><h3 className="font-medium">{remote.host?.name ?? "当前电脑"}</h3><p className="mt-1 text-sm text-muted-foreground">你正在远程使用这台电脑。任务和文件保存在电脑上。</p></div></div>
@@ -48,8 +62,9 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
     </> : local ? <>
       <div className="rounded-2xl border p-5"><div className="flex items-center gap-3"><span className={`size-2 rounded-full ${local.state === "online" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} /><h3 className="font-medium">{labels[local.state]}</h3></div><p className="mt-3 text-sm text-muted-foreground">{local.name}{local.email ? ` · ${local.email}` : ""}</p></div>
       <p className="text-sm leading-6 text-muted-foreground">绑定邮箱后，在其他设备的浏览器登录，就能继续下任务、查看文件和修改结果。请让这台电脑保持开机、联网，并让 StillOn 持续运行。</p>
-      {!local.configured ? <p className="text-sm text-muted-foreground">这个版本尚未配置远程服务。本机使用不受影响。</p> : !local.hostId ? <div className="space-y-4">
+      {!local.configured ? <p className="text-sm text-muted-foreground">这个版本尚未配置远程服务。本机使用不受影响。</p> : local.state === "revocation-pending" ? <p className="text-sm text-muted-foreground">已关闭本机通道，联网后会自动完成撤销。请等待同步后再绑定。</p> : !local.hostId ? <div className="space-y-4">
         <Button disabled={busy} onClick={() => void action("enroll")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{local.enrollment ? "刷新绑定状态" : "绑定邮箱"}</Button>
+        {local.enrollment && <Button disabled={busy} variant="ghost" onClick={() => void action("unbind")}>取消绑定</Button>}
         {local.enrollment && <div className="space-y-3 rounded-xl bg-muted/40 p-4"><p className="text-sm">在验证页面填写邮箱和 6 位验证码，即可绑定这台电脑。</p><a className="inline-flex items-center gap-2 text-sm font-medium underline" href={local.enrollment.verificationUrl} target="_blank" rel="noreferrer">打开邮箱验证页面<ExternalLink className="size-4" /></a></div>}
       </div> : <>
         <div className="space-y-2"><p className="text-sm font-medium">远程登录网址</p><div className="flex items-center gap-3"><a href={local.origin!} target="_blank" rel="noreferrer" className="min-w-0 break-all text-sm underline">{local.origin}</a><Button size="icon" variant="ghost" aria-label="复制远程网址" onClick={() => { void navigator.clipboard.writeText(local.origin!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2_000) }) }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div></div>
@@ -58,6 +73,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       </>}
       {local.error && <p className="text-sm text-muted-foreground">{errors[local.error] ?? "连接暂时不可用，StillOn 会自动尝试重连。"}</p>}
     </> : !error ? <p className="text-sm text-muted-foreground">正在读取连接状态…</p> : null}
+    {(local || remote) && <div className="space-y-2 border-t pt-4"><Button variant="ghost" onClick={() => void copyDiagnostics()}>{diagnosticsCopied ? "诊断信息已复制" : "复制连接诊断"}</Button><p className="text-xs text-muted-foreground">仅包含连接状态和版本等排障信息，不包含邮箱、密钥或文件内容。</p></div>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </section>
 }

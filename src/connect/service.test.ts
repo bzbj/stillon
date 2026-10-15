@@ -124,6 +124,32 @@ test("signed challenges cannot be replayed, mutated or used by a second device",
   expect(() => f.service.registry.consumeProof(proof)).toThrow("INVALID_PROOF")
 })
 
+test("signed enrollment cancellation is final before approval and after a lost claim response", async () => {
+  const f = await fixture(), owner = await f.login("owner@example.com")
+  for (const stage of ["pending", "approved", "claimed"] as const) {
+    const enrollment = await (await f.device("enroll", { name: "Desk", protocol: 1 })).json()
+    if (stage !== "pending") f.service.registry.approveEnrollment(enrollment.id, owner.identity)
+    const host = stage === "claimed" ? f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey) : null
+    expect(() => f.service.registry.cancelEnrollment(enrollment.id, newDeviceKeys().publicKey)).toThrow("NOT_FOUND")
+    expect((await f.device("cancel-enrollment", { enrollmentId: enrollment.id })).status).toBe(200)
+    expect((await f.device("cancel-enrollment", { enrollmentId: enrollment.id })).status).toBe(200)
+    expect(() => f.service.registry.approveEnrollment(enrollment.id, owner.identity)).toThrow("BINDING_EXPIRED")
+    expect(() => f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)).toThrow()
+    if (host) expect(f.service.registry.host(host.id)?.revokedAt).not.toBeNull()
+    expect(f.service.registry.hosts(owner.identity.userId)).toHaveLength(0)
+  }
+})
+
+test("an old enrollment key cannot cancel a host after its device key rotated", async () => {
+  const f = await fixture(), owner = await f.login("owner@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Desk")
+  f.service.registry.approveEnrollment(enrollment.id, owner.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  f.service.registry.rotateKey(host.id, newDeviceKeys().publicKey)
+  expect((await f.device("cancel-enrollment", { enrollmentId: enrollment.id })).status).toBe(404)
+  expect(f.service.registry.requireHost(host.id).revokedAt).toBeNull()
+})
+
 test("frp credentials restrict proxy identity and cloned connector ownership", async () => {
   const f = await fixture(), a = await f.login("owner@example.com")
   const e = f.service.registry.createEnrollment(f.keys.publicKey, "Desk")

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
+import pkg from "../../../package.json"
 
 type DeviceKeys = ReturnType<typeof newDeviceKeys>
 interface DeviceState {
@@ -67,6 +68,7 @@ export async function createConnector(options: ConnectorOptions) {
   let adapter: ReturnType<typeof startRemoteAdapter> | null = null
   let frpc: ReturnType<typeof Bun.spawn> | null = null
   let generation = 0, revision = 0, nextBeat = 0, ticking = false, changing = false, stopped = false
+  let lastCloudResponseAt: number | null = null
   const instanceId = randomId()
   const abort = new AbortController()
   async function save() {
@@ -82,6 +84,7 @@ export async function createConnector(options: ConnectorOptions) {
       redirect: "error", signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) })
     const result = await response.json() as { error?: string }
     if (!response.ok) throw new ConnectorError(result.error ?? "SERVICE_UNAVAILABLE", response.status)
+    lastCloudResponseAt = Date.now()
     return result as T
   }
   async function prove<T>(action: DeviceProof["action"], payload: Record<string, unknown>, provisional = false): Promise<T> {
@@ -150,8 +153,8 @@ export async function createConnector(options: ConnectorOptions) {
     ticking = true
     const currentRevision = revision
     try {
-      if (state.pendingUnbind && state.binding) {
-        try { await prove("unbind", {}) } catch (caught) { if (!(caught instanceof ConnectorError && caught.code === "NOT_FOUND")) throw caught }
+      if (state.pendingUnbind) {
+        await revoke()
         if (currentRevision !== revision || stopped) return
         state = null; status = "unbound"; error = undefined; await save(); return
       }
@@ -192,13 +195,29 @@ export async function createConnector(options: ConnectorOptions) {
     changing = true; revision++; nextBeat = 0
     try { return await operation() } finally { changing = false }
   }
+  async function revoke() {
+    try {
+      if (state?.binding) await prove("unbind", {})
+      else if (state?.enrollment) await prove("cancel-enrollment", { enrollmentId: state.enrollment.id }, true)
+    } catch (caught) { if (!(caught instanceof ConnectorError && caught.code === "NOT_FOUND")) throw caught }
+  }
   return {
+    diagnostics() {
+      // An explicit allowlist prevents new state fields, keys, URLs and private
+      // server error text from silently appearing in a copied support report.
+      const safeErrors = new Set(["SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
+      return { schema: 1, reportId: randomId(), generatedAt: new Date().toISOString(), scope: "local-connector", version: pkg.version,
+        protocol: CONNECT_PROTOCOL, platform: process.platform, architecture: process.arch, state: status, configured: Boolean(origin),
+        bound: Boolean(state?.binding), transportRunning: Boolean(frpc), activeStreams: adapter?.activeLeases().length ?? 0,
+        lastCloudResponseAt, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
+    },
     status(): ConnectLocalStatus { return { configured: Boolean(origin), origin, state: status, name: state?.name ?? options.name(),
       ...(state?.binding ? { email: state.binding.email.replace(/^(.).+(@.*)$/, "$1•••$2"), hostId: state.binding.hostId, url: state.binding.url } : {}),
       ...(state?.enrollment ? { enrollment: state.enrollment } : {}), ...(error ? { error } : {}) } },
     enroll: () => change(async () => {
       if (!origin) throw new ConnectorError("SERVICE_NOT_CONFIGURED")
       if (error === "DEVICE_STATE_INVALID") throw new ConnectorError(error)
+      if (state?.pendingUnbind) throw new ConnectorError("CLOUD_UPDATE_PENDING", 409)
       if (state?.binding) throw new ConnectorError("ALREADY_BOUND", 409)
       if (state?.enrollment && state.enrollment.expiresAt > Date.now()) return state.enrollment
       await executable()
@@ -219,8 +238,7 @@ export async function createConnector(options: ConnectorOptions) {
     unbind: () => change(async () => {
       if (!state) return
       state.paused = true; state.pendingUnbind = true; await save(); await stopTransport(); status = "revocation-pending"
-      if (!state.binding) { state = null; status = "unbound"; await save(); return }
-      try { await prove("unbind", {}); state = null; status = "unbound"; error = undefined; await save() }
+      try { await revoke(); state = null; status = "unbound"; error = undefined; await save() }
       catch (caught) {
         if (caught instanceof ConnectorError && caught.code === "NOT_FOUND") { state = null; status = "unbound"; error = undefined; await save() }
         else error = "CLOUD_UPDATE_PENDING"

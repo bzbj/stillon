@@ -128,6 +128,22 @@ export class ConnectRegistry {
       return this.requireHost(hostId)
     }).immediate()
   }
+  cancelEnrollment(id: string, key: string) {
+    this.db.transaction(() => {
+      const row = this.enrollment(id)
+      if (!row || row.publicKey !== key) throw new ConnectFault("NOT_FOUND", 404)
+      // A lost claim response may already have created a host. Retire that
+      // exact identity, but never allow an old enrollment key after rotation.
+      if (row.hostId) {
+        const host = this.host(row.hostId)
+        if (host && host.revokedAt === null) {
+          if (host.publicKey !== key) throw new ConnectFault("NOT_FOUND", 404)
+          this.revokeHost(host.id)
+        }
+      }
+      this.db.query("UPDATE enrollment SET expiresAt=0, ownerId=NULL, email=NULL WHERE id=?").run(id)
+    }).immediate()
+  }
   createChallenge(subject: string, action: string) {
     this.db.query("DELETE FROM device_challenge WHERE expiresAt<=?").run(this.now())
     const challenge = randomToken()
