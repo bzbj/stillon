@@ -2,6 +2,10 @@ import { isIP } from "node:net"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createConnectAuth, normalizeConnectOrigin, type ConnectAuthOptions } from "./auth"
+import { createConnectService, type ConnectTransportOptions } from "./service"
+import { CONNECT_MAX_HTTP_BYTES } from "../shared/connect"
+import type { RelaySocket } from "../server/connect/relay"
+import { stopConnectListener } from "../server/connect/stop-server"
 
 /** Collapse IPv6 privacy addresses into a /64 budget; ignore spoofed headers. */
 export function connectPeerKey(address: string) {
@@ -14,13 +18,14 @@ export function connectPeerKey(address: string) {
   return `${parts.slice(0, 4).map((part) => parseInt(part, 16).toString(16)).join(":")}::/64`
 }
 
-export async function startConnectServer(options: ConnectAuthOptions & { port?: number; trustProxy?: boolean }) {
+export async function startConnectServer(options: ConnectAuthOptions & { port?: number; trustProxy?: boolean; remote?: ConnectTransportOptions }) {
   const origin = normalizeConnectOrigin(options.origin)
   const host = new URL(origin).host
   const assetsDir = fileURLToPath(new URL("../../dist/connect/", import.meta.url))
   const index = Bun.file(path.join(assetsDir, "index.html"))
   if (!await index.exists()) throw new Error("Build the Connect page first: bun run build:connect")
-  const auth = await createConnectAuth({ ...options, origin })
+  const remote = options.remote ? await createConnectService({ ...options, origin, transport: options.remote }) : null
+  const auth = remote?.auth ?? await createConnectAuth({ ...options, origin })
   function secure(response: Response) {
     response.headers.set("X-Content-Type-Options", "nosniff")
     response.headers.set("Referrer-Policy", "no-referrer")
@@ -30,12 +35,25 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
     if (origin.startsWith("https:")) response.headers.set("Strict-Transport-Security", "max-age=31536000")
     return response
   }
-  const server = Bun.serve({
+  let plugin: ReturnType<typeof Bun.serve> | null = null
+  const active = new Set<Promise<unknown>>()
+  function track<T>(operation: Promise<T>): Promise<T> { active.add(operation); void operation.finally(() => active.delete(operation)).catch(() => {}); return operation }
+  const server = Bun.serve<RelaySocket>({
     hostname: "127.0.0.1",
     port: options.port ?? 3220,
-    maxRequestBodySize: 4_096,
+    maxRequestBodySize: remote ? CONNECT_MAX_HTTP_BYTES : 4_096,
+    idleTimeout: 120,
     async fetch(request, server) {
       const url = new URL(request.url)
+      if (remote && remote.hostId(request)) {
+        const response = await track(remote.host(request, server))
+        if (response) {
+          response.headers.set("X-Content-Type-Options", "nosniff")
+          response.headers.set("Referrer-Policy", "no-referrer")
+          if (origin.startsWith("https:")) response.headers.set("Strict-Transport-Security", "max-age=31536000")
+        }
+        return response
+      }
       if (url.host !== host || (request.headers.has("host") && request.headers.get("host") !== host)) return secure(new Response("Forbidden", { status: 403 }))
       if (url.pathname.startsWith("/api/")) {
         const peer = server.requestIP(request)?.address
@@ -47,11 +65,12 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
           if (!forwarded || !isIP(forwarded)) return secure(new Response("Forbidden", { status: 403 }))
           clientIp = forwarded
         }
-        return secure(await auth.handle(request, connectPeerKey(clientIp)))
+        return secure(remote ? await track(remote.central(request, connectPeerKey(clientIp))) ?? new Response("Not found", { status: 404 })
+          : await track(auth.handle(request, connectPeerKey(clientIp))))
       }
       if (!["GET", "HEAD"].includes(request.method)) return secure(new Response("Method not allowed", { status: 405 }))
       if (url.pathname === "/health") return secure(Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } }))
-      if (url.pathname === "/" || url.pathname === "/login") {
+      if (["/", "/login", "/bind", "/authorize", "/logout/complete", "/computers", "/revoke-host"].includes(url.pathname)) {
         return secure(new Response(request.method === "HEAD" ? null : index, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }))
       }
       const assetName = url.pathname.slice("/assets/".length)
@@ -62,7 +81,14 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
       if (!file || !await file.exists()) return secure(new Response("Not found", { status: 404 }))
       return secure(new Response(request.method === "HEAD" ? null : file, { headers: { "Content-Type": file.type, "Cache-Control": "public, max-age=3600" } }))
     },
+    websocket: remote?.relay.websocket ?? { message() {} },
     error() { return secure(new Response("Service unavailable", { status: 503 })) },
   })
-  return { port: server.port, async stop() { await server.stop(true); auth.close() } }
+  try {
+    if (remote) plugin = Bun.serve({ hostname: "127.0.0.1", port: options.remote?.pluginPort ?? 3221, maxRequestBodySize: 32_768,
+      fetch: request => remote.plugin(request), error: () => Response.json({ reject: true, reject_reason: "Unavailable" }) })
+  } catch (error) { await server.stop(true); remote?.close(); if (!remote) auth.close(); throw error }
+  return { port: server.port, pluginPort: plugin?.port, remote,
+    async stop() { remote?.relay.stop(); await stopConnectListener(server); if (plugin) await stopConnectListener(plugin);
+      await Promise.allSettled([...active]); if (remote) remote.close(); else auth.close() } }
 }

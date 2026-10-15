@@ -15,6 +15,9 @@ import { StillOnSidebar } from "./StillOnSidebar"
 import { LocalProjectsPage } from "./LocalProjectsPage"
 import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
+import type { ConnectHost } from "../../shared/connect"
+import { isConnectBrowser } from "../lib/remoteSession"
+import { flushSync } from "react-dom"
 
 const AUTH_STATUS_RETRY_DELAY_MS = 500
 
@@ -80,15 +83,23 @@ function RouteLoadingFallback({ page }: { page: "chat" | "settings" }) {
 interface AuthStatusResponse {
   enabled: boolean
   authenticated: boolean
-  cacheScope?: string
+  cacheScope?: string | null
+  mode?: "connect"
+  loginUrl?: string
+  portalUrl?: string
+  host?: ConnectHost
 }
 
 type AppAuthState =
   | { status: "checking" }
   | { status: "ready"; cacheScope: string | null }
   | { status: "locked"; error: string | null }
+  | { status: "connect-unavailable"; loginUrl: string; portalUrl: string; host?: ConnectHost }
 
 export function getAppAuthStateFromStatus(payload: Partial<AuthStatusResponse>): AppAuthState {
+  if (payload.mode === "connect" && (!payload.authenticated || !payload.host?.online)) return {
+    status: "connect-unavailable", loginUrl: payload.loginUrl ?? "/_connect/login", portalUrl: payload.portalUrl ?? "/", host: payload.host,
+  }
   if (!payload.enabled || payload.authenticated) {
     const cacheScope = typeof payload.cacheScope === "string"
       ? payload.cacheScope.trim() || null
@@ -179,8 +190,10 @@ function PasswordScreen({
 function useAppAuthState() {
   const [state, setState] = useState<AppAuthState>({ status: "checking" })
   const retryTimeoutRef = useRef<number | null>(null)
+  const requestGeneration = useRef(0)
 
   const refresh = useCallback(async () => {
+    const generation = ++requestGeneration.current
     if (retryTimeoutRef.current !== null) {
       window.clearTimeout(retryTimeoutRef.current)
       retryTimeoutRef.current = null
@@ -198,13 +211,17 @@ function useAppAuthState() {
         },
       })
     } catch {
+      if (generation !== requestGeneration.current) return
+      if (isConnectBrowser()) setState({ status: "checking" })
       retryTimeoutRef.current = window.setTimeout(() => {
         void refresh()
       }, AUTH_STATUS_RETRY_DELAY_MS)
       return
     }
 
+    if (generation !== requestGeneration.current) return
     if (shouldRetryAuthStatusRequest(response.ok)) {
+      if (isConnectBrowser()) setState({ status: "checking" })
       retryTimeoutRef.current = window.setTimeout(() => {
         void refresh()
       }, AUTH_STATUS_RETRY_DELAY_MS)
@@ -212,12 +229,30 @@ function useAppAuthState() {
     }
 
     const payload = await response.json() as Partial<AuthStatusResponse>
+    if (generation !== requestGeneration.current) return
     setState(getAppAuthStateFromStatus(payload))
   }, [])
 
   useEffect(() => {
     void refresh()
+    const hidePrivatePage = () => {
+      if (isConnectBrowser()) { requestGeneration.current++; flushSync(() => setState({ status: "checking" })) }
+    }
+    const recheck = () => { hidePrivatePage(); void refresh() }
+    if (isConnectBrowser()) {
+      window.addEventListener("stillon:check-session", recheck)
+      window.addEventListener("focus", recheck)
+      window.addEventListener("pageshow", recheck)
+      window.addEventListener("pagehide", hidePrivatePage)
+    }
+    const timer = isConnectBrowser() ? window.setInterval(() => { void refresh() }, 15_000) : null
     return () => {
+      requestGeneration.current++
+      if (timer !== null) window.clearInterval(timer)
+      window.removeEventListener("stillon:check-session", recheck)
+      window.removeEventListener("focus", recheck)
+      window.removeEventListener("pageshow", recheck)
+      window.removeEventListener("pagehide", hidePrivatePage)
       if (retryTimeoutRef.current !== null) {
         window.clearTimeout(retryTimeoutRef.current)
       }
@@ -441,6 +476,16 @@ export function App() {
 
   if (auth.state.status === "locked") {
     return <PasswordScreen error={auth.state.error} onSubmit={auth.submitPassword} />
+  }
+
+  if (auth.state.status === "connect-unavailable") {
+    const state = auth.state
+    return <div className="flex min-h-[100dvh] items-center justify-center bg-background p-6"><div className="max-w-md space-y-5">
+      <h1 className="text-2xl font-semibold">{state.host ? `${state.host.name} 暂时离线` : "远程登录已结束"}</h1>
+      <p className="text-sm leading-6 text-muted-foreground">{state.host ? "请确认电脑保持开机、联网且 StillOn 正在运行。恢复连接后可以继续使用。" : "重新验证邮箱后，可以继续使用这台电脑。电脑上的任务不会因退出登录而停止。"}</p>
+      <div className="flex flex-wrap gap-5 text-sm"><a className="underline" href={state.loginUrl}>{state.host ? "重试连接" : "邮箱登录"}</a><a className="underline" href={`${state.portalUrl}/computers`}>我的电脑</a></div>
+      {state.host && <form method="post" action="/_connect/logout"><Button variant="outline" type="submit">Logout · 退出远程登录</Button></form>}
+    </div></div>
   }
 
   return (

@@ -182,7 +182,7 @@ describe("uploads", () => {
         fallbackMimeType: "text/plain",
       })
 
-      const response = await fetch(`http://localhost:${server.port}${attachment.contentUrl}`, { method: "POST" })
+      const response = await fetch(`http://localhost:${server.port}${attachment.contentUrl}`, { method: "POST", headers: { Origin: `http://localhost:${server.port}` } })
       expect(response.status).toBe(405)
       expect(response.headers.get("allow")).toBe("GET")
     } finally {
@@ -205,6 +205,7 @@ describe("uploads", () => {
       const response = await fetch(`http://localhost:${server.port}/api/projects/${project.id}/uploads`, {
         method: "POST",
         body: formData,
+        headers: { Origin: `http://localhost:${server.port}` },
       })
 
       expect(response.status).toBe(413)
@@ -233,6 +234,7 @@ describe("uploads", () => {
       const response = await fetch(`http://localhost:${server.port}/api/projects/${project.id}/uploads`, {
         method: "POST",
         body: formData,
+        headers: { Origin: `http://localhost:${server.port}` },
       })
 
       expect(response.status).toBe(413)
@@ -310,7 +312,7 @@ describe("uploads", () => {
       })
 
       const deleteUrl = `http://localhost:${server.port}${attachment.contentUrl.replace(/\/content$/, "")}`
-      const response = await fetch(deleteUrl, { method: "DELETE" })
+      const response = await fetch(deleteUrl, { method: "DELETE", headers: { Origin: `http://localhost:${server.port}` } })
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true })
       expect(await Bun.file(attachment.absolutePath).exists()).toBe(false)

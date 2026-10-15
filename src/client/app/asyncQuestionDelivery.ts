@@ -1,4 +1,5 @@
 import { traceAsyncAnswer } from "./asyncQuestionDiagnostics"
+import { isConnectBrowser } from "../lib/remoteSession"
 import type { AsyncQuestionAnswerInput, AsyncQuestionResponse } from "../../shared/types"
 import type { AsyncQuestionAnswerResult } from "../../shared/protocol"
 import type { StillOnSocket, SocketStatus } from "./socket"
@@ -28,7 +29,7 @@ export class AsyncQuestionDelivery {
   connection: SocketStatus = "disconnected"
   constructor(private socket: Pick<StillOnSocket, "command" | "onStatus">) {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(STORAGE) ?? "[]") as Delivery[]
+      const saved = JSON.parse(isConnectBrowser() ? "[]" : sessionStorage.getItem(STORAGE) ?? "[]") as Delivery[]
       for (const entry of saved) {
         this.entries.set(keyOf(entry.chatId, entry.questionKey), {
           ...entry, checking: false,
@@ -56,7 +57,7 @@ export class AsyncQuestionDelivery {
   get(chatId: string, questionKey: string) { return this.entries.get(keyOf(chatId, questionKey)) }
   private emit() {
     this.version++
-    try { sessionStorage.setItem(STORAGE, JSON.stringify([...this.entries.values()])) } catch { /* best effort */ }
+    try { if (!isConnectBrowser()) sessionStorage.setItem(STORAGE, JSON.stringify([...this.entries.values()])) } catch { /* best effort */ }
     for (const listener of this.listeners) listener()
   }
   private put(entry: Delivery) {

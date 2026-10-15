@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { privateBrowserStorage } from "../lib/remoteSession"
 
 export interface ProjectRightSidebarVisibilityState {
   rightPanel: "hidden" | "git" | "browser"
@@ -329,6 +330,7 @@ export const useRightSidebarStore = create<RightSidebarState>()(
     }),
     {
       name: "right-sidebar-layouts",
+      storage: privateBrowserStorage,
       version: 7,
       migrate: migrateRightSidebarStore,
     }

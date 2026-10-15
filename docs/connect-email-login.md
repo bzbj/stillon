@@ -4,12 +4,10 @@ Connect is a separately runnable account service for the planned managed remote
 entry. It provides email-code sign-in, verified account creation, remembered
 sessions and logout. The local StillOn server remains independently usable.
 
-**Current boundary:** signing in creates an account session. This version does
-not enroll computers, establish tunnels, forward local HTTP/WebSocket traffic or
-authorize control of a host. The signed-in page therefore shows an empty computer
-state. Do not put this account service in front of a local origin using a rule
-that treats any signed-in email as the computer's owner. Host enrollment and
-host-specific access grants are required before managed remote access is usable.
+The account module also powers the [remote-access development preview](connect-remote-access.md).
+Computer access additionally requires enrollment, ownership, a host-specific
+session and a transport lease. Configure the transport settings in `.env.example`
+for the complete service, or omit them for account-only development.
 
 ## Mail setup
 
@@ -106,7 +104,7 @@ the browser's own settings; use explicit logout when ending access.
 
 Account state is shared across tabs. The UI broadcasts sign-in/sign-out and
 refreshes account state on focus. This does not implement or mutate a global
-"current computer"; later host routing must retain each tab's explicit target.
+"current computer"; host routing retains each tab's explicit target.
 
 ## Verification limits
 
@@ -129,7 +127,7 @@ refreshes account state on focus. This does not implement or mutate a global
   SameSite attributes. Mutation Origin checks remain active on localhost too.
 - Email proves access to an inbox. Trusted-browser approval, computer ownership,
   recovery proofs, authorization revocation and host-bound grants belong to the
-  subsequent remote-access layer; this login service is not that layer.
+  [remote-access layer](connect-remote-access.md), independently of email login.
 
 Better Auth 1.7.10 and input-otp 1.5.0 are pinned in `bun.lock`. The service uses a
 single process per SQLite data directory. Schema initialization uses Better

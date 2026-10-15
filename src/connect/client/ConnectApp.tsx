@@ -5,6 +5,7 @@ import { Button } from "../../client/components/ui/button"
 import { Input } from "../../client/components/ui/input"
 import { cn } from "../../client/lib/utils"
 import { CONNECT_RESEND_SECONDS, type ConnectError, type ConnectSession } from "../shared"
+import type { ConnectHost, ConnectIntent } from "../../shared/connect"
 
 class LoginError extends Error {
   constructor(public code: string, public retryAfterSeconds = 0) { super(code) }
@@ -34,6 +35,8 @@ function errorText(error: unknown) {
     case "LOGIN_EXPIRED": return "本次验证已失效，请重新获取验证码。"
     case "MAIL_UNAVAILABLE": return "验证码暂时发送失败，请稍后重试。"
     case "RATE_LIMITED": return `操作较频繁，请在 ${error.retryAfterSeconds || 60} 秒后重试。`
+    case "BINDING_EXPIRED": return "绑定请求已过期，请回到本机 StillOn 重新绑定。"
+    case "ACTION_NOT_COMPLETED": return "验证完成，但绑定或解绑未完成，请回到原入口重试。"
     default: return "暂时无法登录，请稍后重试。"
   }
 }
@@ -51,6 +54,15 @@ function CodeSlot({ char, isActive, hasFakeCaret }: SlotProps) {
 }
 
 export function ConnectApp() {
+  const [route] = useState(() => new URL(window.location.href))
+  const [intent] = useState<ConnectIntent | undefined>(() => {
+    const id = route.searchParams.get(route.pathname === "/bind" ? "enrollment" : "host")
+    return id && /^[a-f0-9]{32}$/.test(id) && ["/bind", "/revoke-host"].includes(route.pathname)
+      ? { purpose: route.pathname === "/bind" ? "enroll" : "revoke-host", id } : undefined
+  })
+  const [intentDone, setIntentDone] = useState(false)
+  const [enrollment, setEnrollment] = useState<{ name: string; fingerprint: string } | null>(null)
+  const [hosts, setHosts] = useState<ConnectHost[] | null>(null)
   const [session, setSession] = useState<ConnectSession | null>(null)
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState<"email" | "code">("email")
@@ -65,7 +77,9 @@ export function ConnectApp() {
   const emailInput = useRef<HTMLInputElement>(null)
   const codeInput = useRef<HTMLInputElement>(null)
   const channel = useRef<BroadcastChannel | null>(null)
+  const authorization = useRef<Promise<{ redirect: string; hostId: string }> | null>(null)
   const cooldown = email.trim().toLowerCase() === retryEmail ? Math.max(0, Math.ceil((retryAt - now) / 1_000)) : 0
+  const needsCode = Boolean(intent && !intentDone)
 
   const refreshSession = useCallback(async () => {
     const result = await api<{ session: ConnectSession | null }>("session")
@@ -86,6 +100,41 @@ export function ConnectApp() {
   }, [refreshSession])
 
   useEffect(() => {
+    if (intent?.purpose === "enroll") void api<{ name: string; fingerprint: string }>(`enrollments/${intent.id}`).then(setEnrollment).catch(handleError)
+  }, [intent])
+
+  useEffect(() => {
+    if (!session || intent || route.pathname === "/logout/complete") return
+    let cancelled = false
+    const load = async () => {
+      try {
+        if (route.pathname === "/authorize") {
+          authorization.current ??= api<{ redirect: string; hostId: string }>("authorize", { flow: route.searchParams.get("flow") })
+          const result = await authorization.current
+          if (!cancelled) {
+            try { localStorage.setItem(`stillon-connect-host:${session.user.id}`, result.hostId) } catch { /* optional preference */ }
+            window.location.replace(result.redirect)
+          }
+          return
+        }
+        const result = await api<{ hosts: ConnectHost[] }>("hosts")
+        if (cancelled) return
+        setHosts(result.hosts)
+        if (route.pathname !== "/computers" && result.hosts.length) {
+          let previous: string | null = null
+          try { previous = localStorage.getItem(`stillon-connect-host:${session.user.id}`) } catch { /* optional preference */ }
+          const target = result.hosts.find(h => h.id === previous) ?? result.hosts[0]!
+          // Selection is stable even if that computer is offline.
+          window.location.replace(`${target.url}/_connect/login`)
+        }
+      } catch (caught) { if (!cancelled) handleError(caught) }
+    }
+    void load()
+    const timer = window.setInterval(() => { if (route.pathname === "/computers") void load() }, 15_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [session?.user.id, intent, route])
+
+  useEffect(() => {
     if (retryAt <= Date.now()) return
     setNow(Date.now())
     const timer = window.setInterval(() => {
@@ -97,8 +146,8 @@ export function ConnectApp() {
   }, [retryAt])
 
   useEffect(() => {
-    if (!loading && !session && !busy) (step === "email" ? emailInput : codeInput).current?.focus()
-  }, [loading, session, step, busy])
+    if (!loading && (!session || needsCode) && !busy) (step === "email" ? emailInput : codeInput).current?.focus()
+  }, [loading, session, needsCode, step, busy])
 
   useEffect(() => { document.title = session ? "StillOn · 我的电脑" : "StillOn · 登录" }, [session])
 
@@ -116,7 +165,7 @@ export function ConnectApp() {
     if (busy || cooldown > 0) return
     setBusy(true); setError("")
     try {
-      const result = await api<{ email: string; resendAfterSeconds: number }>("request-code", { email: email.trim() })
+      const result = await api<{ email: string; resendAfterSeconds: number }>("request-code", { email: email.trim(), ...(intent ? { intent } : {}) })
       setEmail(result.email)
       setRetryEmail(result.email)
       setCode("")
@@ -133,10 +182,11 @@ export function ConnectApp() {
     if (busy || code.length !== 6) return
     setBusy(true); setError("")
     try {
-      await api("verify-code", { email, code, remember })
+      await api("verify-code", { email, code, remember, ...(intent ? { intent } : {}) })
       const authenticated = await refreshSession()
       if (!authenticated) throw new Error("Missing account session")
       setCode("")
+      if (intent) setIntentDone(true)
       channel.current?.postMessage("signed-in")
     } catch (caught) { handleError(caught); codeInput.current?.focus() }
     finally { setBusy(false) }
@@ -148,6 +198,7 @@ export function ConnectApp() {
     try {
       await api("logout", {})
       setSession(null); setCode(""); setStep("email"); setRetryAt(0)
+      setHosts(null)
       channel.current?.postMessage("signed-out")
     } catch (caught) { handleError(caught) }
     finally { setBusy(false) }
@@ -163,29 +214,37 @@ export function ConnectApp() {
       <main className="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-center py-12 sm:py-20">
         {loading ? (
           <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-5 animate-spin" />正在连接…</div>
-        ) : session ? (
+        ) : route.pathname === "/logout/complete" ? (
+          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">已退出远程登录</h1><p className="mt-4 text-sm leading-6 text-slate-500">这个浏览器的电脑连接已结束。电脑上运行的任务会继续。</p><a className="mt-8 underline" href="/login">重新登录</a></>
+        ) : intentDone ? (
+          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">{intent?.purpose === "enroll" ? "邮箱已绑定" : "电脑已解绑"}</h1><p className="mt-4 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? "回到本机 StillOn 查看连接状态。之后在这个网址登录，就能继续使用这台电脑。" : "远程通道已关闭，电脑上的文件和任务保留。"}</p><a className="mt-8 underline" href="/computers">查看我的电脑</a></>
+        ) : session && !needsCode ? (
           <>
             <div className="mb-8 flex items-center gap-2 text-sm text-emerald-700"><Check className="size-4" />已登录</div>
             <h1 className="text-3xl font-semibold tracking-tight">你的电脑，随时回来。</h1>
             <p className="mt-3 break-all text-sm text-slate-500">{session.user.email}</p>
-            <div className="my-9 rounded-2xl border border-slate-200 bg-white p-7">
+            {hosts?.length ? <div className="my-8 space-y-3">{hosts.map(host => <div key={host.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="flex items-center gap-3"><Monitor className="size-5 text-slate-400" /><span className="min-w-0 flex-1 truncate font-medium">{host.name}</span><span className={`text-xs ${host.online ? "text-emerald-700" : "text-slate-400"}`}>{host.paused ? "已暂停" : host.online ? "在线" : "离线"}</span></div>
+              <div className="mt-4 flex items-center gap-5 text-sm"><a href={`${host.url}/_connect/login`} className="font-medium text-slate-800" onClick={() => { try { localStorage.setItem(`stillon-connect-host:${session.user.id}`, host.id) } catch { /* optional */ } }}>进入电脑 →</a><a href={`/revoke-host?host=${host.id}`} className="text-slate-400">解绑</a></div>
+            </div>)}</div> : <div className="my-9 rounded-2xl border border-slate-200 bg-white p-7">
               <Monitor className="mb-5 size-7 text-slate-400" />
-              <h2 className="font-medium">还没有连接的电脑</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">连接电脑后，就能在这里继续处理任务、查看文件。</p>
-            </div>
+              <h2 className="font-medium">{hosts ? "还没有连接的电脑" : "正在连接你的电脑…"}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">在电脑上打开 StillOn → 设置 → 远程访问，绑定这个邮箱。</p>
+            </div>}
             <Button variant="ghost" onClick={() => void signOut()} disabled={busy} className="self-start px-0 hover:bg-transparent"><LogOut className="mr-2 size-4" />退出登录</Button>
           </>
         ) : step === "email" ? (
           <>
             <p className="mb-4 text-sm text-slate-500">电脑还在，工作继续。</p>
-            <h1 className="text-[32px] font-semibold tracking-tight">回到你的 StillOn</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-500">用邮箱登录，继续你手上的工作。</p>
+            <h1 className="text-[32px] font-semibold tracking-tight">{intent ? intent.purpose === "enroll" ? "绑定这台电脑" : "解绑这台电脑" : "回到你的 StillOn"}</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? `${enrollment?.name ?? "正在读取电脑信息…"} · 验证邮箱后，允许这个账号远程访问此电脑。请确认这是你自己发起的绑定。` : intent?.purpose === "revoke-host" ? "请再次验证绑定的邮箱。解绑会关闭这台电脑的所有远程连接。" : "用邮箱登录，继续你手上的工作。"}</p>
+            {enrollment && <p className="mt-3 text-xs text-slate-400">电脑识别码：{enrollment.fingerprint}</p>}
             <form className="mt-9 space-y-5" onSubmit={sendCode}>
               <div>
                 <label htmlFor="connect-email" className="mb-2 block text-sm font-medium">邮箱地址</label>
                 <Input ref={emailInput} id="connect-email" type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="you@example.com" required maxLength={254} value={email} onChange={(event) => { setEmail(event.target.value); setError("") }} disabled={busy} aria-describedby={error ? "login-error" : undefined} className="h-12 rounded-xl border-slate-200 bg-white px-4" />
               </div>
-              <Button type="submit" disabled={busy || cooldown > 0 || !email.trim()} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+              <Button type="submit" disabled={busy || cooldown > 0 || !email.trim() || (intent?.purpose === "enroll" && !enrollment)} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">
                 {busy ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
                 {cooldown > 0 ? `${cooldown} 秒后可重新发送` : "获取验证码"}
                 {!busy && cooldown === 0 && <ArrowRight className="ml-2 size-4" />}
@@ -204,7 +263,7 @@ export function ConnectApp() {
                 <OTPInput id="connect-code" ref={codeInput} maxLength={6} pattern={REGEXP_ONLY_DIGITS} inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(value) => { setCode(value); setError("") }} disabled={busy} aria-describedby={error ? "login-error" : undefined} aria-invalid={Boolean(error)} pasteTransformer={(value) => value.replace(/[\s-]/g, "")} containerClassName="flex gap-2 justify-between has-[:disabled]:opacity-60" render={({ slots }) => <>{slots.map((slot, index) => <CodeSlot key={index} {...slot} />)}</>} />
               </div>
               <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-500"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-4 accent-slate-900" disabled={busy} />在这台设备上保持登录 30 天</label>
-              <Button type="submit" disabled={busy || code.length !== 6} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}登录 StillOn<ArrowRight className="ml-2 size-4" /></Button>
+              <Button type="submit" disabled={busy || code.length !== 6} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{intent ? intent.purpose === "enroll" ? "验证并绑定电脑" : "验证并解绑电脑" : "登录 StillOn"}<ArrowRight className="ml-2 size-4" /></Button>
             </form>
             <div className="mt-6 flex items-center justify-between text-xs text-slate-500">
               <span>没收到？也看看垃圾邮件。</span>

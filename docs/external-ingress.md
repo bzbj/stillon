@@ -2,9 +2,9 @@
 
 StillOn is local-first, not local-only. It listens on `127.0.0.1` by default,
 and an operator may make that local service reachable from another device.
-StillOn owns the local origin and its HTTP/WebSocket behavior; it does not
-create tunnels, configure DNS or TLS, or administer Cloudflare, VPNs, or other
-edge services.
+The [Connect development preview](connect-remote-access.md) manages an outbound
+tunnel and email-bound remote access. The operator-managed ingress below remains
+available; DNS/TLS and existing VPN/edge services belong to the operator.
 
 ## Choose an ingress model
 
@@ -12,7 +12,7 @@ Keep the default loopback listener when a reverse proxy or tunnel runs on the
 same machine:
 
 ```bash
-stillon --trust-proxy
+STILLON_ALLOWED_ORIGINS=https://stillon.example.com stillon --trust-proxy
 ```
 
 Use `--host <address>` or `--remote` only when the StillOn listener itself
@@ -36,6 +36,8 @@ http://127.0.0.1:3210
 The proxy must:
 
 - preserve or set the public `Host` header;
+- declare the exact public origin in `STILLON_ALLOWED_ORIGINS` (comma-separated
+  for multiple origins); arbitrary Host headers are rejected even on loopback;
 - forward WebSocket upgrades for `/ws`;
 - set `X-Forwarded-Proto` to the browser-facing scheme (`https` in a normal
   public deployment); and

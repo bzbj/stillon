@@ -50,19 +50,19 @@ export class LoginGuard {
     }).immediate()
   }
 
-  issue(challenge: string, email: string, code: string) {
+  issue(challenge: string, email: string, code: string, intent = "sign-in") {
     this.db.transaction(() => {
       // Better Auth rotates the email's code; invalidate the old browser receipt too.
       this.db.query("DELETE FROM connect_challenge WHERE email_key = ?").run(this.digest("email", email))
       this.db.query("INSERT INTO connect_challenge (id, email_key, code_hash, expires_at) VALUES (?, ?, ?, ?)").run(
         this.digest("challenge", challenge), this.digest("email", email),
-        this.digest("receipt", challenge, email, code), this.now() + CONNECT_OTP_SECONDS * 1_000,
+        this.digest("receipt", challenge, email, code, intent), this.now() + CONNECT_OTP_SECONDS * 1_000,
       )
     }).immediate()
   }
 
   /** A correct receipt can be claimed once, including concurrent HTTP requests. */
-  claim(challenge: string, email: string, code: string) {
+  claim(challenge: string, email: string, code: string, intent = "sign-in") {
     return this.db.transaction(() => {
       const id = this.digest("challenge", challenge)
       const row = this.db.query<{ code_hash: string; expires_at: number }, [string, string]>(
@@ -70,7 +70,7 @@ export class LoginGuard {
       ).get(id, this.digest("email", email))
       if (!row || row.expires_at <= this.now()) return false
       const expected = Buffer.from(row.code_hash, "hex")
-      const actual = Buffer.from(this.digest("receipt", challenge, email, code), "hex")
+      const actual = Buffer.from(this.digest("receipt", challenge, email, code, intent), "hex")
       if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false
       this.db.query("DELETE FROM connect_challenge WHERE id = ?").run(id)
       return true

@@ -11,6 +11,8 @@ function required(name: string) {
 try {
   const port = Number(process.env.STILLON_CONNECT_PORT ?? 3220)
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("Invalid STILLON_CONNECT_PORT")
+  const pluginPort = Number(process.env.STILLON_CONNECT_FRP_PLUGIN_PORT ?? 3221)
+  if (!Number.isInteger(pluginPort) || pluginPort < 1 || pluginPort > 65_535) throw new Error("Invalid STILLON_CONNECT_FRP_PLUGIN_PORT")
   const trustProxy = process.env.STILLON_CONNECT_TRUST_PROXY ?? "false"
   if (!["true", "false"].includes(trustProxy)) throw new Error("STILLON_CONNECT_TRUST_PROXY must be true or false")
   const app = await startConnectServer({
@@ -23,6 +25,11 @@ try {
     }),
     port,
     trustProxy: trustProxy === "true",
+    ...(process.env.STILLON_CONNECT_FRP_UPSTREAM ? { remote: {
+      upstreamOrigin: process.env.STILLON_CONNECT_FRP_UPSTREAM,
+      tunnelOrigin: process.env.STILLON_CONNECT_TUNNEL_ORIGIN,
+      pluginPort,
+    } } : {}),
   })
   console.log(`StillOn Connect listening on 127.0.0.1:${app.port}`)
   let stopping = false

@@ -92,7 +92,10 @@ import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, typ
 import { AppearanceSettingsPanel } from "./AppearanceSettings"
 import type { StillOnState } from "./useStillOnState"
 
+import { RemoteAccessSettings } from "./RemoteAccessSettings"
+
 const sidebarItems = [
+  { id: "remote", label: "远程访问", icon: Wifi, subtitle: "绑定邮箱，在其他设备上继续使用这台电脑。" },
   {
     id: "welcome",
     label: "Get started",
@@ -3054,6 +3057,8 @@ export function SettingsPage() {
 
                     </div>
                   </>
+                ) : selectedPage === "remote" ? (
+                  <RemoteAccessSettings onSignOut={state.handleSignOut} />
                 ) : selectedPage === "network" ? (
                   <NetworkSettingsSection state={state} />
                 ) : selectedPage === "providers" ? (

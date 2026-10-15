@@ -1,8 +1,9 @@
-import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { updateTarget } from "../src/server/updater/model"
+import { prepareConnectRuntime } from "./prepare-connect-runtime"
 
 const repository = path.resolve(import.meta.dir, "..")
 const output = path.join(repository, "dist", "desktop")
@@ -103,11 +104,28 @@ async function main() {
       filter: (source) => !/\.test\.tsx?$/.test(source) })
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
+  const connectOrigin = process.env.STILLON_CONNECT_ORIGIN
+  if (connectOrigin) {
+    const origin = new URL(connectOrigin)
+    if (origin.protocol !== "https:" || origin.origin !== connectOrigin || origin.username || origin.password) throw new Error("Desktop Connect origin must be an HTTPS origin")
+    await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
+    // Only public configuration enters the desktop artifact. Never copy an env file.
+    await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify({ origin: origin.origin }) + "\n")
+  }
   await copyFile(process.execPath, path.join(runtime, bunRelativePath(target.platform)))
   await chmod(path.join(runtime, bunRelativePath(target.platform)), 0o755)
   const controller = await Bun.build({ entrypoints: [path.join(repository, "src/server/updater/entry.ts")], target: "bun", packages: "bundle", naming: "controller.js", outdir: path.join(runtime, "runtime") })
   if (!controller.success) throw new AggregateError(controller.logs, "Could not bundle the updater")
   if (target.platform === "darwin" && process.env.MACOS_SIGN_IDENTITY) {
+    if (connectOrigin) {
+      const frpc = path.join(runtime, "runtime/frp/frpc")
+      await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, frpc])
+      // Pin downloads before signing, then seal the signed installed bytes.
+      const manifestFile = path.join(runtime, "runtime/frp/manifest.json")
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"))
+      manifest.files.frpc = sha256(await readFile(frpc))
+      await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + "\n")
+    }
     await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", process.env.MACOS_SIGN_IDENTITY,
       path.join(runtime, bunRelativePath("darwin"))])
     // Keep third-party Developer ID signatures intact, but reject unsigned or

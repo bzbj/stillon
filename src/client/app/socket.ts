@@ -10,6 +10,7 @@ import type {
 } from "../../shared/protocol"
 import { LOG_PREFIX } from "../../shared/branding"
 import { generateUUID } from "../lib/utils"
+import { isConnectBrowser, requestRemoteAuthCheck } from "../lib/remoteSession"
 
 type SnapshotListener<T> = (value: T) => void
 type EventListener<T> = (value: T) => void
@@ -38,6 +39,7 @@ function isSendToStartingProfilingEnabled() {
 
 export class StillOnSocket {
   private readonly url: string
+  private readonly remote: boolean
   private ws: WebSocket | null = null
   private started = false
   private reconnectTimer: number | null = null
@@ -69,6 +71,7 @@ export class StillOnSocket {
 
   constructor(url: string) {
     this.url = url
+    this.remote = isConnectBrowser()
   }
 
   start() {
@@ -149,7 +152,8 @@ export class StillOnSocket {
   }
 
   command<TResult = unknown>(command: ClientCommand, options?: { signal?: AbortSignal }) {
-    const id = generateUUID()
+    if (this.remote && this.ws?.readyState !== WebSocket.OPEN) return Promise.reject<TResult>(new Error("尚未连接，操作没有发送。请连接后再试。"))
+    const id = this.remote ? `${Date.now()}-${generateUUID()}` : generateUUID()
     const envelope: ClientEnvelope = { v: 1, type: "command", id, command }
     return new Promise<TResult>((resolve, reject) => {
       const signal = options?.signal
@@ -301,10 +305,12 @@ export class StillOnSocket {
       this.stopHeartbeat()
       this.clearPingState()
       this.emitStatus("disconnected")
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error("Disconnected"))
+      if (this.remote) this.outboundQueue.length = 0
+      for (const [id, pending] of this.pending) {
+        pending.reject(new Error(this.remote ? `连接中断，结果尚未确认。请先查看任务状态，勿重复提交。（操作 ${id}）` : "Disconnected"))
       }
       this.pending.clear()
+      requestRemoteAuthCheck()
       if (reconnectImmediately) {
         this.connect()
         return

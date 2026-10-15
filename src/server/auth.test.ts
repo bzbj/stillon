@@ -24,6 +24,7 @@ async function startPasswordServer(options: { password?: string; trustProxy?: bo
     strictPort: true,
     password: options.password ?? "secret",
     trustProxy: options.trustProxy ?? false,
+    allowedOrigins: options.trustProxy ? ["https://stillon.example.test", `https://localhost:${options.port ?? 4320}`] : [],
   })
   const project = await server.store.openProject(projectDir, "Project")
   return { server, projectDir, project }

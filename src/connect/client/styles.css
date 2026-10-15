@@ -1,4 +1,24 @@
-@import "../../index.css";
+@import "tailwindcss" source(none);
+@source "./";
+@source "../../client/components/ui";
+
+@theme {
+  --color-background: #fafafa;
+  --color-foreground: #172033;
+  --color-primary: #172033;
+  --color-primary-foreground: #fff;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #172033;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #172033;
+  --color-destructive: #b91c1c;
+  --color-destructive-foreground: #fff;
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #475569;
+}
 
 html, body, #root { min-height: 100%; }
 body { margin: 0; }
@@ -7,7 +27,7 @@ body { margin: 0; }
   min-height: 100dvh;
   background: #fafafa;
   color: #172033;
-  font-family: "Body", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .connect-shell input:focus-visible {

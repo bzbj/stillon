@@ -45,6 +45,7 @@
     "build:client": "bun ./node_modules/vite/bin/vite.js build",
     "build:connect": "bun ./node_modules/vite/bin/vite.js build --config vite.connect.config.ts",
     "connect": "bun run ./src/connect/cli.ts",
+    "prepare:connect-runtime": "bun run ./scripts/prepare-connect-runtime.ts",
     "check:connect": "bun ./node_modules/typescript/bin/tsc --noEmit && bun run build:connect",
     "build:export-viewer": "bun ./node_modules/vite/bin/vite.js build --config vite.export-viewer.config.ts",
     "prepare:export-viewer-release-assets": "bun run ./scripts/prepare-export-viewer-release-assets.ts",

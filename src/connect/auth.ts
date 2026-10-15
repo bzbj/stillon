@@ -10,12 +10,18 @@ import { z } from "zod"
 import { LoginGuard } from "./login-guard"
 import type { LoginEmailSender } from "./mail"
 import { CONNECT_OTP_SECONDS, CONNECT_RESEND_SECONDS, CONNECT_SESSION_SECONDS, type ConnectSession } from "./shared"
+import type { ConnectIntent } from "../shared/connect"
+import { ConnectFault, type AccountIdentity } from "./registry"
 
 export interface ConnectAuthOptions {
   origin: string
   secret: string
   dataDir: string
   sender: LoginEmailSender
+  validateIntent?: (intent: ConnectIntent, email: string) => void
+  onVerified?: (identity: AccountIdentity, remember: boolean, intent?: ConnectIntent) => void
+  onLogout?: (id: string) => void
+  isRevoked?: (id: string) => boolean
 }
 
 export function normalizeConnectOrigin(value: string) {
@@ -29,8 +35,10 @@ export function normalizeConnectOrigin(value: string) {
 }
 
 const emailSchema = z.string().trim().max(254).email().transform((value) => value.toLowerCase())
-const requestSchema = z.object({ email: emailSchema }).strict()
-const verifySchema = z.object({ email: emailSchema, code: z.string().regex(/^\d{6}$/), remember: z.boolean() }).strict()
+const intentSchema = z.object({ purpose: z.enum(["enroll", "revoke-host"]), id: z.string().regex(/^[a-f0-9]{32}$/) }).strict()
+const requestSchema = z.object({ email: emailSchema, intent: intentSchema.optional() }).strict()
+const verifySchema = z.object({ email: emailSchema, code: z.string().regex(/^\d{6}$/), remember: z.boolean(), intent: intentSchema.optional() }).strict()
+const intentKey = (intent?: ConnectIntent) => intent ? `${intent.purpose}:${intent.id}` : "sign-in"
 
 function cookieValue(headers: Headers, name: string) {
   const values = (headers.get("cookie") ?? "").split(";").map((part) => part.trim()).filter((part) => part.startsWith(`${name}=`))
@@ -73,7 +81,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
   const secure = origin.startsWith("https:")
   const prefix = secure ? "__Host-stillon-connect" : "stillon-connect"
   const challengeCookie = `${prefix}.challenge`
-  const sendContext = new AsyncLocalStorage<{ challenge: string; submitted: boolean }>()
+  const sendContext = new AsyncLocalStorage<{ challenge: string; submitted: boolean; intent: string }>()
   const auth = betterAuth({
     appName: "StillOn Connect",
     baseURL: origin,
@@ -108,7 +116,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
         const context = sendContext.getStore()
         if (type !== "sign-in" || !context) throw new Error("Unsupported email flow")
         await options.sender.send({ email, code: otp, expiresInMinutes: CONNECT_OTP_SECONDS / 60 })
-        guard.issue(context.challenge, email, otp)
+        guard.issue(context.challenge, email, otp, context.intent)
         context.submitted = true
       },
     })],
@@ -141,8 +149,25 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     return headers
   }
 
+  function identityById(id: string): AccountIdentity | null {
+    const row = db.query<{ id: string; userId: string; email: string; expiresAt: number | string }, [string]>(
+      'SELECT s.id,s.userId,s.expiresAt,u.email FROM session s JOIN user u ON u.id=s.userId WHERE s.id=?',
+    ).get(id)
+    if (!row || options.isRevoked?.(id)) return null
+    const expiresAt = typeof row.expiresAt === "number" ? row.expiresAt : new Date(row.expiresAt).getTime()
+    return expiresAt > Date.now() ? { ...row, expiresAt } : null
+  }
+  async function resolveSession(request: Request): Promise<AccountIdentity | null> {
+    const current = await auth.api.getSession({ headers: internalHeaders(request, "internal") })
+    return current && !options.isRevoked?.(current.session.id)
+      ? { id: current.session.id, userId: current.user.id, email: current.user.email, expiresAt: current.session.expiresAt.getTime() }
+      : null
+  }
   return {
     origin,
+    resolveSession,
+    identityById,
+    revokeById(id: string) { db.query("DELETE FROM session WHERE id=?").run(id) },
     close: () => { guardDb.close(); db.close() },
     async handle(request: Request, peer: string): Promise<Response> {
       const url = new URL(request.url)
@@ -165,14 +190,16 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
       const headers = internalHeaders(request, peer)
       try {
         if (url.pathname === "/api/connect/session") {
-          const current = await auth.api.getSession({ headers })
+          const current = await resolveSession(request)
           const session: ConnectSession | null = current ? {
-            user: { id: current.user.id, email: current.user.email },
-            expiresAt: current.session.expiresAt.toISOString(),
+            user: { id: current.userId, email: current.email },
+            expiresAt: new Date(current.expiresAt).toISOString(),
           } : null
           return response({ session })
         }
         if (url.pathname === "/api/connect/logout") {
+          const current = await resolveSession(request)
+          if (current) options.onLogout?.(current.id)
           const result = await auth.api.signOut({ headers, asResponse: true })
           const outgoing = new Headers()
           for (const cookie of result.headers.getSetCookie()) outgoing.append("Set-Cookie", cookie)
@@ -183,7 +210,8 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
         if (url.pathname === "/api/connect/request-code") {
           const parsed = requestSchema.safeParse(input)
           if (!parsed.success) return error("INVALID_EMAIL", 400)
-          const { email } = parsed.data
+          const { email, intent } = parsed.data
+          if (intent) { if (!options.validateIntent) return error("INVALID_INTENT", 400); options.validateIntent(intent, email) }
           const emailKey = guard.digest("email", email)
           const retry = guard.consume([
             { key: `send-cooldown:${emailKey}`, max: 1, windowSeconds: CONNECT_RESEND_SECONDS },
@@ -193,7 +221,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
           ])
           if (retry) return error("RATE_LIMITED", 429, retry)
           const challenge = randomBytes(32).toString("base64url")
-          const delivery = { challenge, submitted: false }
+          const delivery = { challenge, submitted: false, intent: intentKey(intent) }
           try {
             await sendContext.run(delivery, () => auth.api.sendVerificationOTP({
               body: { email, type: "sign-in" }, headers,
@@ -206,7 +234,8 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
         }
         const parsed = verifySchema.safeParse(input)
         if (!parsed.success) return error("INVALID_CODE", 400)
-        const { email, code, remember } = parsed.data
+        const { email, code, remember, intent } = parsed.data
+        if (intent) { if (!options.validateIntent) return error("INVALID_INTENT", 400); options.validateIntent(intent, email) }
         const challenge = cookieValue(request.headers, challengeCookie)
         if (!/^[\w-]{43}$/.test(challenge)) return error("LOGIN_EXPIRED", 400)
         const retry = guard.consume([
@@ -214,10 +243,28 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
           { key: `verify-ip:${ipKey}`, max: 30, windowSeconds: CONNECT_OTP_SECONDS },
         ])
         if (retry) return error("RATE_LIMITED", 429, retry)
-        if (!guard.claim(challenge, email, code)) return error("INVALID_CODE", 400)
+        if (!guard.claim(challenge, email, code, intentKey(intent))) return error("INVALID_CODE", 400)
+        const previous = await resolveSession(request)
         const result = await auth.api.signInEmailOTP({ body: { email, otp: code }, headers, asResponse: true })
         const outgoing = new Headers({ "Set-Cookie": challengeHeader("", 0) })
         if (!result.ok) return response({ error: "LOGIN_EXPIRED" }, 400, outgoing)
+        const verifiedRequest = new Request(origin, { headers: { cookie: result.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } })
+        const identity = await resolveSession(verifiedRequest)
+        if (!identity) { await result.body?.cancel(); return error("LOGIN_EXPIRED", 400) }
+        try { options.onVerified?.(identity, remember, intent) }
+        catch {
+          // Identity creation is separate from enrollment. A failed business
+          // transaction must never yield a misleading successful bind/session.
+          db.query("DELETE FROM session WHERE id=?").run(identity.id)
+          await result.body?.cancel()
+          return error("ACTION_NOT_COMPLETED", 409)
+        }
+        // Explicit fresh authentication replaces this browser's former family.
+        // An account switch must not leave its old host tabs authorized.
+        if (previous && previous.id !== identity.id) {
+          options.onLogout?.(previous.id)
+          db.query("DELETE FROM session WHERE id=?").run(previous.id)
+        }
         for (const cookie of result.headers.getSetCookie()) {
           // The email-OTP plugin does not accept rememberMe. Session refresh is
           // disabled above, so a browser-only cookie stays non-persistent.
@@ -226,7 +273,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
         // Better Auth's raw response includes a bearer token; never expose it.
         await result.body?.cancel()
         return response({ success: true }, 200, outgoing)
-      } catch { return error("SERVICE_UNAVAILABLE", 503) }
+      } catch (caught) { return caught instanceof ConnectFault ? error(caught.code, caught.status, caught.retryAfterSeconds) : error("SERVICE_UNAVAILABLE", 503) }
     },
   }
 }

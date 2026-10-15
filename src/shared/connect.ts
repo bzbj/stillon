@@ -1,0 +1,59 @@
+/** Wire contracts shared by the browser, device connector and account service. */
+export const CONNECT_PROTOCOL = 1
+export const CONNECT_HEARTBEAT_MS = 15_000
+export const CONNECT_OFFLINE_MS = 45_000
+export const CONNECT_LEASE_MS = 45_000
+export const CONNECT_MAX_HTTP_BYTES = 110 * 1024 * 1024
+export const CONNECT_MAX_WS_BYTES = 1024 * 1024
+export const CONNECT_MAX_STREAMS = 32
+
+export type ConnectIntent = { purpose: "enroll"; id: string } | { purpose: "revoke-host"; id: string }
+export interface ConnectHost {
+  id: string
+  name: string
+  online: boolean
+  paused: boolean
+  lastSeen: number | null
+  url: string
+}
+export interface ConnectLocalStatus {
+  configured: boolean
+  origin: string | null
+  state: "unbound" | "pending" | "connecting" | "online" | "offline" | "paused" | "revoked" | "revocation-pending"
+  name: string
+  email?: string
+  hostId?: string
+  url?: string
+  enrollment?: { id: string; verificationUrl: string; expiresAt: number }
+  error?: string
+}
+export interface ConnectRemoteStatus {
+  mode: "connect"
+  enabled: true
+  authenticated: boolean
+  cacheScope: null
+  loginUrl: string
+  portalUrl: string
+  host?: ConnectHost
+}
+export interface DeviceProof {
+  subject: string
+  challenge: string
+  action: string
+  payload: Record<string, unknown>
+  signature: string
+}
+export interface AccessLease {
+  v: 1
+  id: string
+  hostId: string
+  sessionId: string
+  parentId: string
+  ownerId: string
+  epoch: number
+  generation: number
+  method: string
+  path: string
+  issuedAt: number
+  expiresAt: number
+}
