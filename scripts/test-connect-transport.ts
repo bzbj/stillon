@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash, randomBytes } from "node:crypto"
-import { readFile, stat } from "node:fs/promises"
+import { readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { createConnectFixture, eventually } from "./connect-fixture"
@@ -103,19 +103,45 @@ try {
   assert.equal((await command(ws1, { type: "settings.requestManagedUpdate" })).type, "error")
   assert.equal((await command(ws2, { type: "system.ping" })).type, "ack")
   checks.push("real StillOn WebSocket commands and durable duplicate suppression")
-  const payload = randomBytes(20 * 1024 * 1024)
-  console.log("Checking 20 MiB upload")
-  const form = new FormData(); form.append("files", new File([payload], "test.bin"))
-  const upload = await host(0, `/api/projects/${project.id}/uploads`, { method: "POST", body: form })
-  if (!upload.ok) throw new Error(`Upload failed: ${upload.status} ${await upload.text()}`)
-  assert.equal(upload.status, 200)
-  console.log("Upload complete; checking download")
-  const attachment = (await upload.json()).attachments[0]
-  const download = await host(0, attachment.contentUrl)
-  assert.equal(download.status, 200)
-  assert.equal(createHash("sha256").update(await download.bytes()).digest("hex"), createHash("sha256").update(payload).digest("hex"))
-  checks.push("20 MiB upload and download through the complete gateway/tunnel/adapter path")
-  console.log("Download verified")
+  for (const mib of [1, 20, 100]) {
+    const payload = randomBytes(mib * 1024 * 1024)
+    const expected = createHash("sha256").update(payload).digest("hex")
+    const started = performance.now()
+    console.log(`Checking ${mib} MiB upload/download`)
+    const form = new FormData(); form.append("files", new File([payload], `test-${mib}.bin`))
+    const upload = await host(0, `/api/projects/${project.id}/uploads`, { method: "POST", body: form })
+    if (!upload.ok) throw new Error(`Upload failed: ${upload.status} ${await upload.text()}`)
+    const attachment = (await upload.json()).attachments[0]
+    const download = await host(0, attachment.contentUrl)
+    assert.equal(download.status, 200)
+    const actual = createHash("sha256")
+    let chunks = 0
+    for await (const chunk of download.body!) {
+      actual.update(chunk)
+      // Exercise a slower reader while the other computer keeps responding.
+      if (mib === 100 && ++chunks % 16 === 0) {
+        assert.equal((await command(ws2, { type: "system.ping" })).type, "ack")
+        await Bun.sleep(5)
+      }
+    }
+    assert.equal(actual.digest("hex"), expected)
+    const range = await host(0, attachment.contentUrl, { headers: { Range: "bytes=123-1146" } })
+    assert.equal(range.status, 206)
+    assert.equal(range.headers.get("content-range"), `bytes 123-1146/${payload.length}`)
+    assert.deepEqual(await range.bytes(), payload.subarray(123, 1147))
+    console.log(`${mib} MiB verified in ${Math.round(performance.now() - started)} ms`)
+  }
+  const tooLarge = new FormData(); tooLarge.append("files", new File([new Uint8Array(101 * 1024 * 1024)], "too-large.bin"))
+  const rejected = await host(0, `/api/projects/${project.id}/uploads`, { method: "POST", body: tooLarge })
+  assert.equal(rejected.status, 413); await rejected.arrayBuffer()
+  const chineseName = "商务分析 报告.txt"
+  await writeFile(path.join(project.localPath, chineseName), "业务数据留在同一台电脑")
+  const fileRoute = `/api/projects/${project.id}/files/${encodeURIComponent(chineseName)}/content?download=1`
+  const head = await host(0, fileRoute, { method: "HEAD" })
+  assert.equal(head.status, 200); assert.equal((await head.bytes()).length, 0)
+  assert.ok(head.headers.get("content-disposition")!.includes(encodeURIComponent(chineseName)))
+  assert.equal(await (await host(0, fileRoute)).text(), "业务数据留在同一台电脑")
+  checks.push("1/20/100 MiB SHA256, slow reader with second-host pings, Range, Chinese filenames, HEAD and 101 MiB rejection")
   const preview = await host(0, `/api/projects/${project.id}/preview/report.html`)
   assert.equal(preview.status, 200)
   assert.match(preview.headers.get("content-security-policy")!, /sandbox/)

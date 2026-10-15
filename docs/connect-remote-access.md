@@ -114,8 +114,9 @@ bun scripts/test-connect-transport.ts
 ```
 
 The last command uses two isolated real StillOn instances, accounts, frps/frpc
-and a fake sender. It verifies enrollment, authorization, HTTP/WS, 20 MiB file
-integrity, receipts, lease renewal, Logout, pause/resume/unbind. It does not call
+and a fake sender. It verifies enrollment, authorization, HTTP/WS, 1/20/100 MiB
+file integrity, Range/HEAD/Unicode names, over-limit rejection, receipts, lease
+renewal, Logout and pause/resume/unbind. It does not call
 an agent model or send real email. `bun scripts/preview-connect.ts` provides the
 same isolation for browser QA; synthetic mail is in ignored test artifacts.
 
@@ -123,6 +124,9 @@ Set only the public `STILLON_CONNECT_ORIGIN` when running
 `bun run build:desktop --runtime-only`. The package includes frpc, its license,
 manifest and public `runtime/connect.json`; never cloud keys or databases.
 Development source runs use the same origin variable after preparing transport.
+The Desktop installers workflow accepts a `connect-origin` input. Pull-request
+artifacts include frpc with an intentionally invalid example origin to test
+packaging on every architecture; they need a real configured origin before use.
 
 `bun scripts/build-connect.ts` assembles a separate cloud directory after
 `bun run build:connect`. Default target is `linux_amd64`; `--target=linux_arm64`

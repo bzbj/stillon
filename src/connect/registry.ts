@@ -1,9 +1,10 @@
-import { Database } from "bun:sqlite"
+import type { Database } from "bun:sqlite"
 import { chmodSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { CONNECT_LEASE_MS, CONNECT_OFFLINE_MS, type AccessLease, type ConnectHost, type DeviceProof } from "../shared/connect"
 import { hashToken, pkceChallenge, publicKey, randomId, randomToken, verifyProof } from "../server/connect/crypto"
 import { LoginGuard } from "./login-guard"
+import { ConnectRegistryDatabase } from "./sqlite"
 
 export class ConnectFault extends Error {
   constructor(public code: string, public status = 400, public retryAfterSeconds?: number) { super(code) }
@@ -34,7 +35,7 @@ export class ConnectRegistry {
   constructor(readonly dataDir: string, readonly origin: string, secret: string, readonly now = Date.now) {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 })
     const file = path.join(dataDir, "hosts.sqlite")
-    this.db = new Database(file, { create: true, strict: true })
+    this.db = new ConnectRegistryDatabase(file, { create: true, strict: true })
     chmodSync(file, 0o600)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS enrollment (id TEXT PRIMARY KEY, publicKey TEXT NOT NULL, name TEXT NOT NULL,
@@ -58,7 +59,7 @@ export class ConnectRegistry {
     // A process restart cannot preserve live transport ownership.
     this.db.query("UPDATE connection SET expiresAt=0, runId=NULL").run()
   }
-  close() { this.db.close() }
+  close() { this.db.close(true) }
   limited(key: string, max: number, seconds: number) {
     const retry = this.budgets.consume([{ key: this.budgets.digest("registry", key), max, windowSeconds: seconds }])
     if (retry) throw new ConnectFault("RATE_LIMITED", 429, retry)

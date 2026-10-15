@@ -1,7 +1,17 @@
 import { expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { Kysely, sql } from "kysely"
-import { connectSqliteDialect } from "./sqlite"
+import { ConnectRegistryDatabase, connectSqliteDialect } from "./sqlite"
+
+test("registry queries beyond Bun's default cache limit still release their database", () => {
+  const db = new ConnectRegistryDatabase(":memory:")
+  try {
+    db.transaction(() => {
+      for (let i = 0; i < 256; i++) expect(db.query(`SELECT ${i} AS value`).get()).toEqual({ value: i })
+    }).immediate()
+    expect(() => db.close(true)).not.toThrow()
+  } finally { db.close() }
+})
 
 test("auth SQL releases handles after results, constraint failures and rolled-back transactions", async () => {
   const raw = new Database(":memory:", { strict: true })
