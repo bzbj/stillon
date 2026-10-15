@@ -11,8 +11,8 @@ import { setupManagedUpdates } from "../updater/cli"
 import { atomicJson, exists, inside, json } from "../updater/files"
 import { FINISHED_PHASES, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
-import { stopWindowsServiceProcesses } from "../updater/processes"
-import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
+import { stopWindowsEncodedProcesses } from "../updater/processes"
+import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
 
@@ -36,6 +36,7 @@ export async function verifyDesktopReceipt(root: string) {
     || (receipt.service.platform === "win32" && await windowsServiceHash(runServiceCommand, UPDATE_TASK) !== receipt.updaterNativeHash)) {
     throw new Error("The updater service definition changed. Review the custom service before uninstalling.")
   }
+  return receipt
 }
 
 export function desktopPath(home: string, platform = process.platform, inherited = process.env.PATH ?? "") {
@@ -154,7 +155,11 @@ export async function uninstallDesktop() {
   if (!await exists(path.join(directory, "desktop.json"))) return
   const root = await realpath(directory)
   const { deployment } = await verifyOwnedDeployment(root)
-  await verifyDesktopReceipt(root)
+  const receipt = await verifyDesktopReceipt(root)
+  // Capture both verified native identities before deleting their task files.
+  // Task Scheduler /End alone can leave an updater console holding this folder.
+  const updaterCommand = deployment.platform === "win32" ? await windowsServiceCommand(receipt.updaterFile) : null
+  const serviceCommand = deployment.platform === "win32" ? await windowsServiceCommand(receipt.service.serviceFile) : null
   if (await leaseAlive(root)) throw new Error("Wait for the current update to finish before uninstalling")
   if (await exists(path.join(root, "request.json"))) throw new Error("Wait for the queued update to finish before uninstalling")
   if (await exists(path.join(root, "state.json")) && !FINISHED_PHASES.has((await json<UpdateState>(path.join(root, "state.json"))).phase)) {
@@ -172,8 +177,9 @@ export async function uninstallDesktop() {
   if (deployment.platform === "win32") {
     await runServiceCommand("schtasks.exe", ["/End", "/TN", UPDATE_TASK])
     assertCommandSucceeded("Remove updater", await runServiceCommand("schtasks.exe", ["/Delete", "/TN", UPDATE_TASK, "/F"]))
+    await stopWindowsEncodedProcesses(updaterCommand!)
     await resolveServiceBackend("win32").uninstall(context)
-    await stopWindowsServiceProcesses(managed)
+    await stopWindowsEncodedProcesses(serviceCommand!)
   } else {
     const domain = `gui/${process.getuid!()}`
     const result = await runServiceCommand("/bin/launchctl", ["bootout", `${domain}/${UPDATE_AGENT}`])
