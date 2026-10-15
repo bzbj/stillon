@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { createServiceLaunchSpec, manageService, resolveServiceBackend, runServiceCommand } from "../service"
 import { getMacosServicePaths } from "../service/macos"
-import { getWindowsServicePaths } from "../service/windows"
+import { getWindowsServicePaths, WINDOWS_TASK_NAME } from "../service/windows"
 import { assertCommandSucceeded } from "../service/types"
 import { appCommand, appStatus, leaseAlive, localFetch, pauseManagedServer, waitUntil } from "../updater/control"
 import { setupManagedUpdates } from "../updater/cli"
@@ -131,13 +131,16 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,
     port, host: "127.0.0.1", pathEnvironment: desktopPath(home), recordInstallation: true })
+  // The first native PowerShell launch on Windows ARM can still be warming up
+  // before a watchdog log exists. Keep a bounded first-start wait, without
+  // reinstalling, weakening identity checks, or retrying an unhealthy service.
   await waitUntil(async () => {
     try {
       const response = await localFetch(`http://127.0.0.1:${port}/health?update-setup=1`)
       const data = await response.json() as { ok?: boolean; busy?: boolean; managedUpdateProtocol?: number; runtimeProfile?: string }
       return response.ok && data.ok === true && data.busy === false && data.managedUpdateProtocol === 1 && data.runtimeProfile === "prod"
     } catch { return false }
-  })
+  }, target.platform === "win32" ? 120_000 : 60_000)
   await setupManagedUpdates(root)
   await waitUntil(async () => {
     const setup = await json<SetupState>(path.join(root, "setup.json"))
@@ -175,11 +178,14 @@ export async function uninstallDesktop() {
   const managed = { ...deployment.launch, args: [deployment.controller, "serve", root], workingDirectory: root, environmentFile: undefined }
   const context = { launch: managed, run: runServiceCommand, log: console.log, warn: console.warn }
   if (deployment.platform === "win32") {
-    await runServiceCommand("schtasks.exe", ["/End", "/TN", UPDATE_TASK])
+    // /Delete removes future scheduling without interrupting a running process.
+    // Keep its encoded parent alive until the ownership-checked tree stop:
+    // /End first can orphan children and lose that command identity.
     assertCommandSucceeded("Remove updater", await runServiceCommand("schtasks.exe", ["/Delete", "/TN", UPDATE_TASK, "/F"]))
+    assertCommandSucceeded("Remove application task", await runServiceCommand("schtasks.exe", ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]))
     await stopWindowsEncodedProcesses(updaterCommand!)
-    await resolveServiceBackend("win32").uninstall(context)
     await stopWindowsEncodedProcesses(serviceCommand!)
+    await resolveServiceBackend("win32").uninstall(context)
   } else {
     const domain = `gui/${process.getuid!()}`
     const result = await runServiceCommand("/bin/launchctl", ["bootout", `${domain}/${UPDATE_AGENT}`])
