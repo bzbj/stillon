@@ -345,8 +345,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             const url = new URL(req.url)
             const ingress = validateIngress(req, { port: serverInstance.port!, hostname, peer: serverInstance.requestIP(req)?.address, secret: localSecret, allowedOrigins })
             if (ingress instanceof Response) return ingress
-            const connectResponse = await handleConnectLocal(req, ingress, connector)
-            if (connectResponse) return connectResponse
+            if (url.pathname.startsWith("/api/connect-local/")) {
+              const connectResponse = await handleConnectLocal(req, ingress, connector)
+              if (connectResponse) return connectResponse
+            }
             if (url.pathname.startsWith("/api/connect-operations/")) {
               if (ingress.kind !== "remote" || req.method !== "GET") return new Response("Forbidden", { status: 403 })
               try { const operation = remoteOperations.get(ingress.ownerId, url.pathname.slice("/api/connect-operations/".length)); return Response.json(operation ?? { state: "not-received" }, { headers: { "Cache-Control": "no-store" } }) }
