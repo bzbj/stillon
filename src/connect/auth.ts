@@ -8,6 +8,7 @@ import { getMigrations } from "better-auth/db/migration"
 import { emailOTP } from "better-auth/plugins/email-otp"
 import { z } from "zod"
 import { LoginGuard } from "./login-guard"
+import { connectSqliteDialect } from "./sqlite"
 import type { LoginEmailSender } from "./mail"
 import { CONNECT_OTP_SECONDS, CONNECT_RESEND_SECONDS, CONNECT_SESSION_SECONDS, type ConnectSession } from "./shared"
 import type { ConnectIntent } from "../shared/connect"
@@ -86,7 +87,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     appName: "StillOn Connect",
     baseURL: origin,
     secret: options.secret,
-    database: db,
+    database: { dialect: connectSqliteDialect(db), type: "sqlite", transaction: true },
     trustedOrigins: [origin],
     telemetry: { enabled: false },
     logger: { disabled: true },
@@ -124,7 +125,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
   try {
     const migrations = await getMigrations(auth.options)
     await migrations.runMigrations()
-  } catch (error) { guardDb.close(); db.close(); throw error }
+  } catch (error) { guardDb.close(true); db.close(true); throw error }
 
   function response(body: unknown, status = 200, headers = new Headers()) {
     headers.set("Cache-Control", "no-store")
@@ -168,7 +169,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     resolveSession,
     identityById,
     revokeById(id: string) { db.query("DELETE FROM session WHERE id=?").run(id) },
-    close: () => { guardDb.close(); db.close() },
+    close: () => { guardDb.close(true); db.close(true) },
     async handle(request: Request, peer: string): Promise<Response> {
       const url = new URL(request.url)
       if (url.host !== new URL(origin).host || (request.headers.has("host") && request.headers.get("host") !== url.host)) return error("INVALID_HOST", 403)

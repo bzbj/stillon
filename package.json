@@ -80,6 +80,7 @@
     "default-shell": "^2.2.0",
     "file-type": "^22.0.0",
     "input-otp": "1.5.0",
+    "kysely": "0.29.6",
     "openai": "^6.34.0",
     "react-resizable-panels": "^4.7.3",
     "zod": "^4.4.3"

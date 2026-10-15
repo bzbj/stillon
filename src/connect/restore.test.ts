@@ -17,8 +17,7 @@ test("restoring a backup cannot resurrect the backed-up device or browser sessio
   const host = service.registry.claimEnrollment(enrollment.id, key.publicKey)!
   service.close()
   try {
-    // Recovery accepts only a checkpointed, stopped backup. Better Auth's
-    // migration connection can leave a WAL file until its explicit checkpoint.
+    // Recovery accepts only a checkpointed, stopped backup.
     for (const name of ["auth.sqlite", "hosts.sqlite"]) {
       const db = new Database(path.join(source, name))
       try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)") } finally { db.close() }

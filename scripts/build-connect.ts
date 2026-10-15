@@ -12,7 +12,7 @@ for (const name of ["src/connect", "src/shared/connect.ts", "src/server/connect/
   await cp(path.resolve(name), path.join(destination, name), { recursive: true, filter: source => !/\.test\.tsx?$/.test(source) && !path.basename(source).startsWith(".env") && path.basename(source) !== "client" })
 }
 await writeFile(path.join(destination, "package.json"), JSON.stringify({ name: "stillon-connect-service", private: true, type: "module", version: pkg.version,
-  dependencies: { "better-auth": pkg.dependencies["better-auth"], zod: (await Bun.file("node_modules/zod/package.json").json()).version } }, null, 2) + "\n")
+  dependencies: { "better-auth": pkg.dependencies["better-auth"], kysely: pkg.dependencies.kysely, zod: (await Bun.file("node_modules/zod/package.json").json()).version } }, null, 2) + "\n")
 const install = Bun.spawn([process.execPath, "install", "--production", "--ignore-scripts"], { cwd: destination, stdout: "inherit", stderr: "inherit" })
 if (await install.exited !== 0) throw new Error("Cloud dependency installation failed")
 await prepareConnectRuntime(path.join(destination, "runtime/frp"), process.argv.find(arg => arg.startsWith("--target="))?.slice(9) ?? "linux_amd64", true)

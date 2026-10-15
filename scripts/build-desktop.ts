@@ -22,6 +22,21 @@ async function capture(command: string[]) {
   return text.trim()
 }
 
+async function createDiskImage(command: string[]) {
+  // macOS can temporarily lock newly staged app bundles while scanning them.
+  // Retry only that error; never disable system security/indexing services.
+  // https://github.com/actions/runner-images/issues/7522
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const child = Bun.spawn(command, { cwd: repository, stdin: "ignore", stdout: "inherit", stderr: "pipe" })
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+    if (stderr) process.stderr.write(stderr)
+    if (code === 0) return
+    if (attempt === 4 || !/Resource busy/i.test(stderr)) throw new Error(`Disk image creation failed (${code})`)
+    console.log(`Disk image source is busy; retry ${attempt}/3 in ${attempt * 10} seconds…`)
+    await Bun.sleep(attempt * 10_000)
+  }
+}
+
 async function buildMacInstaller() {
   const app = path.join(output, "macos", "StillOn.app")
   const contents = path.join(app, "Contents")
@@ -56,7 +71,7 @@ async function buildMacInstaller() {
   await symlink("/Applications", path.join(output, "macos", "Applications"))
   await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo uninstall, hold Option while opening StillOn, choose Remove background services, then remove the app.\nChats, settings, themes and skins remain in your user directory.\n")
   const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}${process.env.MACOS_SIGN_IDENTITY ? "" : "-unsigned"}.dmg`)
-  await run(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
+  await createDiskImage(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
   if (process.env.MACOS_SIGN_IDENTITY) {
     await run(["/usr/bin/codesign", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, dmg])
     if (!process.env.MACOS_NOTARY_PROFILE) throw new Error("A signed public installer requires MACOS_NOTARY_PROFILE")
