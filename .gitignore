@@ -36,3 +36,6 @@ vite.config.ts.timestamp-*
 
 # Isolated async answer browser acceptance artifacts
 test-artifacts/
+
+# Generated from the pinned pre-delta revision for performance comparisons.
+/src/server/ws-router.benchmark-baseline.ts

@@ -711,16 +711,23 @@ describe("CodexExecManager cancellation (#109)", () => {
       launcherScript,
       [
         'import { spawn } from "node:child_process"',
-        `spawn(process.execPath, [${JSON.stringify(nativeScript)}], { stdio: ["ignore", "pipe", "ignore"] })`,
+        `spawn(process.execPath, [${JSON.stringify(nativeScript)}], { stdio: ["ignore", "pipe", "inherit"] })`,
         "setInterval(() => {}, 1000)",
       ].join("\n")
     )
 
+    let launcher: ReturnType<typeof spawn> | undefined
+    let launchError: Error | undefined
+    let launchStderr = ""
     const manager = new CodexExecManager({
       // Mirror the production spawn options so this exercises the real
       // detached/process-group behaviour, not a test-only shortcut.
-      spawnProcess: (_args, cwd, environment) =>
-        spawn(process.platform === "win32" ? "node" : process.execPath, [launcherScript], codexSpawnOptions(cwd, environment)) as never,
+      spawnProcess: (_args, cwd, environment) => {
+        launcher = spawn(process.platform === "win32" ? "node" : process.execPath, [launcherScript], codexSpawnOptions(cwd, environment))
+        launcher.on("error", (error) => { launchError = error })
+        launcher.stderr?.on("data", (chunk) => { launchStderr = (launchStderr + chunk).slice(-4000) })
+        return launcher as never
+      },
     })
 
     await manager.startSession({ chatId: "chat-1", cwd: dir, model: "gpt-5.5", sessionToken: null })
@@ -732,30 +739,34 @@ describe("CodexExecManager cancellation (#109)", () => {
       onToolRequest: async () => ({}),
     })
 
-    // Wait for the launcher to report the native child's pid.
+    // Windows ARM runner cold starts measured 6–13 seconds per Node process.
+    // There are two real processes here; allow startup time without weakening
+    // the cancellation/death assertions or their separate termination deadline.
     let nativePid = 0
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline && !nativePid) {
-      try {
-        nativePid = Number(await Bun.file(pidFile).text())
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-    }
-    expect(nativePid).toBeGreaterThan(0)
-    expect(isAlive(nativePid)).toBe(true)
-
     try {
+      const deadline = Date.now() + (process.platform === "win32" ? 45_000 : 10_000)
+      while (Date.now() < deadline && !nativePid) {
+        if (launchError) throw launchError
+        if (launcher && launcher.exitCode !== null) throw new Error(`Node launcher exited before child readiness (${launcher?.exitCode}): ${launchStderr}`)
+        try {
+          nativePid = Number(await Bun.file(pidFile).text())
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+      }
+      if (!nativePid) throw new Error(`Native child did not become ready: ${launchStderr || "launcher still running"}`)
+      expect(isAlive(nativePid)).toBe(true)
+
       await turn.interrupt()
 
       // Use a Node shim on Windows: Bun's own child cleanup can hide the bug.
       // Stopping only the shim must not leave the native writer alive.
       expect(await waitUntilDead(nativePid)).toBe(true)
     } finally {
-      if (isAlive(nativePid)) process.kill(nativePid, "SIGKILL")
+      if (nativePid && isAlive(nativePid)) process.kill(nativePid, "SIGKILL")
       await manager.stopAll()
     }
-  }, 30_000)
+  }, 60_000)
 })
 
 /** A process that ignores every signal until the test lets it exit. */
