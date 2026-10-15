@@ -5,6 +5,7 @@
 {
     admin 127.0.0.1:3225
     auto_https disable_redirects
+    storage file_system /var/lib/stillon-connect-caddy/data
 }
 
 https://connect.stillon.example:18448, https://*.connect.stillon.example:18448 {

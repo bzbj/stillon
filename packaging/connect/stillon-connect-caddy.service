@@ -1,0 +1,27 @@
+[Unit]
+Description=StillOn Connect isolated TLS edge
+After=network-online.target stillon-connect.service
+Wants=network-online.target
+
+[Service]
+User=stillon-connect-caddy
+Group=stillon-connect-caddy
+Environment=XDG_DATA_HOME=/var/lib/stillon-connect-caddy/data
+Environment=XDG_CONFIG_HOME=/var/lib/stillon-connect-caddy/config
+ExecStart=/usr/bin/caddy run --config /etc/stillon-connect/Caddyfile --adapter caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/stillon-connect/Caddyfile --adapter caddyfile --address 127.0.0.1:3225
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=stillon-connect-caddy
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stillon-connect-caddy
+MemoryMax=128M
+TasksMax=128
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
