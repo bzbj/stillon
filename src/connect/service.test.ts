@@ -130,6 +130,10 @@ test("frp credentials restrict proxy identity and cloned connector ownership", a
   f.service.registry.approveEnrollment(e.id, a.identity)
   const host = f.service.registry.claimEnrollment(e.id, f.keys.publicKey)!
   const instance = randomId(), connection = f.service.registry.openConnection(host.id, instance)
+  const renamed = await f.device("heartbeat", { instanceId: instance, generation: connection.generation, leases: [], name: "Renamed computer" }, host.id)
+  expect(renamed.status).toBe(200)
+  expect(f.service.registry.requireHost(host.id).name).toBe("Renamed computer")
+  expect(f.service.registry.hosts(a.identity.userId).map(value => value.id)).toEqual([host.id])
   expect(() => f.service.registry.openConnection(host.id, randomId())).toThrow("DEVICE_ALREADY_CONNECTED")
   const content = { user: { user: host.id, metas: { connect_token: connection.token }, run_id: "test-run" }, proxy_type: "http", proxy_name: `${host.id}.tunnel`,
     custom_domains: [new URL(f.service.registry.hostOrigin(host.id)).hostname] }

@@ -169,10 +169,12 @@ export async function createConnector(options: ConnectorOptions) {
       if (!frpc) { await stopTransport(); await startTransport(currentRevision); return }
       if (Date.now() < nextBeat) return
       const requested = adapter?.activeLeases() ?? []
+      const displayName = options.name().trim().slice(0, 80) || "My computer"
       const result = await prove<{ state: "online" | "connecting"; leases: { id: string; token: string }[] }>("heartbeat", {
-        instanceId, generation, leases: requested,
+        instanceId, generation, leases: requested, name: displayName,
       })
       if (currentRevision !== revision || stopped) return
+      if (state.name !== displayName) { state.name = displayName; state.binding.name = displayName; await save() }
       adapter?.renew(result.leases, requested); status = result.state; error = undefined; nextBeat = Date.now() + CONNECT_HEARTBEAT_MS
     } catch (caught) {
       if (currentRevision !== revision || stopped) return

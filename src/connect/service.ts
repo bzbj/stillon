@@ -112,8 +112,9 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         tunnel: { hostname: tunnel.hostname, port: Number(tunnel.port || (tunnel.protocol === "https:" ? 443 : 80)), protocol: tunnel.protocol === "https:" ? "wss" : "websocket" }, protocol: CONNECT_PROTOCOL })
     }
     if (proof.action === "heartbeat") {
-      const payload = parse(z.object({ instanceId: id, generation: z.number().int().positive(), leases: z.array(z.string().max(16_384)).max(32).default([]) }).strict(), proof.payload)
+      const payload = parse(z.object({ instanceId: id, generation: z.number().int().positive(), leases: z.array(z.string().max(16_384)).max(32).default([]), name: name.optional() }).strict(), proof.payload)
       registry.heartbeat(host.id, payload.instanceId, payload.generation)
+      if (payload.name && payload.name !== host.name) registry.rename(host.id, host.ownerId, payload.name)
       const leases: { id: string; token: string }[] = []
       for (const token of payload.leases) {
         const lease = verifyLease(token, keys.publicKey)
