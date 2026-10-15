@@ -41,6 +41,15 @@ jobs:
 
       - run: bun run check
 
+      - name: Diagnose Windows process startup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command node, powershell.exe, conhost.exe | Format-List Source,Version
+          node --version
+          node -p "process.arch"
+          bun -e 'const p=Bun.spawn(["node","-e","console.log(process.execPath,process.arch)"],{stdout:"pipe",stderr:"pipe"}); console.log(await new Response(p.stdout).text(),await new Response(p.stderr).text(),await p.exited)'
+
       - run: bun run test
 
       - name: Rehearse native Windows updater recovery
@@ -59,4 +68,13 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
+      - name: Diagnose Windows process startup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command node, powershell.exe, conhost.exe | Format-List Source,Version
+          node --version
+          node -p "process.arch"
+          bun -e 'const p=Bun.spawn(["node","-e","console.log(process.execPath,process.arch)"],{stdout:"pipe",stderr:"pipe"}); console.log(await new Response(p.stdout).text(),await new Response(p.stderr).text(),await p.exited)'
+
       - run: bun run test:async-answer:browser
