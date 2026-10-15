@@ -888,14 +888,17 @@ export function createWsRouter({
     options?: { skipPrune?: boolean; filter?: SnapshotBroadcastFilter; cache?: SnapshotComputationCache }
   ) {
     const pushStartedAt = performance.now()
+    // A subscription added or replaced during an async read belongs to the
+    // queued refresh, whose cache is fresh for that subscription.
+    const subscriptions = [...ws.data.subscriptions]
     if (!options?.skipPrune) {
       await maybePruneStaleEmptyChats([ws])
     }
     const snapshotSignatures = ensureSnapshotSignatures(ws)
     let sentCount = 0
     let skippedCount = 0
-    for (const [id, topic] of ws.data.subscriptions.entries()) {
-      if (!shouldIncludeTopic(topic, options?.filter)) {
+    for (const [id, topic] of subscriptions) {
+      if (ws.data.subscriptions.get(id) !== topic || !shouldIncludeTopic(topic, options?.filter)) {
         continue
       }
       const envelopeStartedAt = performance.now()
@@ -975,6 +978,7 @@ export function createWsRouter({
     const operation = (async () => {
       try {
         await pushSnapshotsNow(ws, options)
+        // Never carry an earlier broadcast's shared cache into queued work.
         while (refreshPending.delete(ws)) await pushSnapshotsNow(ws, { skipPrune: true })
       } finally { pushes.delete(ws); refreshPending.delete(ws) }
     })()
@@ -984,18 +988,17 @@ export function createWsRouter({
 
   async function broadcastSnapshots() {
     const startedAt = performance.now()
-    let socketCount = 0
+    const audience = [...sockets]
     const cache: SnapshotComputationCache = {}
-    for (const ws of sockets) {
-      socketCount += 1
-      await pushSnapshots(ws, { skipPrune: true, cache })
-    }
+    // Enqueue every connection before awaiting reads. A busy connection must
+    // not delay another or extend this cache's lifetime to newly joined clients.
+    await Promise.all(audience.map((ws) => pushSnapshots(ws, { skipPrune: true, cache })))
     if (isSendToStartingProfilingEnabled()) {
       console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         pruneMs: 0,
-        socketCount,
+        socketCount: audience.length,
         totalChatCount: store.state.chatsById.size,
         totalProjectCount: store.state.projectsById.size,
       }))
@@ -1004,17 +1007,14 @@ export function createWsRouter({
 
   async function broadcastFilteredSnapshots(filter: SnapshotBroadcastFilter) {
     const startedAt = performance.now()
-    let socketCount = 0
+    const audience = [...sockets]
     const cache: SnapshotComputationCache = {}
-    for (const ws of sockets) {
-      socketCount += 1
-      await pushSnapshots(ws, { skipPrune: true, filter, cache })
-    }
+    await Promise.all(audience.map((ws) => pushSnapshots(ws, { skipPrune: true, filter, cache })))
     if (isSendToStartingProfilingEnabled()) {
       console.log("[stillon/send->starting][server]", JSON.stringify({
         stage: "ws.broadcast_filtered_snapshots_completed",
         elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        socketCount,
+        socketCount: audience.length,
         includeSidebar: Boolean(filter.includeSidebar),
         chatCount: filter.chatIds?.size ?? 0,
         projectCount: filter.projectIds?.size ?? 0,

@@ -24,6 +24,10 @@ limits still apply. Unsubscribe/close releases state. Each connection allows one
 snapshot computation in flight and one coalesced refresh; this prevents asynchronous
 reads from publishing out of order and coalesces redundant snapshot computations.
 Per-broadcast entry fingerprints are shared between subscribers to the same window.
+Broadcasts enqueue their current connections together, so a connection with ongoing
+refreshes cannot hold back another. Each pass captures its subscriptions before
+reading; joining clients and added/replaced subscriptions receive a fresh read,
+not an earlier broadcast's cache. Coalesced follow-up passes also use fresh caches.
 
 The browser applies patches immutably and preserves unchanged message objects and
 metadata-only message arrays. Transcript hydration uses weak caches keyed by those
@@ -113,4 +117,5 @@ they are diagnostic observations, not a whole-app speedup or FPS guarantee.
 Run `bun run check`, `bun run test` and `bun run audit` before publication. Targeted
 coverage includes old/new peers, append/replacement/removal/order, null/reset,
 duplicates/gaps, reconnect epochs, pagination continuity, bounded encoder count,
-coalesced broadcasts, unsubscribe races and immutable cached tool results.
+coalesced broadcasts, sustained multi-client updates, joining/resubscribing during
+an older read, unsubscribe races and immutable cached tool results.
