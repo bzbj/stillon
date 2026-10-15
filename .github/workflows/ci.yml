@@ -41,15 +41,6 @@ jobs:
 
       - run: bun run check
 
-      - name: Diagnose Windows process startup
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-Command node, powershell.exe, conhost.exe | Format-List Source,Version
-          node --version
-          node -p "process.arch"
-          bun -e 'const p=Bun.spawn(["node","-e","console.log(process.execPath,process.arch)"],{stdout:"pipe",stderr:"pipe"}); console.log(await new Response(p.stdout).text(),await new Response(p.stderr).text(),await p.exited)'
-
       - run: bun run test
 
       - name: Rehearse native Windows updater recovery
@@ -78,3 +69,30 @@ jobs:
           bun -e 'const p=Bun.spawn(["node","-e","console.log(process.execPath,process.arch)"],{stdout:"pipe",stderr:"pipe"}); console.log(await new Response(p.stdout).text(),await new Response(p.stderr).text(),await p.exited)'
 
       - run: bun run test:async-answer:browser
+
+  windows-startup-diagnostic:
+    runs-on: windows-11-arm
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        run: |
+          $taskRoot = Join-Path $env:RUNNER_TEMP ('stillon-startup-' + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $taskRoot | Out-Null
+          $long = Join-Path $taskRoot ('x' * (235 - $taskRoot.Length - 1))
+          New-Item -ItemType Directory -Path $long | Out-Null
+          foreach ($cwd in @($taskRoot, $long)) {
+            foreach ($style in @('hidden', 'plain')) {
+              $out = Join-Path $taskRoot ([guid]::NewGuid().ToString() + '.txt')
+              $script = "[IO.File]::WriteAllText('$out','started')"
+              $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+              $extra = if ($style -eq 'hidden') { '-WindowStyle Hidden' } else { '' }
+              $watch = [Diagnostics.Stopwatch]::StartNew()
+              $proc = Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -ArgumentList "--headless powershell.exe -NoLogo $extra -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -WorkingDirectory $cwd -WindowStyle Hidden -PassThru
+              $done = $proc.WaitForExit(20000)
+              Write-Host "cwdLength=$($cwd.Length) style=$style exited=$done ready=$(Test-Path $out) elapsed=$($watch.ElapsedMilliseconds)"
+              if (!$done) {
+                Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq $proc.Id -or $_.ParentProcessId -eq $proc.Id } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json
+                taskkill.exe /PID $proc.Id /T /F
+              }
+            }
+          }
