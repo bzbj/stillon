@@ -1,3 +1,4 @@
+import { AgentSetupPanel } from "./AgentSetupPanel"
 import { CodexModelPolicyPanel } from "./CodexModelPolicyPanel"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
@@ -1107,7 +1108,7 @@ export function SubscriptionUsageSection({
 }
 
 const ONBOARDING_PROGRESS_STORAGE_KEY = "stillon:onboarding-progress-v1"
-export const ONBOARDING_TASK_COUNT = 4
+export const ONBOARDING_TASK_COUNT = 3
 
 export type OnboardingProgress = {
   nameConfirmed: boolean
@@ -1130,8 +1131,7 @@ export function getOnboardingCompletedTaskCount(
   return [
     progress.nameConfirmed,
     readiness.localServiceReady,
-    progress.codexChecked && readiness.codexReady,
-    progress.claudeChecked && readiness.claudeReady,
+    (progress.codexChecked && readiness.codexReady) || (progress.claudeChecked && readiness.claudeReady),
   ].filter(Boolean).length
 }
 
@@ -1187,51 +1187,6 @@ function OnboardingStep({
           <div className="mt-4">{children}</div>
         </div>
       </div>
-    </section>
-  )
-}
-
-function OnboardingProviderCard({
-  title,
-  description,
-  complete,
-  completeLabel,
-  pendingLabel,
-  children,
-}: {
-  title: string
-  description: string
-  complete: boolean
-  completeLabel: string
-  pendingLabel: string
-  children: ReactNode
-}) {
-  return (
-    <section
-      className={cn(
-        "flex h-full min-w-0 flex-col rounded-xl border p-4",
-        complete ? "border-emerald-600/25 bg-emerald-500/5" : "border-border bg-background/60",
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
-            complete
-              ? "border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "border-border bg-muted text-muted-foreground",
-          )}
-          aria-live="polite"
-        >
-          {complete ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : <Circle className="h-3.5 w-3.5" aria-hidden="true" />}
-          {complete ? completeLabel : pendingLabel}
-        </span>
-      </div>
-      <div className="mt-4 flex flex-1 flex-col">{children}</div>
     </section>
   )
 }
@@ -1340,22 +1295,15 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
   const [machineNameDraft, setMachineNameDraft] = useState(currentMachineName)
   const [isSavingName, setIsSavingName] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
-  const [usageSnapshot, setUsageSnapshot] = useState<SubscriptionUsageSnapshot | null>(null)
-  const [checkingProvider, setCheckingProvider] = useState<AgentProvider | null>(null)
-  const [checkedProviders, setCheckedProviders] = useState<Record<AgentProvider, boolean>>({ codex: false, claude: false })
-  const [usageError, setUsageError] = useState<{ provider: AgentProvider; message: string } | null>(null)
-  const [copyStatus, setCopyStatus] = useState<Record<AgentProvider, OnboardingCopyStatus>>({ codex: "idle", claude: "idle" })
+  const [codexReady, setCodexReady] = useState(false)
+  const [claudeReady, setClaudeReady] = useState(false)
   const [progress, setProgress] = useState<OnboardingProgress>(readOnboardingProgress)
 
   useEffect(() => {
     setMachineNameDraft(currentMachineName)
   }, [currentMachineName])
 
-  const codex = usageSnapshot?.providers.find((provider) => provider.provider === "codex") ?? null
-  const claude = usageSnapshot?.providers.find((provider) => provider.provider === "claude") ?? null
   const localServiceReady = state.connectionStatus === "connected" && state.localProjectsReady
-  const codexReady = isSubscriptionProviderReady(codex)
-  const claudeReady = isSubscriptionProviderReady(claude)
   const codexConnected = progress.codexChecked && codexReady
   const claudeConnected = progress.claudeChecked && claudeReady
   const completedSteps = getOnboardingCompletedTaskCount(progress, { localServiceReady, codexReady, claudeReady })
@@ -1390,42 +1338,6 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
     }
   }
 
-  async function checkProvider(provider: AgentProvider) {
-    const providerLabel = provider === "codex" ? "Codex" : "Claude Code"
-    if (state.connectionStatus !== "connected") {
-      setUsageError({ provider, message: `Reconnect to StillOn before checking ${providerLabel}.` })
-      return
-    }
-
-    setCheckingProvider(provider)
-    setUsageError(null)
-    try {
-      const snapshot = await state.socket.command<SubscriptionUsageSnapshot>({ type: "settings.readSubscriptionUsage" })
-      setUsageSnapshot(snapshot)
-      setCheckedProviders((current) => ({ ...current, [provider]: true }))
-      const checkedProvider = snapshot.providers.find((snapshotProvider) => snapshotProvider.provider === provider)
-      if (isSubscriptionProviderReady(checkedProvider)) {
-        updateProgress(provider === "codex" ? { codexChecked: true } : { claudeChecked: true })
-      }
-    } catch (error) {
-      setUsageError({
-        provider,
-        message: error instanceof Error ? error.message : `Unable to check ${providerLabel}.`,
-      })
-    } finally {
-      setCheckingProvider(null)
-    }
-  }
-
-  async function copyLoginCommand(provider: AgentProvider) {
-    const command = provider === "codex" ? "codex login" : "claude login"
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopyStatus((current) => ({ ...current, [provider]: "copied" }))
-    } catch {
-      setCopyStatus((current) => ({ ...current, [provider]: "error" }))
-    }
-  }
 
   return (
     <div className="mx-auto w-full max-w-4xl pb-16">
@@ -1435,7 +1347,7 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
           <h1 className="min-w-0 flex-1 text-base font-semibold text-foreground">Set up {APP_NAME}</h1>
           <span className="shrink-0 text-xs text-muted-foreground" aria-live="polite">{completedSteps} of {ONBOARDING_TASK_COUNT} ready</span>
         </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer and check the service and agents.</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer, confirm the connection and set up one Agent.</p>
       </header>
 
       <div className="mt-5 space-y-4">
@@ -1481,59 +1393,16 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
 
         <OnboardingStep
           number={3}
-          title="Connect your agents"
-          description="Check the locally installed Codex and Claude Code CLIs. These checks do not send a model prompt."
-          complete={codexConnected && claudeConnected}
+          title="Set up your Agent"
+          description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn."
+          complete={codexConnected || claudeConnected}
         >
-          <div className="grid gap-3 md:grid-cols-2">
-            <OnboardingProviderCard
-              title="Connect Codex"
-              description="Check whether the locally installed Codex CLI is ready. Subscription usage is optional."
-              complete={codexConnected}
-              completeLabel="Connected"
-              pendingLabel={getOnboardingProviderPendingLabel(checkedProviders.codex, codex)}
-            >
-              <div className="mt-auto">
-                <Button type="button" variant="outline" onClick={() => { void checkProvider("codex") }} disabled={checkingProvider !== null} className="min-h-11 w-full">
-                  {checkingProvider === "codex" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                  Check Codex
-                </Button>
-                {usageError?.provider === "codex" ? <p role="alert" className="mt-3 text-sm text-destructive">{usageError.message}</p> : null}
-                <OnboardingProviderStatusDetails
-                  provider={codex}
-                  checked={checkedProviders.codex}
-                  providerLabel="Codex"
-                  loginCommand="codex login"
-                  copyStatus={copyStatus.codex}
-                  onCopyLoginCommand={() => { void copyLoginCommand("codex") }}
-                />
-              </div>
-            </OnboardingProviderCard>
-
-            <OnboardingProviderCard
-              title="Connect Claude Code"
-              description="Check whether the locally installed Claude Code CLI is ready. Subscription usage is optional."
-              complete={claudeConnected}
-              completeLabel="Connected"
-              pendingLabel={getOnboardingProviderPendingLabel(checkedProviders.claude, claude)}
-            >
-              <div className="mt-auto">
-                <Button type="button" variant="outline" onClick={() => { void checkProvider("claude") }} disabled={checkingProvider !== null} className="min-h-11 w-full">
-                  {checkingProvider === "claude" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                  Check Claude Code
-                </Button>
-                {usageError?.provider === "claude" ? <p role="alert" className="mt-3 text-sm text-destructive">{usageError.message}</p> : null}
-                <OnboardingProviderStatusDetails
-                  provider={claude}
-                  checked={checkedProviders.claude}
-                  providerLabel="Claude Code"
-                  loginCommand="claude login"
-                  copyStatus={copyStatus.claude}
-                  onCopyLoginCommand={() => { void copyLoginCommand("claude") }}
-                />
-              </div>
-            </OnboardingProviderCard>
-          </div>
+          <AgentSetupPanel machineName={currentMachineName} initialProvider={state.appSettings?.defaultProvider === "claude" ? "claude" : "codex"}
+            onStatus={(provider, ready) => provider === "codex" ? setCodexReady(ready) : setClaudeReady(ready)}
+            onUse={async provider => {
+              await state.handleWriteAppSettings({ defaultProvider: provider })
+              updateProgress(provider === "codex" ? { codexChecked: true } : { claudeChecked: true })
+            }} />
         </OnboardingStep>
 
       </div>
