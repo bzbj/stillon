@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Archive, Code, Copy, EyeOff, FolderOpen, Pencil, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { Archive, Copy, EyeOff, FolderOpen, Pencil, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -8,21 +8,17 @@ import {
 } from "../../ui/context-menu"
 
 export function ProjectSectionMenu({
-  editorLabel,
   onRename,
   onCopyPath,
   onShowArchived,
   onOpenInFinder,
-  onOpenInEditor,
   onHide,
   children,
 }: {
-  editorLabel: string
   onRename: () => void
   onCopyPath: () => void
   onShowArchived: () => void
   onOpenInFinder: () => void
-  onOpenInEditor: () => void
   onHide: () => void
   children: ReactNode
 }) {
@@ -67,15 +63,6 @@ export function ProjectSectionMenu({
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Show in Finder</span>
-        </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            onOpenInEditor()
-          }}
-        >
-          <Code className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Open in {editorLabel}</span>
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={(event) => {

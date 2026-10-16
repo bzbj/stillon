@@ -29,7 +29,6 @@ import { ProjectSectionMenu } from "./Menus"
 
 interface Props {
   projectGroups: SidebarProjectGroup[]
-  editorLabel: string
   collapsedSections: Set<string>
   expandedGroups: Set<string>
   onToggleSection: (key: string) => void
@@ -50,7 +49,6 @@ interface Props {
 interface SortableProjectGroupProps {
   group: SidebarProjectGroup
   isReorderEnabled: boolean
-  editorLabel: string
   collapsedSections: Set<string>
   expandedGroups: Set<string>
   onToggleSection: (key: string) => void
@@ -219,7 +217,6 @@ export function getProjectGroupReorderPreviewTargetId({
 const SortableProjectGroup = memo(function SortableProjectGroup({
   group,
   isReorderEnabled,
-  editorLabel,
   collapsedSections,
   expandedGroups,
   onToggleSection,
@@ -364,12 +361,10 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
     >
       {hasProjectMenu ? (
         <ProjectSectionMenu
-          editorLabel={editorLabel}
           onRename={() => onRenameProject?.(groupKey, group.sidebarTitle, group.realTitle || getPathBasename(localPath))}
           onCopyPath={() => onCopyPath?.(localPath)}
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
           onOpenInFinder={() => onOpenExternalPath?.("open_finder", localPath)}
-          onOpenInEditor={() => onOpenExternalPath?.("open_editor", localPath)}
           onHide={() => onHideProject?.(groupKey)}
         >
           {header}
@@ -415,7 +410,6 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
 
 const LocalProjectsSectionImpl = function LocalProjectsSection({
   projectGroups,
-  editorLabel,
   collapsedSections,
   expandedGroups,
   onToggleSection,
@@ -502,7 +496,6 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           key={group.groupKey}
           group={group}
           isReorderEnabled={isReorderEnabled}
-          editorLabel={editorLabel}
           collapsedSections={collapsedSections}
           expandedGroups={expandedGroups}
           onToggleSection={onToggleSection}

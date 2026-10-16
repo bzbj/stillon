@@ -46,7 +46,6 @@ function renderSection(
     null,
     createElement(LocalProjectsSection, {
       projectGroups,
-      editorLabel: "Cursor",
       collapsedSections,
       expandedGroups,
       onToggleSection: () => undefined,
