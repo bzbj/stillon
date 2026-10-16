@@ -103,7 +103,29 @@ describe("Connect email account boundary", () => {
     expect((await f.request("verify-code", body, pending.cookie)).status).toBe(400)
   })
 
-  test("expires the browser challenge after five minutes", async () => {
+  test("gives the provider code, browser receipt, cookie and email a ten-minute lifetime", async () => {
+    const f = await fixture()
+    const before = Date.now()
+    const pending = await f.send()
+    const after = Date.now()
+    expect((await pending.response.json()).expiresInSeconds).toBe(600)
+    expect(pending.response.headers.get("set-cookie")).toContain("Max-Age=600")
+    expect(f.messages[0]?.expiresInMinutes).toBe(10)
+    for (const [file, query] of [
+      ["guard.sqlite", "SELECT expires_at AS expiry FROM connect_challenge"],
+      ["auth.sqlite", "SELECT expiresAt AS expiry FROM verification"],
+    ] as const) {
+      const db = new Database(path.join(f.dataDir, file), { readonly: true })
+      try {
+        const row = db.query<{ expiry: number | string }, []>(query).get()!
+        const expiry = typeof row.expiry === "number" ? row.expiry : new Date(row.expiry).getTime()
+        expect(expiry).toBeGreaterThanOrEqual(before + 600_000)
+        expect(expiry).toBeLessThanOrEqual(after + 600_000)
+      } finally { db.close() }
+    }
+  })
+
+  test("rejects an expired browser challenge", async () => {
     const f = await fixture()
     const pending = await f.send()
     f.guardSql("UPDATE connect_challenge SET expires_at = 0")
