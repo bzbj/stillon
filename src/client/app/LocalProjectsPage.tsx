@@ -8,6 +8,7 @@ export function LocalProjectsPage() {
   return (
     <div className="flex-1 flex flex-col min-w-0 relative">
       <LocalDev
+        machineName={state.machineName ?? undefined}
         connectionStatus={state.connectionStatus}
         ready={state.localProjectsReady}
         projectGroups={state.sidebarData.projectGroups}

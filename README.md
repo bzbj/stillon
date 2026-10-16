@@ -27,7 +27,7 @@
 
 StillOn turns an always-on Mac into a personal agent outpost. Leave the computer at home or in the office, then reconnect from an iPad, phone, or browser to continue local Claude Code and Codex sessions.
 
-Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and local origin; the Connect preview adds email-based remote access through a configured gateway. You can also manage your own external connection path. Agent execution stays on your computer; the gateway terminates TLS and model providers receive the context sent to them.
+Your workspaces, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and local origin; the Connect preview adds email-based remote access through a configured gateway. You can also manage your own external connection path. Agent execution stays on your computer; the gateway terminates TLS and model providers receive the context sent to them.
 
 > Leave your computer. Agent Still On.
 
@@ -307,7 +307,7 @@ The service integration defaults to the normal loopback address and does not
 store passwords or provision a tunnel. It can persist `--host`, `--remote`,
 and `--trust-proxy` when an operator manages the external entrypoint; see
 [External ingress](docs/external-ingress.md). Removing the service does not
-remove projects or data under `~/.stillon/`.
+remove workspaces or data under `~/.stillon/`.
 
 Windows service management is supported in the beta. Remaining platform gaps
 and independent-machine acceptance are tracked in the
@@ -316,16 +316,16 @@ and independent-machine acceptance are tracked in the
 ## Why StillOn
 
 - **Remote continuation** — reach the same local coding-agent workspace from a laptop, tablet, or phone
-- **Local execution** — agents run against the projects and credentials already on your computer
+- **Local execution** — agents run against the workspaces and credentials already on your computer
 - **Claude and Codex** — switch providers, models, reasoning effort, permissions, and plan mode per chat
 - **Usage visibility** — view Codex and Claude Code plan limits when the authenticated CLI exposes them
 - **Persistent sessions** — resume chats with event-backed history, snapshots, and hydrated tool results
-- **Project workspace** — organize chats by project, inspect Git state, run terminals, preview local apps, and attach files
+- **Workspaces** — organize conversations by folder, inspect Git state, run terminals, preview local apps, and attach files
 - **Operator-managed ingress** — keep the local origin on loopback or connect it through your own proxy, tunnel, or network listener
 
 ## Remote access
 
-StillOn gives an authenticated remote user access to local projects, agent
+StillOn gives an authenticated remote user access to local workspaces, agent
 processes, file previews, Git operations, and terminals. Treat that access as
 equivalent to granting control of your development account.
 
@@ -361,20 +361,20 @@ bun test
 Browser / iPad / phone
         ↕ HTTP + WebSocket
 StillOn Bun server on your computer
-        ├── project and chat event store
+        ├── workspace and chat event store
         ├── terminal, Git, uploads, and local previews
         └── Claude Agent SDK / Codex App Server
                          ↕
-                Local projects and tools
+                Local workspaces and tools
 ```
 
 StillOn uses React and Zustand in the browser, a Bun HTTP/WebSocket server, append-only JSONL event logs, and compacted snapshots.
 
 ## Local data and migration
 
-New state is stored under `~/.stillon/`; per-project uploads, exports, and quick actions use `.stillon/` inside the project.
+New state is stored under `~/.stillon/`; per-workspace uploads, exports, and quick actions use `.stillon/` inside the workspace.
 
-On first launch, StillOn automatically renames an existing `~/.kanna/` data root to `~/.stillon/`. Existing project attachments and quick actions under `.kanna/` remain readable, while new files use `.stillon/`.
+On first launch, StillOn automatically renames an existing `~/.kanna/` data root to `~/.stillon/`. Existing workspace attachments and quick actions under `.kanna/` remain readable, while new files use `.stillon/`.
 
 Runtime configuration uses `STILLON_*` variables. Legacy `KANNA_*` variables
 and the `kanna` command are not read by StillOn. Data migration is isolated to

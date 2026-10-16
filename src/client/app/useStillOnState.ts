@@ -1612,7 +1612,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     return { projectId: result.projectId, localPath: intent.project.localPath }
   }, [socket])
 
-  const startChatFromIntent = useCallback(async (intent: StartChatIntent) => {
+  const startChatFromIntent = useCallback(async (intent: StartChatIntent, propagateError = false) => {
     try {
       const localPath = intent.kind === "project_id"
         ? null
@@ -1627,6 +1627,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       await createChatForProject(projectId)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
+      if (propagateError) throw error
     } finally {
       setStartingLocalPath(null)
     }
@@ -1658,7 +1659,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [startChatFromIntent])
 
   const handleCreateProject = useCallback(async (project: ProjectRequest) => {
-    await startChatFromIntent({ kind: "project_request", project })
+    await startChatFromIntent({ kind: "project_request", project }, true)
   }, [startChatFromIntent])
 
   const handleSignOut = useCallback(async () => {
@@ -1771,7 +1772,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       }
 
       if (!activeChatId && !projectId) {
-        throw new Error("Open a project first")
+        throw new Error("Open a workspace first")
       }
 
       const result = await socket.command<{ chatId?: string; queued?: boolean }>({
@@ -1897,7 +1898,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const handleRenameProject = useCallback(async (projectId: string, sidebarTitle: string | undefined, realTitle: string) => {
     const title = await dialog.prompt({
-      title: "Rename Project",
+      title: "Rename Workspace",
       description: "This only changes the sidebar name. The folder path on disk stays the same.",
       initialValue: sidebarTitle ?? "",
       placeholder: realTitle,

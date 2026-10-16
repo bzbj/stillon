@@ -1,343 +1,130 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { ChevronLeft, ChevronRight, Folder, Home, Loader2, RefreshCw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Folder, Home, Loader2 } from "lucide-react"
 import { DEFAULT_NEW_PROJECT_ROOT } from "../../shared/branding"
+import { workspaceFolderNameError } from "../../shared/workspace-folders"
 import type { LocalDirectoryListResult, ResolvedLocalPath } from "../../shared/protocol"
 import { getPathBasename } from "../lib/formatters"
-import { appendLocalPathSegment, getLocalPathPrefix } from "../lib/localPaths"
+import { appendLocalPathSegment } from "../lib/localPaths"
 import { Button } from "./ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogBody,
-  DialogTitle,
-  DialogFooter,
-} from "./ui/dialog"
+import { Dialog, DialogContent, DialogBody, DialogTitle, DialogFooter, DialogDescription } from "./ui/dialog"
 import { Input } from "./ui/input"
 import { ScrollArea } from "./ui/scroll-area"
 import { SegmentedControl } from "./ui/segmented-control"
 
+type Tab = "new" | "existing"
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onConfirm: (project: { mode: Tab; localPath: string; title: string }) => void
+  onConfirm: (workspace: { mode: Tab; localPath: string; title: string }) => void | Promise<void>
   onListDirectories?: (localPath?: string) => Promise<LocalDirectoryListResult>
   onResolveLocalPath: (localPath: string) => Promise<ResolvedLocalPath>
+  machineName?: string
 }
 
-type Tab = "new" | "existing"
-
-function toKebab(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-}
-
-export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectories, onResolveLocalPath }: Props) {
-  const [tab, setTab] = useState<Tab>("new")
+export function NewProjectModal({ open, onOpenChange, onConfirm, onListDirectories, onResolveLocalPath, machineName }: Props) {
+  const [tab, setTab] = useState<Tab>("existing")
   const [name, setName] = useState("")
-  const [newProjectLocation, setNewProjectLocation] = useState<ResolvedLocalPath | null>(null)
-  const [newProjectLocationLoading, setNewProjectLocationLoading] = useState(false)
-  const [newProjectLocationError, setNewProjectLocationError] = useState<string | null>(null)
+  const [location, setLocation] = useState(DEFAULT_NEW_PROJECT_ROOT)
+  const [resolvedLocation, setResolvedLocation] = useState<ResolvedLocalPath | null>(null)
   const [existingPath, setExistingPath] = useState("")
   const [directoryList, setDirectoryList] = useState<LocalDirectoryListResult | null>(null)
+  const [browsing, setBrowsing] = useState(false)
   const [directoryLoading, setDirectoryLoading] = useState(false)
   const [directoryError, setDirectoryError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const existingInputRef = useRef<HTMLInputElement>(null)
-  const newProjectLocationRequestIdRef = useRef(0)
-  const directoryRequestIdRef = useRef(0)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const requestId = useRef(0)
 
   useEffect(() => {
-    if (open) {
-      setTab("new")
-      setName("")
-      setNewProjectLocation(null)
-      setNewProjectLocationError(null)
-      setNewProjectLocationLoading(false)
-      setExistingPath("")
-      setDirectoryList(null)
-      setDirectoryError(null)
-      setDirectoryLoading(false)
-    }
+    if (!open) return
+    setTab("existing"); setName(""); setExistingPath("")
+    setLocation(DEFAULT_NEW_PROJECT_ROOT); setDirectoryList(null); setResolvedLocation(null)
+    setDirectoryError(null); setLocationError(null); setSubmitError(null); setBrowsing(false)
+    setDirectoryLoading(false); setSubmitting(false)
+    requestId.current++
   }, [open])
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => {
-        if (tab === "new") {
-          if (newProjectLocation) inputRef.current?.focus()
-          return
-        }
-        existingInputRef.current?.focus()
-      }, 0)
-    }
-  }, [newProjectLocation, open, tab])
+    if (!open || tab !== "new") return
+    let cancelled = false
+    setResolvedLocation(null); setLocationError(null)
+    const timer = setTimeout(() => {
+      void onResolveLocalPath(location).then(result => {
+        if (!cancelled) setResolvedLocation(result)
+      }).catch(error => { if (!cancelled) setLocationError(error instanceof Error ? error.message : String(error)) })
+    }, 150)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [open, tab, location, onResolveLocalPath])
 
-  const resolveNewProjectLocation = useCallback(async () => {
-    const requestId = newProjectLocationRequestIdRef.current + 1
-    newProjectLocationRequestIdRef.current = requestId
-    setNewProjectLocationLoading(true)
-    setNewProjectLocationError(null)
-    try {
-      const result = await onResolveLocalPath(DEFAULT_NEW_PROJECT_ROOT)
-      if (newProjectLocationRequestIdRef.current !== requestId) return
-      setNewProjectLocation(result)
-    } catch (error) {
-      if (newProjectLocationRequestIdRef.current !== requestId) return
-      setNewProjectLocation(null)
-      setNewProjectLocationError(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (newProjectLocationRequestIdRef.current === requestId) {
-        setNewProjectLocationLoading(false)
-      }
-    }
-  }, [onResolveLocalPath])
-
-  useEffect(() => {
-    if (!open) {
-      newProjectLocationRequestIdRef.current += 1
-      return
-    }
-    void resolveNewProjectLocation()
-  }, [open, resolveNewProjectLocation])
-
-  const loadDirectory = useCallback(async (localPath?: string) => {
+  const loadDirectory = useCallback(async (localPath: string, target: Tab) => {
     if (!onListDirectories) return
-    const requestId = directoryRequestIdRef.current + 1
-    directoryRequestIdRef.current = requestId
-    setDirectoryLoading(true)
-    setDirectoryError(null)
+    const id = ++requestId.current
+    setDirectoryLoading(true); setDirectoryError(null); setBrowsing(true)
     try {
       const result = await onListDirectories(localPath || "~")
-      if (directoryRequestIdRef.current !== requestId) return
+      if (requestId.current !== id) return
       setDirectoryList(result)
-      setExistingPath(result.path)
+      if (target === "existing") setExistingPath(result.path)
+      else setLocation(result.path)
     } catch (error) {
-      if (directoryRequestIdRef.current !== requestId) return
-      setDirectoryError(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (directoryRequestIdRef.current === requestId) {
-        setDirectoryLoading(false)
-      }
-    }
+      if (requestId.current === id) setDirectoryError(error instanceof Error ? error.message : String(error))
+    } finally { if (requestId.current === id) setDirectoryLoading(false) }
   }, [onListDirectories])
 
   useEffect(() => {
-    if (open && tab === "existing" && onListDirectories && !directoryList && !directoryLoading && !directoryError) {
-      void loadDirectory("~")
-    }
-  }, [directoryError, directoryList, directoryLoading, loadDirectory, onListDirectories, open, tab])
+    if (open && tab === "existing" && onListDirectories) void loadDirectory("~", "existing")
+    return () => { requestId.current++ }
+  }, [open, tab, onListDirectories, loadDirectory])
 
-  const kebab = toKebab(name)
-  const newPathPrefix = newProjectLocation ? getLocalPathPrefix(newProjectLocation) : ""
-  const newPath = kebab && newProjectLocation
-    ? appendLocalPathSegment(newProjectLocation, kebab)
-    : ""
-  const isResolvingNewProjectLocation = newProjectLocationLoading
-    || (!newProjectLocation && !newProjectLocationError)
-  const trimmedExisting = existingPath.trim()
-
-  const canSubmit = tab === "new" ? !!kebab && !!newProjectLocation : !!trimmedExisting
-
-  const handleSubmit = () => {
+  const nameError = name ? workspaceFolderNameError(name.trim(), resolvedLocation?.separator ?? "/") : null
+  const newPath = name.trim() && resolvedLocation && !nameError ? appendLocalPathSegment(resolvedLocation, name.trim()) : ""
+  const canSubmit = !submitting && (tab === "new" ? Boolean(newPath) : Boolean(existingPath.trim()))
+  async function handleSubmit() {
     if (!canSubmit) return
-    if (tab === "new") {
-      onConfirm({ mode: "new", localPath: newPath, title: name.trim() })
-    } else {
-      const folderName = getPathBasename(trimmedExisting)
-      onConfirm({ mode: "existing", localPath: trimmedExisting, title: folderName })
-    }
-    onOpenChange(false)
+    setSubmitting(true); setSubmitError(null)
+    try {
+      await onConfirm(tab === "new"
+        ? { mode: "new", localPath: newPath, title: name.trim() }
+        : { mode: "existing", localPath: existingPath.trim(), title: getPathBasename(existingPath.trim()) })
+      onOpenChange(false)
+    } catch (error) { setSubmitError(error instanceof Error ? error.message : String(error)) }
+    finally { setSubmitting(false) }
   }
+  const browse = () => void loadDirectory(tab === "new" ? location : existingPath || "~", tab)
+  const browser = browsing && onListDirectories ? <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex items-center gap-1 border-b border-border px-2 py-2">
+      <Button type="button" variant="ghost" size="icon-sm" aria-label="Home folder" disabled={directoryLoading} onClick={() => void loadDirectory("~", tab)}><Home className="size-4" /></Button>
+      <Button type="button" variant="ghost" size="icon-sm" aria-label="Parent folder" disabled={directoryLoading || !directoryList?.parentPath} onClick={() => void loadDirectory(directoryList!.parentPath!, tab)}><ChevronLeft className="size-4" /></Button>
+      <span className="min-w-0 flex-1 truncate px-2 text-xs text-muted-foreground">{directoryList?.path ?? "Choose a folder"}</span>
+      {directoryLoading && <Loader2 className="size-4 animate-spin" />}
+    </div>
+    <ScrollArea className="max-h-48"><div className="p-1">{directoryList?.entries.map(entry => <button key={entry.path} type="button" disabled={directoryLoading} title={entry.path} className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void loadDirectory(entry.path, tab)}><Folder className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{entry.name}</span><ChevronRight className="size-4 shrink-0" /></button>)}{!directoryLoading && directoryList?.entries.length === 0 && <p className="p-4 text-center text-xs text-muted-foreground">No child folders</p>}</div></ScrollArea>
+  </div> : null
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm">
-        <DialogBody className="flex flex-col gap-4">
-          <DialogTitle>Add Project</DialogTitle>
-
-          <SegmentedControl
-            value={tab}
-            onValueChange={setTab}
-            options={[
-              { value: "new" as Tab, label: "New Folder" },
-              { value: "existing" as Tab, label: "Existing Path" },
-            ]}
-            className="w-full"
-            optionClassName="flex-1 justify-center"
-          />
-
-          {tab === "new" ? (
-            <div className="flex flex-col gap-2">
-              <label className="sr-only" htmlFor="new-project-name">Project name</label>
-              <div className="flex min-w-0">
-                <div
-                  className="flex min-w-0 max-w-[60%] shrink-0 items-center gap-2 rounded-l-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground"
-                  title={newPathPrefix || undefined}
-                >
-                  {isResolvingNewProjectLocation ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : null}
-                  <span className="truncate">
-                    {isResolvingNewProjectLocation
-                      ? "Resolving location..."
-                      : newPathPrefix || "Location unavailable"}
-                  </span>
-                </div>
-                <Input
-                  id="new-project-name"
-                  ref={inputRef}
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSubmit()
-                    if (e.key === "Escape") onOpenChange(false)
-                  }}
-                  placeholder="Project name"
-                  aria-describedby="new-project-location-hint"
-                  disabled={!newProjectLocation}
-                  className="-ml-px min-w-[8rem] flex-1 rounded-l-none"
-                />
-              </div>
-              {newProjectLocationError ? (
-                <p id="new-project-location-hint" className="text-xs text-destructive">
-                  Could not resolve the project location: {newProjectLocationError}
-                </p>
-              ) : isResolvingNewProjectLocation ? (
-                <p id="new-project-location-hint" className="text-xs text-muted-foreground">
-                  Resolving the project location on the connected machine...
-                </p>
-              ) : (
-                <p id="new-project-location-hint" className="text-xs text-muted-foreground">
-                  A new folder will be created at{" "}
-                  <span className="break-all font-mono text-foreground">
-                    {newPath || (newPathPrefix ? `${newPathPrefix}<project-name>` : "this location")}
-                  </span>.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <Input
-                  ref={existingInputRef}
-                  type="text"
-                  value={existingPath}
-                  onChange={(e) => setExistingPath(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSubmit()
-                    if (e.key === "Escape") onOpenChange(false)
-                  }}
-                  placeholder="~/Projects/my-app"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon"
-                  aria-label="Browse path"
-                  title="Browse path"
-                  disabled={!onListDirectories || directoryLoading}
-                  onClick={() => void loadDirectory(trimmedExisting || "~")}
-                >
-                  {directoryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Folder className="h-4 w-4" />}
-                </Button>
-              </div>
-
-              {onListDirectories ? (
-                <div className="overflow-hidden rounded-lg border border-border bg-card">
-                  <div className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 border-b border-border bg-background/60 px-2 py-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Home"
-                      title="Home"
-                      disabled={directoryLoading}
-                      onClick={() => void loadDirectory("~")}
-                    >
-                      <Home className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Parent folder"
-                      title="Parent folder"
-                      disabled={directoryLoading || !directoryList?.parentPath}
-                      onClick={() => {
-                        if (!directoryList?.parentPath) return
-                        void loadDirectory(directoryList.parentPath)
-                      }}
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5" />
-                    </Button>
-                    <div className="min-w-0 truncate px-2 font-mono text-xs text-muted-foreground">
-                      {directoryList?.path ?? "Select a folder"}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Refresh"
-                      title="Refresh"
-                      disabled={directoryLoading}
-                      onClick={() => void loadDirectory(directoryList?.path || trimmedExisting || "~")}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <ScrollArea className="max-h-52">
-                    {directoryList?.entries.length ? (
-                      <div className="p-1">
-                        {directoryList.entries.map((entry) => (
-                          <button
-                            key={entry.path}
-                            type="button"
-                            title={entry.path}
-                            className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            onClick={() => void loadDirectory(entry.path)}
-                          >
-                            <Folder className="h-4 w-4 text-muted-foreground" />
-                            <span className="truncate">{entry.name}</span>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                        {directoryLoading ? "Loading folders..." : "No child folders"}
-                      </div>
-                    )}
-                  </ScrollArea>
-                </div>
-              ) : null}
-
-              {directoryError ? (
-                <p className="text-xs text-destructive">{directoryError}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Choose a folder below or type a path manually. The folder will be created if it doesn't exist.
-                </p>
-              )}
-            </div>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
-            Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+  return <Dialog open={open} onOpenChange={submitting ? undefined : onOpenChange}><DialogContent size="sm">
+    <DialogBody className="flex flex-col gap-4">
+      <DialogTitle>Open Workspace</DialogTitle>
+      <DialogDescription>Select a folder to use as your agent workspace.</DialogDescription>
+      <p className="text-xs text-muted-foreground">Folders on {machineName || "the connected computer"}</p>
+      <SegmentedControl value={tab} onValueChange={value => { if (!submitting) { setTab(value); setBrowsing(false); setSubmitError(null); setDirectoryError(null) } }} options={[{ value: "existing" as Tab, label: "Existing Folder" }, { value: "new" as Tab, label: "New Folder" }]} className="w-full" optionClassName="flex-1 justify-center" />
+      {tab === "new" ? <>
+        <label className="text-sm font-medium" htmlFor="workspace-folder-name">Folder name</label>
+        <Input id="workspace-folder-name" autoFocus value={name} disabled={submitting} placeholder="财务分析" onChange={event => { setName(event.target.value); setSubmitError(null) }} onKeyDown={event => { if (event.key === "Enter") void handleSubmit() }} aria-invalid={Boolean(nameError)} />
+        {nameError && <p role="alert" className="text-xs text-destructive">{nameError}</p>}
+        <label className="text-sm font-medium" htmlFor="workspace-folder-location">Location</label>
+        <div className="flex gap-2"><Input id="workspace-folder-location" value={location} disabled={submitting} onChange={event => { setLocation(event.target.value); setSubmitError(null) }} /><Button type="button" variant="outline" size="icon" aria-label="Browse location" disabled={!onListDirectories || directoryLoading || submitting} onClick={browse}><Folder className="size-4" /></Button></div>
+        {locationError && <p role="alert" className="text-xs text-destructive">{locationError}</p>}
+        <p className="break-all text-xs text-muted-foreground">{newPath ? <>Create folder: <span className="font-mono">{newPath}</span></> : "Choose a location and enter the folder name."}</p>
+      </> : <>
+        <label className="text-sm font-medium" htmlFor="workspace-folder-path">Folder</label>
+        <div className="flex gap-2"><Input id="workspace-folder-path" autoFocus value={existingPath} disabled={submitting} placeholder="~/Documents" onChange={event => { setExistingPath(event.target.value); setSubmitError(null) }} onKeyDown={event => { if (event.key === "Enter") void handleSubmit() }} /><Button type="button" variant="outline" size="icon" aria-label="Browse folder" disabled={!onListDirectories || directoryLoading || submitting} onClick={browse}><Folder className="size-4" /></Button></div>
+        <p className="text-xs leading-5 text-muted-foreground">Choose an existing folder. Its files and previous conversations stay here.</p>
+      </>}
+      {browser}
+      {directoryError && <p role="alert" className="text-xs text-destructive">{directoryError}</p>}
+      {submitError && <p role="alert" className="text-sm text-destructive">{submitError}</p>}
+    </DialogBody>
+    <DialogFooter><Button variant="ghost" size="sm" disabled={submitting} onClick={() => onOpenChange(false)}>Cancel</Button><Button size="sm" onClick={() => void handleSubmit()} disabled={!canSubmit}>{submitting && <Loader2 className="mr-2 size-4 animate-spin" />}{tab === "new" ? "Create & Open" : "Open Workspace"}</Button></DialogFooter>
+  </DialogContent></Dialog>
 }

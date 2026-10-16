@@ -516,7 +516,7 @@ function BrowserPanelImpl({
                         onClick={() => setShowOtherServers((current) => !current)}
                         className="h-8 w-fit rounded-md px-2 text-xs text-muted-foreground hover:!bg-muted/40"
                       >
-                        {showOtherServers ? "Hide other projects" : `Other projects (${otherServers.length})`}
+                        {showOtherServers ? "Hide other workspaces" : `Other workspaces (${otherServers.length})`}
                       </Button>
                     ) : null}
                   </div>

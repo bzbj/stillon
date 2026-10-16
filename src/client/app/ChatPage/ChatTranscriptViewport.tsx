@@ -526,7 +526,7 @@ function RemoteFileContextMenuContent({
   const canDownload = Boolean(getProjectRelativeFilePath(target.path, localPath))
   const enabled = canPreview || canDownload
   const Icon = canPreview ? Eye : canDownload ? Download : Ban
-  const label = canPreview ? "Open Preview" : canDownload ? "Download" : "Unavailable outside project"
+  const label = canPreview ? "Open Preview" : canDownload ? "Download" : "Unavailable outside workspace"
 
   return (
     <ContextMenuContent className="rounded-lg p-1">

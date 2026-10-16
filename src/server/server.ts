@@ -605,7 +605,7 @@ async function handleProjectUpload(
 
   const project = store.getProject(match[1])
   if (!project) {
-    return Response.json({ error: "Project not found" }, { status: 404 })
+    return Response.json({ error: "Workspace not found" }, { status: 404 })
   }
 
   const formData = await req.formData()
@@ -668,7 +668,7 @@ async function handleAttachmentContent(req: Request, url: URL, store: EventStore
 
   const project = store.getProject(match[1])
   if (!project) {
-    return Response.json({ error: "Project not found" }, { status: 404 })
+    return Response.json({ error: "Workspace not found" }, { status: 404 })
   }
 
   const storedName = decodeURIComponent(match[2])
@@ -701,7 +701,7 @@ async function handleAttachmentContent(req: Request, url: URL, store: EventStore
 async function resolveProjectFileFromUrl(store: EventStore, projectId: string, rawRelativePath: string) {
   const project = store.getProject(projectId)
   if (!project) {
-    return { error: Response.json({ error: "Project not found" }, { status: 404 }) }
+    return { error: Response.json({ error: "Workspace not found" }, { status: 404 }) }
   }
 
   let decodedPath: string
@@ -948,7 +948,7 @@ async function handleProjectUploadDelete(req: Request, url: URL, store: EventSto
 
   const project = store.getProject(match[1])
   if (!project) {
-    return Response.json({ error: "Project not found" }, { status: 404 })
+    return Response.json({ error: "Workspace not found" }, { status: 404 })
   }
 
   const storedName = decodeURIComponent(match[2])
