@@ -33,9 +33,9 @@ export function createResendSender(options: {
         body: JSON.stringify({
           from: options.from,
           to: [email],
-          subject: `${code} 是你的 StillOn 登录验证码`,
-          text: `你的 StillOn 登录验证码是：${code}\n\n请回到刚才的登录页面输入。验证码 ${expiresInMinutes} 分钟内有效，只能使用一次。\n\n如果不是你发起的登录，请忽略这封邮件。`,
-          html: `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:32px auto;color:#172033"><h2>登录 StillOn</h2><p>请回到刚才的登录页面输入验证码：</p><p style="font-size:32px;font-weight:600;letter-spacing:8px">${code}</p><p>${expiresInMinutes} 分钟内有效，只能使用一次。</p><p style="color:#64748b">如果不是你发起的登录，请忽略这封邮件。</p></div>`,
+          subject: `${code} is your StillOn sign-in code`,
+          text: `Your StillOn sign-in code is: ${code}\n\nReturn to the sign-in page and enter this code. It expires in ${expiresInMinutes} minutes and can only be used once.\n\nIf you did not request this code, you can ignore this email.`,
+          html: `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:32px auto;color:#172033"><h2>Sign in to StillOn</h2><p>Return to the sign-in page and enter this code:</p><p style="font-size:32px;font-weight:600;letter-spacing:8px">${code}</p><p>Expires in ${expiresInMinutes} minutes. Can only be used once.</p><p style="color:#64748b">If you did not request this code, you can ignore this email.</p></div>`,
         }),
       })
       // Provider error payloads may contain recipient details: never expose/log them.

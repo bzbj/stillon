@@ -36,7 +36,7 @@ export class RemoteOperations {
       if (old) {
         if (old.digest !== digest) throw new Error("OPERATION_CONFLICT")
         return old.response ? JSON.parse(old.response) as ServerEnvelope
-          : { v: 1, type: "error", id, message: old.state === "pending" ? "RESULT_PENDING: 操作正在处理，请勿重复提交。" : "RESULT_UNKNOWN: 请先检查任务状态，不会自动重放这个操作。" }
+          : { v: 1, type: "error", id, message: old.state === "pending" ? "RESULT_PENDING: The action is still processing. Do not submit it again." : "RESULT_UNKNOWN: Check the task status first. This action will not be replayed automatically." }
       }
       this.db.query("INSERT INTO operation VALUES (?,?,?,'pending',NULL,?)").run(owner, id, digest, this.now())
       return null

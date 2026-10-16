@@ -12,13 +12,13 @@ separate gates. Billing, custom domains, teams and file synchronization are defe
 
 ## User flow
 
-1. On the computer: Settings → 远程访问 → 绑定邮箱 → open verification page.
-   Enter the email and six-digit code, then **验证并绑定电脑**. The OTP is tied to
+1. On the computer: Settings → Remote access → Link email → open verification page.
+   Enter the email and six-digit code, then **Verify and link computer**. The OTP is tied to
    this enrollment; an existing account cookie cannot approve it by itself.
 2. Elsewhere: sign in at the configured Connect URL. One computer opens directly.
    With several, the portal retains the selected computer or picks the first
    registered one. Offline selection stays fixed; there is no silent failover.
-3. Switch computers in remote Settings → 远程访问. Each tab uses its own host
+3. Switch computers in remote Settings → Remote access. Each tab uses its own host
    origin, so switching one tab never retargets another.
 4. **Logout** revokes the current central session and all host sessions derived
    from it. Independently signed-in browsers continue. Local tasks and binding

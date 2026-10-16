@@ -12,7 +12,7 @@ test("Resend adapter sends only a fixed login template to the selected recipient
   const body = JSON.parse(String(sent?.init?.body))
   expect(body.to).toEqual(["person@example.com"])
   expect(body.text).toContain("123456")
-  expect(body.text).toContain("5 分钟")
+  expect(body.text).toContain("5 minutes")
   expect(new Headers(sent?.init?.headers).get("Idempotency-Key")).toBeTruthy()
 })
 

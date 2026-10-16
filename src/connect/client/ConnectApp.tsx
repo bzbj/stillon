@@ -28,16 +28,16 @@ async function api<T>(route: string, body?: unknown): Promise<T> {
 }
 
 function errorText(error: unknown) {
-  if (!(error instanceof LoginError)) return "暂时无法连接，请稍后重试。"
+  if (!(error instanceof LoginError)) return "Unable to connect. Please try again shortly."
   switch (error.code) {
-    case "INVALID_EMAIL": return "请填写有效的邮箱地址。"
-    case "INVALID_CODE": return "验证码不正确或已过期，请检查最新一封邮件。"
-    case "LOGIN_EXPIRED": return "本次验证已失效，请重新获取验证码。"
-    case "MAIL_UNAVAILABLE": return "验证码暂时发送失败，请稍后重试。"
-    case "RATE_LIMITED": return `操作较频繁，请在 ${error.retryAfterSeconds || 60} 秒后重试。`
-    case "BINDING_EXPIRED": return "绑定请求已过期，请回到本机 StillOn 重新绑定。"
-    case "ACTION_NOT_COMPLETED": return "验证完成，但绑定或解绑未完成，请回到原入口重试。"
-    default: return "暂时无法登录，请稍后重试。"
+    case "INVALID_EMAIL": return "Enter a valid email address."
+    case "INVALID_CODE": return "The code is incorrect or expired. Check your latest email."
+    case "LOGIN_EXPIRED": return "This verification has expired. Request a new code."
+    case "MAIL_UNAVAILABLE": return "Unable to send a code. Please try again shortly."
+    case "RATE_LIMITED": return `Too many attempts. Try again in ${error.retryAfterSeconds || 60} seconds.`
+    case "BINDING_EXPIRED": return "The link request has expired. Start again in StillOn on your computer."
+    case "ACTION_NOT_COMPLETED": return "Your email was verified, but the computer could not be linked or unlinked. Return to where you started and try again."
+    default: return "Unable to sign in. Please try again shortly."
   }
 }
 
@@ -89,7 +89,7 @@ export function ConnectApp() {
 
   useEffect(() => {
     let alive = true
-    void refreshSession().catch(() => { if (alive) setError("暂时无法连接，请刷新页面重试。") }).finally(() => { if (alive) setLoading(false) })
+    void refreshSession().catch(() => { if (alive) setError("Unable to connect. Refresh the page to try again.") }).finally(() => { if (alive) setLoading(false) })
     const refresh = () => { void refreshSession().catch(() => {}) }
     window.addEventListener("focus", refresh)
     if (typeof BroadcastChannel !== "undefined") {
@@ -149,7 +149,7 @@ export function ConnectApp() {
     if (!loading && (!session || needsCode) && !busy) (step === "email" ? emailInput : codeInput).current?.focus()
   }, [loading, session, needsCode, step, busy])
 
-  useEffect(() => { document.title = session ? "StillOn · 我的电脑" : "StillOn · 登录" }, [session])
+  useEffect(() => { document.title = session ? "StillOn · My computers" : "StillOn · Sign in" }, [session])
 
   function handleError(caught: unknown) {
     setError(errorText(caught))
@@ -213,61 +213,61 @@ export function ConnectApp() {
       </header>
       <main className="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-center py-12 sm:py-20">
         {loading ? (
-          <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-5 animate-spin" />正在连接…</div>
+          <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-5 animate-spin" />Connecting…</div>
         ) : route.pathname === "/logout/complete" ? (
-          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">已退出远程登录</h1><p className="mt-4 text-sm leading-6 text-slate-500">这个浏览器的电脑连接已结束。电脑上运行的任务会继续。</p><a className="mt-8 underline" href="/login">重新登录</a></>
+          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">Logged out</h1><p className="mt-4 text-sm leading-6 text-slate-500">Computer connections in this browser have ended. Tasks on your computers keep running.</p><a className="mt-8 underline" href="/login">Sign in again</a></>
         ) : intentDone ? (
-          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">{intent?.purpose === "enroll" ? "邮箱已绑定" : "电脑已解绑"}</h1><p className="mt-4 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? "回到本机 StillOn 查看连接状态。之后在这个网址登录，就能继续使用这台电脑。" : "远程通道已关闭，电脑上的文件和任务保留。"}</p><a className="mt-8 underline" href="/computers">查看我的电脑</a></>
+          <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">{intent?.purpose === "enroll" ? "Email linked" : "Computer unlinked"}</h1><p className="mt-4 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? "Return to StillOn on your computer to check the connection. Sign in at this address to use it remotely." : "Remote access is closed. Files and tasks on the computer are preserved."}</p><a className="mt-8 underline" href="/computers">View my computers</a></>
         ) : session && !needsCode ? (
           <>
-            <div className="mb-8 flex items-center gap-2 text-sm text-emerald-700"><Check className="size-4" />已登录</div>
-            <h1 className="text-3xl font-semibold tracking-tight">你的电脑，随时回来。</h1>
+            <div className="mb-8 flex items-center gap-2 text-sm text-emerald-700"><Check className="size-4" />Signed in</div>
+            <h1 className="text-3xl font-semibold tracking-tight">Your computer, wherever you are.</h1>
             <p className="mt-3 break-all text-sm text-slate-500">{session.user.email}</p>
             {hosts?.length ? <div className="my-8 space-y-3">{hosts.map(host => <div key={host.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center gap-3"><Monitor className="size-5 text-slate-400" /><span className="min-w-0 flex-1 truncate font-medium">{host.name}</span><span className={`text-xs ${host.online ? "text-emerald-700" : "text-slate-400"}`}>{host.paused ? "已暂停" : host.online ? "在线" : "离线"}</span></div>
-              <div className="mt-4 flex items-center gap-5 text-sm"><a href={`${host.url}/_connect/login`} className="font-medium text-slate-800" onClick={() => { try { localStorage.setItem(`stillon-connect-host:${session.user.id}`, host.id) } catch { /* optional */ } }}>进入电脑 →</a><a href={`/revoke-host?host=${host.id}`} className="text-slate-400">解绑</a></div>
+              <div className="flex items-center gap-3"><Monitor className="size-5 text-slate-400" /><span className="min-w-0 flex-1 truncate font-medium">{host.name}</span><span className={`text-xs ${host.online ? "text-emerald-700" : "text-slate-400"}`}>{host.paused ? "Paused" : host.online ? "Online" : "Offline"}</span></div>
+              <div className="mt-4 flex items-center gap-5 text-sm"><a href={`${host.url}/_connect/login`} className="font-medium text-slate-800" onClick={() => { try { localStorage.setItem(`stillon-connect-host:${session.user.id}`, host.id) } catch { /* optional */ } }}>Open computer →</a><a href={`/revoke-host?host=${host.id}`} className="text-slate-400">Unlink</a></div>
             </div>)}</div> : <div className="my-9 rounded-2xl border border-slate-200 bg-white p-7">
               <Monitor className="mb-5 size-7 text-slate-400" />
-              <h2 className="font-medium">{hosts ? "还没有连接的电脑" : "正在连接你的电脑…"}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">在电脑上打开 StillOn → 设置 → 远程访问，绑定这个邮箱。</p>
+              <h2 className="font-medium">{hosts ? "No computers linked yet" : "Connecting to your computer…"}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">On your computer, open StillOn → Settings → Remote access and link this email.</p>
             </div>}
-            <Button variant="ghost" onClick={() => void signOut()} disabled={busy} className="self-start px-0 hover:bg-transparent"><LogOut className="mr-2 size-4" />退出登录</Button>
+            <Button variant="ghost" onClick={() => void signOut()} disabled={busy} className="self-start px-0 hover:bg-transparent"><LogOut className="mr-2 size-4" />Logout</Button>
           </>
         ) : step === "email" ? (
           <>
-            <p className="mb-4 text-sm text-slate-500">电脑还在，工作继续。</p>
-            <h1 className="text-[32px] font-semibold tracking-tight">{intent ? intent.purpose === "enroll" ? "绑定这台电脑" : "解绑这台电脑" : "回到你的 StillOn"}</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? `${enrollment?.name ?? "正在读取电脑信息…"} · 验证邮箱后，允许这个账号远程访问此电脑。请确认这是你自己发起的绑定。` : intent?.purpose === "revoke-host" ? "请再次验证绑定的邮箱。解绑会关闭这台电脑的所有远程连接。" : "用邮箱登录，继续你手上的工作。"}</p>
-            {enrollment && <p className="mt-3 text-xs text-slate-400">电脑识别码：{enrollment.fingerprint}</p>}
+            <p className="mb-4 text-sm text-slate-500">Your computer stays. Your work continues.</p>
+            <h1 className="text-[32px] font-semibold tracking-tight">{intent ? intent.purpose === "enroll" ? "Link this computer" : "Unlink this computer" : "Welcome back to StillOn"}</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-500">{intent?.purpose === "enroll" ? `${enrollment?.name ?? "Loading computer details…"} · Verifying your email gives this account remote access to this computer. Continue only if you started this request.` : intent?.purpose === "revoke-host" ? "Verify the linked email again. Unlinking closes all remote connections to this computer." : "Sign in with your email to pick up where you left off."}</p>
+            {enrollment && <p className="mt-3 text-xs text-slate-400">Computer fingerprint: {enrollment.fingerprint}</p>}
             <form className="mt-9 space-y-5" onSubmit={sendCode}>
               <div>
-                <label htmlFor="connect-email" className="mb-2 block text-sm font-medium">邮箱地址</label>
+                <label htmlFor="connect-email" className="mb-2 block text-sm font-medium">Email address</label>
                 <Input ref={emailInput} id="connect-email" type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="you@example.com" required maxLength={254} value={email} onChange={(event) => { setEmail(event.target.value); setError("") }} disabled={busy} aria-describedby={error ? "login-error" : undefined} className="h-12 rounded-xl border-slate-200 bg-white px-4" />
               </div>
               <Button type="submit" disabled={busy || cooldown > 0 || !email.trim() || (intent?.purpose === "enroll" && !enrollment)} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">
                 {busy ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
-                {cooldown > 0 ? `${cooldown} 秒后可重新发送` : "获取验证码"}
+                {cooldown > 0 ? `Resend in ${cooldown}s` : "Send verification code"}
                 {!busy && cooldown === 0 && <ArrowRight className="ml-2 size-4" />}
               </Button>
             </form>
-            <p className="mt-5 text-xs leading-6 text-slate-400">首次验证邮箱后，会自动创建账号。</p>
+            <p className="mt-5 text-xs leading-6 text-slate-400">An account is created when you first verify your email.</p>
           </>
         ) : (
           <>
-            <Button variant="ghost" disabled={busy} onClick={() => { setStep("email"); setCode(""); setError("") }} className="mb-7 self-start px-0 hover:bg-transparent"><ArrowLeft className="mr-2 size-4" />修改邮箱</Button>
-            <h1 className="text-3xl font-semibold tracking-tight">查收你的验证码</h1>
-            <p className="mt-3 break-words text-sm leading-6 text-slate-500">验证码已发送至 <span className="font-medium text-slate-800">{email}</span>，5 分钟内有效。</p>
+            <Button variant="ghost" disabled={busy} onClick={() => { setStep("email"); setCode(""); setError("") }} className="mb-7 self-start px-0 hover:bg-transparent"><ArrowLeft className="mr-2 size-4" />Change email</Button>
+            <h1 className="text-3xl font-semibold tracking-tight">Check your email</h1>
+            <p className="mt-3 break-words text-sm leading-6 text-slate-500">We sent a code to <span className="font-medium text-slate-800">{email}</span>. It expires in 5 minutes.</p>
             <form onSubmit={signIn} className="mt-8 space-y-6">
               <div>
-                <label htmlFor="connect-code" className="mb-3 block text-sm font-medium">6 位验证码</label>
+                <label htmlFor="connect-code" className="mb-3 block text-sm font-medium">6-digit code</label>
                 <OTPInput id="connect-code" ref={codeInput} maxLength={6} pattern={REGEXP_ONLY_DIGITS} inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(value) => { setCode(value); setError("") }} disabled={busy} aria-describedby={error ? "login-error" : undefined} aria-invalid={Boolean(error)} pasteTransformer={(value) => value.replace(/[\s-]/g, "")} containerClassName="flex gap-2 justify-between has-[:disabled]:opacity-60" render={({ slots }) => <>{slots.map((slot, index) => <CodeSlot key={index} {...slot} />)}</>} />
               </div>
-              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-500"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-4 accent-slate-900" disabled={busy} />在这台设备上保持登录 30 天</label>
-              <Button type="submit" disabled={busy || code.length !== 6} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{intent ? intent.purpose === "enroll" ? "验证并绑定电脑" : "验证并解绑电脑" : "登录 StillOn"}<ArrowRight className="ml-2 size-4" /></Button>
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-500"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-4 accent-slate-900" disabled={busy} />Stay signed in on this device for 30 days</label>
+              <Button type="submit" disabled={busy || code.length !== 6} className="h-12 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{intent ? intent.purpose === "enroll" ? "Verify and link computer" : "Verify and unlink computer" : "Sign in to StillOn"}<ArrowRight className="ml-2 size-4" /></Button>
             </form>
             <div className="mt-6 flex items-center justify-between text-xs text-slate-500">
-              <span>没收到？也看看垃圾邮件。</span>
-              <Button variant="link" size="none" disabled={busy || cooldown > 0} onClick={() => void sendCode()} className="h-8 text-xs text-slate-600">{cooldown > 0 ? `${cooldown} 秒后重发` : "重新发送"}</Button>
+              <span>No code? Check your spam folder.</span>
+              <Button variant="link" size="none" disabled={busy || cooldown > 0} onClick={() => void sendCode()} className="h-8 text-xs text-slate-600">{cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}</Button>
             </div>
           </>
         )}
