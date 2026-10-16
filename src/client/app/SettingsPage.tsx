@@ -3273,7 +3273,7 @@ export function SettingsPage() {
                 <div className="text-foreground/80">{state.connectionStatus}</div>
               </div>
               <div className="hidden md:block">
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Projects Indexed</div>
+                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Workspaces Indexed</div>
                 <div className="text-foreground/80">{projectCount}</div>
               </div>
               <div>

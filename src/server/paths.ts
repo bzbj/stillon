@@ -2,6 +2,7 @@ import { mkdir, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import type { ResolvedLocalPath } from "../shared/protocol"
+import { workspaceFolderNameError } from "../shared/workspace-folders"
 
 export const PROJECT_DATA_DIR_NAME = ".stillon"
 export const LEGACY_PROJECT_DATA_DIR_NAME = ".kanna"
@@ -18,7 +19,7 @@ export function resolveLocalPathForPlatform(
 ) {
   const trimmed = localPath.trim()
   if (!trimmed) {
-    throw new Error("Project path is required")
+    throw new Error("Workspace path is required")
   }
   if (trimmed === "~") {
     return homeDirectory
@@ -42,11 +43,24 @@ export function getResolvedLocalPath(localPath: string): ResolvedLocalPath {
 
 export async function ensureProjectDirectory(localPath: string) {
   const resolvedPath = resolveLocalPath(localPath)
-
-  await mkdir(resolvedPath, { recursive: true })
-  const info = await stat(resolvedPath)
+  const info = await stat(resolvedPath).catch((error) => {
+    if (error.code === "ENOENT") throw new Error("Folder not found. Choose an existing folder or select New Folder.")
+    throw error
+  })
   if (!info.isDirectory()) {
-    throw new Error("Project path must be a directory")
+    throw new Error("Workspace path must be a folder")
+  }
+}
+
+export async function createProjectDirectory(localPath: string) {
+  const resolvedPath = resolveLocalPath(localPath)
+  const error = workspaceFolderNameError(path.basename(resolvedPath), path.sep === "\\" ? "\\" : "/")
+  if (error) throw new Error(error)
+  await mkdir(path.dirname(resolvedPath), { recursive: true })
+  try { await mkdir(resolvedPath) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Folder already exists. Open it using Existing Folder.")
+    throw error
   }
 }
 

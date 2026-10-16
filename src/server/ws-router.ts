@@ -18,7 +18,7 @@ import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { listLocalDirectories } from "./local-directories"
 import { killLocalHttpServer, listLocalHttpServers } from "./local-http-servers"
-import { ensureProjectDirectory, getResolvedLocalPath } from "./paths"
+import { createProjectDirectory, ensureProjectDirectory, getResolvedLocalPath } from "./paths"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
@@ -1185,7 +1185,7 @@ export function createWsRouter({
     const chat = store.getChat(chatId)
     if (!chat) throw new Error("Chat not found")
     const project = store.getProject(chat.projectId)
-    if (!project) throw new Error("Project not found")
+    if (!project) throw new Error("Workspace not found")
     return { chat, project }
   }
 
@@ -1226,7 +1226,7 @@ export function createWsRouter({
         case "project.readQuickActions": {
           const project = store.getProject(command.projectId)
           if (!project) {
-            throw new Error("Project not found")
+            throw new Error("Workspace not found")
           }
           const result = await readProjectQuickActions(project.localPath)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
@@ -1235,7 +1235,7 @@ export function createWsRouter({
         case "project.writeQuickActions": {
           const project = store.getProject(command.projectId)
           if (!project) {
-            throw new Error("Project not found")
+            throw new Error("Workspace not found")
           }
           const result = await writeProjectQuickActions(project.localPath, command.quickActions)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
@@ -1376,7 +1376,7 @@ export function createWsRouter({
           break
         }
         case "project.create": {
-          await ensureProjectDirectory(command.localPath)
+          await createProjectDirectory(command.localPath)
           const project = await store.openProject(command.localPath, command.title)
           void refreshDiscovery({ force: true })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
@@ -1402,7 +1402,7 @@ export function createWsRouter({
         case "project.readDiffPatch": {
           const project = store.getProject(command.projectId)
           if (!project) {
-            throw new Error("Project not found")
+            throw new Error("Workspace not found")
           }
           const result = await resolvedDiffStore.readPatch({
             projectPath: project.localPath,
@@ -1733,7 +1733,7 @@ export function createWsRouter({
         case "terminal.create": {
           const project = store.getProject(command.projectId)
           if (!project) {
-            throw new Error("Project not found")
+            throw new Error("Workspace not found")
           }
           const snapshot = terminals.createTerminal({
             projectPath: project.localPath,

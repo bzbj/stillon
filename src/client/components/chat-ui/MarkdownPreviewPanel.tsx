@@ -114,7 +114,7 @@ export function MarkdownPreviewPanel({
           return (
             <span
               className="text-muted-foreground underline decoration-dotted"
-              title="This project-external file cannot be downloaded remotely."
+              title="This workspace-external file cannot be downloaded remotely."
             >
               {children}
             </span>

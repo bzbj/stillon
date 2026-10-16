@@ -854,7 +854,7 @@ export class EventStore {
   async removeProject(projectId: string) {
     const project = this.getProject(projectId)
     if (!project) {
-      throw new Error("Project not found")
+      throw new Error("Workspace not found")
     }
 
     const event: ProjectEvent = {
@@ -870,7 +870,7 @@ export class EventStore {
     const trimmed = title.trim()
     const project = this.getProject(projectId)
     if (!project) {
-      throw new Error("Project not found")
+      throw new Error("Workspace not found")
     }
     const nextTitle = trimmed || null
     if ((project.sidebarTitle ?? null) === nextTitle) return
@@ -910,7 +910,7 @@ export class EventStore {
   async createChat(projectId: string) {
     const project = this.state.projectsById.get(projectId)
     if (!project || project.deletedAt) {
-      throw new Error("Project not found")
+      throw new Error("Workspace not found")
     }
     const chatId = crypto.randomUUID()
     const event: ChatEvent = {

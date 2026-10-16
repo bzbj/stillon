@@ -742,7 +742,7 @@ export function ChatPage() {
       void (async () => {
         const confirmed = await dialog.confirm({
           title: "Initialize Git?",
-          description: "Initialize a local git repository in this project?",
+          description: "Initialize a local git repository in this workspace?",
           confirmLabel: "Init Git",
           cancelLabel: "Cancel",
         })
@@ -811,7 +811,7 @@ export function ChatPage() {
       if (!projectId) {
         await dialog.alert({
           title: "Preview unavailable",
-          description: "Open this link from a project chat to preview it.",
+          description: "Open this link from a workspace chat to preview it.",
           closeLabel: "OK",
         })
         return
@@ -862,7 +862,7 @@ export function ChatPage() {
 
     await dialog.alert({
       title: "Download unavailable",
-      description: "For remote access, only files inside the current project can be downloaded.",
+      description: "For remote access, only files inside the current workspace can be downloaded.",
       closeLabel: "OK",
     })
   }, [

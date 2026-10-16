@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 const ChatInput = lazy(() => import("./chat-ui/ChatInput").then(({ ChatInput }) => ({ default: ChatInput })))
 
 interface LocalDevProps {
+  machineName?: string
   connectionStatus: SocketStatus
   ready: boolean
   projectGroups: SidebarProjectGroup[]
@@ -139,6 +140,7 @@ function Step({
 }
 
 export function LocalDev({
+  machineName,
   connectionStatus,
   ready,
   projectGroups,
@@ -171,8 +173,8 @@ export function LocalDev({
             icon={CodeXml}
             title={isConnecting ? `Connecting ${APP_NAME}` : `Connect ${APP_NAME}`}
             subtitle={isConnecting
-              ? `${APP_NAME} is starting up and loading your local projects.`
-              : `Run ${APP_NAME} directly on your machine with full access to your local files and agent project history.`}
+              ? `${APP_NAME} is starting up and loading your local workspaces.`
+              : `Run ${APP_NAME} directly on your machine with full access to your local files and agent workspace history.`}
           />
           <div className="max-w-2xl w-full mx-auto pb-12 px-6">
             <SectionHeader>Status</SectionHeader>
@@ -202,7 +204,7 @@ export function LocalDev({
                   <HowItWorksConnector />
                   <HowItWorksItem icon={Monitor} title={`${APP_NAME} Server`} subtitle="Local WebSocket" />
                   <HowItWorksConnector />
-                  <HowItWorksItem icon={CodeXml} title={`${APP_NAME} UI`} subtitle="Project Chat" />
+                  <HowItWorksItem icon={CodeXml} title={`${APP_NAME} UI`} subtitle="Workspace Chat" />
                 </div>
               </InfoCard>
               </div>
@@ -219,7 +221,7 @@ export function LocalDev({
                   </Step>
 
                   <Step number={2} title="Open the local UI">
-                    <p>{APP_NAME} serves the app locally and opens the Local Projects page in an app-style browser window.</p>
+                    <p>{APP_NAME} serves the app locally and opens the Workspaces page in an app-style browser window.</p>
                     <CodeBlock>http://localhost:3210/local</CodeBlock>
                   </Step>
 
@@ -254,17 +256,17 @@ export function LocalDev({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    aria-label="Choose project"
+                    aria-label="Choose workspace"
                     disabled={!sidebarReady}
                     className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
                   >
                     <FolderOpen className="h-4 w-4 shrink-0" />
-                    <span className="max-w-[240px] truncate">{selectedProject?.sidebarTitle ?? selectedProject?.title ?? (sidebarReady ? "Choose a project" : "Loading projects")}</span>
+                    <span className="max-w-[240px] truncate">{selectedProject?.sidebarTitle ?? selectedProject?.title ?? (sidebarReady ? "Choose a workspace" : "Loading workspaces")}</span>
                     <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="start" sideOffset={5} className="w-60 rounded-xl p-1 text-[13px] shadow-md">
-                  <div className="max-h-64 overflow-y-auto" aria-label="Projects">
+                  <div className="max-h-64 overflow-y-auto" aria-label="Workspaces">
                     {projectGroups.map((group) => (
                       <button
                         key={group.groupKey}
@@ -290,7 +292,7 @@ export function LocalDev({
                       className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-muted-foreground hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                     >
                       <Star className="h-4 w-4" fill={defaultProjectId === selectedProject.groupKey ? "currentColor" : "none"} />
-                      {defaultProjectId === selectedProject.groupKey ? "Clear default project" : "Set as default project"}
+                      {defaultProjectId === selectedProject.groupKey ? "Clear default workspace" : "Set as default workspace"}
                     </button>
                   ) : null}
                   <button
@@ -298,14 +300,14 @@ export function LocalDev({
                     onClick={() => { setProjectMenuOpen(false); onNewProjectOpenChange(true) }}
                     className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                   >
-                    <Plus className="h-4 w-4" /> Add project…
+                    <Plus className="h-4 w-4" /> Open Workspace…
                   </button>
                 </PopoverContent>
               </Popover>
             </div>
 
             {sidebarReady && projectGroups.length === 0 ? (
-              <p className="px-3 pb-3 text-sm text-muted-foreground">Add a project to start a conversation.</p>
+              <p className="px-3 pb-3 text-sm text-muted-foreground">Open a workspace to start a conversation.</p>
             ) : null}
             <Suspense fallback={<div className="mx-3 h-16 animate-pulse rounded-[29px] border border-border bg-card" aria-label="Loading composer" />}>
               <ChatInput
@@ -329,11 +331,10 @@ export function LocalDev({
       )}
 
       <NewProjectModal
+        machineName={machineName}
         open={newProjectOpen}
         onOpenChange={onNewProjectOpenChange}
-        onConfirm={(project) => {
-          void onCreateProject(project)
-        }}
+        onConfirm={onCreateProject}
         onListDirectories={onListDirectories}
         onResolveLocalPath={onResolveLocalPath}
       />

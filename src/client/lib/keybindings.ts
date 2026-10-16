@@ -7,8 +7,8 @@ export const KEYBINDING_ACTION_LABELS: Record<KeybindingAction, string> = {
   openInEditor: "Open In Editor",
   addSplitTerminal: "Add Split Terminal",
   jumpToSidebarChat: "Jump To Sidebar Chat",
-  createChatInCurrentProject: "New Chat In Current Project",
-  openAddProject: "Open Add Project",
+  createChatInCurrentProject: "New Chat In Current Workspace",
+  openAddProject: "Open Workspace",
 }
 
 export function formatKeybindingInput(bindings: string[] | undefined) {

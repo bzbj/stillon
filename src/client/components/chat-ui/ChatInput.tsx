@@ -720,7 +720,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const enqueueFiles = useCallback((files: File[]) => {
     if (!projectId) {
-      setUploadError("Open a project before uploading files.")
+      setUploadError("Open a workspace before uploading files.")
       return
     }
 

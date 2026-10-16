@@ -1386,7 +1386,7 @@ export class AgentCoordinator {
 
     const project = this.store.getProject(chat.projectId)
     if (!project) {
-      throw new Error("Project not found")
+      throw new Error("Workspace not found")
     }
 
     if (args.appendUserPrompt) {

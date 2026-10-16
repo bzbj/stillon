@@ -100,7 +100,7 @@ export function useChatPageSidebarActions({
 
   const handleLoadDiffPatch = useCallback(async (filePath: string) => {
     if (!projectId) {
-      throw new Error("Project not found")
+      throw new Error("Workspace not found")
     }
     const result = await state.socket.command<{ patch: string }>({
       type: "project.readDiffPatch",
