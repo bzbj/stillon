@@ -108,13 +108,13 @@ refreshes account state on focus. This does not implement or mutate a global
 
 ## Verification limits
 
-- Codes expire after five minutes and are single-use. A separate keyed receipt
+- Codes expire after ten minutes and are single-use. A separate keyed receipt
   binds each code to the initiating browser. Resending rotates the code and
   invalidates the previous receipt for that email.
 - Persistent SQLite rolling budgets: one send per email per 60 seconds, five per
   email per hour, twenty per source IP per hour, one hundred globally per hour;
-  five verification attempts per email per five minutes and thirty per source
-  IP per five minutes. General API requests are capped at 120 per IP per minute.
+  five verification attempts per email per ten minutes and thirty per source
+  IP per ten minutes. General API requests are capped at 120 per IP per minute.
   IPv6 source keys are grouped by /64. These are conservative pilot defaults in
   `src/connect/auth.ts`, not a service capacity commitment.
 - Budgets reserve atomically and survive resends/restarts. Incorrect attempts

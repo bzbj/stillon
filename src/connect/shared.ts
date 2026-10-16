@@ -1,4 +1,4 @@
-export const CONNECT_OTP_SECONDS = 5 * 60
+export const CONNECT_OTP_SECONDS = 10 * 60
 export const CONNECT_RESEND_SECONDS = 60
 export const CONNECT_SESSION_SECONDS = 30 * 24 * 60 * 60
 

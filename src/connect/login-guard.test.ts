@@ -3,6 +3,23 @@ import { Database } from "bun:sqlite"
 import { LoginGuard } from "./login-guard"
 
 describe("Connect rolling send budgets", () => {
+  test("keeps receipts usable after five minutes and expires them at ten minutes", () => {
+    const db = new Database(":memory:")
+    try {
+      let now = 100_000
+      const guard = new LoginGuard(db, "test-secret", () => now)
+      guard.issue("first-browser", "first@example.com", "123456")
+      guard.issue("second-browser", "second@example.com", "654321")
+      guard.issue("third-browser", "third@example.com", "987654")
+      now += 5 * 60_000 + 1
+      expect(guard.claim("first-browser", "first@example.com", "123456")).toBe(true)
+      now = 100_000 + 10 * 60_000 - 1
+      expect(guard.claim("second-browser", "second@example.com", "654321")).toBe(true)
+      now += 1
+      expect(guard.claim("third-browser", "third@example.com", "987654")).toBe(false)
+    } finally { db.close() }
+  })
+
   test("retains global and source limits while individual account keys change", () => {
     const db = new Database(":memory:")
     try {

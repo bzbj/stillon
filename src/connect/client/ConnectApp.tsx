@@ -4,7 +4,7 @@ import { OTPInput, REGEXP_ONLY_DIGITS, type SlotProps } from "input-otp"
 import { Button } from "../../client/components/ui/button"
 import { Input } from "../../client/components/ui/input"
 import { cn } from "../../client/lib/utils"
-import { CONNECT_RESEND_SECONDS, type ConnectError, type ConnectSession } from "../shared"
+import { CONNECT_OTP_SECONDS, CONNECT_RESEND_SECONDS, type ConnectError, type ConnectSession } from "../shared"
 import type { ConnectHost, ConnectIntent } from "../../shared/connect"
 
 class LoginError extends Error {
@@ -256,7 +256,7 @@ export function ConnectApp() {
           <>
             <Button variant="ghost" disabled={busy} onClick={() => { setStep("email"); setCode(""); setError("") }} className="mb-7 self-start px-0 hover:bg-transparent"><ArrowLeft className="mr-2 size-4" />Change email</Button>
             <h1 className="text-3xl font-semibold tracking-tight">Check your email</h1>
-            <p className="mt-3 break-words text-sm leading-6 text-slate-500">We sent a code to <span className="font-medium text-slate-800">{email}</span>. It expires in 5 minutes.</p>
+            <p className="mt-3 break-words text-sm leading-6 text-slate-500">We sent a code to <span className="font-medium text-slate-800">{email}</span>. It expires in {CONNECT_OTP_SECONDS / 60} minutes.</p>
             <form onSubmit={signIn} className="mt-8 space-y-6">
               <div>
                 <label htmlFor="connect-code" className="mb-3 block text-sm font-medium">6-digit code</label>
