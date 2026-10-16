@@ -67,8 +67,11 @@ flowchart LR
   Self-contained static reports can render; external scripts/assets may be
   blocked. The chat header retains the browser globe.
 - Remote drafts, terminal layouts, sidebar snapshots and answer contents are
-  not persisted in browser storage. Expiry unmounts private content; pagehide
-  removes it before back/forward-cache restoration.
+  not persisted in browser storage. Focus, reconnect and back/forward restores
+  use a non-dismissible modal privacy shield while checking the session. A
+  successful check retains the mounted workspace, draft and scroll position;
+  expiry or an unavailable host unmounts private content. Pagehide applies the
+  shield synchronously before back/forward-cache restoration.
 - Remote commands never replay automatically. Timestamped operation IDs have a
   24 h window, scoped to owner and this computer. Durable receipts return the
   original response for matching duplicates and reject changed bodies.
