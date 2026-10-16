@@ -190,6 +190,7 @@ export type GithubRelease = {
   body: string | null
   prerelease: boolean
   draft: boolean
+  assets?: { name: string }[]
 }
 
 type ChangelogStatus = "idle" | "loading" | "success" | "error"
@@ -368,6 +369,13 @@ export function getAvailableSourceRelease(releases: GithubRelease[], currentVers
   return availableRelease
 }
 
+export function getAvailablePackageRelease(releases: GithubRelease[], currentVersion: string, platform: string, architecture: string) {
+  return getAvailableSourceRelease(releases.filter(release => {
+    const names = new Set(release.assets?.map(asset => asset.name))
+    return names.has("stillon-release.json") && names.has("stillon-" + release.tag_name + "-" + platform + "-" + architecture + ".tar.gz")
+  }), currentVersion)
+}
+
 function SourceUpgradePrompt({
   release,
   onGenerate,
@@ -517,7 +525,10 @@ export function ChangelogSection({
   onRequestManagedUpdate?: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
 }) {
   const normalizedCurrentVersion = currentVersion.replace(/^v/i, "")
-  const [managedEnabled, setManagedEnabled] = useState<boolean | null>(null)
+  const [managedStatus, setManagedStatus] = useState<ManagedUpdateStatus | null>(null)
+  const managedEnabled = managedStatus?.enabled ?? null
+  const packageTargets = Object.fromEntries(["darwin", "win32"].flatMap(platform => ["x64", "arm64"].map(architecture =>
+    [platform + "-" + architecture, getAvailablePackageRelease(releases, currentVersion, platform, architecture)?.tag_name])))
   const availableSourceRelease = status === "success"
     ? getAvailableSourceRelease(releases, currentVersion)
     : null
@@ -525,7 +536,7 @@ export function ChangelogSection({
   return (
     <div className="space-y-4">
       {onReadManagedUpdate && onRequestManagedUpdate ? (
-        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} onEnabledChange={setManagedEnabled} />
+        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} packageTargets={packageTargets} onStatusChange={setManagedStatus} />
       ) : null}
       {status === "loading" || status === "idle" ? (
         <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-border bg-card/40 px-6 py-8 text-sm text-muted-foreground">
@@ -565,7 +576,7 @@ export function ChangelogSection({
         </div>
       ) : null}
 
-      {availableSourceRelease && ((!onReadManagedUpdate || !onRequestManagedUpdate) || managedEnabled === false) ? (
+      {availableSourceRelease && ((!onReadManagedUpdate || !onRequestManagedUpdate) || (managedEnabled === false && managedStatus?.channel !== "package")) ? (
         <SourceUpgradePrompt
           key={availableSourceRelease.id}
           release={availableSourceRelease}

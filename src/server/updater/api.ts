@@ -1,8 +1,9 @@
 import path from "node:path"
 import type { ManagedUpdateStatus } from "../../shared/protocol"
+import { BUNDLE_FILE } from "../distribution/bundle"
 import { enqueueUpdate } from "./engine"
 import { exists, json } from "./files"
-import { FINISHED_PHASES, updateRoot, type UpdateControl, type UpdateDeployment, type UpdateState } from "./model"
+import { desktopTransitionPending, FINISHED_PHASES, updateRoot, type UpdateControl, type UpdateDeployment, type UpdateState } from "./model"
 import { wakeUpdateWorker } from "./native"
 
 export interface ManagedUpdateApi {
@@ -24,16 +25,17 @@ export function createManagedUpdateApi(runtime: string, root = updateRoot()): Ma
   }
   const api: ManagedUpdateApi = {
     async read() {
+      const channel = await exists(path.join(runtime, BUNDLE_FILE)) ? "package" as const : "source" as const
       const deployment = await configuredDeployment()
-      if (!deployment) return { enabled: false, message: "One-time native service setup is required. Custom deployments can continue using installation analysis." }
+      if (!deployment) return { enabled: false, channel, message: "One-time native service setup is required. Custom deployments can continue using installation analysis." }
       const file = path.join(root, "state.json")
       let state = await exists(file) ? await json<UpdateState>(file) : null
       if ((!state || FINISHED_PHASES.has(state.phase)) && await exists(path.join(root, "request.json"))) {
         try { state = await json<UpdateState>(path.join(root, "request.json")) } catch { /* The request is still being flushed. */ }
       }
-      return { enabled: true, platform: deployment.platform, architecture: deployment.architecture,
+      return { enabled: true, channel: await exists(path.join(runtime, BUNDLE_FILE)) ? "package" : "source", platform: deployment.platform, architecture: deployment.architecture,
         ...(state ? { phase: state.phase, targetTag: state.targetTag, prepareOnly: state.prepareOnly,
-          busy: !FINISHED_PHASES.has(state.phase), message: state.error } : {}),
+          busy: await desktopTransitionPending(root) || !FINISHED_PHASES.has(state.phase), message: state.error } : {}),
       }
     },
     async request(targetTag, prepareOnly = false) {
@@ -41,7 +43,7 @@ export function createManagedUpdateApi(runtime: string, root = updateRoot()): Ma
       if (!deployment) throw new Error("This running instance is not managed by the independent updater.")
       await enqueueUpdate(deployment, targetTag, prepareOnly)
       await wakeUpdateWorker(deployment)
-      return { enabled: true, platform: deployment.platform, architecture: deployment.architecture,
+      return { enabled: true, channel: await exists(path.join(runtime, BUNDLE_FILE)) ? "package" : "source", platform: deployment.platform, architecture: deployment.architecture,
         phase: "queued", targetTag, prepareOnly, busy: true }
     },
   }

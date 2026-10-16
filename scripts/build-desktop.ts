@@ -6,6 +6,7 @@ import { updateTarget } from "../src/server/updater/model"
 import { FRP_VERSION, prepareConnectRuntime } from "./prepare-connect-runtime"
 
 const repository = path.resolve(import.meta.dir, "..")
+const macosSignIdentity = process.env.STILLON_REQUIRE_SIGNING === "1" ? process.env.MACOS_SIGN_IDENTITY : undefined
 const output = path.join(repository, "dist", "desktop")
 const runtime = path.join(output, "payload")
 const release = path.join(output, "release")
@@ -62,18 +63,18 @@ async function buildMacInstaller() {
 <key>CFBundleVersion</key><string>${process.env.GITHUB_RUN_NUMBER ?? "1"}</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 <key>NSHighResolutionCapable</key><true/></dict></plist>\n`)
-  if (process.env.MACOS_SIGN_IDENTITY) {
-    await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, app])
+  if (macosSignIdentity) {
+    await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", macosSignIdentity, app])
     await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
   } else if (process.env.STILLON_REQUIRE_SIGNING === "1") throw new Error("A public macOS installer requires MACOS_SIGN_IDENTITY")
   // Runtime bytes must not be changed by signing the app. Bun is signed in the
   // payload before its manifest is created; signing again must be avoided.
   await symlink("/Applications", path.join(output, "macos", "Applications"))
   await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo uninstall, hold Option while opening StillOn, choose Remove background services, then remove the app.\nChats, settings, themes and skins remain in your user directory.\n")
-  const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}${process.env.MACOS_SIGN_IDENTITY ? "" : "-unsigned"}.dmg`)
+  const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}${macosSignIdentity ? "" : "-unsigned"}.dmg`)
   await createDiskImage(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
-  if (process.env.MACOS_SIGN_IDENTITY) {
-    await run(["/usr/bin/codesign", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, dmg])
+  if (macosSignIdentity) {
+    await run(["/usr/bin/codesign", "--timestamp", "--sign", macosSignIdentity, dmg])
     if (!process.env.MACOS_NOTARY_PROFILE) throw new Error("A signed public installer requires MACOS_NOTARY_PROFILE")
     await run(["/usr/bin/xcrun", "notarytool", "submit", dmg, "--keychain-profile", process.env.MACOS_NOTARY_PROFILE,
       ...(process.env.MACOS_NOTARY_KEYCHAIN ? ["--keychain", process.env.MACOS_NOTARY_KEYCHAIN] : []), "--wait"])
@@ -87,7 +88,7 @@ async function buildWindowsInstaller() {
   await mkdir(app, { recursive: true })
   await cp(runtime, path.join(app, "payload"), { recursive: true })
   const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
-  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
+  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", "/reference:System.Web.Extensions.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
   const iscc = process.env.ISCC_PATH ?? "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
   const signing: string[] = []
   if (process.env.STILLON_REQUIRE_SIGNING === "1") {
@@ -120,12 +121,14 @@ async function main() {
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
   const connectOrigin = process.env.STILLON_CONNECT_ORIGIN
+  // Linked computers keep their service origin in user data. Always bundle the
+  // connector so migrating them never depends on the publisher's default origin.
+  await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
+  const frpc = path.join(runtime, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
+  if (await capture([frpc, "--version"]) !== FRP_VERSION) throw new Error("Bundled connector cannot run on this build target")
   if (connectOrigin) {
     const origin = new URL(connectOrigin)
     if (origin.protocol !== "https:" || origin.origin !== connectOrigin || origin.username || origin.password) throw new Error("Desktop Connect origin must be an HTTPS origin")
-    await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
-    const frpc = path.join(runtime, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
-    if (await capture([frpc, "--version"]) !== FRP_VERSION) throw new Error("Bundled connector cannot run on this build target")
     // Only public configuration enters the desktop artifact. Never copy an env file.
     await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify({ origin: origin.origin }) + "\n")
   }
@@ -133,17 +136,17 @@ async function main() {
   await chmod(path.join(runtime, bunRelativePath(target.platform)), 0o755)
   const controller = await Bun.build({ entrypoints: [path.join(repository, "src/server/updater/entry.ts")], target: "bun", packages: "bundle", naming: "controller.js", outdir: path.join(runtime, "runtime") })
   if (!controller.success) throw new AggregateError(controller.logs, "Could not bundle the updater")
-  if (target.platform === "darwin" && process.env.MACOS_SIGN_IDENTITY) {
-    if (connectOrigin) {
+  if (target.platform === "darwin" && macosSignIdentity) {
+    {
       const frpc = path.join(runtime, "runtime/frp/frpc")
-      await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, frpc])
+      await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", macosSignIdentity, frpc])
       // Pin downloads before signing, then seal the signed installed bytes.
       const manifestFile = path.join(runtime, "runtime/frp/manifest.json")
       const manifest = JSON.parse(await readFile(manifestFile, "utf8"))
       manifest.files.frpc = sha256(await readFile(frpc))
       await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + "\n")
     }
-    await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", process.env.MACOS_SIGN_IDENTITY,
+    await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", macosSignIdentity,
       path.join(runtime, bunRelativePath("darwin"))])
     // Keep third-party Developer ID signatures intact, but reject unsigned or
     // damaged native helpers before the runtime manifest seals their bytes.

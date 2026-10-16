@@ -10,6 +10,7 @@ import {
   fetchGithubReleases,
   formatPublishedDate,
   getAvailableSourceRelease,
+  getAvailablePackageRelease,
   getCachedChangelog,
   getKeybindingsSubtitle,
   getMachineNameEditorState,
@@ -697,4 +698,19 @@ test("release discovery compares four-part hotfix versions", () => {
   expect(compareReleaseVersions("v0.4.5.1", "0.4.5")).toBe(1)
   expect(compareReleaseVersions("v0.4.6", "0.4.5.1")).toBe(1)
   expect(compareReleaseVersions("v0.4.5.0", "0.4.5")).toBe(0)
+})
+
+
+describe("installer release availability", () => {
+  test("package users skip source-only and partially uploaded releases", () => {
+    const releases = [
+      { ...SAMPLE_RELEASES[0], id: 11, tag_name: "v0.10.0", assets: [] },
+      { ...SAMPLE_RELEASES[0], id: 12, tag_name: "v0.9.0", assets: [{ name: "stillon-release.json" }] },
+      { ...SAMPLE_RELEASES[0], id: 13, tag_name: "v0.8.3", assets: [{ name: "stillon-release.json" }, { name: "stillon-v0.8.3-darwin-arm64.tar.gz" }] },
+      { ...SAMPLE_RELEASES[0], id: 14, tag_name: "v0.8.2", assets: [{ name: "stillon-release.json" }, { name: "stillon-v0.8.2-darwin-x64.tar.gz" }] },
+    ]
+    expect(getAvailablePackageRelease(releases, "0.8.1", "darwin", "x64")?.tag_name).toBe("v0.8.2")
+    expect(getAvailablePackageRelease(releases, "0.8.1", "darwin", "arm64")?.tag_name).toBe("v0.8.3")
+    expect(getAvailablePackageRelease(releases, "0.8.1", "win32", "arm64")).toBeNull()
+  })
 })

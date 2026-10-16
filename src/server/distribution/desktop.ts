@@ -9,18 +9,19 @@ import { assertCommandSucceeded } from "../service/types"
 import { appCommand, appStatus, leaseAlive, localFetch, pauseManagedServer, waitUntil } from "../updater/control"
 import { setupManagedUpdates } from "../updater/cli"
 import { atomicJson, exists, inside, json } from "../updater/files"
-import { FINISHED_PHASES, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
+import { desktopTransitionPending, FINISHED_PHASES, newerRelease, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
 import { stopWindowsEncodedProcesses } from "../updater/processes"
 import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
+import { requestDesktopTransition, TRANSITION_FILE, type DesktopTransition } from "./transition"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
 
-interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
+export interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
 interface DesktopReceipt { service: ServiceRegistration; updaterFile: string; updaterHash: string; updaterNativeHash?: string }
 
-async function saveDesktopReceipt(deployment: UpdateDeployment) {
+export async function saveDesktopReceipt(deployment: UpdateDeployment) {
   const launch = { ...deployment.launch, args: [deployment.controller, "serve", deployment.root], workingDirectory: deployment.root, environmentFile: undefined }
   const updaterFile = deployment.platform === "win32" ? path.join(deployment.root, "updater-task.xml")
     : path.join(deployment.launch.homeDirectory, "Library", "LaunchAgents", `${UPDATE_AGENT}.plist`)
@@ -63,13 +64,30 @@ async function verifyOwnedDeployment(root: string) {
 }
 
 /** First launch is explicitly confirmed by the native launcher/installer. */
-export async function launchDesktop(source: string, options: { open?: boolean; port?: number } = {}) {
+export async function launchDesktop(source: string, options: { open?: boolean; port?: number; migrate?: boolean; update?: boolean } = {}) {
   const target = updateTarget()
   const home = os.homedir()
   const root = updateRoot()
   const marker = path.join(root, "desktop.json")
+  async function transition() {
+    await requestDesktopTransition(source, root)
+    await waitUntil(async () => {
+      const state = await json<DesktopTransition>(path.join(root, TRANSITION_FILE))
+      if (["failed", "rolled-back", "recovery-required"].includes(state.phase)) throw new Error(state.error ?? "Desktop migration needs recovery; your original installation and data have been kept.")
+      return state.phase === "succeeded"
+    }, 180_000)
+    if (options.open !== false) await openBrowser((await json<UpdateDeployment>(path.join(root, "deployment.json"))).port)
+  }
+  if (await desktopTransitionPending(root)) return transition()
   if (await exists(marker) && await exists(path.join(root, "deployment.json"))) {
-    const { deployment } = await verifyOwnedDeployment(root)
+    const { deployment, control } = await verifyOwnedDeployment(root)
+    const incoming = await verifyBundle(source, target)
+    const active = await verifyBundle(control.runtime, deployment)
+    if (newerRelease(active.version, incoming.version) && options.update) throw new Error("This installer is older than the running StillOn. Download a newer installer.")
+    if (newerRelease(incoming.version, active.version)) {
+      if (!options.update) throw new Error("Open this installer and confirm the upgrade to install the newer version.")
+      return transition()
+    }
     const setup = await exists(path.join(root, "setup.json")) ? await json<SetupState>(path.join(root, "setup.json")) : null
     if (!setup || setup.phase === "enabled") {
       const health = await appStatus(deployment)
@@ -90,6 +108,10 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
     }
   }
   const sourceBundle = await verifyBundle(source, target)
+  if (await exists(path.join(root, "deployment.json"))) {
+    if (!options.migrate) throw new Error("A source installation was found. Reopen StillOn and choose Migrate to installer version. Chats and settings are kept; source edits remain in the previous runtime.")
+    return transition()
+  }
   let install: DesktopInstallation
   if (await exists(marker)) {
     install = await json<DesktopInstallation>(marker)
@@ -155,6 +177,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
 /** Stop only a desktop-owned managed installation; preserve all user data. */
 export async function uninstallDesktop() {
   const directory = updateRoot()
+  if (await desktopTransitionPending(directory)) throw new Error("Wait for desktop migration or recovery before uninstalling.")
   if (!await exists(path.join(directory, "desktop.json"))) return
   const root = await realpath(directory)
   const { deployment } = await verifyOwnedDeployment(root)
@@ -215,7 +238,8 @@ export async function desktopMain(args = process.argv.slice(2)) {
     return
   }
   if (args[0] === "--uninstall" && args.length === 1) return uninstallDesktop()
-  if (args.some((arg) => arg !== "--no-open")) throw new Error("Usage: desktop [--no-open | --verify | --uninstall]")
+  if (args.includes("--migrate") && args.includes("--update")) throw new Error("Choose either migration or upgrade.")
+  if (args.some((arg) => !["--no-open", "--migrate", "--update"].includes(arg))) throw new Error("Usage: desktop [--no-open] [--migrate | --update] | --verify | --uninstall")
   const lock = `${updateRoot()}.desktop-lock`
   await mkdir(path.dirname(lock), { recursive: true, mode: 0o700 })
   try { await mkdir(lock, { mode: 0o700 }) } catch (error) {
@@ -228,6 +252,6 @@ export async function desktopMain(args = process.argv.slice(2)) {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) =>
     request.headers.get("authorization") === `Bearer ${token}` ? new Response(token) : new Response(null, { status: 403 }) })
   await atomicJson(path.join(lock, "lease.json"), { port: server.port, token })
-  try { await launchDesktop(source, { open: !args.includes("--no-open") }) }
+  try { await launchDesktop(source, { open: !args.includes("--no-open"), migrate: args.includes("--migrate"), update: args.includes("--update") }) }
   finally { server.stop(true); await unlink(path.join(lock, "lease.json")); await rmdir(lock) }
 }

@@ -64,8 +64,8 @@ and is excluded from this implementation.
 - Native install, start, restart, upgrade and uninstall tested on each runner.
   Physical Surface, Gatekeeper/notarization and interactive install UX have
   separate acceptance evidence.
-- Public release installers require trusted OS signing. Unsigned CI artifacts are
-  development builds and labelled as such; signing secrets are never committed.
+- Beta release installers are deliberately unsigned and labelled in filenames and
+  release notes. Platform signing remains optional; signing secrets are never committed.
 
 ## Install, update and uninstall
 
@@ -83,10 +83,27 @@ finish first. User data is preserved on both platforms.
 In Settings -> Changelog, Prepare only downloads and verifies the package without
 switching. Upgrade reuses a still-valid prepared package and checks the current
 runtime/configuration again. Package installations never replay source patches.
-Source installations retain the existing source updater; the desktop installer
-detects them and refuses to replace their service or customizations implicitly.
-Migration into the package channel requires a separate reviewed migration; current
-source changes must be exported/moved into supported theme/skin interfaces first.
+A recorded, healthy managed source installation can migrate once: open the app
+and confirm **Migrate to installer version**. Finish agent tasks and close embedded
+terminals first. Chats, appearance assets, provider/Connect data and service
+options including the environment file are retained. Source edits remain in the
+previous runtime; the confirmation explains they are not applied to package code.
+Runtime-local data, unknown/custom services and changed registrations still require
+review. No migration, installation or package update invokes Git or a build.
+
+An independent native recovery task stages a new immutable controller with bundled
+Bun, journals the service/controller handover, backs up stopped data and switches.
+It shares the updater lease and excludes competing requests. It restores the
+original native definitions, deployment, ownership and matched data on failure;
+interrupted switches recover after login. The prior source runtime is retained.
+Future updates use the prebuilt package channel. Source-only or incomplete releases
+are shown as awaiting installer availability, never as a source-build fallback.
+
+Opening a newer downloaded app asks to upgrade the managed runtime, not just its
+launcher. The same version opens the existing workspace; an older installed launcher opens the current workspace and refuses an explicit
+downgrade. Closing the initiating launcher does not stop recovery.
+The embedded CLI exposes `desktop --migrate` and `desktop --update` for these
+explicit operations; existing pending transactions resume rather than duplicate.
 
 ## Build and signing
 
@@ -113,12 +130,12 @@ Signing secrets: `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`,
 `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`,
 `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD`.
 A hardware-backed/cloud Windows signing service can replace `sign-windows.ps1`.
-Missing signing credentials fail public installer publication; PR builds remain
-available for development acceptance. No signing credentials are bundled.
+Normal beta publication uses unsigned installers and does not require signing
+credentials. Setting `require-signing` explicitly enables the optional signed path. No signing credentials are bundled.
 An explicitly selected [source-only release](releasing.md#source-only-publication)
 publishes no desktop installers or package update manifest. Its unsigned development
 installers remain in GitHub Actions, built at the exact release tag and linked
-from the notes; public installer signing requirements remain unchanged.
+from the notes. Source-only publication deliberately omits the package update channel.
 Run the Desktop installers workflow manually with `require-signing` enabled to
 validate signed artifacts before publishing a release; manual builds only upload
 CI artifacts and never publish release assets.
@@ -133,5 +150,7 @@ successful unsigned CI builds do not demonstrate trusted signature validation.
 
 The controller protocol starts at 1. Each runtime declares the minimum compatible
 updater protocol; an incompatible future release fails before switching. Controller
-replacement remains a separate maintenance transaction, never an overwrite of a
-running helper. A subsequent controller upgrade mechanism must retain this boundary.
+replacement during migration or an installer upgrade is a journaled maintenance
+transaction performed by a distinct recovery helper. It stages immutable files
+and restores the original native registrations on failure; it never overwrites
+a running helper. Normal in-app runtime updates keep the controller pinned.

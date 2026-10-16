@@ -4,7 +4,7 @@ import path from "node:path"
 import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
 import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
 import { BUNDLE_FILE, runtimeExecutable } from "../distribution/bundle"
-import { FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
+import { desktopTransitionPending, FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
 export interface UpdateEffects {
   prepare: (state: UpdateState) => Promise<void>
@@ -20,9 +20,12 @@ export class UpdateEngine {
   get transaction() { return inside(path.join(this.deployment.root, "transactions"), this.state.id) }
 
   async save(phase: UpdateState["phase"], fields: Partial<UpdateState> = {}) {
-    this.state = { ...this.state, ...fields, phase, updatedAt: new Date().toISOString() }
-    await atomicJson(this.stateFile, this.state)
-    await atomicJson(path.join(this.transaction, "journal.json"), this.state)
+    const next = { ...this.state, ...fields, phase, updatedAt: new Date().toISOString() }
+    // Publish the recovery journal before changing the state observed by the
+    // controller. A failed journal write must not unlock new user work.
+    await atomicJson(path.join(this.transaction, "journal.json"), next)
+    await atomicJson(this.stateFile, next)
+    this.state = next
   }
 
   async restoreData() {
@@ -253,6 +256,7 @@ export async function probeRuntime(deployment: UpdateDeployment, runtime: string
 }
 
 export async function enqueueUpdate(deployment: UpdateDeployment, target: string, prepareOnly = false) {
+  if (await desktopTransitionPending(deployment.root)) throw new Error("Wait for the desktop migration or recovery to finish.")
   const tag = releaseTag(target)
   const setupFile = path.join(deployment.root, "setup.json")
   if (await exists(setupFile) && (await json<{ phase: string }>(setupFile)).phase !== "enabled") {

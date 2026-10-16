@@ -6,10 +6,11 @@ on:
 
 jobs:
   desktop:
+    needs: publish
     if: "${{ !contains(github.event.release.body, '<!-- stillon-release: source-only -->') }}"
     uses: ./.github/workflows/desktop.yml
     with:
-      require-signing: true
+      require-signing: false
     secrets: inherit
 
   publish-desktop:

@@ -41,7 +41,7 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 | Linux | Beta | Core server works; desktop integrations vary by distribution |
 | Windows 10/11 | Beta | Validated with PowerShell, Git, x64/ARM64 Bun, and Task Scheduler services |
 
-Native installers are built for macOS Intel/Apple Silicon and Windows x64/ARM64. Download a DMG or Windows setup EXE from a release that includes desktop assets. These packages include Bun and the built application; no local source build is required. Pull-request artifacts are unsigned development builds. Public installer publication requires configured platform signing and macOS notarization. See [desktop installation](docs/desktop-distribution.md) and the [public-release readiness notes](docs/public-release-readiness.md).
+Native installers are built for macOS Intel/Apple Silicon and Windows x64/ARM64. Download a DMG or Windows setup EXE from a release that includes desktop assets. These packages include Bun and the built application; no local source build is required. Beta installers are currently unsigned and labelled in filenames and release notes. Ordinary package releases publish installers and a complete prebuilt update manifest; pull-request artifacts remain temporary development builds. See [desktop installation](docs/desktop-distribution.md) and the [public-release readiness notes](docs/public-release-readiness.md).
 Versioned releases are explicit GitHub source releases; see the [release guide](docs/releasing.md).
 
 ## Before you install

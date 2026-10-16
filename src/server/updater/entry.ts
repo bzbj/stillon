@@ -5,13 +5,26 @@ import { pathToFileURL } from "node:url"
 import { atomicJson, exists, json } from "./files"
 import { leaseAlive, runServerController } from "./control"
 import { claimRequest, realUpdateEffects, UpdateEngine, type UpdateEffects } from "./engine"
-import { updateTarget, type UpdateDeployment } from "./model"
+import { desktopTransitionPending, updateTarget, type UpdateDeployment } from "./model"
 import { realSetupEffects, runSetupTransaction, type SetupEffects, type SetupState } from "./setup"
 
 export async function worker(deployment: UpdateDeployment, effects: {
   setup?: (setup: SetupState) => SetupEffects
   update?: UpdateEffects
 } = {}) {
+  if (await desktopTransitionPending(deployment.root)) return
+  return withWorkerLease(deployment, async () => {
+    const root = deployment.root
+    if (await exists(path.join(root, "setup.json"))) {
+      const setup = await json<SetupState>(path.join(root, "setup.json"))
+      if (!await runSetupTransaction(deployment, effects.setup?.(setup) ?? realSetupEffects(deployment, setup.registration))) return
+    }
+    await claimRequest(deployment)
+    if (await exists(path.join(root, "state.json"))) await new UpdateEngine(deployment, effects.update ?? realUpdateEffects(deployment)).execute()
+  })
+}
+
+export async function withWorkerLease(deployment: UpdateDeployment, work: () => Promise<void>) {
   const root = deployment.root
   // OS task/LaunchAgent serializes invocations; a live lease additionally rejects
   // accidental direct invocations. A process cannot impersonate a dead lease by PID reuse.
@@ -30,12 +43,7 @@ export async function worker(deployment: UpdateDeployment, effects: {
       ? new Response(token) : new Response(null, { status: 403 }) } })
   try {
     await atomicJson(path.join(root, "lease.json"), { port: server.port, token })
-    if (await exists(path.join(root, "setup.json"))) {
-      const setup = await json<SetupState>(path.join(root, "setup.json"))
-      if (!await runSetupTransaction(deployment, effects.setup?.(setup) ?? realSetupEffects(deployment, setup.registration))) return
-    }
-    await claimRequest(deployment)
-    if (await exists(path.join(root, "state.json"))) await new UpdateEngine(deployment, effects.update ?? realUpdateEffects(deployment)).execute()
+    await work()
   } finally {
     server.stop(true)
     await unlink(path.join(root, "lease.json")).catch(() => {})
@@ -47,6 +55,10 @@ export async function worker(deployment: UpdateDeployment, effects: {
 export async function controllerMain(args = process.argv.slice(2)) {
   const [mode, root] = args
   if (!root) throw new Error("Missing managed update directory.")
+  if (mode === "desktop-worker") {
+    const { runDesktopTransitionWorker } = await import("../distribution/transition")
+    return runDesktopTransitionWorker(root)
+  }
   const deployment = await json<UpdateDeployment>(path.join(root, "deployment.json"))
   const target = updateTarget()
   if (deployment.platform !== target.platform || deployment.architecture !== target.architecture) {
