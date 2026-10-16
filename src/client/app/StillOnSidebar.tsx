@@ -624,7 +624,6 @@ function StillOnSidebarImpl({
               </div>
             ) : <LocalProjectsSection
               projectGroups={data.projectGroups}
-              editorLabel={editorLabel}
               onReorderGroups={onReorderProjectGroups}
               collapsedSections={collapsedSections}
               expandedGroups={expandedGroups}
