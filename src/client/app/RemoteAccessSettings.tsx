@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, ExternalLink, LoaderCircle, Monitor } from "lucide-react"
-import { Button } from "../components/ui/button"
+import { Button, buttonVariants } from "../components/ui/button"
 import type { ConnectHost, ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/connect"
 
 const labels: Record<ConnectLocalStatus["state"], string> = { unbound: "No email linked", pending: "Waiting for email verification", connecting: "Connecting", online: "Remote access is on", offline: "This computer is offline", paused: "Remote access is paused", revoked: "Computer unlinked", "revocation-pending": "Connection closed; unlinking pending" }
@@ -40,6 +40,12 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
     } catch (e) { setError(e instanceof Error ? e.message : "The action could not be completed.") }
     finally { setBusy(false) }
   }
+  async function refreshLinkStatus() {
+    setBusy(true); setError("")
+    try { await refresh() }
+    catch (e) { setError(e instanceof Error ? e.message : "Unable to refresh the link status.") }
+    finally { setBusy(false) }
+  }
   async function copyDiagnostics() {
     try {
       let report: unknown
@@ -63,9 +69,16 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       <div className="rounded-2xl border p-5"><div className="flex items-center gap-3"><span className={`size-2 rounded-full ${local.state === "online" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} /><h3 className="font-medium">{labels[local.state]}</h3></div><p className="mt-3 text-sm text-muted-foreground">{local.name}{local.email ? ` · ${local.email}` : ""}</p></div>
       <p className="text-sm leading-6 text-muted-foreground">Link your email, then sign in from another device to continue tasks, view files and edit results. Keep this computer on, online and running StillOn.</p>
       {!local.configured ? <p className="text-sm text-muted-foreground">Remote access is not configured in this version. Local use is still available.</p> : local.state === "revocation-pending" ? <p className="text-sm text-muted-foreground">The local connection is closed. Unlinking will finish when this computer is online. Wait for it to sync before linking again.</p> : !local.hostId ? <div className="space-y-4">
-        <Button disabled={busy} onClick={() => void action("enroll")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{local.enrollment ? "Refresh link status" : "Link email"}</Button>
-        {local.enrollment && <Button disabled={busy} variant="ghost" onClick={() => void action("unbind")}>Cancel linking</Button>}
-        {local.enrollment && <div className="space-y-3 rounded-xl bg-muted/40 p-4"><p className="text-sm">Enter your email and the six-digit code on the verification page to link this computer.</p><a className="inline-flex items-center gap-2 text-sm font-medium underline" href={local.enrollment.verificationUrl} target="_blank" rel="noreferrer">Open email verification<ExternalLink className="size-4" /></a></div>}
+        {local.enrollment ? <>
+          <div className="space-y-4 rounded-xl bg-muted/40 p-4">
+            <p className="text-sm leading-6">Enter your email and the six-digit code on the verification page, then return here to finish linking this computer.</p>
+            <a className={buttonVariants({ className: "h-auto min-h-10 gap-2 whitespace-normal text-center" })} href={local.enrollment.verificationUrl} target="_blank" rel="noreferrer">Open email verification<ExternalLink className="size-4 shrink-0" /></a>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy} variant="outline" onClick={() => void refreshLinkStatus()}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Refresh link status</Button>
+            <Button disabled={busy} variant="ghost" onClick={() => void action("unbind")}>Cancel linking</Button>
+          </div>
+        </> : <Button disabled={busy} onClick={() => void action("enroll")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Link email</Button>}
       </div> : <>
         <div className="space-y-2"><p className="text-sm font-medium">Remote login URL</p><div className="flex items-center gap-3"><a href={local.origin!} target="_blank" rel="noreferrer" className="min-w-0 break-all text-sm underline">{local.origin}</a><Button size="icon" variant="ghost" aria-label="Copy remote URL" onClick={() => { void navigator.clipboard.writeText(local.origin!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2_000) }) }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div></div>
         <div className="flex flex-wrap gap-3">{!["revoked", "revocation-pending"].includes(local.state) && <Button disabled={busy} variant="outline" onClick={() => void action(local.state === "paused" ? "resume" : "pause")}>{local.state === "paused" ? "Resume remote access" : "Pause remote access"}</Button>}<Button disabled={busy} variant="ghost" onClick={() => setConfirmUnbind(true)}>Unlink email</Button></div>
