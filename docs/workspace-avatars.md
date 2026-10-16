@@ -4,6 +4,8 @@ Use a workspace's menu → **Change avatar** to choose a shape and a single body
 color. The avatar belongs to the workspace ID, so renaming the folder or
 switching Agent providers keeps the same face.
 
+![Workspace avatar picker](images/workspace-avatar.png)
+
 The UI reads and writes the host computer's
 `~/.stillon/data/customizations/appearance/avatars.json`. Custom data directories
 use the same `customizations/appearance/avatars.json` path below their data root.
