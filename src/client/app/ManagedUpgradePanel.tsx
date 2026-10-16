@@ -11,19 +11,22 @@ export const UPDATE_PHASE_LABELS: Record<string, string> = {
   succeeded: "Upgrade complete", "rolled-back": "Previous version restored", failed: "Upgrade stopped before switching versions",
 }
 
-export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatus, onEnabledChange }: {
+export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatus, onEnabledChange, onStatusChange, packageTargets }: {
   targetTag?: string
   onRead: () => Promise<ManagedUpdateStatus>
   onRequest: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
   initialStatus?: ManagedUpdateStatus
   onEnabledChange?: (enabled: boolean) => void
+  onStatusChange?: (status: ManagedUpdateStatus) => void
+  packageTargets?: Record<string, string | undefined>
 }) {
   const [status, setStatus] = useState<ManagedUpdateStatus | null>(initialStatus ?? null)
+  const selectedTarget = status?.channel === "package" ? packageTargets?.[status.platform + "-" + status.architecture] : targetTag
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const callbacks = useRef({ onRead, onRequest })
   callbacks.current = { onRead, onRequest }
-  useEffect(() => { if (status) onEnabledChange?.(status.enabled) }, [status?.enabled, onEnabledChange])
+  useEffect(() => { if (status) { onEnabledChange?.(status.enabled); onStatusChange?.(status) } }, [status?.enabled, status?.channel, status?.platform, status?.architecture, onEnabledChange, onStatusChange])
   useEffect(() => {
     if (status?.phase === "succeeded" && status.targetTag && status.targetTag.replace(/^v/, "") !== APP_VERSION) {
       window.location.reload()
@@ -47,10 +50,10 @@ export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatu
   }, [])
 
   async function request(prepareOnly: boolean) {
-    if (!targetTag || submitting) return
+    if (!selectedTarget || submitting) return
     setSubmitting(true)
     setError(null)
-    try { setStatus(await callbacks.current.onRequest(targetTag, prepareOnly)) }
+    try { setStatus(await callbacks.current.onRequest(selectedTarget!, prepareOnly)) }
     catch (failure) { setError(failure instanceof Error ? failure.message : "The update request failed.") }
     finally { setSubmitting(false) }
   }
@@ -62,19 +65,22 @@ export function ManagedUpgradePanel({ targetTag, onRead, onRequest, initialStatu
           <h3 className="text-sm font-medium text-foreground">Managed updates</h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             {status?.enabled
-              ? "Prepare the new version while StillOn stays available. An independent updater preserves supported customizations and restores the previous version if the switch fails."
+              ? status.channel === "package"
+                ? "Download the built application while StillOn stays available. Chats and settings are backed up before switching; a failed update restores the previous version."
+                : "Prepare the new version while StillOn stays available. An independent updater preserves supported customizations and restores the previous version if the switch fails."
               : status?.message ?? "Checking this installation…"}
           </p>
           {status?.enabled && status.platform ? <p className="mt-1 text-xs text-muted-foreground">{status.platform === "darwin" ? "macOS" : "Windows"} · {status.architecture === "arm64" ? "ARM64" : "x64"}</p> : null}
-          {status && !status.enabled ? <p className="mt-2 text-xs text-muted-foreground">On a recorded native service installation, run <code>stillon update setup</code> once. Installation analysis remains available below.</p> : null}
+          {status && !status.enabled ? <p className="mt-2 text-xs text-muted-foreground">{status.channel === "package" ? "Reopen the installed app to finish background setup." : <>On a recorded native service installation, run <code>stillon update setup</code> once. Installation analysis remains available below.</>}</p> : null}
         </div>
-        {status?.enabled && targetTag ? (
+        {status?.enabled && selectedTarget ? (
           <div className="flex shrink-0 gap-2">
             <Button size="sm" variant="secondary" disabled={submitting || status.busy} onClick={() => { void request(true) }}>Prepare only</Button>
-            <Button size="sm" disabled={submitting || status.busy} onClick={() => { void request(false) }}>Upgrade to {targetTag}</Button>
+            <Button size="sm" disabled={submitting || status.busy} onClick={() => { void request(false) }}>Upgrade to {selectedTarget}</Button>
           </div>
         ) : null}
       </div>
+      {status?.channel === "package" && targetTag && !selectedTarget ? <p role="status" className="mt-3 text-sm text-muted-foreground">A new release is available. Its installer update is not ready yet.</p> : null}
       {status?.phase ? <p role="status" className="mt-3 text-sm text-foreground">{UPDATE_PHASE_LABELS[status.phase] ?? status.phase}</p> : null}
       {status?.message && status.enabled ? <p role="alert" className="mt-2 text-sm text-destructive">{status.message}</p> : null}
       {error ? <p role="status" className="mt-2 text-sm text-muted-foreground">{error}</p> : null}

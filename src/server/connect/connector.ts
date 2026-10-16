@@ -48,6 +48,10 @@ export async function createConnector(options: ConnectorOptions) {
   const runtimeRoot = path.resolve(import.meta.dir, "../../..")
   let configuredOrigin = options.origin
   if (!configuredOrigin) {
+    try { configuredOrigin = JSON.parse(await readFile(path.join(directory, "service.json"), "utf8")).origin }
+    catch { /* No saved user service: use the package's public default. */ }
+  }
+  if (!configuredOrigin) {
     try { const config = JSON.parse(await readFile(path.join(runtimeRoot, "runtime/connect.json"), "utf8")); configuredOrigin = config.origin }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) configuredOrigin = undefined }
   }

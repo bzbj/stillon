@@ -2,7 +2,7 @@
 
 StillOn **0.5.0 (Husky)** is a macOS-first, source-available public beta. This
 page distinguishes implemented behavior and CI coverage from independent-user
-acceptance and signed distribution. A published source release does not mean
+acceptance and distribution readiness. Unsigned beta publication is currently intentional. A published source release does not mean
 every platform or Connect customer-release gate has passed.
 
 ## Distribution tiers
@@ -11,9 +11,11 @@ every platform or Connect customer-release gate has passed.
    GitHub. Source installations can use the opt-in managed source updater.
 2. **Native development packages:** macOS Intel/Apple Silicon and Windows
    x64/ARM64 runtimes and installers are built and exercised on native runners.
-   Unsigned development downloads stay in Actions with an expiration date.
-3. **Signed desktop publication:** requires platform signing, macOS notarization
-   and acceptance using the actual signing configuration. A source-only release
+   PR/development downloads stay in Actions with an expiration date; normal beta
+   releases publish permanent unsigned installers plus prebuilt update manifests.
+3. **Optional signed desktop publication:** requires platform signing, macOS
+   notarization and acceptance using the actual signing configuration. Unsigned
+   beta release publication does not depend on signing credentials. A source-only release
    publishes no desktop package update manifest or official signed installers.
 
 See [desktop distribution](desktop-distribution.md),

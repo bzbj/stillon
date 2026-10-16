@@ -7,6 +7,7 @@ import { localFetch } from "../src/server/updater/control"
 import { probeRuntime } from "../src/server/updater/engine"
 import { updateRoot, updateTarget, type UpdateDeployment } from "../src/server/updater/model"
 import pkg from "../package.json"
+import { rehearseNativeSourceMigration } from "./rehearse-native-source-migration"
 import { rehearseDesktopUpdate } from "./rehearse-desktop-update"
 
 const target = updateTarget()
@@ -79,6 +80,12 @@ try {
     await assertAppearanceFixture(path.join(profile, ".stillon"))
     if (await Bun.file(path.join(updateRoot(target.platform, profile, env.LOCALAPPDATA), "deployment.json")).exists()) throw new Error("Uninstall left an active deployment")
     checks.push("repeat launch; native uninstall; user skin and appearance files retained")
+    nativeStarted = true
+    report.sourceMigration = await rehearseNativeSourceMigration(runtime, profile, env, run)
+    checks.push("known managed source to package migration using the real native recovery task")
+    await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--uninstall"], env)
+    nativeStarted = false
+    await assertAppearanceFixture(path.join(profile, ".stillon"))
   }
   report.status = "passed"
   console.log(JSON.stringify(report, null, 2))

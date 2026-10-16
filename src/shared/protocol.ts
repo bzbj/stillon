@@ -73,6 +73,7 @@ export interface SourceUpgradePromptResult {
 
 export interface ManagedUpdateStatus {
   enabled: boolean
+  channel?: "source" | "package"
   platform?: "darwin" | "win32"
   architecture?: "x64" | "arm64"
   phase?: string

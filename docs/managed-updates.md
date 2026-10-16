@@ -17,8 +17,8 @@ Neither path requires Python.
 
 The service's **Bun executable architecture** determines native dependencies.
 An x64 Bun running under emulation keeps x64 dependencies; it is never silently
-switched to arm64 based on a device name. Each prepared release gets a fresh
-`bun install --frozen-lockfile`; `node_modules` is not copied between machines
+switched to arm64 based on a device name. Each prepared source release gets a fresh
+`bun install --frozen-lockfile`; package installations download prebuilt archives and never install dependencies; `node_modules` is not copied between machines
 or architectures. CI explicitly checks Mac x64/arm64 and Windows x64/arm64,
 including a process-interruption integration test. This is not a claim of
 physical-device, power-loss, or all OS-version certification.
@@ -186,3 +186,26 @@ Relevant platform references:
 [GitHub-hosted runner architectures](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 Desktop packages keep themes, skins and settings under the user data root, outside the immutable runtime. They are included in the same verified data backup and rollback as chat history. The planned theme/skin/UI-extension API is documented in desktop-distribution.md; arbitrary source edits still use the source channel.
+
+
+## Moving from a source service to a package
+
+Open the native app and confirm **Migrate to installer version**. A healthy recorded
+managed source service migrates through a distinct persistent recovery task. Its
+pinned controller and worker are handed over using journaled, immutable files;
+service options, environment file and user data are retained. Source changes stay
+in the previous runtime and are not applied to vendor package code. Unknown or
+custom registrations remain unchanged. No local build occurs during migration.
+
+The helper takes the same authenticated lease as normal updates, reserves the
+request slot, stops the old update timer, stages/verifies the incoming package,
+checks idle work and backs up stopped data. Only successful verification commits
+desktop ownership. Failure or interruption restores the original deployment,
+native service definitions, update timer, ownership metadata and matched data.
+Closing the launcher does not cancel the native request. Recovery resumes when
+the user is logged in; completed transactions never restore stale snapshots after
+new user work has been allowed.
+
+Normal beta releases now publish explicitly unsigned installers and runtime
+archives. The app checks for the update manifest and an archive for its platform;
+source-only or partially uploaded releases stay unavailable to package users.

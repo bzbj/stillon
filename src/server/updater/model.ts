@@ -87,3 +87,9 @@ export function newerRelease(target: string, current: string) {
   }
   return false
 }
+
+export async function desktopTransitionPending(root: string) {
+  const { exists, json } = await import("./files")
+  const file = path.join(root, "desktop-transition.json")
+  return await exists(file) && !new Set(["succeeded", "rolled-back", "failed"]).has((await json<{ phase: string }>(file)).phase)
+}
