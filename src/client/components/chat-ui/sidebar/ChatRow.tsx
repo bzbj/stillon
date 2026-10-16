@@ -52,11 +52,16 @@ function ChatRowImpl({
       key={chat._id}
       data-stillon-part="chat-row"
       data-chat-id={normalizedChatId}
+      data-active={activeChatId === normalizedChatId}
+      role="link"
+      tabIndex={0}
+      aria-current={activeChatId === normalizedChatId ? "page" : undefined}
       className={cn(
-        "group flex items-center gap-2 pl-[9px] pr-0.5 py-0.5 rounded-lg cursor-pointer border-border/0 hover:border-border hover:bg-muted/20 active:scale-[0.985] border transition-all",
-        activeChatId === normalizedChatId ? "bg-muted hover:bg-muted border-border" : "border-border/0 dark:hover:border-slate-400/10 "
+        "group relative flex items-center gap-2 pl-2.5 pr-0.5 py-0.5 rounded-lg cursor-pointer border border-transparent transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        activeChatId === normalizedChatId ? "border-primary/15 bg-primary/10 font-medium text-foreground before:absolute before:-left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"
       )}
       onClick={() => onSelectChat(chat.chatId)}
+      onKeyDown={event => { if (event.target === event.currentTarget && event.key === "Enter") onSelectChat(chat.chatId) }}
     >
       {loadingStatuses.has(chat.status) ? (
         <Loader2 className="size-3.5 flex-shrink-0 animate-spin text-logo" />

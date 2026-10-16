@@ -139,7 +139,7 @@ describe("LocalProjectsSection", () => {
       onNewLocalChat: () => undefined,
     })
 
-    expect(html).toContain("New Chat")
+    expect(html).toContain("New conversation")
     expect(html).not.toContain("Show more")
   })
 
@@ -233,7 +233,7 @@ describe("LocalProjectsSection", () => {
     expect(readHtml).not.toContain('aria-label="Project A has unread sessions"')
   })
 
-  test("hides the faux new chat row when the empty project is collapsed", () => {
+  test("keeps a compact conversation action when the workspace is collapsed", () => {
     const projectGroups: SidebarProjectGroup[] = [{
       groupKey: "project-a",
       title: "Project A",
@@ -250,7 +250,8 @@ describe("LocalProjectsSection", () => {
       onNewLocalChat: () => undefined,
     })
 
-    expect(html).not.toContain("New Chat")
+    expect(html).not.toContain('data-stillon-part="new-conversation"')
+    expect(html).toContain('aria-label="New conversation with Project A"')
   })
 
   test("disables new-chat actions while rows come from an unconfirmed cache", () => {
@@ -270,7 +271,7 @@ describe("LocalProjectsSection", () => {
       onNewLocalChat: () => undefined,
     })
 
-    expect(html).toContain("New Chat")
+    expect(html).toContain("New conversation")
     expect(html).toContain("disabled")
   })
 

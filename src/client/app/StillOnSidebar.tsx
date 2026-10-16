@@ -452,7 +452,7 @@ function StillOnSidebarImpl({
             <Button variant="ghost" size="icon" onClick={onExpand} title="Open sidebar" aria-label="Open sidebar" className="size-9 rounded-full">
               <PanelLeftOpen className="size-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => navigate("/")} title="New chat" aria-label="New chat" className="size-9 rounded-full">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")} title="New conversation" aria-label="New conversation" className="size-9 rounded-full">
               <MessageCirclePlus className="size-5" />
             </Button>
           </div>
@@ -532,7 +532,7 @@ function StillOnSidebarImpl({
             className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-base font-medium shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <MessageCirclePlus className="size-5" />
-            New chat
+            New conversation
           </button>
         </div>
 
@@ -564,7 +564,7 @@ function StillOnSidebarImpl({
             touchAction: "pan-y",
           }}
         >
-          <div className="p-[7px]">
+          <div className="p-2">
             {!ready && snapshotStatus === "cached" ? (
               <div
                 role="status"

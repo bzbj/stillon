@@ -5,14 +5,18 @@ You can also set typography, corners, list density, panel style, sidebar and
 conversation widths, and a local background image. Text colors adjust for the
 selected background and accent.
 
-Background images cover the conversation sidebar, New Chat, all Settings pages
-and chat area. Project headings reveal the same background. Inputs, menus and
-artifact previews keep their reading surfaces. With no image, zero background
-strength or safe mode, pages and headings keep their built-in backgrounds.
+Background images cover the conversation sidebar, new conversation page, Settings
+and chat area. Workspace cards keep a clear reading surface over that background.
+Solid uses flat bordered panels; Soft places raised workspace cards on a tinted
+panel; Glass uses translucent, frosted panels and a gentle background tint.
+
+![Workspace cards and their conversations in Soft](images/workspace-sidebar.png)
+
+![Glass surfaces](images/workspace-sidebar-glass.png)
 
 ![Background image across the sidebar and chat, with a separate artifact surface](images/appearance-wallpaper.png)
 
-![Wallpaper on New Chat with transparent project headings](images/appearance-new-chat.png)
+![Wallpaper on the new conversation page](images/appearance-new-chat.png)
 
 ![Wallpaper on Settings](images/appearance-settings-wallpaper.png)
 
@@ -40,6 +44,7 @@ Default storage:
 - `~/.stillon/data/settings.json`: versioned appearance preferences and color mode.
 - `~/.stillon/data/customizations/appearance/assets/<sha256>.png|jpg|webp`: local images.
 - `~/.stillon/data/customizations/appearance/skins/<sha256>.json`: imported packages.
+- `~/.stillon/data/customizations/appearance/avatars.json`: editable avatar definitions, palette and workspace choices; see [Workspace avatars](workspace-avatars.md).
 
 An instance configured with another data directory stores these paths relative to
 that directory. Files are outside the immutable runtime, so updates and native
@@ -104,7 +109,7 @@ those values. Schema changes require an explicit API version and migration.
 
 ## Public UI hooks
 
-`data-stillon-part` names are `workspace`, `page`, `sidebar`, `project-header`,
+`data-stillon-part` names are `workspace`, `page`, `sidebar`, `project-header`, `workspace-card`, `workspace-conversations`, `new-conversation`,
 `chat`, `chat-column`, `chat-row`, `composer`, `composer-column`, and `appearance-settings`.
 The implementation maps palette primitives to existing semantic tokens such as
 `--background`, `--foreground`, `--primary`, `--border`, `--radius`, then to

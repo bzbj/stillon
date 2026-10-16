@@ -480,7 +480,7 @@ function GitHubPublishModal({
         <DialogBody className="space-y-2 px-4 pb-4 pt-4">
           <div className="space-y-1">
             <DialogTitle>Push to GitHub</DialogTitle>
-            <DialogDescription>Create a GitHub repository from this local project using GitHub CLI.</DialogDescription>
+            <DialogDescription>Create a GitHub repository from this local workspace using GitHub CLI.</DialogDescription>
           </div>
           {isLoadingInfo ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
