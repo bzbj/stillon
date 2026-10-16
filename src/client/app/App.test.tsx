@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { getAppAuthStateFromStatus, getAppPageTitle, shouldPlayChatNotificationSound, shouldRetryAuthStatusRequest } from "./App"
+import { getAppPageTitle, shouldPlayChatNotificationSound } from "./App"
+import { getAppAuthStateFromStatus, shouldRetryAuthStatusRequest } from "./useAppAuthState"
 import { getChatNotificationSnapshot, getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
 import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth, getConnectionStatusPresentation } from "./StillOnSidebar"
 import { isBrowserUnfocused, shouldPlayChatSound } from "../lib/chatSounds"

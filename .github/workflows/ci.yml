@@ -58,5 +58,7 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install --with-deps chromium firefox
       - run: bun run test:async-answer:browser
+      - run: bun run test:remote-auth:browser
+      - run: bun run test:remote-auth:browser --firefox

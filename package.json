@@ -60,6 +60,7 @@
     "test": "bun run ./scripts/run-tests.ts",
     "prepublishOnly": "bun run build",
     "test:async-answer:browser": "bun build ./scripts/verify-async-answer-browser.ts --target=node --packages=external --outfile=./test-artifacts/async-answer-runner.mjs && node ./test-artifacts/async-answer-runner.mjs",
+    "test:remote-auth:browser": "bun build ./scripts/verify-remote-auth-browser.ts --target=node --packages=external --outfile=./test-artifacts/remote-auth-runner.mjs && node ./test-artifacts/remote-auth-runner.mjs",
     "build:desktop": "bun scripts/build-desktop.ts",
     "verify:desktop": "bun scripts/verify-desktop.ts"
   },
