@@ -1,3 +1,4 @@
+import { windowsUserPathScript } from "../cli-environment"
 import path from "node:path"
 import { mkdir, open, rm, writeFile } from "node:fs/promises"
 import {
@@ -96,13 +97,13 @@ export function buildWindowsServicePowerShell(
     "}",
     `$env:HOME = ${quotePowerShellLiteral(launch.homeDirectory)}`,
     `$env:USERPROFILE = ${quotePowerShellLiteral(launch.homeDirectory)}`,
-    `$env:Path = ${quotePowerShellLiteral(launch.pathEnvironment)}`,
     `Set-Location -LiteralPath ${quotePowerShellLiteral(launch.workingDirectory)}`,
     `$arguments = @(${argumentLiterals})`,
     `$restartDelays = @(${restartDelays})`,
     "$failureCount = 0",
     "Write-WatchdogLog 'Watchdog started.'",
     "while ($true) {",
+    windowsUserPathScript(launch.pathEnvironment),
     "    $startedAt = Get-Date",
     "    $watchdogErrorActionPreference = $ErrorActionPreference",
     "    $serviceExitCode = $null",

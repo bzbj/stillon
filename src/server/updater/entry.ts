@@ -1,3 +1,4 @@
+import { refreshCliEnvironment } from "../cli-environment"
 import { randomUUID } from "node:crypto"
 import { mkdir, rename, rmdir, stat, unlink } from "node:fs/promises"
 import path from "node:path"
@@ -53,6 +54,9 @@ export async function withWorkerLease(deployment: UpdateDeployment, work: () => 
 }
 
 export async function controllerMain(args = process.argv.slice(2)) {
+  if (process.env.STILLON_REFRESH_PATH === "1") {
+    process.env.PATH = (await refreshCliEnvironment()).PATH
+  }
   const [mode, root] = args
   if (!root) throw new Error("Missing managed update directory.")
   if (mode === "desktop-worker") {

@@ -1,3 +1,4 @@
+import { cliFallbackPath, mergeSearchPaths } from "../cli-environment"
 import { randomUUID } from "node:crypto"
 import { mkdir, realpath, rename, rmdir, stat, unlink } from "node:fs/promises"
 import os from "node:os"
@@ -41,10 +42,7 @@ export async function verifyDesktopReceipt(root: string) {
 }
 
 export function desktopPath(home: string, platform = process.platform, inherited = process.env.PATH ?? "") {
-  const paths = platform === "win32"
-    ? [path.win32.join(home, ".local", "bin"), path.win32.join(home, "AppData", "Roaming", "npm"), path.win32.join(home, ".bun", "bin")]
-    : [path.posix.join(home, ".local", "bin"), path.posix.join(home, ".bun", "bin"), path.posix.join(home, ".npm-global", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-  return [...new Set([...paths, ...inherited.split(platform === "win32" ? ";" : ":")].filter(Boolean))].join(platform === "win32" ? ";" : ":")
+  return mergeSearchPaths(platform, inherited, cliFallbackPath(home, platform))
 }
 
 async function openBrowser(port: number) {

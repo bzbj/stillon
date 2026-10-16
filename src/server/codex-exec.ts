@@ -373,7 +373,7 @@ export class CodexExecManager {
   } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd, environment) =>
-      spawn(getCodexCliCommand(), commandArgs, codexSpawnOptions(cwd, environment)) as unknown as CodexExecProcess)
+      spawn(getCodexCliCommand(process.platform, environment), commandArgs, codexSpawnOptions(cwd, environment)) as unknown as CodexExecProcess)
     this.timing = { ...DEFAULT_TIMING, ...args.timing }
     this.processControl = args.processControl ?? defaultProcessControl
   }

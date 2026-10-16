@@ -1,3 +1,4 @@
+import { windowsUserPathScript } from "../cli-environment"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { runServiceCommand } from "../service"
@@ -18,7 +19,7 @@ export function windowsUpdaterXml(deployment: UpdateDeployment, user: string, no
     "$ErrorActionPreference = 'Stop'",
     `$env:HOME = ${ps(deployment.launch.homeDirectory)}`,
     `$env:USERPROFILE = ${ps(deployment.launch.homeDirectory)}`,
-    `$env:PATH = ${ps(deployment.launch.pathEnvironment)}`,
+    windowsUserPathScript(deployment.launch.pathEnvironment),
     `Set-Location -LiteralPath ${ps(deployment.root)}`,
     // No console, no caller job/terminal, no recursive self-invocation.
     `$ErrorActionPreference = 'Continue'`,
@@ -43,7 +44,7 @@ export function macosUpdaterPlist(deployment: UpdateDeployment, identity = DEFAU
 <key>Label</key><string>${identity.agent}</string>
 <key>ProgramArguments</key><array>${args.map((v) => `<string>${xml(v)}</string>`).join("")}</array>
 <key>WorkingDirectory</key><string>${xml(deployment.root)}</string>
-<key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(deployment.launch.homeDirectory)}</string><key>PATH</key><string>${xml(deployment.launch.pathEnvironment)}</string></dict>
+<key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(deployment.launch.homeDirectory)}</string><key>STILLON_FALLBACK_PATH</key><string>${xml(deployment.launch.pathEnvironment)}</string><key>STILLON_REFRESH_PATH</key><string>1</string></dict>
 <key>RunAtLoad</key><true/><key>StartInterval</key><integer>60</integer>
 <key>ProcessType</key><string>Background</string>
 <key>StandardOutPath</key><string>${xml(path.posix.join(deployment.root, "worker.log"))}</string>
