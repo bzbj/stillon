@@ -10,12 +10,12 @@ const origin = "https://connect.stillon.example"
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn() })
 const cookies = (response: Response) => response.headers.getSetCookie().map(v => v.split(";")[0]).join("; ")
-async function fixture() {
+async function fixture(upstreamOrigin = "http://127.0.0.1:9") {
   await mkdir("test-artifacts/connect", { recursive: true })
   const dataDir = await mkdtemp(path.resolve("test-artifacts/connect/service-"))
   const messages: LoginEmail[] = []
   const service = await createConnectService({ dataDir, origin, secret: randomToken(), sender: { async send(message) { messages.push(message) } },
-    transport: { upstreamOrigin: "http://127.0.0.1:9" } })
+    transport: { upstreamOrigin } })
   cleanup.push(async () => { service.close(); await rm(dataDir, { recursive: true, force: true }) })
   async function request(route: string, body?: unknown, cookie = "", browser = true) {
     return (await service.central(new Request(`${origin}/api/connect/${route}`, { method: body === undefined ? "GET" : "POST",
@@ -39,6 +39,57 @@ async function fixture() {
   }
   return { service, request, login, device, keys, messages }
 }
+
+test("remote fullscreen resources work without cookies and revoke with their host session", async () => {
+  const paths: string[] = []
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    paths.push(new URL(request.url).pathname + new URL(request.url).search)
+    expect(request.headers.has("cookie")).toBe(false)
+    return new URL(request.url).pathname.endsWith(".html")
+      ? new Response('<head><link rel="stylesheet" href="./style.css"></head><script type="module" src="./app.js"></script><img src="/output/chart.svg">', { headers: { "content-type": "text/html", "content-security-policy": "sandbox allow-scripts; default-src 'none'" } })
+      : new Response("document.title='Loaded'", { headers: { "content-type": "text/javascript" } })
+  } })
+  cleanup.push(async () => { await upstream.stop(true) })
+  const f = await fixture(`http://127.0.0.1:${upstream.port}`), account = await f.login("owner@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(host.id, randomId())
+  expect(f.service.registry.frpCredential(host.id, connection.token, "preview-test", "Login")).toBe(true)
+  expect(f.service.registry.frpCredential(host.id, connection.token, "preview-test", "NewProxy")).toBe(true)
+  const flow = f.service.registry.newFlow(host.id, "/")
+  const callback = new URL(f.service.registry.authorizeFlow(flow.id, account.identity))
+  const session = f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier, callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  const hostOrigin = f.service.registry.hostOrigin(host.id)
+  // Use the same cookie helper as the real callback rather than relying on a
+  // browser's SameSite cookie inside an opaque preview document.
+  const { cookieName } = await import("./http")
+  const hostCookie = `${cookieName(hostOrigin, "host-session")}=${session.token}`
+  const request = (route: string, headers: Record<string, string> = {}, method = "GET") => f.service.host(new Request(hostOrigin + route, { method, headers }), null as never)
+  const response = (await request("/api/projects/workspace/preview/output/index.html", { cookie: hostCookie }))!
+  expect(response.status).toBe(200)
+  const prefix = /<base href="([^"]+)"/u.exec(await response.text())![1]!
+  expect(prefix).toStartWith("/_connect/preview-assets/")
+  expect(response.headers.get("content-security-policy")).toContain(hostOrigin + prefix)
+  expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin")
+  const script = (await request(prefix + "app.js", { origin: "null", "sec-fetch-site": "cross-site" }))!
+  expect(script.status).toBe(200)
+  expect(script.headers.get("access-control-allow-origin")).toBe("null")
+  expect(await script.text()).toContain("Loaded")
+  expect(paths.at(-1)).toBe("/api/projects/workspace/preview/output/app.js?preview-root=output")
+  expect((await request(prefix + "%2e%2e%2fprivate.json"))!.status).toBe(403)
+  expect((await request(prefix + "app.js", { origin: hostOrigin }, "POST"))!.status).toBe(403)
+  const otherEnrollment = f.service.registry.createEnrollment(newDeviceKeys().publicKey, "Other computer")
+  f.service.registry.approveEnrollment(otherEnrollment.id, account.identity)
+  const otherHost = f.service.registry.claimEnrollment(otherEnrollment.id, otherEnrollment.publicKey)!
+  expect((await f.service.host(new Request(f.service.registry.hostOrigin(otherHost.id) + prefix + "app.js"), null as never))!.status).toBe(403)
+  expect((await request("/api/projects/workspace/preview/output/app.js", { origin: "null" }))!.status).toBe(403)
+  f.service.registry.setPaused(host.id, true)
+  expect((await request(prefix + "app.js"))!.status).toBe(403)
+  f.service.registry.setPaused(host.id, false)
+  expect((await request("/auth/logout", { origin: hostOrigin, cookie: hostCookie }, "POST"))!.status).toBe(200)
+  expect((await request(prefix + "app.js"))!.status).toBe(403)
+})
 
 test("fresh OTP is bound to one enrollment and only the device key can claim it", async () => {
   const f = await fixture()

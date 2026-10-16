@@ -26,6 +26,33 @@ async function startProjectFileServer() {
 }
 
 describe("project file routes", () => {
+  test("opaque fullscreen previews load scoped assets and reject traversal, symlinks and stale tokens", async () => {
+    const { server, project, projectDir } = await startProjectFileServer()
+    try {
+      await mkdir(path.join(projectDir, "output"))
+      await writeFile(path.join(projectDir, "output/index.html"), '<head><link rel="stylesheet" href="./style.css"></head><script type="module" src="./app.js"></script>')
+      await writeFile(path.join(projectDir, "output/app.js"), 'document.title="Loaded"')
+      await writeFile(path.join(projectDir, "secret.json"), '{"secret":true}')
+      if (process.platform !== "win32") await symlink(path.join(projectDir, "secret.json"), path.join(projectDir, "output/linked.json"))
+      const origin = `http://127.0.0.1:${server.port}`
+      const response = await fetch(origin + `/api/projects/${project.id}/preview/output/index.html`, { headers: {
+        "sec-fetch-site": "same-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-user": "?1",
+      } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin")
+      const prefix = /<base href="([^"]+)"/u.exec(await response.text())![1]!
+      const asset = (name: string) => fetch(origin + prefix + name, { headers: { origin: "null", "sec-fetch-site": "cross-site" } })
+      const script = await asset("app.js")
+      expect(script.status).toBe(200)
+      expect(script.headers.get("access-control-allow-origin")).toBe("null")
+      expect(await script.text()).toContain('document.title="Loaded"')
+      for (const file of ["%2e%2e%2fsecret.json", ".env", "app.js%2f..%2fsecret.json"]) expect((await asset(file)).status).toBe(403)
+      if (process.platform !== "win32") expect((await asset("linked.json")).status).toBe(403)
+      expect((await fetch(origin + prefix + "app.js", { method: "POST", headers: { origin } })).status).toBe(403)
+      expect((await fetch(origin + "/auth/logout", { method: "POST", headers: { origin } })).status).toBe(200)
+      expect((await asset("app.js")).status).toBe(403)
+    } finally { await server.stop() }
+  })
   test("serves project files for preview and download", async () => {
     const { server, project, projectDir } = await startProjectFileServer()
 
@@ -45,7 +72,7 @@ describe("project file routes", () => {
       expect(previewResponse.headers.get("content-security-policy")).toContain("sandbox")
       const previewHtml = await previewResponse.text()
       expect(previewHtml).toContain("<title>Generated</title>")
-      expect(previewHtml).toContain(`/api/projects/${project.id}/preview/dist/chart.png`)
+      expect(previewHtml).toMatch(/\/_stillon\/preview-assets\/[\w-]+\/chart.png/u)
 
       const scriptResponse = await fetch(`http://localhost:${server.port}/api/projects/${project.id}/preview/dist/app.js`)
       expect(scriptResponse.status).toBe(200)

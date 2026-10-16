@@ -3,6 +3,7 @@ import { createProviderSetup } from "./provider-setup"
 import { handleProviderSetupRequest } from "./provider-setup-http"
 import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
+import { LOCAL_PREVIEW_ASSET_PREFIX, PreviewResources, projectPreviewTarget } from "./preview-resources"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
 import { APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
@@ -268,6 +269,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
+  const previewResources = new PreviewResources(LOCAL_PREVIEW_ASSET_PREFIX)
   router = createWsRouter({
     store,
     diffStore,
@@ -352,6 +354,14 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             const url = new URL(req.url)
             const ingress = validateIngress(req, { port: serverInstance.port!, hostname, peer: serverInstance.requestIP(req)?.address, secret: localSecret, allowedOrigins })
             if (ingress instanceof Response) return ingress
+            if (url.pathname.startsWith(LOCAL_PREVIEW_ASSET_PREFIX)) {
+              const resource = ["GET", "HEAD"].includes(req.method) ? previewResources.resolve(url.pathname) : null
+              if (!resource) return new Response("Preview expired or unavailable", { status: 403 })
+              const target = new URL(resource.path, url)
+              target.searchParams.set("preview-root", resource.context.directory)
+              const response = await handleProjectFilePreview(req, target, store)
+              return response ? previewResources.wrap(response, req, resource.context, resource.filePath) : new Response(null, { status: 404 })
+            }
             if (url.pathname.startsWith("/api/connect-local/")) {
               const connectResponse = await handleConnectLocal(req, ingress, connector)
               if (connectResponse) return connectResponse
@@ -389,6 +399,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               return new Response(null, { status: 405, headers: { Allow: "POST" } })
             }
 
+            previewResources.clear()
             return auth
               ? auth.handleLogout(req)
               : Response.json({ ok: true })
@@ -496,6 +507,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
           const projectFilePreviewResponse = await handleProjectFilePreview(req, url, store)
           if (projectFilePreviewResponse) {
+            const target = projectPreviewTarget(url.pathname)
+            if (ingress.kind !== "remote" && target && projectFilePreviewResponse.ok
+              && projectFilePreviewResponse.headers.get("content-type")?.includes("text/html")) {
+              return previewResources.wrap(projectFilePreviewResponse, req, previewResources.create(target.projectId, target.filePath), target.filePath)
+            }
             return projectFilePreviewResponse
           }
 
@@ -584,6 +600,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       router.dispose()
       remoteOperations.close()
       localHtmlPreviews.dispose()
+      previewResources.clear()
       appSettings.dispose()
       keybindings.dispose()
       terminals.closeAll()
@@ -790,6 +807,16 @@ async function handleProjectFilePreview(req: Request, url: URL, store: EventStor
   const resolved = await resolveProjectFileFromUrl(store, match[1], match[2])
   if ("error" in resolved) return resolved.error
 
+  const previewRoot = url.searchParams.get("preview-root")
+  if (previewRoot !== null) {
+    try {
+      const root = await realpath(path.resolve(resolved.project.localPath, previewRoot))
+      const projectRoot = await realpath(resolved.project.localPath)
+      const within = (parent: string, child: string) => { const relative = path.relative(parent, child); return relative === "" || (!relative.startsWith(".." + path.sep) && relative !== ".." && !path.isAbsolute(relative)) }
+      if (!within(projectRoot, root) || !within(root, resolved.filePath)) return new Response("Outside preview folder", { status: 403 })
+    } catch { return new Response("Preview folder unavailable", { status: 404 }) }
+  }
+
   const readResult = await readProjectFile(resolved.filePath)
   if ("error" in readResult) return readResult.error
 
@@ -908,6 +935,8 @@ function getProjectFilePreviewHeaders(relativePath: string, fallbackType?: strin
       "Content-Security-Policy",
       "sandbox allow-downloads allow-forms allow-modals allow-popups allow-scripts"
     )
+  } else if (path.extname(relativePath).toLowerCase() === ".svg") {
+    headers.set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
   }
 
   return headers

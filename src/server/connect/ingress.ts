@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto"
 import { networkInterfaces } from "node:os"
 import { REMOTE_HEADER, REMOTE_OWNER_HEADER } from "./adapter"
 import { BROWSER_PREVIEW_PROXY_PREFIX } from "../../shared/browser-preview-proxy"
+import { LOCAL_PREVIEW_ASSET_PREFIX, projectPreviewTarget } from "../preview-resources"
 
 const loopback = (peer: string | undefined) => Boolean(peer && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer))
 export type Ingress = { kind: "local" | "external" } | { kind: "remote"; ownerId: string }
@@ -30,10 +31,16 @@ export function validateIngress(request: Request, options: {
   if (!authorities.has(url.host) || (request.headers.has("host") && request.headers.get("host") !== url.host)) return denied()
   const origin = request.headers.get("origin")
   const site = request.headers.get("sec-fetch-site")
+  // Only these read-only resource requests use a folder capability instead of
+  // browser cookies. The handler validates it before reading any file.
+  if (["GET", "HEAD"].includes(request.method) && url.pathname.startsWith(LOCAL_PREVIEW_ASSET_PREFIX)) return { kind: "external" }
+  const previewNavigation = request.method === "GET" && projectPreviewTarget(url.pathname)
+    && request.headers.get("sec-fetch-mode") === "navigate" && request.headers.get("sec-fetch-dest") === "document"
+    && request.headers.get("sec-fetch-user") === "?1" && !origin
   // The updater has its own bearer credential and only accepts loopback peers.
   // No browser may use this exception, even if it forges forwarding headers.
   const updater = url.pathname.startsWith("/_stillon/update/") && loopback(options.peer) && !origin && !site
-  if (!updater && ((origin !== null && !origins.has(origin)) || ["cross-site", "same-site"].includes(site ?? "")
+  if (!updater && !previewNavigation && ((origin !== null && !origins.has(origin)) || ["cross-site", "same-site"].includes(site ?? "")
     || ((! ["GET", "HEAD", "OPTIONS"].includes(request.method) || url.pathname === "/ws") && !origin))) return denied()
   const local = loopback(options.peer) && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
     && (!origin || ["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname))

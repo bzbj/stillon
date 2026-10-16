@@ -17,6 +17,18 @@ export function buildProjectRenderablePreviewUrl(projectId: string, filePath: st
     : buildProjectFilePreviewUrl(projectId, filePath)
 }
 
+/** Keep saved host-local preview links on the currently connected computer. */
+export function normalizeProjectPreviewAddress(address: string, projectId: string, currentOrigin: string) {
+  let url: URL
+  try { url = new URL(address) } catch { return address }
+  if (!["http:", "https:"].includes(url.protocol)) return address
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  if (!loopback && url.origin !== currentOrigin) return address
+  const match = /^\/api\/projects\/([^/]+)\/(?:preview|markdown-preview)\//u.exec(url.pathname)
+  try { if (!match || decodeURIComponent(match[1]!) !== projectId) return address } catch { return address }
+  return url.pathname + url.search + url.hash
+}
+
 export interface ProjectMarkdownPreviewTarget {
   projectId: string
   filePath: string
