@@ -8,7 +8,7 @@ const destination = path.resolve("dist/connect-service")
 await rm(destination, { recursive: true, force: true })
 await mkdir(destination, { recursive: true })
 // Exact allowlist; no task outputs, env files, databases or desktop device keys.
-for (const name of ["src/connect", "src/shared/connect.ts", "src/server/connect/crypto.ts", "src/server/connect/relay.ts", "src/server/connect/stop-server.ts", "scripts/restore-connect.ts", "dist/connect", "public/stillon-mark.svg", "LICENSE", "packaging/connect"]) {
+for (const name of ["src/connect", "src/shared/connect.ts", "src/server/preview-resources.ts", "src/server/connect/crypto.ts", "src/server/connect/relay.ts", "src/server/connect/stop-server.ts", "scripts/restore-connect.ts", "dist/connect", "public/stillon-mark.svg", "LICENSE", "packaging/connect"]) {
   await cp(path.resolve(name), path.join(destination, name), { recursive: true, filter: source => !/\.test\.tsx?$/.test(source) && !path.basename(source).startsWith(".env") && path.basename(source) !== "client" })
 }
 await writeFile(path.join(destination, "package.json"), JSON.stringify({ name: "stillon-connect-service", private: true, type: "module", version: pkg.version,
