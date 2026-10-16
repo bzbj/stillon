@@ -14,16 +14,17 @@ import {
   Loader2,
   Menu,
   Monitor,
+  MonitorSmartphone,
   Moon,
   MessageSquareQuote,
   RefreshCw,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Sun,
   LogOut,
   Trash2,
-  Wifi,
   X,
 } from "lucide-react"
 import Markdown from "react-markdown"
@@ -95,7 +96,6 @@ import type { StillOnState } from "./useStillOnState"
 import { RemoteAccessSettings } from "./RemoteAccessSettings"
 
 const sidebarItems = [
-  { id: "remote", label: "Remote access", icon: Wifi, subtitle: "Link your email to use this computer from another device." },
   {
     id: "welcome",
     label: "Get started",
@@ -117,7 +117,7 @@ const sidebarItems = [
   {
     id: "network",
     label: "Network",
-    icon: Wifi,
+    icon: ShieldCheck,
     subtitle: "Configure and test outbound network settings used by Codex and Claude Code.",
   },
   {
@@ -143,6 +143,12 @@ const sidebarItems = [
     label: "Keybindings",
     icon: Command,
     subtitle: "Edit global app shortcuts stored in the active keybindings file.",
+  },
+  {
+    id: "remote",
+    label: "Remote access",
+    icon: MonitorSmartphone,
+    subtitle: "Link your email to use this computer from another device.",
   },
   // always last
   {
