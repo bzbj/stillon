@@ -128,6 +128,11 @@ export function appearanceVariables(raw: AppearanceSettings, mode: "light" | "da
     if (Math.min(contrastRatio(background, candidate), contrastRatio(surface, candidate)) >= 4.5) { mutedForeground = candidate; break }
   }
   const primary = a.accent ?? (a.palette === "default" && mode === "dark" ? "#fafafa" : accent)
+  let softSurface = mix(background, foreground, mode === "dark" ? 0.09 : 0.065)
+  if (contrastRatio(softSurface, foreground) < 4.5) softSurface = background
+  const panelSurface = a.surface === "glass" ? `hsl(${hexToHsl(surface)} / ${mode === "dark" ? 0.68 : 0.58})`
+    : `hsl(${hexToHsl(a.surface === "soft" ? softSurface : background)})`
+  const tint = hexToHsl(a.accent ?? accent)
   const variables: Record<string, string> = {
     "--radius": `${a.cornerRadius}px`,
     "--stillon-font": a.font === "system" ? "system-ui, -apple-system, 'Segoe UI', sans-serif" : a.font === "mono" ? "ui-monospace, SFMono-Regular, Consolas, monospace" : "'Body', sans-serif",
@@ -138,9 +143,12 @@ export function appearanceVariables(raw: AppearanceSettings, mode: "light" | "da
     "--stillon-row-padding": a.density === "compact" ? "4px" : "8px",
     "--stillon-wallpaper": a.backgroundAsset ? `url('/api/appearance/assets/${a.backgroundAsset}')` : "none",
     "--stillon-wallpaper-opacity": String(a.backgroundOpacity),
-    "--stillon-surface": a.surface === "glass" ? `hsl(${hexToHsl(surface)} / 0.88)` : `hsl(${hexToHsl(a.surface === "soft" ? surface : background)})`,
-    "--stillon-sidebar-surface": a.backgroundAsset && a.backgroundOpacity > 0 ? "transparent" : "var(--stillon-surface)",
-    "--stillon-surface-shadow": a.surface === "solid" ? "none" : "0 6px 24px rgb(0 0 0 / 0.06)",
+    "--stillon-surface": panelSurface,
+    "--stillon-sidebar-surface": "var(--stillon-surface)",
+    "--stillon-workspace-surface": a.surface === "glass" ? `hsl(${hexToHsl(background)} / 0.42)` : `hsl(${hexToHsl(background)})`,
+    "--stillon-workspace-shadow": a.surface === "soft" ? "0 3px 12px rgb(0 0 0 / 0.08)" : a.surface === "glass" ? "inset 0 1px 0 rgb(255 255 255 / 0.3)" : "none",
+    "--stillon-surface-shadow": a.surface === "solid" ? "none" : a.surface === "soft" ? "0 10px 30px rgb(0 0 0 / 0.10)" : "0 16px 48px rgb(0 0 0 / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.35)",
+    "--stillon-material-backdrop": a.surface === "glass" ? `radial-gradient(ellipse at 0% 5%, hsl(${tint} / 0.22), transparent 65%), radial-gradient(ellipse at 100% 85%, hsl(${tint} / 0.13), transparent 60%)` : "none",
   }
   if (a.sidebarWidth !== null) variables["--stillon-sidebar-width"] = `${a.sidebarWidth}px`
   // Preserve the exact built-in colors for the default palette unless edited.

@@ -1,8 +1,8 @@
-import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { WorkspaceAvatar } from "../../WorkspaceAvatar"
 import { WorkspaceAvatarPicker } from "../../WorkspaceAvatarPicker"
 import { useWorkspaceAvatarsStore } from "../../../stores/workspaceAvatarsStore"
-import { ChevronRight, Loader2, MoreHorizontal, SquarePen } from "lucide-react"
+import { ChevronRight, GripVertical, Loader2, MessageCirclePlus, MoreHorizontal } from "lucide-react"
 import {
   DndContext,
   PointerSensor,
@@ -20,6 +20,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
   arrayMove,
+  sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { Button } from "../../ui/button"
@@ -118,13 +119,15 @@ function getRectCenterY(rect: Pick<ClientRect, "top" | "height">) {
   return rect.top + rect.height / 2
 }
 
-function EmptyProjectChatButton({
+function NewConversationButton({
   localPath,
+  workspaceTitle,
   onNewLocalChat,
   isConnected,
   startingLocalPath,
 }: {
   localPath: string
+  workspaceTitle: string
   onNewLocalChat: (localPath: string) => void
   isConnected?: boolean
   startingLocalPath?: string | null
@@ -135,18 +138,17 @@ function EmptyProjectChatButton({
     <button
       type="button"
       disabled={disabled}
-      title={!isConnected ? `Start ${APP_NAME} to connect` : "New Chat"}
+      title={!isConnected ? `Start ${APP_NAME} to connect` : "New conversation"}
+      data-stillon-part="new-conversation"
+      aria-label={`New conversation with ${workspaceTitle}`}
       className={cn(
-        "group flex w-full items-center gap-2 pl-2.5 pr-0.5 py-0.5 rounded-lg text-left cursor-pointer border-border/0 hover:border-border hover:bg-muted/20 active:scale-[0.985] border transition-all",
-        "border-border/0 dark:hover:border-slate-400/10",
-        disabled && "cursor-not-allowed opacity-50 active:scale-100"
+        "mx-3 mb-3 flex min-h-9 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        disabled && "cursor-not-allowed opacity-50"
       )}
       onClick={() => onNewLocalChat(localPath)}
     >
-      <span className="text-sm truncate flex-1 translate-y-[-0.5px] text-slate-500 dark:text-slate-400">
-        New Chat
-      </span>
-      <div className="h-7 w-6 mr-[2px] shrink-0" aria-hidden />
+      {startingLocalPath === localPath ? <Loader2 className="size-4 animate-spin" /> : <MessageCirclePlus className="size-4" />}
+      New conversation
     </button>
   )
 }
@@ -259,98 +261,31 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
     transition: isDragging ? undefined : transition,
   }
 
+  const collapsed = collapsedSections.has(groupKey)
   const header = (
     <div
-      ref={setActivatorNodeRef}
       data-stillon-part="project-header"
       className={cn(
-        "sticky top-0 bg-background dark:bg-card z-10 relative p-[10px] flex items-center justify-between",
+        "relative z-10 flex items-center gap-1 p-3",
         isReorderEnabled && "md:cursor-grab md:active:cursor-grabbing md:select-none md:touch-none",
         isDragging && "cursor-grabbing"
       )}
-      onClick={() => onToggleSection(groupKey)}
-      {...(isReorderEnabled ? listeners : undefined)}
+      onPointerDown={event => { if (isReorderEnabled) listeners?.onPointerDown?.(event) }}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <WorkspaceAvatar workspaceId={groupKey} className="size-8 shrink-0" />
-        <span className="relative size-3.5 shrink-0 cursor-pointer">
-          <ChevronRight className={`translate-y-[1px] size-3.5 shrink-0 text-slate-400 transition-all duration-200 ${!collapsedSections.has(groupKey) && 'rotate-90'}`} />
-          
-          {/* {collapsedSections.has(groupKey) ? (
-            <ChevronRight className="translate-y-[1px] size-3.5 shrink-0 text-slate-400 transition-all duration-200" />
-          ) : (
-            <>
-              <FolderOpen className="absolute inset-0 translate-y-[1px] size-3.5 shrink-0 text-slate-400 dark:text-slate-500 transition-all duration-200 group-hover/section:opacity-0" />
-              <ChevronRight className="absolute inset-0 translate-y-[1px] size-3.5 shrink-0 rotate-90 text-slate-400 opacity-0 transition-all duration-200 group-hover/section:opacity-100" />
-            </>
-          )} */}
-        </span>
+      {isReorderEnabled ? <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Reorder ${projectTitle} workspace`} className="absolute left-0.5 top-1/2 z-20 hidden size-3 -translate-y-1/2 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 group-hover/section:opacity-60 focus-visible:opacity-100 md:flex"><GripVertical className="size-3" /></button> : null}
+      <button type="button" onClick={() => onToggleSection(groupKey)} aria-expanded={!collapsed} aria-label={`${projectTitle} workspace`} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <WorkspaceAvatar workspaceId={groupKey} className="size-10 shrink-0" />
         <Tooltip>
           <TooltipTrigger asChild>
-            <span
-              className={cn(
-                "truncate whitespace-nowrap text-sm",
-                hasUnreadChat ? "max-w-[128px]" : "max-w-[150px]"
-              )}
-            >
-              {projectTitle}
-            </span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold leading-5">{projectTitle}</span><span className="block text-[10px] leading-4 text-muted-foreground">Workspace</span></span>
           </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={4}>
-            {localPath}
-          </TooltipContent>
+          <TooltipContent side="right" sideOffset={4}>{localPath}</TooltipContent>
         </Tooltip>
         {hasUnreadChat ? <ProjectUnreadIndicator projectTitle={projectTitle} /> : null}
-      </div>
-      {(hasProjectMenu || onNewLocalChat) && (
-        <div className="absolute right-2 flex items-center gap-[1px] opacity-100 md:opacity-0 md:group-hover/section:opacity-100">
-          {hasProjectMenu ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5.5 w-5.5 !rounded"
-                  onClick={openContextMenuFromButton}
-                >
-                  <MoreHorizontal className="size-3.5 text-slate-500 dark:text-slate-400" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={4}>
-                More
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-          {onNewLocalChat ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-5.5 w-5.5 !rounded",
-                    (!isConnected || startingLocalPath === localPath) && "opacity-50 cursor-not-allowed"
-                  )}
-                  disabled={!isConnected || startingLocalPath === localPath}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onNewLocalChat(localPath)
-                  }}
-                >
-                  {startingLocalPath === localPath ? (
-                    <Loader2 className="size-4 text-slate-500 dark:text-slate-400 animate-spin" />
-                  ) : (
-                    <SquarePen className="size-3.5 text-slate-500 dark:text-slate-400" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={4}>
-                {!isConnected ? `Start ${APP_NAME} to connect` : "New Chat"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-      )}
+        <ChevronRight aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")} />
+      </button>
+      {collapsed && onNewLocalChat ? <Button variant="outline" size="icon" className="size-8 shrink-0 rounded-lg" title="New conversation" aria-label={`New conversation with ${projectTitle}`} disabled={!isConnected || startingLocalPath === localPath} onClick={() => onNewLocalChat(localPath)}>{startingLocalPath === localPath ? <Loader2 className="size-4 animate-spin" /> : <MessageCirclePlus className="size-4" />}</Button> : null}
+      {hasProjectMenu ? <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="size-7 shrink-0 rounded-lg text-muted-foreground" title="Workspace options" aria-label={`${projectTitle} workspace options`} onClick={openContextMenuFromButton}><MoreHorizontal className="size-4" /></Button></TooltipTrigger><TooltipContent side="right" sideOffset={4}>Workspace options</TooltipContent></Tooltip> : null}
     </div>
   )
 
@@ -358,11 +293,12 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
     <div
       ref={setNodeRef}
       style={style}
+      data-stillon-part="workspace-card"
+      data-workspace-id={groupKey}
       className={cn(
-        "group/section",
+        "group/section mb-3 overflow-hidden rounded-2xl border border-border/70 bg-background/60",
         isDragging && "opacity-50 shadow-lg z-50 relative"
       )}
-      {...(isReorderEnabled ? attributes : undefined)}
     >
       {hasProjectMenu ? (
         <ProjectSectionMenu
@@ -377,16 +313,9 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
         </ProjectSectionMenu>
       ) : header}
 
-      {!collapsedSections.has(groupKey) && (isEmptyProject ? Boolean(onNewLocalChat) : group.previewChats.length > 0 || hasMore) && (
-        <div className="space-y-[2px] mb-3">
-          {isEmptyProject && onNewLocalChat ? (
-            <EmptyProjectChatButton
-              localPath={localPath}
-              onNewLocalChat={onNewLocalChat}
-              isConnected={isConnected}
-              startingLocalPath={startingLocalPath}
-            />
-          ) : (
+      {!collapsed && onNewLocalChat ? <NewConversationButton localPath={localPath} workspaceTitle={projectTitle} onNewLocalChat={onNewLocalChat} isConnected={isConnected} startingLocalPath={startingLocalPath} /> : null}
+      {!collapsed && !isEmptyProject && (group.previewChats.length > 0 || hasMore) && (
+        <div data-stillon-part="workspace-conversations" className="mb-3 ml-7 mr-2 space-y-1 border-l-2 border-border/70 pl-2">
             <>
               {group.previewChats.map(renderChatRow)}
               {hasMore && isExpanded ? (
@@ -407,7 +336,6 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
                 </button>
               ) : null}
             </>
-          )}
         </div>
       )}
       <WorkspaceAvatarPicker workspaceId={groupKey} title={projectTitle} open={avatarOpen} onOpenChange={setAvatarOpen} />
@@ -433,6 +361,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   actionsEnabled = true,
   startingLocalPath,
 }: Props) {
+  const keyboardDrag = useRef(false)
   useEffect(() => {
     const reload = () => { void useWorkspaceAvatarsStore.getState().reload() }
     reload()
@@ -443,7 +372,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   const isReorderEnabled = actionsEnabled && supportsSidebarReorder
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
-    useSensor(KeyboardSensor)
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
   const groupIds = useMemo(
@@ -452,6 +381,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   )
 
   const collisionDetection = useMemo<CollisionDetection>(() => (args) => {
+    if (keyboardDrag.current) return closestCenter(args)
     const overId = getProjectGroupReorderPreviewTargetId({
       activeId: String(args.active.id),
       groupIds,
@@ -483,6 +413,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   }, [groupIds])
 
   function handleDragEnd(event: DragEndEvent) {
+    keyboardDrag.current = false
     if (!isReorderEnabled) return
 
     const { active, over } = event
@@ -499,6 +430,8 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
 
   return (
     <DndContext
+      onDragStart={event => { keyboardDrag.current = event.activatorEvent.type === "keydown" }}
+      onDragCancel={() => { keyboardDrag.current = false }}
       sensors={sensors}
       collisionDetection={collisionDetection}
       onDragEnd={handleDragEnd}

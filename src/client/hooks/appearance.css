@@ -20,9 +20,15 @@ html[data-stillon-appearance="custom"] body {
   background-position: center;
   opacity: var(--stillon-wallpaper-opacity, 0);
 }
-/* Route containers and project headings share the workspace image when it is visible. */
-html[data-stillon-wallpaper="visible"] [data-stillon-part="page"],
-html[data-stillon-wallpaper="visible"] [data-stillon-part="project-header"] {
+html[data-stillon-surface="glass"] [data-stillon-part="workspace"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: var(--stillon-material-backdrop, none);
+}
+html[data-stillon-wallpaper="visible"] [data-stillon-part="page"] {
   background: transparent;
 }
 html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
@@ -30,15 +36,43 @@ html[data-stillon-appearance="custom"] [data-stillon-part="sidebar"] {
   background: var(--stillon-sidebar-surface, var(--stillon-surface));
   box-shadow: var(--stillon-surface-shadow);
   border-radius: calc(var(--radius) + 8px);
+  isolation: isolate;
+}
+html[data-stillon-appearance="custom"] [data-stillon-part="workspace-card"] {
+  background: var(--stillon-workspace-surface, hsl(var(--background)));
+  box-shadow: var(--stillon-workspace-shadow, none);
+  border-radius: calc(var(--radius) + 6px);
 }
 html[data-stillon-appearance="custom"] [data-stillon-part="composer"] {
   max-width: var(--stillon-composer-width);
   box-shadow: var(--stillon-surface-shadow);
   border-radius: calc(var(--radius) + 21px);
+  background: var(--stillon-surface, hsl(var(--background)));
 }
 html[data-stillon-surface="glass"] [data-stillon-part="sidebar"],
 html[data-stillon-surface="glass"] [data-stillon-part="composer"] {
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(24px) saturate(1.3);
+  border-color: hsl(var(--foreground) / 0.14);
+}
+html[data-stillon-surface="soft"] [data-stillon-part="workspace-card"] {
+  border-color: transparent;
+}
+html[data-stillon-surface="glass"] [data-stillon-part="workspace-card"] {
+  border-color: hsl(var(--foreground) / 0.12);
+}
+/* Opaque panels can still show the user's wallpaper inside their own surface. */
+html[data-stillon-wallpaper="visible"][data-stillon-surface="solid"] [data-stillon-part="sidebar"]::before,
+html[data-stillon-wallpaper="visible"][data-stillon-surface="soft"] [data-stillon-part="sidebar"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: var(--stillon-wallpaper, none);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--stillon-wallpaper-opacity, 0);
 }
 html[data-stillon-appearance="custom"] [data-stillon-part="chat"] {
   background: transparent;

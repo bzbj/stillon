@@ -1,4 +1,4 @@
-import { Globe, Menu, SquarePen } from "lucide-react"
+import { Globe, Menu, MessageCirclePlus } from "lucide-react"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
 import { cn } from "../../lib/utils"
@@ -45,9 +45,10 @@ export function ChatNavbar({
             size="icon"
             className="hover:!border-border/0 hover:!bg-transparent"
             onClick={onNewChat}
-            title="Compose"
+            title="New conversation"
+            aria-label="New conversation"
           >
-            <SquarePen className="size-4" />
+            <MessageCirclePlus className="size-5" />
           </Button>
         </div>
 
