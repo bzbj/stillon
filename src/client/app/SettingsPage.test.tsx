@@ -177,7 +177,7 @@ describe("resolveSettingsSectionId", () => {
 })
 
 describe("WelcomeChecklist", () => {
-  test("shows independent agent checks without requiring test messages", () => {
+  test("offers a single-Agent CLI setup without requiring test messages", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <WelcomeChecklist
@@ -196,15 +196,16 @@ describe("WelcomeChecklist", () => {
       </MemoryRouter>
     )
 
-    expect(html).toContain("1 of 4 ready")
-    expect(html).toContain("Connect Codex")
-    expect(html).toContain("Connect Claude Code")
+    expect(html).toContain("1 of 3 ready")
+    expect(html).toContain("1. Choose one Agent")
+    expect(html).toContain("Claude Code")
+    expect(html).toContain("One signed-in CLI is enough")
     expect(html).not.toContain("Send your first messages")
     expect(html).not.toContain("test chat")
-    expect((html.match(/md:grid-cols-2/g) ?? []).length).toBe(1)
+    expect(html).toContain("Official CLI installation guide")
   })
 
-  test("counts only the name, service and two agent readiness checks", () => {
+  test("counts name, service and either one ready Agent", () => {
     const emptyProgress = {
       nameConfirmed: false,
       codexChecked: false,
@@ -216,7 +217,7 @@ describe("WelcomeChecklist", () => {
       claudeChecked: true,
     }
 
-    expect(ONBOARDING_TASK_COUNT).toBe(4)
+    expect(ONBOARDING_TASK_COUNT).toBe(3)
     expect(getOnboardingCompletedTaskCount(emptyProgress, {
       localServiceReady: true,
       codexReady: true,
@@ -226,7 +227,7 @@ describe("WelcomeChecklist", () => {
       localServiceReady: true,
       codexReady: true,
       claudeReady: true,
-    })).toBe(4)
+    })).toBe(3)
     expect(getOnboardingCompletedTaskCount(allCompleteProgress, {
       localServiceReady: true,
       codexReady: false,

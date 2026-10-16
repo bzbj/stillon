@@ -1,3 +1,6 @@
+import { ProviderCliSettings } from "./provider-cli-settings"
+import { createProviderSetup } from "./provider-setup"
+import { handleProviderSetupRequest } from "./provider-setup-http"
 import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
 import path from "node:path"
@@ -131,6 +134,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   }
   const cliEnvironment = createCliEnvironment()
   const store = new EventStore(options.dataDir)
+  const providerCliSettings = new ProviderCliSettings(store.dataDir)
   const remoteOperations = new RemoteOperations(store.dataDir)
   const codexModelPolicy = new CodexModelPolicyManager(store.dataDir, {
     ...options.codexModelDiscovery,
@@ -141,7 +145,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
     defaultMachineName: machineDisplayName,
   })
-  const getAgentEnvironment = () => mergeAgentNetworkEnvironment(cliEnvironment.get(), appSettings.getSnapshot().network)
+  const getAgentEnvironment = () => mergeAgentNetworkEnvironment(providerCliSettings.environment(cliEnvironment.get()), appSettings.getSnapshot().network)
+  const providerSetup = createProviderSetup({ dataDir: store.dataDir, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
   const diffStore = new DiffStore(store.dataDir, {
     generateCommitMessage: (args) => generateCommitMessageDetailed(
       args,
@@ -451,6 +456,12 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 })
             }
           }
+
+          const providerSetupResponse = await handleProviderSetupRequest(req, url, {
+            local: ingress.kind === "local", setup: providerSetup, settings: providerCliSettings,
+            validateOrigin: request => auth ? auth.validateOrigin(request) : request.headers.get("origin") === url.origin,
+          })
+          if (providerSetupResponse) return providerSetupResponse
 
           const appearanceResponse = await handleAppearanceRequest(req, url, {
             dataDir: store.dataDir,
