@@ -3,6 +3,7 @@ import { createProviderSetup } from "./provider-setup"
 import { handleProviderSetupRequest } from "./provider-setup-http"
 import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
+import { WorkspaceAvatarsManager, handleWorkspaceAvatars } from "./workspace-avatars"
 import { LOCAL_PREVIEW_ASSET_PREFIX, PreviewResources, projectPreviewTarget } from "./preview-resources"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
@@ -269,6 +270,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
+  const workspaceAvatars = new WorkspaceAvatarsManager(store.dataDir)
   const previewResources = new PreviewResources(LOCAL_PREVIEW_ASSET_PREFIX)
   router = createWsRouter({
     store,
@@ -474,6 +476,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           })
           if (providerSetupResponse) return providerSetupResponse
 
+          const avatarsResponse = await handleWorkspaceAvatars(req, workspaceAvatars, {
+            workspaceExists: id => Boolean(store.getProject(id)),
+            validateOrigin: request => auth ? auth.validateOrigin(request) : request.headers.get("origin") === url.origin,
+          })
+          if (avatarsResponse) return avatarsResponse
           const appearanceResponse = await handleAppearanceRequest(req, url, {
             dataDir: store.dataDir,
             getAppearance: () => appSettings.getSnapshot().appearance,

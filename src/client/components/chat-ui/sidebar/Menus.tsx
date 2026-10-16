@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Archive, Copy, EyeOff, FolderOpen, Pencil, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { Archive, Copy, EyeOff, FolderOpen, Palette, Pencil, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -13,6 +13,7 @@ export function ProjectSectionMenu({
   onShowArchived,
   onOpenInFinder,
   onHide,
+  onCustomizeAvatar,
   children,
 }: {
   onRename: () => void
@@ -20,6 +21,7 @@ export function ProjectSectionMenu({
   onShowArchived: () => void
   onOpenInFinder: () => void
   onHide: () => void
+  onCustomizeAvatar?: () => void
   children: ReactNode
 }) {
   return (
@@ -28,6 +30,7 @@ export function ProjectSectionMenu({
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="h-3.5 w-3.5" /><span className="text-xs font-medium">Change avatar</span></ContextMenuItem> : null}
         <ContextMenuItem
           onSelect={(event) => {
             event.preventDefault()

@@ -1,4 +1,7 @@
-import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useMemo, useSyncExternalStore } from "react"
+import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { WorkspaceAvatar } from "../../WorkspaceAvatar"
+import { WorkspaceAvatarPicker } from "../../WorkspaceAvatarPicker"
+import { useWorkspaceAvatarsStore } from "../../../stores/workspaceAvatarsStore"
 import { ChevronRight, Loader2, MoreHorizontal, SquarePen } from "lucide-react"
 import {
   DndContext,
@@ -233,6 +236,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   startingLocalPath,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, title } = group
+  const [avatarOpen, setAvatarOpen] = useState(false)
   const projectTitle = title || getPathBasename(localPath)
   const isExpanded = expandedGroups.has(groupKey)
   const isEmptyProject = group.chats.length === 0
@@ -268,6 +272,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       {...(isReorderEnabled ? listeners : undefined)}
     >
       <div className="flex min-w-0 items-center gap-2">
+        <WorkspaceAvatar workspaceId={groupKey} className="size-8 shrink-0" />
         <span className="relative size-3.5 shrink-0 cursor-pointer">
           <ChevronRight className={`translate-y-[1px] size-3.5 shrink-0 text-slate-400 transition-all duration-200 ${!collapsedSections.has(groupKey) && 'rotate-90'}`} />
           
@@ -366,6 +371,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
           onOpenInFinder={() => onOpenExternalPath?.("open_finder", localPath)}
           onHide={() => onHideProject?.(groupKey)}
+          onCustomizeAvatar={() => setAvatarOpen(true)}
         >
           {header}
         </ProjectSectionMenu>
@@ -404,6 +410,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           )}
         </div>
       )}
+      <WorkspaceAvatarPicker workspaceId={groupKey} title={projectTitle} open={avatarOpen} onOpenChange={setAvatarOpen} />
     </div>
   )
 })
@@ -426,6 +433,12 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   actionsEnabled = true,
   startingLocalPath,
 }: Props) {
+  useEffect(() => {
+    const reload = () => { void useWorkspaceAvatarsStore.getState().reload() }
+    reload()
+    window.addEventListener("focus", reload)
+    return () => window.removeEventListener("focus", reload)
+  }, [])
   const supportsSidebarReorder = useSidebarReorderEnabled()
   const isReorderEnabled = actionsEnabled && supportsSidebarReorder
   const sensors = useSensors(

@@ -13,7 +13,7 @@ class AppearanceError extends Error {
   constructor(message: string, readonly status = 400) { super(message) }
 }
 
-async function boundedBody(request: Request, limit: number) {
+export async function boundedBody(request: Request, limit: number) {
   if (Number(request.headers.get("content-length")) > limit) throw new AppearanceError("File is too large.", 413)
   const reader = request.body?.getReader()
   if (!reader) throw new AppearanceError("Choose a file first.")
@@ -91,9 +91,9 @@ export async function validateBackground(bytes: Buffer) {
   return { extension, mimeType: mimeByExtension[extension], width, height }
 }
 
-async function appearanceDirectory(dataDir: string, leaf: "assets" | "skins", create = false) {
+export async function appearanceDirectory(dataDir: string, leaf: "assets" | "skins" | null, create = false) {
   let directory = path.resolve(dataDir)
-  const parts = [directory, "customizations", "appearance", leaf]
+  const parts = [directory, "customizations", "appearance", ...(leaf ? [leaf] : [])]
   for (let i = 0; i < parts.length; i++) {
     if (i) directory = path.join(directory, parts[i]!)
     if (create) await mkdir(directory, { recursive: false }).catch((error) => { if (error.code !== "EEXIST") throw error })
