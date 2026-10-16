@@ -1,3 +1,4 @@
+import { refreshCliEnvironment } from "./cli-environment"
 import process from "node:process"
 import { APP_VERSION } from "../shared/branding"
 import { openUrl, runCli } from "./cli-runtime"
@@ -9,6 +10,9 @@ const result = await runCli(argv, {
   bunVersion: Bun.version,
   startServer: async (options) => {
     const { startStillOnServer } = await import("./server")
+    const environment = await refreshCliEnvironment()
+    for (const key of Object.keys(process.env)) if (key.toUpperCase() === "PATH") delete process.env[key]
+    process.env.PATH = environment.PATH
     return startStillOnServer(options)
   },
   openUrl,

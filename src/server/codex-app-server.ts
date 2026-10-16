@@ -762,7 +762,7 @@ export class CodexAppServerManager {
   constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.spawnProcess = args.spawnProcess ?? ((cwd, environment) =>
-      spawn(getCodexCliCommand(), ["app-server"], {
+      spawn(getCodexCliCommand(process.platform, environment), ["app-server"], {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: environment,

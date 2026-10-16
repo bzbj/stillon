@@ -34,7 +34,7 @@ export async function discoverCodexModels(options: {
   timeoutMs?: number
   spawnProcess?: () => ChildProcessWithoutNullStreams
 }): Promise<CodexModelDiscoveryResult> {
-  const child = options.spawnProcess?.() ?? spawn(getCodexCliCommand(), ["app-server"], {
+  const child = options.spawnProcess?.() ?? spawn(getCodexCliCommand(process.platform, options.environment), ["app-server"], {
     cwd: discoveryHome(options.environment), env: options.environment, stdio: ["pipe", "pipe", "pipe"],
   })
   let buffer = "", totalBytes = 0, serial = 0
@@ -133,7 +133,7 @@ export async function discoverCodexModels(options: {
 export async function codexDiscoveryContext(environment: NodeJS.ProcessEnv) {
   const hash = createHash("sha256")
   hash.update(JSON.stringify(Object.entries(environment).sort(([a], [b]) => a.localeCompare(b))))
-  const command = Bun.which(getCodexCliCommand(), { PATH: environment.PATH })
+  const command = Bun.which(getCodexCliCommand(process.platform, environment), { PATH: environment.PATH })
   if (command) {
     const info = await stat(command)
     hash.update(JSON.stringify([command, info.size, info.mtimeMs, info.ino]))

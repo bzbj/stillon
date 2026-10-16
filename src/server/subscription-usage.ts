@@ -578,7 +578,7 @@ function codexWindowFromAppServerLimit(
 async function readCodexAppServerSnapshot(
   options: { timeoutMs: number; environment?: NodeJS.ProcessEnv }
 ): Promise<CodexAppServerSnapshot> {
-  const child = spawn(getCodexCliCommand(), ["app-server"], {
+  const child = spawn(getCodexCliCommand(process.platform, options.environment), ["app-server"], {
     cwd: os.homedir(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {

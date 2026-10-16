@@ -1,3 +1,4 @@
+import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
@@ -128,6 +129,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       console.log(`${LOG_PREFIX} moved existing data from ${migration.from} to ${migration.to}`)
     }
   }
+  const cliEnvironment = createCliEnvironment()
   const store = new EventStore(options.dataDir)
   const remoteOperations = new RemoteOperations(store.dataDir)
   const codexModelPolicy = new CodexModelPolicyManager(store.dataDir, {
@@ -139,7 +141,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
     defaultMachineName: machineDisplayName,
   })
-  const getAgentEnvironment = () => mergeAgentNetworkEnvironment(process.env, appSettings.getSnapshot().network)
+  const getAgentEnvironment = () => mergeAgentNetworkEnvironment(cliEnvironment.get(), appSettings.getSnapshot().network)
   const diffStore = new DiffStore(store.dataDir, {
     generateCommitMessage: (args) => generateCommitMessageDetailed(
       args,
@@ -278,7 +280,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       }),
     },
     subscriptionUsage: {
-      read: () => readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }),
+      read: async () => { await cliEnvironment.refresh(); return readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }) },
     },
     sourceUpgradePrompt,
     remoteOperations,
