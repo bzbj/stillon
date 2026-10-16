@@ -3,7 +3,7 @@ import { spawn } from "node:child_process"
 import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { cliFallbackPath, findCliExecutable, mergeSearchPaths, refreshCliEnvironment } from "./cli-environment"
+import { cliFallbackPath, environmentPath, findCliExecutable, mergeSearchPaths, refreshCliEnvironment } from "./cli-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
 
 test("fresh Windows user PATH replaces a stale snapshot while keeping inherited fallbacks", async () => {
@@ -37,6 +37,7 @@ test("explicit agent PATH wins and failed discovery keeps existing directories",
 })
 
 test("Windows PATH comparison deduplicates without changing directory precedence", () => {
+  expect(environmentPath({ Path: "stale", PATH: "explicit" })).toBe("explicit")
   expect(mergeSearchPaths("win32", "C:\\Custom;C:\\WINDOWS", "c:\\custom\\;C:\\New")).toBe("C:\\Custom;C:\\WINDOWS;C:\\New")
 })
 

@@ -5,7 +5,7 @@ import path from "node:path"
 import { promisify } from "node:util"
 
 export function environmentPath(environment: NodeJS.ProcessEnv) {
-  return Object.entries(environment).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? ""
+  return environment.PATH ?? Object.entries(environment).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? ""
 }
 
 export function mergeSearchPaths(platform: NodeJS.Platform, ...values: string[]) {
