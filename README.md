@@ -27,7 +27,7 @@
 
 StillOn turns an always-on Mac into a personal agent outpost. Leave the computer at home or in the office, then reconnect from an iPad, phone, or browser to continue local Claude Code and Codex sessions.
 
-Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and local origin; an operator chooses and manages any external connection path. It does not move agent execution into a hosted cloud.
+Your projects, credentials, processes, and chat history stay on your computer. StillOn provides the web workspace and local origin; the Connect preview adds email-based remote access through a configured gateway. You can also manage your own external connection path. Agent execution stays on your computer; the gateway terminates TLS and model providers receive the context sent to them.
 
 > Leave your computer. Agent Still On.
 
@@ -46,10 +46,11 @@ Versioned releases are explicit GitHub source releases; see the [release guide](
 
 ## Before you install
 
-StillOn is the browser workspace around your local coding agents; it is not an
-AI provider, account manager, VPN, power manager, or public tunnel. It assumes
-that the provider layer already works for the same operating system user that
-will run StillOn.
+StillOn is the browser workspace around your local agents. Agent-provider accounts,
+subscriptions, outbound networking and host power remain your responsibility.
+Connect email login controls remote access to your computer; it does not sign you
+into Codex or Claude Code. The provider layer must already work for the same
+operating system user that will run StillOn.
 
 Before installing StillOn:
 
@@ -109,6 +110,12 @@ replaced rather than kept as aliases; this avoids accidentally starting a
 previous application after a migration.
 
 ## Turn local access into remote access
+
+For the managed **Connect preview**, configure a Connect service, then open
+**Settings → Remote access → Link email** on the computer. Verify the email and
+sign in at the configured service URL from another browser. See the
+[Connect setup guide](docs/connect-remote-access.md). Keep the host awake and
+StillOn running. The following steps also cover self-managed connection paths.
 
 A successful installation intentionally stops at
 `http://127.0.0.1:3210`. Reaching StillOn from another computer, phone, or
@@ -244,9 +251,9 @@ seconds for every later attempt. A run lasting at least five minutes resets the
 backoff. See [Production runtime installs](docs/production-runtime.md#windows-persistent-startup)
 for pinned updates and rollback.
 
-Windows terminal sessions use the configured local shell. Unix-specific PTY
-signals do not have direct Windows equivalents, so advanced terminal signal
-handling has narrower automated coverage than macOS and Linux.
+The embedded terminal is currently unavailable on Windows; use an external
+terminal for shell work. Provider sessions and native services have Windows
+x64/ARM64 CI coverage, but that does not establish full platform feature parity.
 
 ## Background service
 
@@ -302,8 +309,9 @@ and `--trust-proxy` when an operator manages the external entrypoint; see
 [External ingress](docs/external-ingress.md). Removing the service does not
 remove projects or data under `~/.stillon/`.
 
-Windows service management is included for forward compatibility, but the
-broader Windows runtime remains planned rather than supported in this beta.
+Windows service management is supported in the beta. Remaining platform gaps
+and independent-machine acceptance are tracked in the
+[public-release readiness matrix](docs/public-release-readiness.md).
 
 ## Why StillOn
 
@@ -321,12 +329,13 @@ StillOn gives an authenticated remote user access to local projects, agent
 processes, file previews, Git operations, and terminals. Treat that access as
 equivalent to granting control of your development account.
 
-StillOn starts on `127.0.0.1` by default. It does not create a public URL,
-Cloudflare Tunnel, or other external route. You may run a Cloudflare Tunnel,
-another tunnel, a reverse proxy, or a direct network listener independently;
-StillOn's supported local contract is documented in
-[External ingress](docs/external-ingress.md). Use `--trust-proxy` only when a
-trusted proxy is the sole route to the local origin.
+StillOn starts on `127.0.0.1` by default and local use remains accountless.
+With a configured [Connect service](docs/connect-remote-access.md), linking an
+email enables an outbound tunnel and an authorized per-computer URL. The
+gateway is trusted and terminates TLS; Connect does not provide end-to-end
+encryption. Alternatively, manage a private network, tunnel or reverse proxy
+using the [external ingress contract](docs/external-ingress.md). Use
+`--trust-proxy` only when a trusted proxy is the sole route to the local origin.
 
 ## Development
 

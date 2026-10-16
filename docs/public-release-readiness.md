@@ -1,60 +1,101 @@
 # Public-release readiness
 
-StillOn's first public release should be treated as a **macOS-first, source-available beta**, not a finished cross-platform consumer application.
+StillOn **0.5.0 (Husky)** is a macOS-first, source-available public beta. This
+page distinguishes implemented behavior and CI coverage from independent-user
+acceptance and signed distribution. A published source release does not mean
+every platform or Connect customer-release gate has passed.
 
-## Release tiers
+## Distribution tiers
 
-1. **GitHub source beta** — developers clone the repository and run it with Bun.
-2. **Packaged beta** — signed and notarized macOS artifacts, checksums, release notes, and an upgrade path.
-3. **Cross-platform release** — tested installers and feature parity targets for macOS, Linux, and Windows.
+1. **Public source beta:** source and export-viewer assets are published on
+   GitHub. Source installations can use the opt-in managed source updater.
+2. **Native development packages:** macOS Intel/Apple Silicon and Windows
+   x64/ARM64 runtimes and installers are built and exercised on native runners.
+   Unsigned development downloads stay in Actions with an expiration date.
+3. **Signed desktop publication:** requires platform signing, macOS notarization
+   and acceptance using the actual signing configuration. A source-only release
+   publishes no desktop package update manifest or official signed installers.
 
-## Privacy and repository hygiene
-
-- Current source and fixtures must use example users, paths, projects, and hostnames.
-- Public screenshots must use a generic machine label through **STILLON_MACHINE_NAME**.
-- Unused personal-brand assets must not ship.
-- The current Git history still contains earlier path and screenshot data. Rewriting public history or recreating the repository requires an explicit owner decision.
-- Run secret scanning over the full history before every public release.
+See [desktop distribution](desktop-distribution.md),
+[managed updates](managed-updates.md) and the [release procedure](releasing.md).
+Linux server support does not imply a packaged Linux desktop installer.
 
 ## Platform matrix
 
 | Capability | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| Bun server and browser UI | Primary | Beta | Needs CI validation |
-| Claude/Codex discovery | Primary | Beta | Needs path and CLI validation |
-| Embedded terminal | Primary | Beta | Disabled in current app code |
-| Open file/editor | Primary | Distribution-dependent | Partial implementation |
+| Bun server and browser UI | Primary; Intel/ARM64 CI | Beta; x64 CI | Beta; x64/ARM64 CI |
+| Provider discovery and sessions | Primary | Beta | CLI/shim and lifecycle fixtures; independent provider acceptance remains |
+| Agent network settings | System proxy detection | GNOME detection; other desktops manual | User/WinHTTP detection; environment-dependent |
+| Embedded terminal | Supported | Supported where Bun.Terminal is available | Unavailable; use an external terminal |
+| Local file/editor opening | Supported | Desktop/distribution-dependent | Partial; depends on installed editors |
 | Local HTTP process discovery | lsof / ps | lsof / ps | Not implemented |
-| Local file-link parsing | Unix paths | Unix paths | Drive/UNC paths incomplete |
-| Installer | Not packaged | Not packaged | Not packaged |
-| Background auto-start | CLI-managed LaunchAgent | CLI-managed systemd user service | CLI-managed scheduled task; runtime experimental |
+| Local file-link parsing | Unix paths | Unix paths | Drive/UNC handling implemented; retain platform regression coverage |
+| Native development installer | DMG for Intel/Apple Silicon | Not packaged | Setup EXE for x64/ARM64 |
+| Background service | LaunchAgent | systemd user service | Task Scheduler with watchdog |
+| Managed updates | Opt-in source and package paths | Opt-in source path | Source/package code and native runner recovery checks |
 
-Bun itself now provides Windows ConPTY support, so Windows work is primarily StillOn integration, path handling, process discovery, provider CLI validation, and CI—not a runtime rewrite.
+Native CI covers package integrity, service lifecycle, update/rollback,
+install/uninstall and preservation of synthetic user data. Physical Windows on
+Arm devices, interactive installation UX, trusted OS signatures and real
+provider authentication need their own acceptance evidence. A passing runner
+does not establish complete platform feature parity.
 
-## Security gates
+## Connect preview
 
-- Keep localhost as the default bind address.
-- Keep tunnel, DNS, TLS, and edge authentication lifecycle outside the product.
-- For external ingress, document and test the trusted-proxy contract: preserved `Host`, `X-Forwarded-Proto`, WebSocket upgrades, and origin isolation.
-- Treat the optional application password as a convenience barrier; require an appropriate operator-managed authentication policy for Internet-facing access.
-- Rate-limit login attempts and never forward session/auth headers into previewed local services.
-- Document that authenticated users receive development-account-level authority.
-- Add prompt/file-based password input so secrets do not need to appear in process arguments.
-- Add aggregate request limits or streaming uploads before accepting untrusted large files.
-- Review local-file and browser-preview capabilities as part of the single-user threat model.
+Implemented: fresh six-digit email-code linking, device identity, outbound frp,
+per-computer origins, per-tab selection, authorization leases, pause/unlink,
+browser-family Logout, durable operation receipts and connection diagnostics.
+Local loopback use remains accountless. The remote-access interface and email
+flow use English. See [Connect](connect-remote-access.md) for the protocol,
+packaging, configuration and recovery contract.
 
-## Distribution and operations
+Automated integration uses two isolated computers and synthetic accounts/mail.
+It exercises HTTP/WebSocket traffic, bounded streaming uploads/downloads,
+authorization, revocation and file integrity. Controlled deployment and an owner
+pilot provide additional evidence; they are not broad customer certification.
+Independent platform/user trials, public/mobile networks, the full fault/abuse/
+load matrix, a 12-hour soak and operational alert delivery remain release gates
+for a customer service. Billing, custom customer domains and shared-host teams
+are not part of 0.5.0.
 
-- Keep source-only releases private and do not add an in-app updater. Revisit npm,
-  standalone binaries, or a desktop wrapper only if the distribution model changes.
-- For macOS packaging, add code signing, notarization, checksums, and a verified update channel.
-- Add Linux packages only after testing shell, desktop opener, lsof, and the
-  CLI-managed systemd user-service integration across target distributions.
-- Add Windows only after a native Windows CI job passes and embedded terminal/process discovery blockers are removed.
-- Publish a rollback procedure and data-format compatibility policy.
+## Security and operational boundaries
+
+- Keep the accountless local origin on loopback and enforce its Host/Origin
+  contract. Do not expose its raw port to the Internet.
+- Connect uses a separate authorized local adapter. Account login alone does
+  not grant access to an arbitrary computer. Keep device keys and cloud secrets
+  outside immutable releases and public logs.
+- The gateway terminates TLS and is trusted. This is not end-to-end encryption.
+  Agent/model providers can receive context sent to them by the local agents.
+- Remote access grants authority over local agent tasks and files. Only link
+  owned computers and use trusted browsers. Remote dynamic localhost previews
+  are disabled in this pilot; supported static previews are sandboxed.
+- Self-managed ingress still requires its own TLS, access policy and trusted
+  proxy configuration. The optional application password is an additional
+  local barrier, not a complete public gateway policy.
+- Operators own source-IP trust, rate limits, certificate renewal, monitoring,
+  backup retention and recovery testing. Health/readiness probes do not prove
+  email deliverability, disk-write capacity or every computer's availability.
+- Prompt/file-based input for the legacy application password and broader
+  security review remain separate improvements; do not advertise them as done.
+
+## Privacy and repository hygiene
+
+- Public code and fixtures use example users, paths, projects and hostnames.
+- Screenshots use synthetic data or a generic machine label. Do not package
+  private task outputs, credentials, account databases or device identities.
+- Scan the release source and Git history for secrets before publication.
+  Review synthetic-fixture exclusions explicitly and keep reports redacted.
+- Older revisions can retain historical path/screenshot data. Rewriting public
+  history requires a separate explicit owner decision.
+- Keep user history, provider credentials, settings and appearance assets out
+  of immutable runtime payloads. Updates preserve data and keep a verified
+  rollback snapshot before switching; publication itself installs nothing.
 
 ## Legal and governance
 
-The inherited license contains a named-party exclusion. That means GitHub correctly detects it as “Other,” and the project should not market itself as OSI-approved open source without legal review or upstream relicensing. Preserve attribution in every distribution.
-
-Before accepting outside contributions, keep a security policy, contribution guide, CI, dependency update automation, and documented release process. A CLA or DCO is optional but should be chosen before substantial external contributions.
+The inherited license contains a named-party exclusion and is not described as
+OSI-approved open source. Preserve attribution in source and distributions.
+Maintain the security policy, contribution guide, CI and explicit release
+procedure. PR titles/descriptions and release titles/notes must use English.
