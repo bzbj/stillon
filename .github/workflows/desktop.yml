@@ -44,6 +44,8 @@ concurrency:
 
 jobs:
   desktop:
+    # Drafts keep standard cross-platform CI without building installers.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
