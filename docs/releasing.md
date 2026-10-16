@@ -42,6 +42,12 @@ met. Patch and minor releases do not advance the edition automatically.
 1. Work from a clean, up-to-date `main` checkout. Do not release from a
    feature branch or a worktree containing unrelated changes.
 2. Review commits since the latest tag and confirm the requested version.
+   For desktop publication, confirm repository Actions variable
+   `STILLON_CONNECT_ORIGIN` is the real managed HTTPS origin and review the
+   optional JSON array `STILLON_CONNECT_MIGRATE_FROM_ORIGINS`. These values are
+   public deployment inputs, not credentials; the same account/device authority
+   must serve every approved old/new origin. Local/self-hosted manual builds
+   remain separate from the required managed configuration of official releases.
 3. Update `package.json` to the requested version and refresh `bun.lock` with
    `bun install` when required.
 4. Verify the version/tag pair and the code:
