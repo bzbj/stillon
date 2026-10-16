@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { chmod, copyFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { resolveServiceBackend, runServiceCommand } from "../service"
 import { generateLaunchAgentPlist } from "../service/macos"
@@ -101,6 +101,7 @@ async function captureKnownServices(deployment: UpdateDeployment) {
 
 /** Stage immutable bytes; no Git, install, build, data access or service replacement. */
 export async function requestDesktopTransition(source: string, root: string) {
+  root = await realpath(root)
   const file = path.join(root, TRANSITION_FILE)
   if (await exists(file)) {
     const pending = await json<DesktopTransition>(file)
@@ -113,7 +114,7 @@ export async function requestDesktopTransition(source: string, root: string) {
     }
   }
   const oldDeployment = await json<UpdateDeployment>(path.join(root, "deployment.json"))
-  if (oldDeployment.schema !== 1 || oldDeployment.root !== root || oldDeployment.dataRoot !== path.join(oldDeployment.launch.homeDirectory, ".stillon")) throw new Error("Unsupported managed installation layout.")
+  if (oldDeployment.schema !== 1 || await realpath(oldDeployment.root) !== root || oldDeployment.dataRoot !== path.join(oldDeployment.launch.homeDirectory, ".stillon")) throw new Error("Unsupported managed installation layout.")
   if (await leaseAlive(root)) throw new Error("Wait for the independent updater before migrating.")
   await assertIdle(oldDeployment)
   const oldRuntime = (await json<UpdateControl>(path.join(root, "control.json"))).runtime
@@ -136,7 +137,7 @@ export async function requestDesktopTransition(source: string, root: string) {
   await copyFile(path.join(newRuntime, "runtime/controller.js"), controller)
   const previousEntry = path.join(oldDeployment.launch.workingDirectory, "bin", "stillon")
   if (!oldDeployment.launch.args.includes(previousEntry)) throw new Error("Unrecognized source service CLI layout.")
-  const newDeployment: UpdateDeployment = { ...oldDeployment, controller, launch: { ...oldDeployment.launch, executable,
+  const newDeployment: UpdateDeployment = { ...oldDeployment, root, controller, launch: { ...oldDeployment.launch, executable,
     workingDirectory: newRuntime, args: oldDeployment.launch.args.map(arg => arg === previousEntry ? path.join(newRuntime, "bin", "stillon") : arg) } }
   const metadata: Record<string, unknown | null> = {}
   for (const name of ["desktop.json", "desktop-receipt.json"]) metadata[name] = await exists(path.join(root, name)) ? await json(path.join(root, name)) : null

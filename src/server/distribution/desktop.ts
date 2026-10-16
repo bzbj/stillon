@@ -67,7 +67,8 @@ async function verifyOwnedDeployment(root: string) {
 export async function launchDesktop(source: string, options: { open?: boolean; port?: number; migrate?: boolean; update?: boolean } = {}) {
   const target = updateTarget()
   const home = os.homedir()
-  const root = updateRoot()
+  let root = updateRoot()
+  if (await exists(path.join(root, "deployment.json"))) root = await realpath(root)
   const marker = path.join(root, "desktop.json")
   async function transition() {
     await requestDesktopTransition(source, root)

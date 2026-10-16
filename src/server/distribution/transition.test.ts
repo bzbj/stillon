@@ -13,6 +13,7 @@ import { updateTarget, type UpdateDeployment, type UpdateState } from "../update
 import { preparePackage } from "./updates"
 import { createManagedUpdateApi } from "../updater/api"
 
+const desktopTest = process.platform === "darwin" || process.platform === "win32" ? test : test.skip
 const entry = path.resolve(import.meta.dir, "../updater/entry.ts")
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
@@ -102,7 +103,7 @@ async function fixture() {
   return { root, t, native, counts, dataRoot, environmentFile }
 }
 
-test("source -> installer -> prebuilt update preserves chats, settings, environment and package channel", async () => {
+desktopTest("source -> installer -> prebuilt update preserves chats, settings, environment and package channel", async () => {
   const f = await fixture()
   await withWorkerLease(f.t.oldDeployment, () => executeDesktopTransition(f.t, f.native))
   expect((await json<DesktopTransition>(path.join(f.root, TRANSITION_FILE))).phase).toBe("succeeded")
@@ -135,7 +136,7 @@ test("source -> installer -> prebuilt update preserves chats, settings, environm
   expect(await readFile(path.join(f.dataRoot, "history.json"), "utf8")).toBe("new message after success")
 }, 60_000)
 
-test("failed installer activation restores source service, ownership and matched data; failed writes are quarantined", async () => {
+desktopTest("failed installer activation restores source service, ownership and matched data; failed writes are quarantined", async () => {
   const f = await fixture()
   f.native.receipt = async () => {
     await writeFile(path.join(f.dataRoot, "history.json"), "failed migration write")
@@ -154,7 +155,7 @@ test("failed installer activation restores source service, ownership and matched
   expect(f.counts.restore).toBe(1)
 }, 45_000)
 
-test("source edits stop migration before data or app services are switched", async () => {
+desktopTest("source edits stop migration before data or app services are switched", async () => {
   const f = await fixture()
   await writeFile(path.join(f.t.oldRuntime, "private-change.ts"), "keep this source change")
   await withWorkerLease(f.t.oldDeployment, () => executeDesktopTransition(f.t, f.native))
@@ -165,7 +166,7 @@ test("source edits stop migration before data or app services are switched", asy
   expect(await readFile(path.join(f.dataRoot, "history.json"), "utf8")).toBe("original chat history")
 }, 30_000)
 
-test("killing a migration worker after candidate startup pauses work and independent recovery restores the source installation", async () => {
+desktopTest("killing a migration worker after candidate startup pauses work and independent recovery restores the source installation", async () => {
   const f = await fixture()
   const script = path.join(f.root, "interrupted.ts")
   await writeFile(script, `
@@ -193,7 +194,7 @@ receipt:async()=>{await Bun.write(${JSON.stringify(path.join(f.dataRoot, "histor
 }, 60_000)
 
 
-test("active work is rejected before the updater or application is stopped", async () => {
+desktopTest("active work is rejected before the updater or application is stopped", async () => {
   const f = await fixture()
   await writeFile(path.join(f.dataRoot, "busy-fixture"), "active agent")
   await withWorkerLease(f.t.oldDeployment, () => executeDesktopTransition(f.t, f.native))
@@ -205,7 +206,7 @@ test("active work is rejected before the updater or application is stopped", asy
 }, 30_000)
 
 
-test("a failed recovery journal write cannot publish success or unlock user work", async () => {
+desktopTest("a failed recovery journal write cannot publish success or unlock user work", async () => {
   const f = await fixture()
   const state: UpdateState = { id: "journal-failure", phase: "verifying", targetTag: "v1.0.1", prepareOnly: false,
     oldRuntime: f.t.oldRuntime, newRuntime: f.t.newRuntime, updatedAt: new Date().toISOString() }
