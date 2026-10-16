@@ -6,9 +6,19 @@ import {
   buildProjectRenderablePreviewUrl,
   isProjectMarkdownPreviewPath,
   parseProjectMarkdownPreviewUrl,
+  normalizeProjectPreviewAddress,
 } from "./project-file-urls"
 
 describe("project file urls", () => {
+  test("keeps saved loopback workspace previews on the connected origin", () => {
+    const route = "/api/projects/p1/preview/output/demo%20page.html?theme=dark#chart"
+    for (const origin of ["http://localhost:3210", "http://127.0.0.1:3210", "https://h-computer.connect.stillon.cc"]) {
+      expect(normalizeProjectPreviewAddress("http://127.0.0.1:3210" + route, "p1", origin)).toBe(route)
+    }
+    for (const url of ["https://external.example" + route, "http://localhost:3210/api/projects/other/preview/index.html", "http://localhost:5173/index.html"]) {
+      expect(normalizeProjectPreviewAddress(url, "p1", "https://h-computer.connect.stillon.cc")).toBe(url)
+    }
+  })
   test("builds content and download urls with encoded file paths", () => {
     expect(buildProjectFileContentUrl("project-1", "dist/demo page.html"))
       .toBe("/api/projects/project-1/files/dist%2Fdemo%20page.html/content")

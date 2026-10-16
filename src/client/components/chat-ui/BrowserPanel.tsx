@@ -2,7 +2,7 @@ import { ArrowLeft, ArrowRight, CornerDownLeft, Ellipsis, ExternalLink, Globe, H
 import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
-import { buildProjectFileContentUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
+import { buildProjectFileContentUrl, normalizeProjectPreviewAddress, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../../shared/protocol"
 import type { StillOnSocket } from "../../app/socket"
 import {
@@ -96,9 +96,10 @@ function BrowserPanelImpl({
   const historyIndex = browserState?.historyIndex ?? -1
   const canGoBack = Boolean(address) && historyIndex > 0
   const canGoForward = Boolean(address) && historyIndex >= 0 && historyIndex < (browserState?.history.length ?? 0) - 1
-  const projectMarkdownPreviewTarget = parseProjectMarkdownPreviewUrl(address)
+  const scopedAddress = normalizeProjectPreviewAddress(address, projectId, window.location.origin)
+  const projectMarkdownPreviewTarget = parseProjectMarkdownPreviewUrl(scopedAddress)
   const localMarkdownPreviewTarget = parseLocalMarkdownPreviewUrl(address)
-  const previewAddress = address ? buildBrowserPreviewProxyUrl(address) : ""
+  const previewAddress = address ? buildBrowserPreviewProxyUrl(scopedAddress) : ""
   const externalPreviewAddress = projectMarkdownPreviewTarget
     ? buildProjectFileContentUrl(projectMarkdownPreviewTarget.projectId, projectMarkdownPreviewTarget.filePath)
     : localMarkdownPreviewTarget

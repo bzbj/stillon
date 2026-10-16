@@ -6,7 +6,8 @@ import { CONNECT_PROTOCOL, type DeviceProof } from "../shared/connect"
 import { newDeviceKeys, safeRelativePath, signLease, validateDeviceKeys, verifyLease } from "../server/connect/crypto"
 import { ConnectRelay, forwardingHeaders, type RelaySocket } from "../server/connect/relay"
 import { createConnectAuth, type ConnectAuthOptions } from "./auth"
-import { ConnectFault, ConnectRegistry, type AccountIdentity } from "./registry"
+import { ConnectFault, ConnectRegistry, type AccountIdentity, type HostSessionRecord } from "./registry"
+import { PreviewResources, REMOTE_PREVIEW_ASSET_PREFIX, projectPreviewTarget, type PreviewResourceContext } from "../server/preview-resources"
 import { checkBrowserRequest, cookie, cookieName, cookieValue, faultResponse, json, jsonBody, redirect } from "./http"
 
 const id = z.string().regex(/^[a-f0-9]{32}$/)
@@ -27,6 +28,8 @@ export interface ConnectTransportOptions {
 export async function createConnectService(options: ConnectAuthOptions & { transport: ConnectTransportOptions }) {
   const registry = new ConnectRegistry(options.dataDir, options.origin, options.secret)
   const relay = new ConnectRelay()
+  const previewResources = new PreviewResources(REMOTE_PREVIEW_ASSET_PREFIX)
+  const previewSessions = new WeakMap<PreviewResourceContext, { hostId: string; session: HostSessionRecord }>()
   const signingPath = path.join(options.dataDir, "gateway-keys.json")
   let keys: ReturnType<typeof newDeviceKeys>
   try { keys = JSON.parse(await readFile(signingPath, "utf8")); validateDeviceKeys(keys) }
@@ -187,8 +190,12 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           headers.append("Set-Cookie", cookie(origin, "host-session", exchange.token, exchange.persistent ? (exchange.expiresAt - Date.now()) / 1_000 : undefined))
           return redirect(exchange.returnPath, headers)
         }
-        checkBrowserRequest(request, origin)
-        const session = registry.sessionForToken(hostId, cookieValue(request, cookieName(origin, "host-session")), auth.identityById)
+        const assetRequest = url.pathname.startsWith(REMOTE_PREVIEW_ASSET_PREFIX)
+        const resource = assetRequest && ["GET", "HEAD"].includes(request.method) ? previewResources.resolve(url.pathname) : null
+        const resourceSession = resource ? previewSessions.get(resource.context) : null
+        if (assetRequest && (!resourceSession || resourceSession.hostId !== hostId)) throw new ConnectFault("PREVIEW_EXPIRED", 403)
+        if (!assetRequest) checkBrowserRequest(request, origin)
+        const session = resourceSession?.session ?? registry.sessionForToken(hostId, cookieValue(request, cookieName(origin, "host-session")), auth.identityById)
         const loginUrl = `${origin}/_connect/login?return=${encodeURIComponent(safeRelativePath(url.pathname + url.search))}`
         if (url.pathname === "/auth/status" && request.method === "GET") return json({ mode: "connect", enabled: true,
           authenticated: Boolean(session), cacheScope: null, loginUrl: `${origin}/_connect/login`, portalUrl: centralOrigin,
@@ -207,20 +214,31 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
             : json({ success: true, logoutUrl: `${centralOrigin}/logout/complete` }, 200, headers)
         }
         if (url.pathname === "/_connect/hosts" && request.method === "GET") return json({ hosts: registry.hosts(session.ownerId), currentHostId: hostId })
-        if (url.pathname.startsWith("/_connect/") || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/connect-local/") || url.pathname.startsWith("/_stillon/")) throw new ConnectFault("LOCAL_ONLY", 403)
+        if ((!assetRequest && url.pathname.startsWith("/_connect/")) || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/connect-local/") || url.pathname.startsWith("/_stillon/")) throw new ConnectFault("LOCAL_ONLY", 403)
         registry.limited(`traffic:${session.ownerId}`, 1_200, 60)
         if (!registry.publicHost(registry.requireHost(hostId)).online && ["GET", "HEAD"].includes(request.method)
           && request.headers.get("accept")?.includes("text/html")) return offlinePage(hostId, request.method === "HEAD")
-        const lease = registry.makeLease(session, request.method, url.pathname + url.search)
+        const previewUrl = resource ? new URL(resource.path + url.search, url) : url
+        if (resource) previewUrl.searchParams.set("preview-root", resource.context.directory)
+        const lease = registry.makeLease(session, request.method, previewUrl.pathname + previewUrl.search)
         const headers = forwardingHeaders(request)
+        if (projectPreviewTarget(previewUrl.pathname)) headers.set("accept-encoding", "identity")
         headers.set("host", new URL(origin).host)
         headers.set("x-stillon-connect-lease", signLease(lease, keys.privateKey))
         const scope = { hostId, parentId: session.parentId, ownerId: session.ownerId,
           valid: () => registry.validSession(session, auth.identityById) && !registry.requireHost(hostId).paused }
         const target = new URL(transport)
-        target.pathname = url.pathname; target.search = url.search
+        target.pathname = previewUrl.pathname; target.search = previewUrl.search
         if (url.pathname === "/ws") { target.protocol = "ws:"; return await relay.upgrade(request, server, target.href, headers, scope) }
-        return await relay.http(request, target.href, headers, scope)
+        const response = await relay.http(request, target.href, headers, scope)
+        if (resource) return await previewResources.wrap(response, request, resource.context, resource.filePath)
+        const preview = projectPreviewTarget(url.pathname)
+        if (preview && response.ok && response.headers.get("content-type")?.includes("text/html")) {
+          const context = previewResources.create(preview.projectId, preview.filePath, scope.valid)
+          previewSessions.set(context, { hostId, session })
+          return await previewResources.wrap(response, request, context, preview.filePath)
+        }
+        return response
       } catch (error) { return faultResponse(error) }
     },
     async plugin(request: Request) {
@@ -245,6 +263,6 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         return json({ reject: false, unchange: true })
       } catch { return json({ reject: true, reject_reason: "Access denied", unchange: true }) }
     },
-    close() { relay.stop(); auth.close(); registry.close() },
+    close() { previewResources.clear(); relay.stop(); auth.close(); registry.close() },
   }
 }

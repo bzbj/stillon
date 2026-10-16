@@ -3,6 +3,15 @@ import { validateIngress } from "./ingress"
 import { REMOTE_HEADER, REMOTE_OWNER_HEADER } from "./adapter"
 const options = { port: 4321, hostname: "127.0.0.1", peer: "127.0.0.1", secret: "x".repeat(43) }
 const request = (route: string, headers: Record<string, string> = {}, method = "GET") => new Request(`http://127.0.0.1:4321${route}`, { method, headers })
+test("fullscreen navigation and capability reads do not authorize cross-site app requests", () => {
+  const navigation = { "sec-fetch-site": "same-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-user": "?1" }
+  expect(validateIngress(request("/api/projects/p/preview/index.html", navigation), options)).toEqual({ kind: "local" })
+  expect((validateIngress(request("/api/projects/p/preview/index.html", { "sec-fetch-site": "cross-site" }), options) as Response).status).toBe(403)
+  expect((validateIngress(request("/api/projects/p/files", navigation), options) as Response).status).toBe(403)
+  expect(validateIngress(request("/_stillon/preview-assets/token/app.js", { origin: "null", "sec-fetch-site": "cross-site" }), options)).toEqual({ kind: "external" })
+  expect((validateIngress(request("/_stillon/preview-assets/token/app.js", { origin: "null" }, "POST"), options) as Response).status).toBe(403)
+  expect((validateIngress(request("/_stillon/preview-assets/token/app.js", { host: "evil.example" }), options) as Response).status).toBe(403)
+})
 test("local loopback UI needs no account, but Host, Origin and WebSocket are enforced", () => {
   expect(validateIngress(request("/"), options)).toEqual({ kind: "local" })
   for (const input of [request("/", { host: "evil.example" }), request("/", { origin: "https://evil.example" }),
