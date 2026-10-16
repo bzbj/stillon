@@ -11,6 +11,9 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       require-signing: false
+      require-connect: true
+      connect-origin: ${{ vars.STILLON_CONNECT_ORIGIN }}
+      connect-migrate-from-origins: ${{ vars.STILLON_CONNECT_MIGRATE_FROM_ORIGINS || '[]' }}
     secrets: inherit
 
   publish-desktop:
@@ -55,6 +58,14 @@ jobs:
 
       - name: Verify release tag matches package version
         run: bun run release:verify -- "${{ github.event.release.tag_name }}"
+
+      - name: Validate managed Connect release configuration
+        if: "${{ !contains(github.event.release.body, '<!-- stillon-release: source-only -->') }}"
+        run: bun -e "import { desktopConnectConfig } from './src/server/connect/config'; desktopConnectConfig(process.env)"
+        env:
+          STILLON_REQUIRE_CONNECT: '1'
+          STILLON_CONNECT_ORIGIN: ${{ vars.STILLON_CONNECT_ORIGIN }}
+          STILLON_CONNECT_MIGRATE_FROM_ORIGINS: ${{ vars.STILLON_CONNECT_MIGRATE_FROM_ORIGINS || '[]' }}
 
       - run: bun run check
 

@@ -12,6 +12,14 @@ on:
         description: Optional public HTTPS Connect origin to include in the runtime
         type: string
         default: ''
+      connect-migrate-from-origins:
+        description: JSON array of exact old managed origins approved for migration
+        type: string
+        default: '[]'
+      require-connect:
+        description: Require a real managed service origin (disable only for local or self-hosted builds)
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       require-signing:
@@ -20,6 +28,12 @@ on:
       connect-origin:
         type: string
         default: ''
+      connect-migrate-from-origins:
+        type: string
+        default: '[]'
+      require-connect:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -82,6 +96,8 @@ jobs:
           # PR artifacts exercise bundled frpc without contacting a live service.
           # Deployment builds must supply their actual public origin explicitly.
           STILLON_CONNECT_ORIGIN: ${{ inputs.connect-origin || (github.event_name == 'pull_request' && 'https://connect.example.invalid') || '' }}
+          STILLON_CONNECT_MIGRATE_FROM_ORIGINS: ${{ inputs.connect-migrate-from-origins || '[]' }}
+          STILLON_REQUIRE_CONNECT: ${{ inputs.require-connect && '1' || '0' }}
           MACOS_SIGN_IDENTITY: ${{ inputs.require-signing && secrets.MACOS_SIGN_IDENTITY || '' }}
           MACOS_NOTARY_PROFILE: ${{ inputs.require-signing && 'stillon-ci' || '' }}
           WINDOWS_SIGN_SCRIPT: scripts/sign-windows.ps1
@@ -89,6 +105,10 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ inputs.require-signing && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
       - name: Verify runtime, native services and user-data preservation
         run: bun scripts/verify-desktop.ts --native
+        env:
+          STILLON_CONNECT_ORIGIN: ${{ inputs.connect-origin || (github.event_name == 'pull_request' && 'https://connect.example.invalid') || '' }}
+          STILLON_CONNECT_MIGRATE_FROM_ORIGINS: ${{ inputs.connect-migrate-from-origins || '[]' }}
+          STILLON_REQUIRE_CONNECT: ${{ inputs.require-connect && '1' || '0' }}
       - name: Exercise Windows installer and uninstaller
         if: runner.os == 'Windows'
         shell: pwsh

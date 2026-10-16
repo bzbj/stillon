@@ -107,6 +107,28 @@ explicit operations; existing pending transactions resume rather than duplicate.
 
 ## Build and signing
 
+Official desktop releases require the repository Actions variable
+`STILLON_CONNECT_ORIGIN` to contain the managed service's public HTTPS origin.
+`STILLON_CONNECT_MIGRATE_FROM_ORIGINS` optionally contains a JSON array of exact
+previous origins that the same operator has approved for migration. The release
+workflow passes both values into all four native builds and verifies the sealed
+`runtime/connect.json`, bundled frpc and fresh-profile binding configuration.
+Missing, insecure or example origins fail managed publication before building.
+
+An approved migration retains device keys, computer ID, account binding, pause
+and pending revocation actions. It updates only the approved service and matching
+public URLs. Unrelated self-hosted services and overrides are preserved. Both
+saved files are replaced atomically and an interrupted migration converges on
+restart. Keep the old device API/tunnel bridge until existing computers have
+migrated. Browsers need a fresh login on a different domain.
+
+Manual/local builds remain available: omit the origin with `require-connect`
+disabled for local-only use, or supply an explicit HTTPS self-hosted origin.
+For a managed command-line build, set `STILLON_REQUIRE_CONNECT=1` and
+`STILLON_CONNECT_ORIGIN`; use `STILLON_CONNECT_MIGRATE_FROM_ORIGINS` only when the
+old and new services share the same account/device authority. Never place mail
+credentials or private configuration in these public package inputs.
+
 ```
 bun install --frozen-lockfile
 bun run check

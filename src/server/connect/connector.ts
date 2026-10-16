@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
+import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
 import pkg from "../../../package.json"
 
 type DeviceKeys = ReturnType<typeof newDeviceKeys>
@@ -24,6 +25,7 @@ export interface ConnectorOptions {
   origin?: string
   name: () => string
   frpcPath?: string
+  runtimeRoot?: string
   /** Explicit CA fixture for integration tests/private installations, never insecure TLS. */
   trustedCaFile?: string
 }
@@ -45,18 +47,19 @@ export async function createConnector(options: ConnectorOptions) {
   const directory = path.join(options.dataDir, "connect")
   const statePath = path.join(directory, "device.json")
   const configPath = path.join(directory, "frpc.json")
-  const runtimeRoot = path.resolve(import.meta.dir, "../../..")
-  let configuredOrigin = options.origin
-  if (!configuredOrigin) {
-    try { configuredOrigin = JSON.parse(await readFile(path.join(directory, "service.json"), "utf8")).origin }
-    catch { /* No saved user service: use the package's public default. */ }
-  }
-  if (!configuredOrigin) {
-    try { const config = JSON.parse(await readFile(path.join(runtimeRoot, "runtime/connect.json"), "utf8")); configuredOrigin = config.origin }
-    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) configuredOrigin = undefined }
-  }
-  let state: DeviceState | null = null
+  const runtimeRoot = options.runtimeRoot ?? path.resolve(import.meta.dir, "../../..")
+  const servicePath = path.join(directory, "service.json")
+  let savedService: Record<string, unknown> | undefined
+  try {
+    const value = JSON.parse(await readFile(servicePath, "utf8"))
+    if (value && typeof value === "object" && !Array.isArray(value)) savedService = value
+  } catch { /* No readable saved service: use explicit/package configuration. */ }
+  let packageConfig: ConnectRuntimeConfig | null = null
   let error: string | undefined
+  try { packageConfig = parseConnectRuntimeConfig(JSON.parse(await readFile(path.join(runtimeRoot, "runtime/connect.json"), "utf8"))) }
+  catch (caught) { if (!(caught instanceof Error && "code" in caught && caught.code === "ENOENT")) error = "INVALID_SERVICE_ORIGIN" }
+  const configuredOrigin = options.origin ?? savedService?.origin ?? packageConfig?.origin
+  let state: DeviceState | null = null
   try {
     state = JSON.parse(await readFile(statePath, "utf8")) as DeviceState
     if (state.version !== 1) throw new Error("Unknown state")
@@ -67,7 +70,7 @@ export async function createConnector(options: ConnectorOptions) {
     state = null
   }
   let origin: string | null = null
-  try { origin = state?.origin ?? (configuredOrigin ? validOrigin(configuredOrigin) : null) } catch { error = "INVALID_SERVICE_ORIGIN" }
+  try { origin = state?.origin ?? (typeof configuredOrigin === "string" ? validOrigin(configuredOrigin) : null) } catch { error = "INVALID_SERVICE_ORIGIN" }
   let status: ConnectLocalStatus["state"] = state?.pendingUnbind ? "revocation-pending" : state?.paused ? "paused" : state?.binding ? "connecting" : state?.enrollment ? "pending" : "unbound"
   let adapter: ReturnType<typeof startRemoteAdapter> | null = null
   let frpc: ReturnType<typeof Bun.spawn> | null = null
@@ -75,12 +78,28 @@ export async function createConnector(options: ConnectorOptions) {
   let lastCloudResponseAt: number | null = null
   const instanceId = randomId()
   const abort = new AbortController()
-  async function save() {
+  async function saveJson(file: string, value: unknown) {
     await mkdir(directory, { recursive: true, mode: 0o700 })
-    if (!state) { await rm(statePath, { force: true }); return }
-    const temporary = `${statePath}.${randomId()}.tmp`
-    try { await writeFile(temporary, JSON.stringify(state), { mode: 0o600, flag: "wx" }); await secureFile(temporary); await rename(temporary, statePath) }
+    const temporary = `${file}.${randomId()}.tmp`
+    try { await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" }); await secureFile(temporary); await rename(temporary, file) }
     finally { await rm(temporary, { force: true }) }
+  }
+  async function save() {
+    if (!state) { await rm(statePath, { force: true }); return }
+    await saveJson(statePath, state)
+  }
+  // Only the package publisher's exact allowlist can move an existing authority.
+  // Save the service first so an interrupted two-file migration retries safely.
+  if (origin && packageConfig?.migrateFromOrigins?.includes(origin)
+    && (!options.origin || options.origin === origin || options.origin === packageConfig.origin)) {
+    const nextOrigin = packageConfig.origin
+    await saveJson(servicePath, { ...savedService, origin: nextOrigin })
+    if (state) { state = migrateConnectState(state, nextOrigin); await save() }
+    origin = nextOrigin
+  } else if (packageConfig && state?.origin === packageConfig.origin && typeof savedService?.origin === "string"
+    && packageConfig.migrateFromOrigins?.includes(savedService.origin)) {
+    // Also finish a migration interrupted after device.json was already saved.
+    await saveJson(servicePath, { ...savedService, origin: packageConfig.origin })
   }
   async function post<T>(route: string, body: unknown): Promise<T> {
     if (!origin) throw new ConnectorError("SERVICE_NOT_CONFIGURED")
@@ -132,7 +151,7 @@ export async function createConnector(options: ConnectorOptions) {
     const service = new URL(origin!)
     if (result.tunnel.protocol !== "wss" && service.protocol !== "http:") throw new ConnectorError("INVALID_TUNNEL_CONFIGURATION")
     generation = result.generation
-    state.binding.epoch = result.epoch; state.binding.gatewayPublicKey = result.gatewayPublicKey
+    state.binding.epoch = result.epoch; state.binding.gatewayPublicKey = result.gatewayPublicKey; state.binding.url = result.hostOrigin
     await save()
     adapter = startRemoteAdapter({ targetOrigin: options.targetOrigin, localSecret: options.localSecret,
       publicKey: result.gatewayPublicKey, hostId: state.binding.hostId, epoch: result.epoch, generation })

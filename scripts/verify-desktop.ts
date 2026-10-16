@@ -9,8 +9,10 @@ import { updateRoot, updateTarget, type UpdateDeployment } from "../src/server/u
 import pkg from "../package.json"
 import { rehearseNativeSourceMigration } from "./rehearse-native-source-migration"
 import { rehearseDesktopUpdate } from "./rehearse-desktop-update"
+import { desktopConnectConfig, parseConnectRuntimeConfig } from "../src/server/connect/config"
 
 const target = updateTarget()
+const expectedConnect = desktopConnectConfig(process.env)
 const archive = path.resolve("dist/desktop/release", artifactName(pkg.version, target.platform, target.architecture))
 const root = await mkdtemp(path.join(os.tmpdir(), "stillon-desktop-acceptance-"))
 const runtime = path.join(root, "extracted", "runtime with spaces")
@@ -40,6 +42,11 @@ try {
   await verifyBundle(runtime, target)
   timings.unpackAndVerify = Math.round(performance.now() - started)
   checks.push("archive integrity; clean extraction outside repository; no source dependencies")
+  const configFile = Bun.file(path.join(runtime, "runtime/connect.json"))
+  const actualConnect = await configFile.exists() ? parseConnectRuntimeConfig(await configFile.json()) : null
+  if (JSON.stringify(actualConnect) !== JSON.stringify(expectedConnect)) throw new Error("Packaged Connect configuration differs from the requested deployment")
+  if (!await Bun.file(path.join(runtime, "runtime/frp", target.platform === "win32" ? "frpc.exe" : "frpc")).exists()) throw new Error("Packaged connector is missing")
+  checks.push("sealed Connect default and approved migration list match build inputs; frpc present")
   const executable = path.join(runtime, bunRelativePath(target.platform))
   const actual = JSON.parse(await run([executable, "--no-env-file", "-e", "console.log(JSON.stringify({platform:process.platform,architecture:process.arch}))"], env))
   if (actual.platform !== target.platform || actual.architecture !== target.architecture) throw new Error("Bundled runtime architecture mismatch")
@@ -65,6 +72,10 @@ try {
     timings.firstNativeSetup = Math.round(performance.now() - started)
     const health = await (await localFetch("http://127.0.0.1:3210/health")).json() as { ok?: boolean; version?: string }
     if (!health.ok || health.version !== bundle.version) throw new Error("Native installed service is unhealthy")
+    const connect = await (await localFetch("http://127.0.0.1:3210/api/connect-local/status")).json() as { configured?: boolean; origin?: string; state?: string }
+    if (expectedConnect && (!connect.configured || connect.origin !== expectedConnect.origin || connect.state !== "unbound")) throw new Error("Fresh installed service cannot start managed email binding")
+    if (!expectedConnect && connect.configured) throw new Error("Local-only package unexpectedly configured a managed service")
+    checks.push(expectedConnect ? "fresh native user profile can start email binding with the packaged service default" : "explicit local-only package has no managed service default")
     checks.push("native per-user service and independent updater setup, no local build")
     // Launching again must open the existing deployment, preserving identity.
     started = performance.now()
