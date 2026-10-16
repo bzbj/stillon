@@ -50,7 +50,7 @@ describe("local HTML previews", () => {
 
       const createResponse = await fetch(`${origin}${LOCAL_HTML_PREVIEW_SESSION_ENDPOINT}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Origin: origin },
         body: JSON.stringify({ filePath: path.join(previewDir, "index.html") }),
       })
       expect(createResponse.status).toBe(201)

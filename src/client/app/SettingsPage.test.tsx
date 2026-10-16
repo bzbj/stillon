@@ -176,7 +176,7 @@ describe("resolveSettingsSectionId", () => {
 })
 
 describe("WelcomeChecklist", () => {
-  test("shows independent Codex and Claude tasks in the six-task setup flow", () => {
+  test("shows independent agent checks without requiring test messages", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <WelcomeChecklist
@@ -195,31 +195,27 @@ describe("WelcomeChecklist", () => {
       </MemoryRouter>
     )
 
-    expect(html).toContain("1 of 6 ready")
+    expect(html).toContain("1 of 4 ready")
     expect(html).toContain("Connect Codex")
     expect(html).toContain("Connect Claude Code")
-    expect(html).toContain("Send a first Codex message")
-    expect(html).toContain("Send a first Claude message")
-    expect((html.match(/md:grid-cols-2/g) ?? []).length).toBe(2)
+    expect(html).not.toContain("Send your first messages")
+    expect(html).not.toContain("test chat")
+    expect((html.match(/md:grid-cols-2/g) ?? []).length).toBe(1)
   })
 
-  test("counts all six tasks independently", () => {
+  test("counts only the name, service and two agent readiness checks", () => {
     const emptyProgress = {
       nameConfirmed: false,
       codexChecked: false,
       claudeChecked: false,
-      codexTestConfirmed: false,
-      claudeTestConfirmed: false,
     }
     const allCompleteProgress = {
       nameConfirmed: true,
       codexChecked: true,
       claudeChecked: true,
-      codexTestConfirmed: true,
-      claudeTestConfirmed: true,
     }
 
-    expect(ONBOARDING_TASK_COUNT).toBe(6)
+    expect(ONBOARDING_TASK_COUNT).toBe(4)
     expect(getOnboardingCompletedTaskCount(emptyProgress, {
       localServiceReady: true,
       codexReady: true,
@@ -229,12 +225,12 @@ describe("WelcomeChecklist", () => {
       localServiceReady: true,
       codexReady: true,
       claudeReady: true,
-    })).toBe(6)
+    })).toBe(4)
     expect(getOnboardingCompletedTaskCount(allCompleteProgress, {
       localServiceReady: true,
       codexReady: false,
       claudeReady: true,
-    })).toBe(5)
+    })).toBe(3)
   })
 
   test("treats provider readiness independently from optional usage data", () => {

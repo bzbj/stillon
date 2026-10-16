@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { privateBrowserStorage } from "../lib/remoteSession"
 import type { ChatAttachment } from "../../shared/types"
 
 interface ChatInputState {
@@ -60,6 +61,7 @@ export const useChatInputStore = create<ChatInputState>()(
     }),
     {
       name: "chat-input-drafts",
+      storage: privateBrowserStorage,
     }
   )
 )

@@ -6,9 +6,10 @@ import type { ClientCommand, ServerEnvelope } from "../shared/protocol"
 import { BUNDLED_CODEX_MODEL_POLICY, type CodexModelPolicy } from "../shared/codex-model-policy"
 import { applyServerCodexModelPolicy } from "./provider-catalog"
 import { startStillOnServer } from "./server"
+import { upstreamWebSocket } from "./connect/relay"
 
 function connect(port: number) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+  const ws = upstreamWebSocket(`ws://127.0.0.1:${port}/ws`, new Headers({ Origin: `http://127.0.0.1:${port}` }))
   const messages: ServerEnvelope[] = []
   const pending = new Map<string, { resolve: (value: ServerEnvelope) => void; reject: (error: Error) => void }>()
   ws.addEventListener("message", (event) => {
@@ -87,7 +88,7 @@ test("runtime policy endpoint and two live clients refresh, reject, restore and 
     const blocked = await fetch(`http://127.0.0.1:${server.port}/api/codex/model-policy/refresh`, {
       method: "POST", headers: { origin: "https://untrusted.example" } })
     expect(blocked.status).toBe(403)
-    const refreshed = await fetch(`http://127.0.0.1:${server.port}/api/codex/model-policy/refresh`, { method: "POST" })
+    const refreshed = await fetch(`http://127.0.0.1:${server.port}/api/codex/model-policy/refresh`, { method: "POST", headers: { Origin: `http://127.0.0.1:${server.port}` } })
     expect(refreshed.status).toBe(200)
     expect((await (await fetch(`http://127.0.0.1:${server.port}/api/codex/model-policy`)).json()).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
   } finally {
@@ -145,9 +146,9 @@ test("discovered candidates only become active after confirmation, synchronize c
     await c.opened
     const settings = await c.command({ type: "settings.readAppSettings" })
     expect(settings.codexModelPolicy?.policy).toEqual(accepted)
-    const httpDraft = await (await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/discover`, { method: "POST" })).json()
+    const httpDraft = await (await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/discover`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}` } })).json()
     const applied = await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/apply`, { method: "POST",
-      headers: { "content-type": "application/json" }, body: JSON.stringify({ ...selection, draftId: httpDraft.id }) })
+      headers: { "content-type": "application/json", Origin: `http://127.0.0.1:${port}` }, body: JSON.stringify({ ...selection, draftId: httpDraft.id }) })
     expect(applied.status).toBe(200)
     expect((await c.command({ type: "settings.restoreCodexModelPolicy", target: "previous" })).type).toBe("ack")
     expect((await read()).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)

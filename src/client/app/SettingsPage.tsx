@@ -87,12 +87,15 @@ import {
   getDefaultEditorCommandTemplate,
   useTerminalPreferencesStore,
 } from "../stores/terminalPreferencesStore"
-import { NEW_CHAT_COMPOSER_ID, useChatPreferencesStore } from "../stores/chatPreferencesStore"
+import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, type ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
 import { AppearanceSettingsPanel } from "./AppearanceSettings"
 import type { StillOnState } from "./useStillOnState"
 
+import { RemoteAccessSettings } from "./RemoteAccessSettings"
+
 const sidebarItems = [
+  { id: "remote", label: "Remote access", icon: Wifi, subtitle: "Link your email to use this computer from another device." },
   {
     id: "welcome",
     label: "Get started",
@@ -1087,18 +1090,12 @@ export function SubscriptionUsageSection({
 }
 
 const ONBOARDING_PROGRESS_STORAGE_KEY = "stillon:onboarding-progress-v1"
-export const ONBOARDING_TASK_COUNT = 6
+export const ONBOARDING_TASK_COUNT = 4
 
 export type OnboardingProgress = {
   nameConfirmed: boolean
   codexChecked: boolean
   claudeChecked: boolean
-  codexTestConfirmed: boolean
-  claudeTestConfirmed: boolean
-}
-
-type LegacyOnboardingProgress = Partial<OnboardingProgress> & {
-  providerTestConfirmed?: boolean
 }
 
 type OnboardingCopyStatus = "idle" | "copied" | "error"
@@ -1107,8 +1104,6 @@ const EMPTY_ONBOARDING_PROGRESS: OnboardingProgress = {
   nameConfirmed: false,
   codexChecked: false,
   claudeChecked: false,
-  codexTestConfirmed: false,
-  claudeTestConfirmed: false,
 }
 
 export function getOnboardingCompletedTaskCount(
@@ -1120,8 +1115,6 @@ export function getOnboardingCompletedTaskCount(
     readiness.localServiceReady,
     progress.codexChecked && readiness.codexReady,
     progress.claudeChecked && readiness.claudeReady,
-    progress.codexTestConfirmed,
-    progress.claudeTestConfirmed,
   ].filter(Boolean).length
 }
 
@@ -1129,15 +1122,11 @@ function readOnboardingProgress(): OnboardingProgress {
   if (typeof window === "undefined") return EMPTY_ONBOARDING_PROGRESS
 
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(ONBOARDING_PROGRESS_STORAGE_KEY) ?? "{}") as LegacyOnboardingProgress
+    const parsed = JSON.parse(window.localStorage.getItem(ONBOARDING_PROGRESS_STORAGE_KEY) ?? "{}") as Partial<OnboardingProgress>
     return {
       nameConfirmed: parsed.nameConfirmed === true,
       codexChecked: parsed.codexChecked === true,
       claudeChecked: parsed.claudeChecked === true,
-      codexTestConfirmed: parsed.codexTestConfirmed === true,
-      // Preserve the completed Claude test for people who used the previous
-      // Claude-only onboarding checklist.
-      claudeTestConfirmed: parsed.claudeTestConfirmed === true || parsed.providerTestConfirmed === true,
     }
   } catch {
     return EMPTY_ONBOARDING_PROGRESS
@@ -1329,7 +1318,6 @@ export function OnboardingProviderStatusDetails({
 }
 
 export function WelcomeChecklist({ state }: { state: StillOnState }) {
-  const navigate = useNavigate()
   const currentMachineName = state.machineName ?? ""
   const isMachineNameReady = Boolean(state.appSettings)
   const [machineNameDraft, setMachineNameDraft] = useState(currentMachineName)
@@ -1422,39 +1410,15 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
     }
   }
 
-  function startProviderTest(provider: AgentProvider) {
-    useChatPreferencesStore.getState().setChatComposerProvider(NEW_CHAT_COMPOSER_ID, provider)
-    const firstProject = state.localProjects?.projects[0]
-    if (firstProject) {
-      void state.handleOpenLocalProject(firstProject.localPath)
-      return
-    }
-
-    navigate("/")
-    state.openAddProjectModal()
-  }
-
   return (
     <div className="mx-auto w-full max-w-4xl pb-16">
-      <header className="rounded-2xl border border-border bg-card px-5 py-6 shadow-sm sm:px-7 sm:py-8">
-        <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-logo/15 text-logo">
-            <Sparkles className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-logo">First run</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-foreground sm:text-3xl">Set up {APP_NAME}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Name this machine, confirm the local connection, then verify that Codex and Claude Code are ready. Provider checks never send a chat or consume model usage.
-            </p>
-          </div>
+      <header className="rounded-xl border border-border bg-card px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 shrink-0 text-logo" aria-hidden="true" />
+          <h1 className="min-w-0 flex-1 text-base font-semibold text-foreground">Set up {APP_NAME}</h1>
+          <span className="shrink-0 text-xs text-muted-foreground" aria-live="polite">{completedSteps} of {ONBOARDING_TASK_COUNT} ready</span>
         </div>
-        <div className="mt-5 flex items-center gap-3 text-sm text-muted-foreground" aria-live="polite">
-          <span className="font-medium text-foreground">{completedSteps} of {ONBOARDING_TASK_COUNT} ready</span>
-          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-            <div className="h-full rounded-full bg-logo transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${(completedSteps / ONBOARDING_TASK_COUNT) * 100}%` }} />
-          </div>
-        </div>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer and check the service and agents.</p>
       </header>
 
       <div className="mt-5 space-y-4">
@@ -1555,60 +1519,6 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
           </div>
         </OnboardingStep>
 
-        <OnboardingStep
-          number={4}
-          title="Send your first messages"
-          description="Start each test only when you are ready to use that provider's quota, then confirm after you receive a reply in StillOn."
-          complete={progress.codexTestConfirmed && progress.claudeTestConfirmed}
-        >
-          <div className="grid gap-3 md:grid-cols-2">
-            <OnboardingProviderCard
-              title="Send a first Codex message"
-              description="This uses Codex quota only after you send a prompt."
-              complete={progress.codexTestConfirmed}
-              completeLabel="Complete"
-              pendingLabel="Not started"
-            >
-              <div className="mt-auto space-y-3">
-                <Button type="button" onClick={() => startProviderTest("codex")} disabled={!codexConnected} className="min-h-11 w-full">
-                  Start a Codex test chat
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => updateProgress({ codexTestConfirmed: !progress.codexTestConfirmed })}
-                  className="min-h-11 w-full"
-                >
-                  {progress.codexTestConfirmed ? "Mark test incomplete" : "I received a Codex reply"}
-                </Button>
-                {!codexConnected ? <p className="text-xs leading-5 text-muted-foreground">Complete the Codex check before starting a test chat.</p> : null}
-              </div>
-            </OnboardingProviderCard>
-
-            <OnboardingProviderCard
-              title="Send a first Claude message"
-              description="This uses Claude quota only after you send a prompt."
-              complete={progress.claudeTestConfirmed}
-              completeLabel="Complete"
-              pendingLabel="Not started"
-            >
-              <div className="mt-auto space-y-3">
-                <Button type="button" onClick={() => startProviderTest("claude")} disabled={!claudeConnected} className="min-h-11 w-full">
-                  Start a Claude test chat
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => updateProgress({ claudeTestConfirmed: !progress.claudeTestConfirmed })}
-                  className="min-h-11 w-full"
-                >
-                  {progress.claudeTestConfirmed ? "Mark test incomplete" : "I received a Claude reply"}
-                </Button>
-                {!claudeConnected ? <p className="text-xs leading-5 text-muted-foreground">Complete the Claude Code check before starting a test chat.</p> : null}
-              </div>
-            </OnboardingProviderCard>
-          </div>
-        </OnboardingStep>
       </div>
     </div>
   )
@@ -3054,6 +2964,8 @@ export function SettingsPage() {
 
                     </div>
                   </>
+                ) : selectedPage === "remote" ? (
+                  <RemoteAccessSettings onSignOut={state.handleSignOut} />
                 ) : selectedPage === "network" ? (
                   <NetworkSettingsSection state={state} />
                 ) : selectedPage === "providers" ? (

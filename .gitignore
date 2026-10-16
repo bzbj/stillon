@@ -31,6 +31,8 @@ vite.config.ts.timestamp-*
 /.kanna-dev
 /.stillon
 /.stillon-dev
+/.stillon-connect
+/runtime/
 
 # Isolated async answer browser acceptance artifacts
 test-artifacts/

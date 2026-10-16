@@ -20,6 +20,7 @@
   "include": [
     "scripts/**/*.ts",
     "vite.config.ts",
+    "vite.connect.config.ts",
     "vite.export-viewer.config.ts",
     "src/main.tsx",
     "src/index.css",
@@ -27,6 +28,8 @@
     "src/export-viewer/**/*.tsx",
     "src/shared/**/*.ts",
     "src/server/**/*.ts",
+    "src/connect/**/*.ts",
+    "src/connect/**/*.tsx",
     "src/client/app/**/*.ts",
     "src/client/app/**/*.tsx",
     "src/client/hooks/useTheme.tsx",

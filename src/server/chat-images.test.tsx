@@ -47,6 +47,7 @@ describe("chat image content", () => {
         strictPort: false,
         openBrowser: false,
         password,
+        allowedOrigins: ["http://stillon.example.com"],
       })
       try {
         const project = await server.store.openProject(projectDir, "Image test")

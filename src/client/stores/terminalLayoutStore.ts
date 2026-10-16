@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { privateBrowserStorage } from "../lib/remoteSession"
 
 export interface TerminalPaneLayout {
   id: string
@@ -179,6 +180,7 @@ export const useTerminalLayoutStore = create<TerminalLayoutState>()(
     }),
     {
       name: "terminal-layouts",
+      storage: privateBrowserStorage,
       version: 1,
     }
   )

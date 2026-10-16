@@ -1,0 +1,24 @@
+[Unit]
+Description=StillOn Connect restricted outbound transport
+After=network-online.target stillon-connect.service
+Requires=stillon-connect.service
+
+[Service]
+User=stillon-connect
+Group=stillon-connect
+WorkingDirectory=/opt/stillon-connect/current
+ExecStart=/opt/stillon-connect/current/runtime/frp/frps -c /etc/stillon-connect/frps.toml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=256M
+TasksMax=128
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

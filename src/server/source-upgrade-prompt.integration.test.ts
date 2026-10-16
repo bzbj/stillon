@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { APP_VERSION } from "../shared/branding"
 import { startStillOnServer } from "./server"
+import { upstreamWebSocket } from "./connect/relay"
 
 test("upgrade prompts report the connected server and its fallback port over WebSocket", async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-upgrade-prompt-"))
@@ -13,7 +14,7 @@ test("upgrade prompts report the connected server and its fallback port over Web
   try {
     server = await startStillOnServer({ dataDir, host: "127.0.0.1", port: occupied.port!, openBrowser: false })
     expect(server.port).not.toBe(occupied.port)
-    const connected = new WebSocket(`ws://127.0.0.1:${server.port}/ws`)
+    const connected = upstreamWebSocket(`ws://127.0.0.1:${server.port}/ws`, new Headers({ Origin: `http://127.0.0.1:${server.port}` }))
     socket = connected
     const response = await new Promise<{ type: string; result: { prompt: string } }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Upgrade prompt request timed out")), 5_000)

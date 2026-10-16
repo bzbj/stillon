@@ -1679,7 +1679,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
         authScope: cacheScope,
       }), getBrowserSidebarSnapshotStorage())
       setCommandError(null)
-      window.location.reload()
+      const result = await response.json() as { logoutUrl?: string }
+      if (result.logoutUrl) window.location.replace(result.logoutUrl)
+      else window.location.reload()
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }

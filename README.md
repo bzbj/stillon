@@ -330,6 +330,14 @@ trusted proxy is the sole route to the local origin.
 
 ## Development
 
+The **StillOn Connect development preview** adds local email binding, managed
+outbound tunnels, separate computer URLs and remote Logout. See
+[Connect remote access](docs/connect-remote-access.md) for architecture, tests,
+packaging and release gates, and [email login](docs/connect-email-login.md) for
+sender configuration. A managed service must be deployed before a packaged
+client can use it; public-network and independent-platform acceptance remain
+required before a customer release.
+
 ```bash
 bun run dev
 bun run check

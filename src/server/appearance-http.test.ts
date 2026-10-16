@@ -13,7 +13,7 @@ test("appearance routes use real server authentication and do not apply uploads"
   const server = await startStillOnServer({ dataDir, port, strictPort: true, openBrowser: false, password: "test-only-password" })
   const origin = `http://127.0.0.1:${port}`
   try {
-    const uploadedWithoutAuth = await fetch(`${origin}/api/appearance/background`, { method: "POST", body: APPEARANCE_FIXTURE_PNG })
+    const uploadedWithoutAuth = await fetch(`${origin}/api/appearance/background`, { method: "POST", body: APPEARANCE_FIXTURE_PNG, headers: { Origin: origin } })
     expect(uploadedWithoutAuth.status).toBe(401)
     const login = await fetch(`${origin}/auth/login`, { method: "POST", body: JSON.stringify({ password: "test-only-password" }), headers: { "Content-Type": "application/json", Origin: origin } })
     expect(login.status).toBe(200)

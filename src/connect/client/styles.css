@@ -1,0 +1,45 @@
+@import "tailwindcss" source(none);
+@source "./";
+@source "../../client/components/ui";
+
+@theme {
+  --color-background: #fafafa;
+  --color-foreground: #172033;
+  --color-primary: #172033;
+  --color-primary-foreground: #fff;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #172033;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #172033;
+  --color-destructive: #b91c1c;
+  --color-destructive-foreground: #fff;
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #475569;
+}
+
+html, body, #root { min-height: 100%; }
+body { margin: 0; }
+
+.connect-shell {
+  min-height: 100dvh;
+  background: #fafafa;
+  color: #172033;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.connect-shell input:focus-visible {
+  outline: 2px solid #475569;
+  outline-offset: 3px;
+}
+
+@keyframes connect-caret {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0; }
+}
+.connect-caret { animation: connect-caret 1.1s step-end infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .connect-caret { animation: none; }
+}

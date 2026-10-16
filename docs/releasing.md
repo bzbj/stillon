@@ -55,7 +55,9 @@ met. Patch and minor releases do not advance the edition automatically.
 
 5. Commit the version change on `main`, push it, then create and push an
    annotated `v0.1.1` tag.
-6. Draft release notes from the actual diff, then publish the GitHub Release.
+6. Draft the release title and notes in English from the actual diff, then
+   publish the GitHub Release. Keep identifiers, commands and quoted source
+   text unchanged when needed for accuracy.
    The `Build release assets` workflow runs on publication, repeats the
    validation, and uploads the export-viewer assets.
 7. Confirm the workflow passed and that the new release appears in

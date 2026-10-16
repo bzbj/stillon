@@ -785,10 +785,6 @@ export function ChatPage() {
     void state.handleCancel()
   }, [state.handleCancel])
 
-  const handleOpenExternal = useCallback<NonNullable<ComponentProps<typeof ChatNavbar>["onOpenExternal"]>>((action, editor) => {
-    void state.handleOpenExternal(action, editor)
-  }, [state.handleOpenExternal])
-
   const handleOpenDiffPreview = useCallback((filePath: string) => {
     if (!projectId) return
     navigateBrowser(projectId, buildProjectRenderablePreviewUrl(projectId, filePath))
@@ -1097,26 +1093,8 @@ export function ChatPage() {
           onOpenSidebar={state.openSidebar}
           onNewChat={state.handleCompose}
           localPath={state.navbarLocalPath}
-          embeddedTerminalVisible={showTerminalPane}
-          onToggleEmbeddedTerminal={projectId ? handleToggleEmbeddedTerminal : undefined}
           rightPanel={activeRightPanel}
-          onToggleGitPanel={projectId ? handleToggleGitPanel : undefined}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
-          onOpenExternal={handleOpenExternal}
-          onExportTranscript={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
-          canExportTranscript={Boolean(state.activeChatId) && !state.isExportingStandalone}
-          isExportingTranscript={state.isExportingStandalone}
-          exportTranscriptComplete={state.standaloneShareComplete}
-          editorPreset={editorPreset}
-          editorCommandTemplate={editorCommandTemplate}
-          platform={state.localProjects?.machine.platform}
-          finderShortcut={resolvedKeybindings.bindings.openInFinder}
-          editorShortcut={resolvedKeybindings.bindings.openInEditor}
-          terminalShortcut={resolvedKeybindings.bindings.toggleEmbeddedTerminal}
-          rightSidebarShortcut={resolvedKeybindings.bindings.toggleRightSidebar}
-          branchName={state.chatDiffSnapshot?.branchName}
-          hasGitRepo={state.chatDiffSnapshot?.status !== "no_repo"}
-          gitStatus={state.chatDiffSnapshot?.status}
         />
         <Suspense fallback={<ChatTranscriptLoadingFallback />}>
           <AsyncQuestionDeliveryContext.Provider value={{ chatId: state.activeChatId ?? "", delivery: state.asyncQuestionDelivery }}>

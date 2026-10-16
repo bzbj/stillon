@@ -8,11 +8,18 @@ on:
         description: Build signed installers for acceptance without publishing a release
         type: boolean
         default: false
+      connect-origin:
+        description: Optional public HTTPS Connect origin to include in the runtime
+        type: string
+        default: ''
   workflow_call:
     inputs:
       require-signing:
         type: boolean
         default: false
+      connect-origin:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -72,6 +79,9 @@ jobs:
       - name: Build runtime and native installer
         run: bun scripts/build-desktop.ts
         env:
+          # PR artifacts exercise bundled frpc without contacting a live service.
+          # Deployment builds must supply their actual public origin explicitly.
+          STILLON_CONNECT_ORIGIN: ${{ inputs.connect-origin || (github.event_name == 'pull_request' && 'https://connect.example.invalid') || '' }}
           MACOS_SIGN_IDENTITY: ${{ inputs.require-signing && secrets.MACOS_SIGN_IDENTITY || '' }}
           MACOS_NOTARY_PROFILE: ${{ inputs.require-signing && 'stillon-ci' || '' }}
           WINDOWS_SIGN_SCRIPT: scripts/sign-windows.ps1

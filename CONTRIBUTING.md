@@ -14,6 +14,9 @@ bun run audit
 ~~~
 
 Open a focused pull request with a clear description, user impact, and validation notes.
+Write all pull request titles and descriptions in English. Write GitHub Release
+titles and release notes in English as well. Keep identifiers, commands and
+quoted source text unchanged when needed for accuracy.
 Release versions are chosen explicitly after merge; follow the [release guide](docs/releasing.md).
 
 ## Public-repository hygiene

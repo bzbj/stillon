@@ -4,15 +4,15 @@ import os from "node:os"
 import path from "node:path"
 import { createServiceLaunchSpec, manageService, resolveServiceBackend, runServiceCommand } from "../service"
 import { getMacosServicePaths } from "../service/macos"
-import { getWindowsServicePaths } from "../service/windows"
+import { getWindowsServicePaths, WINDOWS_TASK_NAME } from "../service/windows"
 import { assertCommandSucceeded } from "../service/types"
 import { appCommand, appStatus, leaseAlive, localFetch, pauseManagedServer, waitUntil } from "../updater/control"
 import { setupManagedUpdates } from "../updater/cli"
 import { atomicJson, exists, inside, json } from "../updater/files"
 import { FINISHED_PHASES, updateRoot, updateTarget, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
-import { stopWindowsServiceProcesses } from "../updater/processes"
-import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
+import { stopWindowsEncodedProcesses } from "../updater/processes"
+import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
 
@@ -36,6 +36,7 @@ export async function verifyDesktopReceipt(root: string) {
     || (receipt.service.platform === "win32" && await windowsServiceHash(runServiceCommand, UPDATE_TASK) !== receipt.updaterNativeHash)) {
     throw new Error("The updater service definition changed. Review the custom service before uninstalling.")
   }
+  return receipt
 }
 
 export function desktopPath(home: string, platform = process.platform, inherited = process.env.PATH ?? "") {
@@ -130,13 +131,16 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,
     port, host: "127.0.0.1", pathEnvironment: desktopPath(home), recordInstallation: true })
+  // The first native PowerShell launch on Windows ARM can still be warming up
+  // before a watchdog log exists. Keep a bounded first-start wait, without
+  // reinstalling, weakening identity checks, or retrying an unhealthy service.
   await waitUntil(async () => {
     try {
       const response = await localFetch(`http://127.0.0.1:${port}/health?update-setup=1`)
       const data = await response.json() as { ok?: boolean; busy?: boolean; managedUpdateProtocol?: number; runtimeProfile?: string }
       return response.ok && data.ok === true && data.busy === false && data.managedUpdateProtocol === 1 && data.runtimeProfile === "prod"
     } catch { return false }
-  })
+  }, target.platform === "win32" ? 120_000 : 60_000)
   await setupManagedUpdates(root)
   await waitUntil(async () => {
     const setup = await json<SetupState>(path.join(root, "setup.json"))
@@ -154,7 +158,11 @@ export async function uninstallDesktop() {
   if (!await exists(path.join(directory, "desktop.json"))) return
   const root = await realpath(directory)
   const { deployment } = await verifyOwnedDeployment(root)
-  await verifyDesktopReceipt(root)
+  const receipt = await verifyDesktopReceipt(root)
+  // Capture both verified native identities before deleting their task files.
+  // Task Scheduler /End alone can leave an updater console holding this folder.
+  const updaterCommand = deployment.platform === "win32" ? await windowsServiceCommand(receipt.updaterFile) : null
+  const serviceCommand = deployment.platform === "win32" ? await windowsServiceCommand(receipt.service.serviceFile) : null
   if (await leaseAlive(root)) throw new Error("Wait for the current update to finish before uninstalling")
   if (await exists(path.join(root, "request.json"))) throw new Error("Wait for the queued update to finish before uninstalling")
   if (await exists(path.join(root, "state.json")) && !FINISHED_PHASES.has((await json<UpdateState>(path.join(root, "state.json"))).phase)) {
@@ -170,10 +178,14 @@ export async function uninstallDesktop() {
   const managed = { ...deployment.launch, args: [deployment.controller, "serve", root], workingDirectory: root, environmentFile: undefined }
   const context = { launch: managed, run: runServiceCommand, log: console.log, warn: console.warn }
   if (deployment.platform === "win32") {
-    await runServiceCommand("schtasks.exe", ["/End", "/TN", UPDATE_TASK])
+    // /Delete removes future scheduling without interrupting a running process.
+    // Keep its encoded parent alive until the ownership-checked tree stop:
+    // /End first can orphan children and lose that command identity.
     assertCommandSucceeded("Remove updater", await runServiceCommand("schtasks.exe", ["/Delete", "/TN", UPDATE_TASK, "/F"]))
+    assertCommandSucceeded("Remove application task", await runServiceCommand("schtasks.exe", ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]))
+    await stopWindowsEncodedProcesses(updaterCommand!)
+    await stopWindowsEncodedProcesses(serviceCommand!)
     await resolveServiceBackend("win32").uninstall(context)
-    await stopWindowsServiceProcesses(managed)
   } else {
     const domain = `gui/${process.getuid!()}`
     const result = await runServiceCommand("/bin/launchctl", ["bootout", `${domain}/${UPDATE_AGENT}`])
@@ -183,7 +195,15 @@ export async function uninstallDesktop() {
   }
   // Retain runtimes and recovery records under a distinct inactive directory.
   // A later fresh install can reuse ~/.stillon without reviving old supervisors.
-  await rename(root, `${root}-uninstalled-${Date.now()}`)
+  const retired = `${root}-uninstalled-${Date.now()}`
+  // Windows may retain a stopped service's directory handle briefly. Keep the
+  // intact installation if it cannot be retired; never delete it as a fallback.
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(root, retired); break } catch (error) {
+      if (deployment.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+      await Bun.sleep(250)
+    }
+  }
   console.log("StillOn background services removed. Your chats, themes, skins and settings were preserved.")
 }
 

@@ -1,8 +1,9 @@
-import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { updateTarget } from "../src/server/updater/model"
+import { FRP_VERSION, prepareConnectRuntime } from "./prepare-connect-runtime"
 
 const repository = path.resolve(import.meta.dir, "..")
 const output = path.join(repository, "dist", "desktop")
@@ -19,6 +20,21 @@ async function capture(command: string[]) {
   const text = await new Response(child.stdout).text()
   if (await child.exited !== 0) throw new Error(`Desktop build failed: ${command[0]}`)
   return text.trim()
+}
+
+async function createDiskImage(command: string[]) {
+  // macOS can temporarily lock newly staged app bundles while scanning them.
+  // Retry only that error; never disable system security/indexing services.
+  // https://github.com/actions/runner-images/issues/7522
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const child = Bun.spawn(command, { cwd: repository, stdin: "ignore", stdout: "inherit", stderr: "pipe" })
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+    if (stderr) process.stderr.write(stderr)
+    if (code === 0) return
+    if (attempt === 4 || !/Resource busy/i.test(stderr)) throw new Error(`Disk image creation failed (${code})`)
+    console.log(`Disk image source is busy; retry ${attempt}/3 in ${attempt * 10} seconds…`)
+    await Bun.sleep(attempt * 10_000)
+  }
 }
 
 async function buildMacInstaller() {
@@ -55,7 +71,7 @@ async function buildMacInstaller() {
   await symlink("/Applications", path.join(output, "macos", "Applications"))
   await writeFile(path.join(output, "macos", "Read me.txt"), "Drag StillOn to Applications, then open it.\nOn first launch, confirm background setup.\nTo uninstall, hold Option while opening StillOn, choose Remove background services, then remove the app.\nChats, settings, themes and skins remain in your user directory.\n")
   const dmg = path.join(release, `StillOn-${pkg.version}-macos-${target.architecture}${process.env.MACOS_SIGN_IDENTITY ? "" : "-unsigned"}.dmg`)
-  await run(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
+  await createDiskImage(["/usr/bin/hdiutil", "create", "-volname", "StillOn", "-srcfolder", path.join(output, "macos"), "-ov", "-format", "UDZO", dmg])
   if (process.env.MACOS_SIGN_IDENTITY) {
     await run(["/usr/bin/codesign", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, dmg])
     if (!process.env.MACOS_NOTARY_PROFILE) throw new Error("A signed public installer requires MACOS_NOTARY_PROFILE")
@@ -103,11 +119,30 @@ async function main() {
       filter: (source) => !/\.test\.tsx?$/.test(source) })
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
+  const connectOrigin = process.env.STILLON_CONNECT_ORIGIN
+  if (connectOrigin) {
+    const origin = new URL(connectOrigin)
+    if (origin.protocol !== "https:" || origin.origin !== connectOrigin || origin.username || origin.password) throw new Error("Desktop Connect origin must be an HTTPS origin")
+    await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
+    const frpc = path.join(runtime, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
+    if (await capture([frpc, "--version"]) !== FRP_VERSION) throw new Error("Bundled connector cannot run on this build target")
+    // Only public configuration enters the desktop artifact. Never copy an env file.
+    await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify({ origin: origin.origin }) + "\n")
+  }
   await copyFile(process.execPath, path.join(runtime, bunRelativePath(target.platform)))
   await chmod(path.join(runtime, bunRelativePath(target.platform)), 0o755)
   const controller = await Bun.build({ entrypoints: [path.join(repository, "src/server/updater/entry.ts")], target: "bun", packages: "bundle", naming: "controller.js", outdir: path.join(runtime, "runtime") })
   if (!controller.success) throw new AggregateError(controller.logs, "Could not bundle the updater")
   if (target.platform === "darwin" && process.env.MACOS_SIGN_IDENTITY) {
+    if (connectOrigin) {
+      const frpc = path.join(runtime, "runtime/frp/frpc")
+      await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", process.env.MACOS_SIGN_IDENTITY, frpc])
+      // Pin downloads before signing, then seal the signed installed bytes.
+      const manifestFile = path.join(runtime, "runtime/frp/manifest.json")
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"))
+      manifest.files.frpc = sha256(await readFile(frpc))
+      await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + "\n")
+    }
     await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", process.env.MACOS_SIGN_IDENTITY,
       path.join(runtime, bunRelativePath("darwin"))])
     // Keep third-party Developer ID signatures intact, but reject unsigned or

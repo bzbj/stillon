@@ -125,6 +125,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 }
 
 export interface ClientState {
+  remoteOwnerId?: string
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
   chatStreams?: Map<string, ChatStreamEncoder>
@@ -133,6 +134,7 @@ export interface ClientState {
 }
 
 interface CreateWsRouterArgs {
+  remoteOperations?: import("./connect/operations").RemoteOperations
   store: EventStore
   diffStore?: Pick<DiffStore, "getProjectSnapshot" | "refreshSnapshot" | "initializeGit" | "getGitHubPublishInfo" | "checkGitHubRepoAvailability" | "publishToGitHub" | "listBranches" | "previewMergeBranch" | "mergeBranch" | "syncBranch" | "checkoutBranch" | "createBranch" | "generateCommitMessage" | "commitFiles" | "discardFile" | "ignoreFile" | "readPatch">
   agent: AgentCoordinator
@@ -413,6 +415,7 @@ export function createWsRouter({
   subscriptionUsage,
   sourceUpgradePrompt,
   managedUpdate,
+  remoteOperations,
   agentNetwork,
   refreshDiscovery,
   getDiscoveredProjects,
@@ -420,6 +423,7 @@ export function createWsRouter({
   machineDisplayName,
 }: CreateWsRouterArgs) {
   function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
+    if (ws.data.remoteOwnerId) remoteOperations?.finish(ws.data.remoteOwnerId, message)
     if (codexModelPolicy) {
       const snapshot = codexModelPolicy.getSnapshot()
       const signature = JSON.stringify(snapshot)
@@ -1188,6 +1192,8 @@ export function createWsRouter({
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
     try {
+      if (ws.data.remoteOwnerId && ["browser.listLocalHttpServers", "browser.killLocalHttpServer", "system.openExternal",
+        "settings.generateSourceUpgradePrompt", "settings.requestManagedUpdate"].includes(command.type)) throw new Error("This action is available only on the computer itself.")
       switch (command.type) {
         case "system.ping": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
@@ -1829,6 +1835,13 @@ export function createWsRouter({
         return
       }
 
+      if (ws.data.remoteOwnerId && parsed.command.type !== "system.ping") {
+        try {
+          if (!remoteOperations) throw new Error("Remote command receipts are unavailable")
+          const prior = remoteOperations.begin(ws.data.remoteOwnerId, parsed.id, parsed.command)
+          if (prior) { sendEnvelope(ws, prior); return }
+        } catch (error) { sendEnvelope(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: error instanceof Error ? error.message : "Operation unavailable" }); return }
+      }
       await handleCommand(ws, parsed)
     },
     dispose() {

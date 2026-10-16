@@ -37,6 +37,12 @@ import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
+import { randomToken } from "./connect/crypto"
+import { createConnector, type ConnectorOptions } from "./connect/connector"
+import { validateIngress } from "./connect/ingress"
+import { handleConnectLocal } from "./connect/local-api"
+import { RemoteOperations } from "./connect/operations"
+import { stopConnectListener } from "./connect/stop-server"
 
 const MAX_UPLOAD_FILES = 50
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
@@ -93,6 +99,11 @@ export interface StartStillOnServerOptions {
    * reachable solely through a trusted reverse proxy.
    */
   trustProxy?: boolean
+  /** Explicit origins for an operator-managed reverse proxy. */
+  allowedOrigins?: string[]
+  connect?: Pick<ConnectorOptions, "origin" | "frpcPath" | "trustedCaFile">
+  /** Alternate provider-history root for isolated installations and tests. */
+  discoveryHome?: string
   uploadLimits?: {
     maxUploadSizeBytes?: number
   }
@@ -108,6 +119,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     throw new Error("uploadLimits.maxUploadSizeBytes must be a positive safe integer")
   }
   const auth = options.password ? createAuthManager(options.password, { trustProxy: options.trustProxy ?? false }) : null
+  const localSecret = randomToken()
+  let connector: Awaited<ReturnType<typeof createConnector>> | null = null
+  const allowedOrigins = options.allowedOrigins ?? process.env.STILLON_ALLOWED_ORIGINS?.split(",").map(value => value.trim()) ?? []
   if (!options.dataDir) {
     const migration = await migrateLegacyBrandDataRoot()
     if (migration.status === "migrated") {
@@ -115,6 +129,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
   }
   const store = new EventStore(options.dataDir)
+  const remoteOperations = new RemoteOperations(store.dataDir)
   const codexModelPolicy = new CodexModelPolicyManager(store.dataDir, {
     ...options.codexModelDiscovery,
     getEnvironment: () => getAgentEnvironment(),
@@ -169,7 +184,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
 
     discoveryRefresh = Promise.resolve().then(() => discoverProjectsIncrementally(
-      undefined,
+      options.discoveryHome,
       DEFAULT_PROJECT_DISCOVERY_ADAPTERS,
       {
         initialProjects: savedDiscoveryProjects(),
@@ -266,6 +281,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       read: () => readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }),
     },
     sourceUpgradePrompt,
+    remoteOperations,
     managedUpdate: createManagedUpdateApi(path.resolve(import.meta.dir, "..", "..")),
     llmProvider: {
       read: readLlmProviderSnapshot,
@@ -327,6 +343,17 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
           return trackServerOperation((async () => {
             const url = new URL(req.url)
+            const ingress = validateIngress(req, { port: serverInstance.port!, hostname, peer: serverInstance.requestIP(req)?.address, secret: localSecret, allowedOrigins })
+            if (ingress instanceof Response) return ingress
+            if (url.pathname.startsWith("/api/connect-local/")) {
+              const connectResponse = await handleConnectLocal(req, ingress, connector)
+              if (connectResponse) return connectResponse
+            }
+            if (url.pathname.startsWith("/api/connect-operations/")) {
+              if (ingress.kind !== "remote" || req.method !== "GET") return new Response("Forbidden", { status: 403 })
+              try { const operation = remoteOperations.get(ingress.ownerId, url.pathname.slice("/api/connect-operations/".length)); return Response.json(operation ?? { state: "not-received" }, { headers: { "Cache-Control": "no-store" } }) }
+              catch { return Response.json({ error: "OPERATION_EXPIRED" }, { status: 410, headers: { "Cache-Control": "no-store" } }) }
+            }
             const updateResponse = managedUpdate.handle(req, serverInstance.requestIP(req)?.address)
             if (updateResponse) return updateResponse
             if (managedUpdate.paused && (url.pathname === "/ws" || !["GET", "HEAD"].includes(req.method))) {
@@ -360,7 +387,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               : Response.json({ ok: true })
           }
 
-          if (auth) {
+          if (auth && ingress.kind !== "remote") {
             if (url.pathname === "/auth/login") {
               if (req.method === "GET") {
                 return auth.redirectToApp(req)
@@ -388,6 +415,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               data: {
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),
+                ...(ingress.kind === "remote" ? { remoteOwnerId: ingress.ownerId } : {}),
               },
             })
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
@@ -494,6 +522,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           },
         },
       })
+      actualPort = server.port!
       break
     } catch (err: unknown) {
       const isAddrInUse =
@@ -505,6 +534,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       actualPort++
     }
   }
+
+  connector = await createConnector({ ...options.connect, origin: options.connect?.origin ?? process.env.STILLON_CONNECT_ORIGIN,
+    dataDir: store.dataDir, localSecret, targetOrigin: `http://${hostname === "::" ? "[::1]" : hostname === "0.0.0.0" ? "127.0.0.1" : hostname}:${actualPort}`,
+    name: () => appSettings.getSnapshot().machineName })
 
   // Binding the server is the startup critical path. Provider history is
   // discovered incrementally afterwards, while saved sidebar projects are
@@ -524,17 +557,19 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       discoveryAbortController.abort()
       serverOperationAbortController.abort()
       forceDiscoveryRefreshPending = false
+      await connector?.stop()
 
       // Stop new network work first, then let handlers that already entered
       // the server unwind before compacting EventStore or returning to callers
       // that may remove the data directory.
-      await server.stop(true)
+      await stopConnectListener(server)
       await codexModelPolicy.close()
       await Promise.allSettled([...pendingServerOperations])
       await discoveryRefresh
       // Stop every run and wait for its processes, so none outlives the service.
       await agent.shutdown()
       router.dispose()
+      remoteOperations.close()
       localHtmlPreviews.dispose()
       appSettings.dispose()
       keybindings.dispose()
