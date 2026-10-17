@@ -1247,10 +1247,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   useEffect(() => {
     if (!chatSnapshot) return
     setSelectedProjectId(chatSnapshot.runtime.projectId)
-    if (pendingChatId === chatSnapshot.runtime.chatId) {
-      setPendingChatId(null)
-    }
-  }, [chatSnapshot, pendingChatId])
+  }, [chatSnapshot])
 
   useEffect(() => {
     if (!activeChatId || !sidebarReady) return

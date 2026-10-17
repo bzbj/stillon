@@ -200,6 +200,7 @@ function StillOnSidebarImpl({
     () => new Map(visibleChats.map((entry) => [entry.chat.chatId, entry.visibleIndex])),
     [visibleChats]
   )
+  const activeChatIsVisible = activeChatId !== null && visibleIndexByChatId.has(activeChatId)
 
   const projectIdByPath = useMemo(
     () => new Map(data.projectGroups.map((group) => [group.localPath, group.groupKey])),
@@ -360,9 +361,9 @@ function StillOnSidebarImpl({
   }, [actionsEnabled, currentProjectId, navigate, onClose, onCreateChat, onOpenAddProjectModal, resolvedKeybindings])
 
   useEffect(() => {
-    if (!activeChatId || !scrollContainerRef.current) return
+    if (!activeChatId || !activeChatIsVisible || !scrollContainerRef.current) return
 
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       const container = scrollContainerRef.current
       const activeElement = container?.querySelector(`[data-chat-id="${activeChatId}"]`) as HTMLElement | null
       if (!activeElement || !container) return
@@ -379,7 +380,8 @@ function StillOnSidebarImpl({
         container.scrollTo({ top: elementCenter - containerCenter, behavior: "smooth" })
       }
     })
-  }, [activeChatId])
+    return () => cancelAnimationFrame(frame)
+  }, [activeChatId, activeChatIsVisible])
 
   useEffect(() => {
     if (!isResizingSidebar) return
@@ -631,6 +633,12 @@ function StillOnSidebarImpl({
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {
+                  setCollapsedSections((previous) => {
+                    if (!previous.has(projectId)) return previous
+                    const next = new Set(previous)
+                    next.delete(projectId)
+                    return next
+                  })
                   onCreateChat(projectId)
                 }
               }}
