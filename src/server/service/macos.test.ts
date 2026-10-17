@@ -176,7 +176,7 @@ describe("macOS service backend", () => {
       { command: "/bin/launchctl", args: ["bootstrap", "gui/501", paths.plistPath], options: undefined },
       {
         command: "/bin/launchctl",
-        args: ["kickstart", "-k", `gui/501/${LAUNCH_AGENT_LABEL}`],
+        args: ["kickstart", `gui/501/${LAUNCH_AGENT_LABEL}`],
         options: undefined,
       },
     ])
@@ -209,7 +209,7 @@ describe("macOS service backend", () => {
       ["bootout", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["bootstrap", "gui/502", paths.plistPath],
-      ["kickstart", "-k", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["kickstart", `gui/502/${LAUNCH_AGENT_LABEL}`],
     ])
   })
 
@@ -243,7 +243,7 @@ describe("macOS service backend", () => {
       ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["print", `gui/502/${LAUNCH_AGENT_LABEL}`],
       ["bootstrap", "gui/502", paths.plistPath],
-      ["kickstart", "-k", `gui/502/${LAUNCH_AGENT_LABEL}`],
+      ["kickstart", `gui/502/${LAUNCH_AGENT_LABEL}`],
     ])
   })
 
