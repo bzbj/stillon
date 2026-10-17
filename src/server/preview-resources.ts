@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto"
 import path from "node:path"
+import { isPreviewResourcePath } from "../shared/preview-navigation"
+import { previewNavigationScript } from "./preview-navigation"
 
 export const LOCAL_PREVIEW_ASSET_PREFIX = "/_stillon/preview-assets/"
 export const REMOTE_PREVIEW_ASSET_PREFIX = "/_connect/preview-assets/"
-const extensions = /\.(?:html?|css|[cm]?js|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|mp[34]|webm|wav|ogg)$/iu
 export function projectPreviewTarget(pathname: string) {
   const match = /^\/api\/projects\/([^/]+)\/preview\/(.+)$/u.exec(pathname)
   if (!match) return null
@@ -39,7 +40,7 @@ export class PreviewResources {
     if (!context || context.expiresAt <= this.now() || !isValid(context)) return null
     let relative: string
     try { relative = parts.map(decodeURIComponent).join("/") } catch { return null }
-    if (!relative || relative.split("/").some(part => !part || part === "." || part === ".." || part.startsWith(".") || /[\\\u0000:]/u.test(part)) || !extensions.test(relative)) return null
+    if (!isPreviewResourcePath(relative)) return null
     const filePath = (context.directory === "." ? "" : context.directory + "/") + relative
     return { context, filePath, path: `/api/projects/${encodeURIComponent(context.projectId)}/preview/${filePath.split("/").map(encodeURIComponent).join("/")}` }
   }
@@ -63,7 +64,10 @@ export class PreviewResources {
         const base = context.assetPrefix + (relative && relative !== "." ? relative.split("/").map(encodeURIComponent).join("/") + "/" : "")
         // Install our base before any author-supplied base. CSP limits it to this capability.
         text = text.replace(/<base\b[^>]*>/giu, "")
-        const tag = `<base href="${base}">`
+        // The cloud wraps the computer response again: replace its bridge so
+        // only the active cloud capability is used for navigation.
+        text = text.replace(/<script data-stillon-preview-navigation>[\s\S]*?<\/script>/giu, "")
+        const tag = `<base href="${base}">` + previewNavigationScript(new URL(request.url).origin, context.assetPrefix, context.originalPrefix)
         text = /<head\b[^>]*>/iu.test(text) ? text.replace(/<head\b[^>]*>/iu, match => match + tag) : tag + text
       }
       headers.delete("content-length"); headers.delete("content-encoding")
