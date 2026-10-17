@@ -304,6 +304,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     getDiscoveredProjects: () => discoveredProjects,
     isDiscoveryInProgress: () => discoveryRefresh !== null,
     machineDisplayName: () => appSettings.getSnapshot().machineName,
+    getBrowserPreviewBlockedPorts: () => [server.port!],
   })
   const staleEmptyChatPruneInterval = setInterval(() => {
     void router.pruneStaleEmptyChats()

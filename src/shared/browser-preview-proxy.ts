@@ -1,3 +1,5 @@
+import { CONNECT_PREVIEW_START_PREFIX, CONNECT_PREVIEW_UNSUPPORTED_PATH, isConnectHostAuthority } from "./connect-preview"
+
 export const BROWSER_PREVIEW_PROXY_PREFIX = "/api/browser-proxy"
 
 export function isLoopbackPreviewHost(hostname: string) {
@@ -17,7 +19,8 @@ export function buildBrowserPreviewProxyUrl(address: string, currentLocation: Lo
     return address
   }
 
-  const port = Number(parsed.port)
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return address
+  const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80))
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     return address
   }
@@ -27,6 +30,11 @@ export function buildBrowserPreviewProxyUrl(address: string, currentLocation: Lo
     : new URL(currentLocation.href)
   if (isLoopbackPreviewHost(currentUrl.hostname)) {
     return address
+  }
+
+  if (isConnectHostAuthority(currentUrl.host)) {
+    if (parsed.protocol === "https:") return CONNECT_PREVIEW_UNSUPPORTED_PATH
+    return `${CONNECT_PREVIEW_START_PREFIX}/${port}${parsed.pathname}${parsed.search}${parsed.hash}`
   }
 
   return `${BROWSER_PREVIEW_PROXY_PREFIX}/${port}${parsed.pathname}${parsed.search}${parsed.hash}`

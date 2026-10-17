@@ -94,6 +94,20 @@ export function parseLsofListeningPorts(output: string) {
   return parseLsofListeningEntries(output).map((entry) => entry.port)
 }
 
+export function parseWindowsListeningEntries(output: string) {
+  const entries = new Map<number, ListeningPortEntry>()
+  for (const line of output.split("\n")) {
+    const match = /^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i.exec(line)
+    if (!match) continue
+    const port = Number(match[1]), pid = Number(match[2])
+    if (port < 1 || port > 65535 || pid < 1) continue
+    const entry = entries.get(port) ?? { port, owners: [] }
+    if (!entry.owners.some(owner => owner.pid === pid)) entry.owners.push({ command: "", pid })
+    entries.set(port, entry)
+  }
+  return [...entries.values()].sort((a, b) => a.port - b.port)
+}
+
 export function isPathWithin(parentPath: string | undefined, childPath: string | undefined) {
   if (!parentPath || !childPath) return false
   const normalizedParent = path.resolve(parentPath)
@@ -129,6 +143,10 @@ export function filterLocalHttpServers(servers: LocalHttpServerInfo[]) {
 
 async function listListeningTcpEntries() {
   try {
+    if (process.platform === "win32") {
+      const { stdout } = await execFileAsync("netstat.exe", ["-ano"], { timeout: 1_500, maxBuffer: 1024 * 1024 })
+      return parseWindowsListeningEntries(stdout)
+    }
     const { stdout } = await execFileAsync("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN"], {
       timeout: 1_500,
       maxBuffer: 1024 * 1024,
@@ -177,6 +195,7 @@ export async function killLocalHttpServer(port: number) {
 }
 
 async function readProcessCwd(pid: number) {
+  if (process.platform === "win32") return undefined
   try {
     const { stdout } = await execFileAsync("lsof", ["-p", String(pid), "-a", "-d", "cwd", "-Fn"], {
       timeout: 500,
@@ -190,6 +209,7 @@ async function readProcessCwd(pid: number) {
 
 async function readParentProcessMap() {
   const parentByPid = new Map<number, number>()
+  if (process.platform === "win32") return parentByPid
   try {
     const { stdout } = await execFileAsync("ps", ["-axo", "pid=", "-o", "ppid="], {
       timeout: 500,

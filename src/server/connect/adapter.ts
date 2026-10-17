@@ -2,6 +2,8 @@ import { CONNECT_LEASE_MS, CONNECT_MAX_HTTP_BYTES, type AccessLease } from "../.
 import { verifyLease } from "./crypto"
 import { ConnectRelay, forwardingHeaders, type RelaySocket } from "./relay"
 import { stopConnectListener } from "./stop-server"
+import { parseConnectPreviewPath } from "../../shared/connect-preview"
+import { isAllowedBrowserPreviewPort } from "../browser-preview-proxy"
 
 interface ActiveLease { token: string; lease: AccessLease; deadline: number }
 export const REMOTE_HEADER = "x-stillon-local-remote"
@@ -32,13 +34,35 @@ export function startRemoteAdapter(options: {
       if (leases.size >= 32) return new Response("Connection limit", { status: 429 })
       const entry = { token, lease, deadline: performance.now() + Math.min(CONNECT_LEASE_MS, lease.expiresAt - Date.now()) }
       leases.set(lease.id, entry)
-      const headers = forwardingHeaders(request)
+      const preview = parseConnectPreviewPath(url.pathname)
+      const headers = forwardingHeaders(request, Boolean(preview))
+      const scope = { hostId: lease.hostId, parentId: lease.parentId, ownerId: lease.ownerId, valid: () => valid(entry),
+        finished: () => { if (leases.get(lease.id) === entry) leases.delete(lease.id) } }
+      if (preview) {
+        try {
+          const blockedPorts = [Number(new URL(targetOrigin).port || 80), server.port!]
+          if (!await isAllowedBrowserPreviewPort(preview.port, blockedPorts)) {
+            leases.delete(lease.id)
+            return Response.json({ error: "PREVIEW_UNAVAILABLE" }, { status: 503 })
+          }
+          // Use the same loopback resolution as discovery, including Vite's
+          // default IPv6 localhost listener.
+          const target = new URL("http://localhost:" + preview.port)
+          target.pathname = preview.path; target.search = url.search
+          if (headers.has("origin")) headers.set("origin", target.origin)
+          headers.delete("referer")
+          headers.delete("sec-fetch-site")
+          if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+            target.protocol = "ws:"
+            return await relay.upgrade(request, server, target.href, headers, scope)
+          }
+          return await relay.http(request, target.href, headers, scope, undefined, true)
+        } catch { leases.delete(lease.id); return new Response("Preview unavailable", { status: 503 }) }
+      }
       headers.set(REMOTE_HEADER, options.localSecret)
       headers.set(REMOTE_OWNER_HEADER, lease.ownerId)
       headers.set("origin", targetOrigin)
       headers.delete("sec-fetch-site")
-      const scope = { hostId: lease.hostId, parentId: lease.parentId, ownerId: lease.ownerId, valid: () => valid(entry),
-        finished: () => { if (leases.get(lease.id) === entry) leases.delete(lease.id) } }
       // Assign path fields: resolving a leading // path would change authority.
       const target = new URL(targetOrigin)
       target.pathname = url.pathname; target.search = url.search

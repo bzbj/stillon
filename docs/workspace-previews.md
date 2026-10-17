@@ -1,5 +1,8 @@
 # Workspace previews
 
+Running HTTP apps use [dynamic previews](connect-dynamic-previews.md). Local
+access stays direct; Connect hands off to an isolated computer/port origin.
+
 The browser panel keeps workspace preview addresses on the current StillOn
 origin. A saved localhost address therefore opens the same workspace through
 Connect, and Open external uses that same address in a new tab.
