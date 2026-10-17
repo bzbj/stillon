@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { rootCertificates } from "node:tls"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
+import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
@@ -225,6 +225,14 @@ export async function createConnector(options: ConnectorOptions) {
     } catch (caught) { if (!(caught instanceof ConnectorError && caught.code === "NOT_FOUND")) throw caught }
   }
   return {
+    async browserSessions() {
+      if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
+      return prove<ConnectBrowserSessions>("list-sessions", {})
+    },
+    async revokeBrowserSession(sessionId: string) {
+      if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
+      return prove<{ success: true }>("revoke-session", { sessionId })
+    },
     diagnostics() {
       // An explicit allowlist prevents new state fields, keys, URLs and private
       // server error text from silently appearing in a copied support report.

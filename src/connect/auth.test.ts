@@ -267,3 +267,19 @@ test("Connect origin allows local HTTP only and rejects credential/path URLs", (
     expect(() => normalizeConnectOrigin(value)).toThrow()
   }
 })
+
+test("browser activity survives service restart and expired login rows are not listed", async () => {
+  const f = await fixture()
+  const pending = await f.send()
+  const verified = await f.request("verify-code", { email: "person@example.com", code: pending.code, remember: true }, pending.cookie, { "user-agent": "Mozilla/5.0 (Windows) Firefox/142" })
+  const identity = await f.service.resolveSession(new Request(origin, { headers: { cookie: cookies(verified) } }))
+  expect(identity).not.toBeNull()
+  const before = f.service.browserSessions.list(identity!.userId)
+  expect(before.sessions[0]).toMatchObject({ browser: "Firefox", platform: "Windows", current: false })
+  expect(before.sessions[0]!.lastUsedAt).not.toBeNull()
+  await f.restart()
+  expect(f.service.browserSessions.list(identity!.userId).sessions).toEqual(before.sessions)
+  const db = new Database(path.join(f.dataDir, "auth.sqlite"))
+  db.query("UPDATE session SET expiresAt=0 WHERE id=?").run(identity!.id); db.close()
+  expect(f.service.browserSessions.list(identity!.userId).sessions).toEqual([])
+})

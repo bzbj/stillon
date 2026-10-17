@@ -13,6 +13,7 @@ import type { LoginEmailSender } from "./mail"
 import { CONNECT_OTP_SECONDS, CONNECT_RESEND_SECONDS, CONNECT_SESSION_SECONDS, type ConnectSession } from "./shared"
 import type { ConnectIntent } from "../shared/connect"
 import { ConnectFault, type AccountIdentity } from "./registry"
+import { BrowserSessions } from "./browser-sessions"
 
 export interface ConnectAuthOptions {
   origin: string
@@ -150,6 +151,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     return headers
   }
 
+  const browserSessions = new BrowserSessions(db, guardDb, id => Boolean(options.isRevoked?.(id)))
   function identityById(id: string): AccountIdentity | null {
     const row = db.query<{ id: string; userId: string; email: string; expiresAt: number | string }, [string]>(
       'SELECT s.id,s.userId,s.expiresAt,u.email FROM session s JOIN user u ON u.id=s.userId WHERE s.id=?',
@@ -168,6 +170,15 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
     origin,
     resolveSession,
     identityById,
+    browserSessions,
+    revokeBrowserSession(ownerId: string, id: string) {
+      const row = db.query<{ userId: string }, [string]>("SELECT userId FROM session WHERE id=?").get(id)
+      if (!row) return // Retrying an already completed revocation is harmless.
+      if (row.userId !== ownerId) throw new ConnectFault("NOT_FOUND", 404)
+      options.onLogout?.(id) // Fail closed in the registry and close active streams first.
+      db.query("DELETE FROM session WHERE id=? AND userId=?").run(id, ownerId)
+      browserSessions.forget(id)
+    },
     checkStorage() { db.query("SELECT id FROM user LIMIT 1").get(); guardDb.query("SELECT id FROM connect_challenge LIMIT 1").get() },
     revokeById(id: string) { db.query("DELETE FROM session WHERE id=?").run(id) },
     close: () => { guardDb.close(true); db.close(true) },
@@ -261,6 +272,7 @@ export async function createConnectAuth(options: ConnectAuthOptions) {
           await result.body?.cancel()
           return error("ACTION_NOT_COMPLETED", 409)
         }
+        browserSessions.touch(identity.id)
         // Explicit fresh authentication replaces this browser's former family.
         // An account switch must not leave its old host tabs authorized.
         if (previous && previous.id !== identity.id) {
