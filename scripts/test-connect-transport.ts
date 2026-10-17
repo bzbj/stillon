@@ -303,7 +303,7 @@ try {
     localSocket.close()
   }
   checks.push("Workspace fold persistence across local/Connect, concurrent per-Workspace writes, explicit false, rejected patches and account/host isolation")
-  checks.push("authenticated first-render sidebar view, whole-sidebar local/Connect persistence, cross-entry bootstrap reads and atomic invalid-write rejection")
+  checks.push("authenticated sidebar bootstrap, cross-entry preference reads, per-workspace stale-write rejection and independent version guards")
   checks.push("background and skin local/Connect uploads, explicit cross-entry apply/reload, disk persistence and rejected-write/account/host isolation")
   const project = fixture.hosts[0]!.store.listProjects()[0]!
   const operationId = `${Date.now()}-${crypto.randomUUID()}`
