@@ -1,6 +1,5 @@
 import { memo, type RefObject } from "react"
 import { ChatInput, type ChatInputHandle } from "../../components/chat-ui/ChatInput"
-import type { ContextWindowSnapshot } from "../../lib/contextWindow"
 import type { StillOnState } from "../useStillOnState"
 import type { CodexTransport } from "../../../shared/types"
 
@@ -19,7 +18,6 @@ interface ChatInputDockProps {
   codexTransport: CodexTransport | null
   preferencesReady: boolean
   availableProviders: StillOnState["availableProviders"]
-  contextWindowSnapshot: ContextWindowSnapshot | null
   onSubmit: StillOnState["handleSend"]
   onCancel: () => void
 }
@@ -39,7 +37,6 @@ export const ChatInputDock = memo(function ChatInputDock({
   codexTransport,
   preferencesReady,
   availableProviders,
-  contextWindowSnapshot,
   onSubmit,
   onCancel,
 }: ChatInputDockProps) {
@@ -61,7 +58,6 @@ export const ChatInputDock = memo(function ChatInputDock({
           codexTransport={codexTransport}
           preferencesReady={preferencesReady}
           availableProviders={availableProviders}
-          contextWindowSnapshot={contextWindowSnapshot}
           previousPrompt={previousPrompt}
         />
       </div>

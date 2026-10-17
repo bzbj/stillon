@@ -488,8 +488,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           const appearanceResponse = await handleAppearanceRequest(req, url, {
             dataDir: store.dataDir,
             getAppearance: () => appSettings.getSnapshot().appearance,
-            validateOrigin: (request) => auth ? auth.validateOrigin(request)
-              : !request.headers.has("origin") || request.headers.get("origin") === url.origin,
+            // Ingress has already checked the declared browser origin, including
+            // HTTPS proxies and authenticated Connect requests.
+            validateOrigin: request => Boolean(request.headers.get("origin")) && (!auth || auth.validateOrigin(request)),
           })
           if (appearanceResponse) return appearanceResponse
 

@@ -1,5 +1,5 @@
 import { downloadUrl } from "../../lib/download"
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
 import { ArrowUp, CircleAlert, CircleDashed, Paperclip } from "lucide-react"
 import {
   type AgentProvider,
@@ -15,7 +15,6 @@ import {
   type ModelOptions,
   type ProviderCatalogEntry,
   normalizeClaudeContextWindow,
-  resolveClaudeContextWindowTokens,
 } from "../../../shared/types"
 import { Button, buttonVariants } from "../ui/button"
 import { Textarea } from "../ui/textarea"
@@ -26,11 +25,9 @@ import { useChatInputStore } from "../../stores/chatInputStore"
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { CHAT_INPUT_ATTRIBUTE, focusNextChatInput } from "../../app/chatFocusPolicy"
 import { ChatPreferenceControls } from "./ChatPreferenceControls"
-import { ContextWindowMeter } from "./ContextWindowMeter"
 import { AttachmentFileCard, AttachmentImageCard } from "../messages/AttachmentCard"
 import { AttachmentPreviewModal } from "../messages/AttachmentPreviewModal"
 import { classifyAttachmentPreview } from "../messages/attachmentPreview"
-import { overrideContextWindowMaxTokens, type ContextWindowSnapshot } from "../../lib/contextWindow"
 
 const MAX_FILES_PER_DROP = 50
 const MAX_CONCURRENT_UPLOADS = 3
@@ -336,7 +333,6 @@ interface Props {
   codexTransport?: CodexTransport | null
   preferencesReady?: boolean
   availableProviders: ProviderCatalogEntry[]
-  contextWindowSnapshot?: ContextWindowSnapshot | null
   previousPrompt?: string | null
 }
 
@@ -396,7 +392,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   codexTransport,
   preferencesReady = true,
   availableProviders,
-  contextWindowSnapshot = null,
   previousPrompt = null,
 }, forwardedRef) {
   const {
@@ -437,18 +432,6 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const providerLocked = activeProvider !== null
   const providerPrefs = getEffectiveComposerState(composerState, activeProvider, providerDefaults)
   const selectedProvider = providerLocked ? activeProvider : composerState.provider
-  const activeContextWindow = useMemo(() => {
-    if (!preferencesReady) return null
-    if (providerPrefs.provider !== "claude") {
-      return contextWindowSnapshot
-    }
-
-    const claudeModelOptions = providerPrefs.modelOptions as Extract<ComposerState, { provider: "claude" }>["modelOptions"]
-    const stagedMaxTokens = resolveClaudeContextWindowTokens(
-      normalizeClaudeContextWindow(providerPrefs.model, claudeModelOptions.contextWindow),
-    )
-    return overrideContextWindowMaxTokens(contextWindowSnapshot, stagedMaxTokens)
-  }, [contextWindowSnapshot, preferencesReady, providerPrefs.model, providerPrefs.modelOptions, providerPrefs.provider])
   const uploadedAttachments = attachments.filter((attachment) => attachment.status === "uploaded")
   const {
     hasPendingUploads,
@@ -1004,7 +987,10 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <Button
               type="button"
               onPointerDown={(event) => {
+                // Keep the composer focused without suppressing native click activation.
                 event.preventDefault()
+              }}
+              onClick={() => {
                 if (!disabled && hasTextToSend && !hasBlockingUploadsInFlight()) {
                   void handleSubmit()
                 } else if (canCancel) {
@@ -1095,19 +1081,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
               className="h-8 w-56 shrink-0 animate-pulse rounded-full bg-muted"
             />
           )}
-          {activeContextWindow ? (
-            <div className="flex items-center md:hidden mx-[13px]">
-              <ContextWindowMeter usage={activeContextWindow} />
-            </div>
-          ) : null}
           <div className="min-w-3" />
         </div>
-
-        {activeContextWindow ? (
-          <div className="absolute right-[29px] top-1/2 translate-x-1/2 -translate-y-1/2 hidden md:block">
-            <ContextWindowMeter usage={activeContextWindow} />
-          </div>
-        ) : null}
       </div>
 
       <AttachmentPreviewModal attachment={selectedAttachment} onOpenChange={(open) => !open && setSelectedAttachmentId(null)} />

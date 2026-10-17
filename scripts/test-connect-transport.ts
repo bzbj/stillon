@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
 import { createHash, randomBytes } from "node:crypto"
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { readFile, readdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { createConnectFixture, eventually } from "./connect-fixture"
 import { upstreamWebSocket } from "../src/server/connect/relay"
 import type { ConnectLocalStatus } from "../src/shared/connect"
+import { APPEARANCE_FIXTURE_PNG } from "./appearance-fixture"
 import { workspaceAvatarsSchema } from "../src/shared/workspace-avatars"
 
 // No provider requests, real mail, production ports or personal projects.
@@ -162,6 +163,78 @@ try {
   }
   checks.push("avatar saves through local and full Connect entries, cross-entry reloads, disk persistence and rejected-write/account isolation")
   const ws1 = await socket(0), ws2 = await socket(1)
+  for (let i = 0; i < 2; i++) {
+    const localOrigin = `http://127.0.0.1:${fixture.hosts[i]!.port}`
+    const localSocket = upstreamWebSocket(`${localOrigin.replace("http", "ws")}/ws`, new Headers({ Origin: localOrigin }))
+    sockets.push(localSocket)
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Local WebSocket timed out")), 10_000)
+      localSocket.addEventListener("open", () => { clearTimeout(timeout); resolve() }, { once: true })
+      localSocket.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("Local WebSocket failed")) }, { once: true })
+    })
+    const remoteSocket = i ? ws2 : ws1
+    const exportRoute = "/api/appearance/skin/export"
+    const originalOther = await (await host(1 - i, exportRoute)).json()
+    const original = await (await host(i, exportRoute)).json()
+    const background = await fetch(`${localOrigin}/api/appearance/background`, {
+      method: "POST", headers: { Origin: localOrigin }, body: APPEARANCE_FIXTURE_PNG,
+    })
+    assert.equal(background.status, 200)
+    const { asset } = await background.json()
+    assert.equal((await (await host(i, exportRoute)).json()).background, original.background)
+    const localSaved = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { appearance: { backgroundAsset: asset, palette: "forest" } } })
+    assert.equal(localSaved.type, "ack")
+    const remotelyRead = await (await host(i, exportRoute)).json()
+    assert.equal(remotelyRead.background.base64, APPEARANCE_FIXTURE_PNG.toString("base64"))
+    assert.equal(remotelyRead.appearance.palette, "forest")
+    const localAsset = await host(i, `/api/appearance/assets/${asset}`)
+    assert.equal(localAsset.status, 200)
+    assert.deepEqual(Buffer.from(await localAsset.arrayBuffer()), APPEARANCE_FIXTURE_PNG)
+
+    // Exercise both uploads through the real login gateway, tunnel and adapter.
+    const remoteUpload = await host(i, "/api/appearance/background", { method: "POST", body: APPEARANCE_FIXTURE_PNG })
+    assert.equal(remoteUpload.status, 200)
+    assert.equal((await remoteUpload.json()).asset, asset)
+    const skin = { format: "stillon-skin", themeApi: 1, uiApi: 1, name: `Computer ${i + 1} skin`, appearance: { palette: "ocean", backgroundOpacity: 0.2 },
+      background: { mimeType: "image/png", base64: APPEARANCE_FIXTURE_PNG.toString("base64") } }
+    const imported = await host(i, "/api/appearance/skins/import", { method: "POST", body: JSON.stringify(skin), headers: { "Content-Type": "application/json" } })
+    assert.equal(imported.status, 200)
+    const staged = await imported.json()
+    // Staging must not apply the skin until the explicit settings command.
+    assert.deepEqual(await (await host(i, exportRoute)).json(), remotelyRead)
+    const remoteSaved = await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { appearance: staged.appearance } })
+    assert.equal(remoteSaved.type, "ack")
+    const applied = await (await fetch(localOrigin + exportRoute)).json()
+    assert.equal(applied.name, skin.name)
+    assert.equal(applied.appearance.palette, "ocean")
+    assert.equal(applied.background.base64, skin.background.base64)
+    assert.deepEqual(await (await host(i, exportRoute)).json(), applied)
+    const settingsPath = path.join(fixture.root, `computer-${i + 1}/settings.json`)
+    const diskBefore = await readFile(settingsPath, "utf8")
+    assert.deepEqual(JSON.parse(diskBefore).appearance, staged.appearance)
+    const appearanceDir = path.join(fixture.root, `computer-${i + 1}/customizations/appearance`)
+    const filesBefore = (await readdir(appearanceDir, { recursive: true })).sort()
+    for (const route of ["/api/appearance/background", "/api/appearance/skins/import"]) {
+      const validBody = route.endsWith("background") ? APPEARANCE_FIXTURE_PNG : JSON.stringify(skin)
+      for (const [headers, status] of [
+        [{ Cookie: "" }, 401], [{ Cookie: hostCookies[1 - i]! }, 401], [{ Origin: bound[1 - i]!.url! }, 403],
+      ] as const) {
+        const denied = await host(i, route, { method: "POST", body: validBody, headers })
+        assert.equal(denied.status, status)
+        await denied.arrayBuffer()
+      }
+      const invalid = await host(i, route, { method: "POST", body: "invalid" })
+      assert.equal(invalid.status, 400)
+      assert.equal(typeof (await invalid.json()).error, "string")
+    }
+    assert.equal(await readFile(settingsPath, "utf8"), diskBefore)
+    assert.deepEqual((await readdir(appearanceDir, { recursive: true })).sort(), filesBefore)
+    assert.deepEqual(await (await fetch(localOrigin + exportRoute)).json(), applied)
+    assert.deepEqual(await (await host(i, exportRoute)).json(), applied)
+    assert.deepEqual(await (await host(1 - i, exportRoute)).json(), originalOther)
+    localSocket.close()
+  }
+  checks.push("background and skin local/Connect uploads, explicit cross-entry apply/reload, disk persistence and rejected-write/account/host isolation")
   const project = fixture.hosts[0]!.store.listProjects()[0]!
   const operationId = `${Date.now()}-${crypto.randomUUID()}`
   const created = await command(ws1, { type: "chat.create", projectId: project.id }, operationId)

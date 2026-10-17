@@ -1,6 +1,5 @@
 import type { ChatBranchListEntry, ChatDiffSnapshot } from "../../../shared/types"
 import type { ResolvedTranscriptRow } from "../StillOnTranscript"
-import type { ContextWindowSnapshot } from "../../lib/contextWindow"
 
 export const EMPTY_STATE_TEXT = "What are we working on?"
 export const EMPTY_STATE_TYPING_INTERVAL_MS = 19
@@ -98,18 +97,6 @@ export function getPinnedTailStartIndex(rows: ResolvedTranscriptRow[], isProcess
   }
 
   return tailStartIndex
-}
-
-export function sameContextWindowSnapshot(left: ContextWindowSnapshot | null, right: ContextWindowSnapshot | null) {
-  if (left === right) return true
-  if (!left || !right) return false
-  return left.usedTokens === right.usedTokens
-    && left.maxTokens === right.maxTokens
-    && left.remainingTokens === right.remainingTokens
-    && left.usedPercentage === right.usedPercentage
-    && left.remainingPercentage === right.remainingPercentage
-    && left.compactsAutomatically === right.compactsAutomatically
-    && left.updatedAt === right.updatedAt
 }
 
 export function hasFileDragTypes(types: Iterable<string>) {
