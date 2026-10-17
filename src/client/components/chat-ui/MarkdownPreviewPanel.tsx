@@ -54,13 +54,14 @@ export function MarkdownPreviewPanel({
   const [previewState, setPreviewState] = useState<MarkdownPreviewState>({ status: "loading" })
   const [navigationError, setNavigationError] = useState<string | null>(null)
   const { filePath } = source
+  const contentUrl = buildMarkdownContentUrl(source)
 
   useEffect(() => {
     let cancelled = false
     setPreviewState({ status: "loading" })
     setNavigationError(null)
 
-    void fetchTextPreview(buildMarkdownContentUrl(source), TEXT_PREVIEW_LIMIT_BYTES)
+    void fetchTextPreview(contentUrl, TEXT_PREVIEW_LIMIT_BYTES)
       .then(({ content, truncated }) => {
         if (cancelled) return
         setPreviewState({ status: "ready", content, truncated })
@@ -76,7 +77,7 @@ export function MarkdownPreviewPanel({
     return () => {
       cancelled = true
     }
-  }, [filePath, refreshVersion, source])
+  }, [contentUrl, refreshVersion])
 
   const components = useMemo(() => {
     const baseComponents = createMarkdownComponents()
@@ -177,13 +178,10 @@ export function MarkdownPreviewPanel({
   }, [canOpenHostFiles, onNavigate, onOpenHostFile, projectLocalPath, source])
 
   return (
-    <div className="h-full w-full overflow-auto bg-background">
+    <div className="h-full w-full overflow-auto overscroll-contain bg-background">
       <div
-        className="min-h-full origin-top-left"
-        style={{
-          width: `${100 / zoom}%`,
-          transform: `scale(${zoom})`,
-        }}
+        className="min-h-full w-full"
+        style={{ zoom }}
       >
         <div className="mx-auto w-full max-w-[820px] px-5 py-5">
           <div className="mb-5 flex min-w-0 items-center gap-2 border-b border-border pb-3">
