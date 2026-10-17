@@ -1,4 +1,4 @@
-import { mergeWorkspaceCollapsed, normalizeWorkspaceCollapsed } from "../shared/workspace-collapse"
+import { applyWorkspaceCollapsePatch, normalizeWorkspaceCollapsed, normalizeWorkspaceCollapseVersions } from "../shared/workspace-collapse"
 import { mergeQuickCommands, normalizeQuickCommands } from "../shared/quick-commands"
 import { mergeAppearance, normalizeAppearance } from "../shared/appearance"
 import { watch, type FSWatcher } from "node:fs"
@@ -36,7 +36,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
-  sidebarCollapsed?: unknown
+  workspaceCollapseVersions?: unknown
   workspaceCollapsed?: unknown
   quickCommands?: unknown
   appearance?: unknown
@@ -204,7 +204,7 @@ function toFilePayload(state: AppSettingsState) {
     appearance: state.appearance,
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
-    sidebarCollapsed: state.sidebarCollapsed,
+    workspaceCollapseVersions: { ...state.workspaceCollapseVersions },
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -228,7 +228,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     appearance: state.appearance,
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
-    sidebarCollapsed: state.sidebarCollapsed,
+    workspaceCollapseVersions: { ...state.workspaceCollapseVersions },
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -281,7 +281,7 @@ function normalizeAppSettings(
     appearance: normalizeAppearance(source?.appearance),
     quickCommands: normalizeQuickCommands(source?.quickCommands),
     workspaceCollapsed: normalizeWorkspaceCollapsed(source?.workspaceCollapsed),
-    sidebarCollapsed: source?.sidebarCollapsed === true,
+    workspaceCollapseVersions: normalizeWorkspaceCollapseVersions(source?.workspaceCollapseVersions, normalizeWorkspaceCollapsed(source?.workspaceCollapsed)),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -322,7 +322,7 @@ function toComparablePayload(source: AppSettingsFile) {
     appearance: source.appearance,
     quickCommands: source.quickCommands,
     workspaceCollapsed: source.workspaceCollapsed,
-    sidebarCollapsed: source.sidebarCollapsed,
+    workspaceCollapseVersions: source.workspaceCollapseVersions,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -340,9 +340,8 @@ function applyPatch(
   patch: AppSettingsPatch,
   defaultMachineName: string,
 ): AppSettingsState {
-  if (patch.sidebarCollapsed !== undefined && typeof patch.sidebarCollapsed !== "boolean") {
-    throw new Error("Sidebar collapse preference must be true or false.")
-  }
+  const workspaceView = applyWorkspaceCollapsePatch(state.workspaceCollapsed, state.workspaceCollapseVersions,
+    patch.workspaceCollapsed, patch.workspaceCollapseExpectedVersions)
   const network = patch.network
     ? applyAgentNetworkPatch(state.network, patch.network)
     : state.network
@@ -351,7 +350,7 @@ function applyPatch(
     ...patch,
     appearance: mergeAppearance(state.appearance, patch.appearance),
     quickCommands: mergeQuickCommands(state.quickCommands, patch.quickCommands),
-    workspaceCollapsed: mergeWorkspaceCollapsed(state.workspaceCollapsed, patch.workspaceCollapsed),
+    ...workspaceView,
     defaultProjectId: "defaultProjectId" in patch ? patch.defaultProjectId : state.defaultProjectId,
     terminal: {
       ...state.terminal,
@@ -484,7 +483,16 @@ export class AppSettingsManager {
       const text = await file.text()
       const hasText = text.trim().length > 0
       const normalized = normalizeAppSettings(hasText ? JSON.parse(text) : undefined, this.filePath, this.defaultMachineName)
-      if (options?.persistNormalized && (!hasText || normalized.shouldWrite)) {
+      let externalViewChanged = false
+      for (const [id, collapsed] of Object.entries(normalized.payload.workspaceCollapsed ?? {})) {
+        if (Object.hasOwn(this.state.workspaceCollapsed ?? {}, id)
+          && this.state.workspaceCollapsed?.[id] !== collapsed
+          && (normalized.payload.workspaceCollapseVersions?.[id] ?? 0) <= (this.state.workspaceCollapseVersions?.[id] ?? 0)) {
+          normalized.payload.workspaceCollapseVersions![id] = (this.state.workspaceCollapseVersions?.[id] ?? 0) + 1
+          externalViewChanged = true
+        }
+      }
+      if (externalViewChanged || (options?.persistNormalized && (!hasText || normalized.shouldWrite))) {
         await writeFile(this.filePath, `${JSON.stringify(toFilePayload(normalized.payload), null, 2)}\n`, "utf8")
       }
       return {

@@ -5,24 +5,27 @@ import path from "node:path"
 import { AppSettingsManager } from "./app-settings"
 import { startStillOnServer } from "./server"
 
-test("whole-sidebar choices survive reload and reject invalid mixed patches atomically", async () => {
+test("workspace versions reject stale writes atomically, including a change back to the old value", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "stillon-sidebar-view-"))
   const file = path.join(root, "settings.json")
   const settings = new AppSettingsManager(file)
   try {
     await settings.initialize()
-    await settings.writePatch({ sidebarCollapsed: true, workspaceCollapsed: { a: true } })
-    expect(JSON.parse(await readFile(file, "utf8")).sidebarCollapsed).toBe(true)
+    const initial = await settings.writePatch({ workspaceCollapsed: { a: true, b: false } })
+    const versions = initial.workspaceCollapseVersions
+    expect(versions).toEqual({ a: 1, b: 1 })
+    await settings.writePatch({ workspaceCollapsed: { a: false }, workspaceCollapseExpectedVersions: { a: 1 } })
+    await settings.writePatch({ workspaceCollapsed: { a: true }, workspaceCollapseExpectedVersions: { a: 2 } })
     const before = await readFile(file, "utf8")
-    await expect(settings.writePatch({ sidebarCollapsed: "false", workspaceCollapsed: { a: false } } as never)).rejects.toThrow("true or false")
+    await expect(settings.writePatch({ theme: "dark", workspaceCollapsed: { a: false, b: true }, workspaceCollapseExpectedVersions: { a: 1, b: 1 } })).rejects.toThrow("changed")
     expect(await readFile(file, "utf8")).toBe(before)
     settings.dispose()
     const reloaded = new AppSettingsManager(file)
     try {
       await reloaded.initialize()
-      expect(reloaded.getSnapshot().sidebarCollapsed).toBe(true)
-      await reloaded.writePatch({ sidebarCollapsed: false, theme: "dark" })
-      expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ sidebarCollapsed: false, workspaceCollapsed: { a: true }, theme: "dark" })
+      expect(reloaded.getSnapshot().workspaceCollapseVersions).toEqual({ a: 3, b: 1 })
+      await reloaded.writePatch({ workspaceCollapsed: { b: true }, workspaceCollapseExpectedVersions: { b: 1 } })
+      expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ workspaceCollapsed: { a: true, b: true }, workspaceCollapseVersions: { a: 3, b: 2 } })
     } finally { reloaded.dispose() }
   } finally { settings.dispose(); await rm(root, { recursive: true, force: true }) }
 })
@@ -43,8 +46,26 @@ test("initial sidebar view is authenticated, uncached and excludes unrelated set
     const response = await fetch(origin + "/api/sidebar-view", { headers: { Cookie: cookie } })
     expect(response.status).toBe(200)
     expect(response.headers.get("cache-control")).toBe("no-store")
-    expect(await response.json()).toEqual({ machineName: "Sample computer", sidebarCollapsed: true, workspaceCollapsed: { a: true, b: false } })
+    expect(await response.json()).toEqual({ machineName: "Sample computer", workspaceCollapsed: { a: true, b: false }, workspaceCollapseVersions: { a: 0, b: 0 } })
     const post = await fetch(origin + "/api/sidebar-view", { method: "POST", headers: { Cookie: cookie, Origin: origin } })
     expect(post.status).toBe(405); await post.text()
   } finally { await server.stop(); await rm(root, { recursive: true, force: true }) }
 }, 20_000)
+
+test("external workspace edits advance the guard without changing explicit preferences", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-view-versions-"))
+  const file = path.join(root, "settings.json")
+  const settings = new AppSettingsManager(file)
+  try {
+    await writeFile(file, JSON.stringify({ workspaceCollapsed: { a: true } }))
+    await settings.initialize()
+    expect(settings.getSnapshot().workspaceCollapseVersions).toEqual({ a: 0 })
+    const value = JSON.parse(await readFile(file, "utf8"))
+    value.workspaceCollapsed.a = false
+    await writeFile(file, JSON.stringify(value))
+    await settings.reload()
+    expect(settings.getSnapshot().workspaceCollapsed).toEqual({ a: false })
+    expect(settings.getSnapshot().workspaceCollapseVersions).toEqual({ a: 1 })
+    await expect(settings.writePatch({ workspaceCollapsed: { a: true }, workspaceCollapseExpectedVersions: { a: 0 } })).rejects.toThrow("changed")
+  } finally { settings.dispose(); await rm(root, { recursive: true, force: true }) }
+})

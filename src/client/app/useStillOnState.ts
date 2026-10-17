@@ -1,6 +1,6 @@
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
-import { useSidebarCollapse } from "../hooks/useSidebarCollapse"
+import { useSidebarLayout } from "../hooks/useSidebarLayout"
 import { isConnectBrowser } from "../lib/remoteSession"
 import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
@@ -739,6 +739,10 @@ export interface StillOnState {
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
   workspaceCollapsed: SidebarViewSnapshot["workspaceCollapsed"] | undefined
+  workspaceCollapseVersions: SidebarViewSnapshot["workspaceCollapseVersions"]
+  handleWriteWorkspaceCollapsed: (patch: SidebarViewSnapshot["workspaceCollapsed"], expected: SidebarViewSnapshot["workspaceCollapseVersions"]) => Promise<AppSettingsSnapshot>
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
   composerPreferencesReady: boolean
   machineName: string | null
   llmProvider: LlmProviderSnapshot | null
@@ -853,6 +857,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       : null
     return { identity, machineName, snapshot, view: initialSidebarView }
   })
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarLayout(
+    JSON.stringify([getBrowserSidebarSnapshotOrigin(), cacheScope]),
+  )
   const [sidebarData, setSidebarData] = useState<SidebarData>(
     sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
   )
@@ -1061,11 +1068,21 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
   }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
 
-  const writeSidebarCollapsed = useCallback((collapsed: boolean) => handleWriteAppSettings({ sidebarCollapsed: collapsed }), [handleWriteAppSettings])
-  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, error: sidebarCollapseError } = useSidebarCollapse(
-    appSettings?.sidebarCollapsed ?? sidebarBootstrap.view?.sidebarCollapsed ?? false,
-    appSettings ? writeSidebarCollapsed : undefined,
-  )
+  const handleWriteWorkspaceCollapsed = useCallback(async (
+    patch: SidebarViewSnapshot["workspaceCollapsed"], expected: SidebarViewSnapshot["workspaceCollapseVersions"],
+  ) => {
+    try {
+      const snapshot = await socket.command<AppSettingsSnapshot>({
+        type: "settings.writeAppSettingsPatch",
+        patch: { workspaceCollapsed: patch, workspaceCollapseExpectedVersions: expected },
+      }, { signal: AbortSignal.timeout(10_000) })
+      applyAppSettingsSnapshot(snapshot)
+      return snapshot
+    } catch (error) {
+      await handleReadAppSettings()
+      throw error
+    }
+  }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
 
   const setDefaultProjectId = useCallback((projectId: string | null) => {
     // Update local state and cache first so the star reacts immediately, then
@@ -2303,7 +2320,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     chatDiffSnapshot,
     keybindings,
     appSettings,
-    workspaceCollapsed: appSettings?.workspaceCollapsed ?? sidebarBootstrap.view?.workspaceCollapsed,
+    workspaceCollapsed: sidebarBootstrap.view?.workspaceCollapsed,
+    workspaceCollapseVersions: appSettings?.workspaceCollapseVersions ?? sidebarBootstrap.view?.workspaceCollapseVersions ?? {},
+    handleWriteWorkspaceCollapsed,
+    sidebarWidth,
+    setSidebarWidth,
     composerPreferencesReady,
     machineName,
     llmProvider,
@@ -2312,7 +2333,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     sidebarReady,
     sidebarSnapshotStatus,
     localProjectsReady,
-    commandError: commandError ?? sidebarCollapseError,
+    commandError,
     startingLocalPath,
     sidebarOpen,
     sidebarCollapsed,

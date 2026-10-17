@@ -1,5 +1,8 @@
 import { useWorkspaceCollapse } from "../hooks/useWorkspaceCollapse"
-import type { WorkspaceCollapsed } from "../../shared/workspace-collapse"
+import type { WorkspaceCollapsed, WorkspaceCollapseVersions } from "../../shared/workspace-collapse"
+import type { SaveWorkspaceCollapse } from "../lib/workspaceCollapseSession"
+import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../lib/sidebarLayout"
+export { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../lib/sidebarLayout"
 import { normalizeQuickCommands, type QuickCommand, type QuickCommandsPatch } from "../../shared/quick-commands"
 import { useAppSettingsStore } from "../stores/appSettingsStore"
 import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
@@ -24,26 +27,6 @@ import {
   isSidebarModifierShortcut,
   shouldShowSidebarNumberJumpHints,
 } from "./sidebarNumberJump"
-
-const SIDEBAR_WIDTH_STORAGE_KEY = "kanna:sidebar-width"
-export const DEFAULT_SIDEBAR_WIDTH = 275
-export const MIN_SIDEBAR_WIDTH = 220
-export const MAX_SIDEBAR_WIDTH = 520
-export function clampSidebarWidth(width: number) {
-  if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)))
-}
-
-function readStoredSidebarWidth() {
-  if (typeof window === "undefined") return DEFAULT_SIDEBAR_WIDTH
-  const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
-  return stored ? clampSidebarWidth(Number(stored)) : DEFAULT_SIDEBAR_WIDTH
-}
-
-function persistSidebarWidth(width: number) {
-  if (typeof window === "undefined") return
-  window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(width)))
-}
 
 function BrandMark({ className }: { className?: string }) {
   return <img src="/stillon-mark.svg" alt="" aria-hidden="true" draggable={false} className={className} />
@@ -119,7 +102,9 @@ interface StillOnSidebarProps {
   onCreateChat: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
   onWriteQuickCommands?: (patch: QuickCommandsPatch) => Promise<unknown>
-  onWriteWorkspaceCollapsed?: (patch: WorkspaceCollapsed) => Promise<unknown>
+  onWriteWorkspaceCollapsed?: SaveWorkspaceCollapse
+  workspaceCollapseVersions?: WorkspaceCollapseVersions
+  sidebarWidth?: number
   workspaceCollapsed?: WorkspaceCollapsed
   onForkChat: (chat: SidebarChatRow) => void
   currentProjectId: string | null
@@ -157,6 +142,8 @@ function StillOnSidebarImpl({
   onWriteQuickCommands,
   onWriteWorkspaceCollapsed,
   workspaceCollapsed,
+  workspaceCollapseVersions = {},
+  sidebarWidth: savedSidebarWidth = DEFAULT_SIDEBAR_WIDTH,
   onForkChat,
   currentProjectId,
   keybindings,
@@ -174,22 +161,34 @@ function StillOnSidebarImpl({
   onResizeSidebar,
 }: StillOnSidebarProps) {
   const appearanceContext = useOptionalAppearance()
-  const configuredWidth = appearanceContext?.appearance.sidebarWidth
+  const configuredWidth = appearanceContext?.preview?.appearance.sidebarWidth ?? savedSidebarWidth
   const safeMode = appearanceContext?.safeMode ?? false
   const location = useLocation()
   const navigate = useNavigate()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null)
-  const { collapsedSections, setSectionCollapsed, error: collapseSaveError } = useWorkspaceCollapse(
-    data.projectGroups, workspaceCollapsed, onWriteWorkspaceCollapsed,
+  const { collapsedSections, setSectionCollapsed, revealSection, retry: retryCollapseSave,
+    error: collapseSaveError, unsynced: collapseUnsynced } = useWorkspaceCollapse(
+    data.projectGroups, workspaceCollapsed, workspaceCollapseVersions, activeChatId, onWriteWorkspaceCollapsed,
   )
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const previouslySelectedChat = useRef(activeChatId)
+  useEffect(() => {
+    if (!activeChatId) { previouslySelectedChat.current = null; return }
+    if (previouslySelectedChat.current === activeChatId) return
+    const group = data.projectGroups.find(g => g.chats.some(c => c.chatId === activeChatId))
+    if (!group) return
+    previouslySelectedChat.current = activeChatId
+    if (group.olderChats.some(c => c.chatId === activeChatId)) {
+      setExpandedGroups(current => new Set([...current, group.groupKey]))
+    }
+  }, [activeChatId, data.projectGroups])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [showNumberJumpHints, setShowNumberJumpHints] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth)
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(configuredWidth ?? DEFAULT_SIDEBAR_WIDTH))
   useEffect(() => {
     if (safeMode) setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
-    else if (configuredWidth !== undefined) setSidebarWidth(configuredWidth ?? readStoredSidebarWidth())
+    else setSidebarWidth(clampSidebarWidth(configuredWidth ?? DEFAULT_SIDEBAR_WIDTH))
   }, [configuredWidth, safeMode])
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [commandsProjectId, setCommandsProjectId] = useState<string | null>(null)
@@ -382,7 +381,6 @@ function StillOnSidebarImpl({
       if (!start) return
       const next = clampSidebarWidth(start.width + event.clientX - start.pointerX)
       setSidebarWidth(next)
-      persistSidebarWidth(next)
       onResizeSidebar?.(next)
     }
 
@@ -409,6 +407,7 @@ function StillOnSidebarImpl({
           variant="ghost"
           size="icon"
           className="fixed top-3 left-3 z-50 md:hidden"
+          aria-label="Open workspace sidebar"
           onClick={onOpen}
         >
           <Menu className="h-5 w-5" />
@@ -456,6 +455,7 @@ function StillOnSidebarImpl({
               className="size-10 rounded-lg hover:!border-border/0"
               onClick={onClose}
               title="Close sidebar"
+              aria-label="Close workspace sidebar"
             >
               <X className="h-5 w-5" />
             </Button>
@@ -587,6 +587,13 @@ function StillOnSidebarImpl({
                     key={chat.chatId}
                     type="button"
                     onClick={() => {
+                      const group = data.projectGroups.find(g => g.chats.some(c => c.chatId === chat.chatId))
+                      if (group) {
+                        revealSection(group.groupKey)
+                        if (group.olderChats.some(c => c.chatId === chat.chatId)) {
+                          setExpandedGroups(current => new Set([...current, group.groupKey]))
+                        }
+                      }
                       navigate(`/chat/${chat.chatId}`)
                       setSearchOpen(false)
                       setSearchQuery("")
@@ -614,7 +621,7 @@ function StillOnSidebarImpl({
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {
-                  setSectionCollapsed(projectId, false)
+                  revealSection(projectId)
                   onCreateChat(projectId)
                 }
               }}
@@ -628,7 +635,10 @@ function StillOnSidebarImpl({
           </div>
         </div>
 
-        {collapseSaveError ? <p role="alert" className="px-3 pb-2 text-xs text-destructive">{collapseSaveError}</p> : null}
+        {collapseSaveError || collapseUnsynced ? <div role={collapseSaveError ? "alert" : "status"} className="flex items-center gap-2 px-3 pb-2 text-xs text-muted-foreground">
+          <span>{collapseSaveError ?? "Workspace view waiting to sync…"}</span>
+          {collapseSaveError ? <button type="button" onClick={retryCollapseSave} className="shrink-0 underline">Retry</button> : null}
+        </div> : null}
         <div className="border-t border-border p-2">
             <button
             type="button"
@@ -678,7 +688,6 @@ function StillOnSidebarImpl({
           onDoubleClick={() => {
             if (safeMode || appearanceContext?.preview) return
             setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
-            persistSidebarWidth(DEFAULT_SIDEBAR_WIDTH)
             onResizeSidebar?.(DEFAULT_SIDEBAR_WIDTH)
           }}
           onKeyDown={(event) => {
@@ -694,7 +703,6 @@ function StillOnSidebarImpl({
             event.preventDefault()
             const clampedWidth = clampSidebarWidth(nextWidth)
             setSidebarWidth(clampedWidth)
-            persistSidebarWidth(clampedWidth)
             onResizeSidebar?.(clampedWidth)
           }}
         />

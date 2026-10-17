@@ -209,24 +209,28 @@ try {
       assert.equal(response.status, 200)
       assert.equal(response.headers.get("cache-control"), "no-store")
       const view = await response.json()
-      assert.deepEqual(Object.keys(view).sort(), ["machineName", "sidebarCollapsed", "workspaceCollapsed"])
+      assert.deepEqual(Object.keys(view).sort(), ["machineName", "workspaceCollapseVersions", "workspaceCollapsed"])
       return view
     }
-    assert.equal((await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { sidebarCollapsed: true } })).type, "ack")
-    assert.equal((await readView(true)).sidebarCollapsed, true)
-    assert.equal((await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { sidebarCollapsed: false } })).type, "ack")
-    assert.equal((await readView(false)).sidebarCollapsed, false)
     assert.deepEqual((await readView(true)).workspaceCollapsed, expectedFolds)
-    await Promise.all([
-      command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { sidebarCollapsed: true } }),
-      command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [workspaceId]: true } } }),
-    ])
-    assert.equal((await readView(false)).sidebarCollapsed, true)
-    assert.deepEqual(await readView(false), await readView(true))
+    const staleVersions = (await readView(false)).workspaceCollapseVersions
+    const saved = await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      workspaceCollapsed: { [workspaceId]: false }, workspaceCollapseExpectedVersions: { [workspaceId]: staleVersions[workspaceId] },
+    } })
+    assert.equal(saved.type, "ack")
     const viewBefore = await readFile(foldSettingsPath, "utf8")
-    assert.equal(JSON.parse(viewBefore).sidebarCollapsed, true)
-    assert.equal((await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { sidebarCollapsed: "false", workspaceCollapsed: { [workspaceId]: false } } })).type, "error")
+    const stale = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      theme: "dark", workspaceCollapsed: { [workspaceId]: true, [extra.id]: false },
+      workspaceCollapseExpectedVersions: { [workspaceId]: staleVersions[workspaceId], [extra.id]: staleVersions[extra.id] },
+    } })
+    assert.equal(stale.type, "error")
     assert.equal(await readFile(foldSettingsPath, "utf8"), viewBefore)
+    const independent = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      workspaceCollapsed: { [extra.id]: false }, workspaceCollapseExpectedVersions: { [extra.id]: staleVersions[extra.id] },
+    } })
+    assert.equal(independent.type, "ack")
+    assert.deepEqual((await readView(false)).workspaceCollapsed, { [workspaceId]: false, [extra.id]: false })
+    assert.deepEqual(await readView(false), await readView(true))
     assert.deepEqual(await (await host(1 - i, "/api/sidebar-view")).json(), initialOtherView)
     const rejectedViewHeaders: Record<string, string>[] = [{ Cookie: hostCookies[1 - i]! }, { Cookie: "" }, { Origin: bound[1 - i]!.url! }]
     for (const headers of rejectedViewHeaders) {

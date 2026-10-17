@@ -1,49 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { SidebarProjectGroup } from "../../shared/types"
-import type { WorkspaceCollapsed } from "../../shared/workspace-collapse"
-
-interface PendingChoice { id: number; collapsed: boolean }
+import type { WorkspaceCollapsed, WorkspaceCollapseVersions } from "../../shared/workspace-collapse"
+import { WorkspaceCollapseSession, type SaveWorkspaceCollapse } from "../lib/workspaceCollapseSession"
 
 export function useWorkspaceCollapse(
   groups: SidebarProjectGroup[],
   saved: WorkspaceCollapsed | undefined,
-  save?: (patch: WorkspaceCollapsed) => Promise<unknown>,
+  versions: WorkspaceCollapseVersions,
+  activeChatId: string | null,
+  save?: SaveWorkspaceCollapse,
 ) {
-  const [pending, setPending] = useState<Record<string, PendingChoice>>({})
-  const [error, setError] = useState<string | null>(null)
-  const sequence = useRef(0)
-  const latest = useRef(new Map<string, number>())
-  const inFlight = useRef(new Set<number>())
-  const collapsedSections = useMemo(() => new Set(groups.filter(group => {
-    const manual = pending[group.groupKey]?.collapsed ?? saved?.[group.groupKey]
-    return typeof manual === "boolean" ? manual : group.defaultCollapsed
-  }).map(group => group.groupKey)), [groups, pending, saved])
-
-  const setSectionCollapsed = useCallback((key: string, collapsed: boolean) => {
-    const id = ++sequence.current
-    latest.current.set(key, id)
-    setPending(current => ({ ...current, [key]: { id, collapsed } }))
-    setError(null)
-  }, [])
-
+  const [session] = useState(() => new WorkspaceCollapseSession(saved, versions))
+  const initialChat = useRef(activeChatId)
+  const revealedChat = useRef(activeChatId)
+  session.includeGroups(groups, initialChat.current)
+  session.setSharedVersions(versions)
+  const view = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot)
   useEffect(() => {
-    if (!save) return
-    for (const [key, choice] of Object.entries(pending)) {
-      if (inFlight.current.has(choice.id)) continue
-      inFlight.current.add(choice.id)
-      const clear = () => setPending(current => {
-        if (current[key]?.id !== choice.id) return current
-        const next = { ...current }; delete next[key]; return next
-      })
-      // Keep the latest local intent visible through older acknowledgments and
-      // initial settings hydration. The shared settings store supplies the ack.
-      void Promise.resolve().then(() => save({ [key]: choice.collapsed })).then(clear, () => {
-        if (latest.current.get(key) !== choice.id) return
-        clear()
-        setError("Could not save workspace view. Please try again.")
-      }).finally(() => inFlight.current.delete(choice.id))
-    }
-  }, [pending, save])
-
-  return { collapsedSections, setSectionCollapsed, error }
+    session.setWriter(save)
+    return () => session.setWriter(undefined)
+  }, [session, save])
+  useEffect(() => {
+    if (!activeChatId) { revealedChat.current = null; return }
+    if (revealedChat.current === activeChatId) return
+    const group = groups.find(g => g.chats.some(c => c.chatId === activeChatId))
+    if (group) { revealedChat.current = activeChatId; session.reveal(group.groupKey) }
+  }, [session, groups, activeChatId])
+  const collapsedSections = useMemo(() => new Set(groups.filter(g => view.choices[g.groupKey] !== false).map(g => g.groupKey)), [groups, view.choices])
+  return { collapsedSections, setSectionCollapsed: session.choose,
+    revealSection: session.reveal, retry: session.retry, error: view.error, unsynced: view.unsynced }
 }

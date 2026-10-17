@@ -22,7 +22,7 @@ window.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
     fixture.viewRequests++
     return fixture.mode === "view-error"
       ? new Response("unavailable", { status: 503 })
-      : Response.json({ machineName: "Fixture computer", workspaceCollapsed: {}, sidebarCollapsed: false })
+      : Response.json({ machineName: "Fixture computer", workspaceCollapsed: {}, workspaceCollapseVersions: {} })
   }
   if (String(input) !== "/auth/status") return originalFetch(input, options)
   fixture.requests++

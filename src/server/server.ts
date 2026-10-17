@@ -450,7 +450,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({
               machineName: settings.machineName,
               workspaceCollapsed: settings.workspaceCollapsed,
-              sidebarCollapsed: settings.sidebarCollapsed,
+              workspaceCollapseVersions: settings.workspaceCollapseVersions,
             }, { headers: { "Cache-Control": "no-store" } })
           }
 

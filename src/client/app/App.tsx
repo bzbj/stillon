@@ -211,11 +211,12 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
     void state.handleReorderProjectGroups(projectIds)
   }, [state.handleReorderProjectGroups])
   const handleSidebarResize = useCallback((width: number) => {
-    void state.handleWriteAppSettings({ appearance: { sidebarWidth: width } }).catch(() => undefined)
-  }, [state.handleWriteAppSettings])
+    state.setSidebarWidth(width)
+  }, [state.setSidebarWidth])
   const sidebarElement = useMemo(() => (
     <StillOnSidebar
       onResizeSidebar={handleSidebarResize}
+      sidebarWidth={state.sidebarWidth}
       data={state.sidebarData}
       activeChatId={state.activeChatId}
       machineName={machineName}
@@ -233,7 +234,8 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
       onRunQuickCommand={state.quickCommandStarting || !state.composerPreferencesReady ? undefined : state.handleRunQuickCommand}
       onWriteQuickCommands={state.appSettings ? patch => state.handleWriteAppSettings({ quickCommands: patch }) : undefined}
       workspaceCollapsed={state.workspaceCollapsed}
-      onWriteWorkspaceCollapsed={state.appSettings ? patch => state.handleWriteAppSettings({ workspaceCollapsed: patch }) : undefined}
+      workspaceCollapseVersions={state.workspaceCollapseVersions}
+      onWriteWorkspaceCollapsed={state.appSettings && state.connectionStatus === "connected" ? state.handleWriteWorkspaceCollapsed : undefined}
       onForkChat={handleSidebarForkChat}
       currentProjectId={state.activeProjectId}
       keybindings={state.keybindings}
@@ -251,6 +253,9 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
     />
   ), [
     handleSidebarResize,
+    state.sidebarWidth,
+    state.workspaceCollapseVersions,
+    state.handleWriteWorkspaceCollapsed,
     handleOpenAddProjectModal,
     handleSidebarCopyPath,
     handleSidebarCreateChat,
@@ -358,7 +363,7 @@ export function App() {
 
   return (
     <AuthenticatedSessionBoundary authenticated={auth.state.status === "ready"} checking={auth.state.status === "checking"} fallback={fallback}>
-      {auth.state.status === "ready" ? <AuthenticatedAppRoutes cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} /> : null}
+      {auth.state.status === "ready" ? <AuthenticatedAppRoutes key={auth.state.cacheScope ?? "local"} cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} /> : null}
     </AuthenticatedSessionBoundary>
   )
 }
