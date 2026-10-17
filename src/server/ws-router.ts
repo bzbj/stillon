@@ -1,3 +1,4 @@
+import { mergeQuickCommands } from "../shared/quick-commands"
 import { defaultAppearance, mergeAppearance } from "../shared/appearance"
 import { ChatStreamEncoder, prepareChatSnapshot, type PreparedChatSnapshot } from "../shared/chat-stream"
 import { readFile } from "node:fs/promises"
@@ -558,6 +559,7 @@ export function createWsRouter({
     ...snapshot,
     ...patch,
     appearance: mergeAppearance(snapshot.appearance, patch.appearance),
+    quickCommands: mergeQuickCommands(snapshot.quickCommands, patch.quickCommands),
     terminal: {
       ...snapshot.terminal,
       ...patch.terminal,
@@ -1417,6 +1419,23 @@ export function createWsRouter({
           await openExternal(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
+        }
+        case "chat.startQuickCommand": {
+          if (typeof command.name !== "string" || !command.name.trim() || command.name.length > 100
+            || typeof command.content !== "string" || !command.content.trim() || command.content.length > 50_000) throw new Error("Invalid quick command")
+          if (!command.preferences || !["claude", "codex"].includes(command.preferences.provider)
+            || typeof command.preferences.model !== "string" || !command.preferences.model.trim()) throw new Error("Invalid quick command preferences")
+          const chat = await store.createChat(command.projectId)
+          await store.renameChat(chat.id, command.name)
+          let result: { chatId: string; error?: string; promptSaved?: boolean } = { chatId: chat.id }
+          try {
+            await agent.send({ ...command.preferences, modelOptions: { [command.preferences.provider]: command.preferences.modelOptions }, type: "chat.send", chatId: chat.id, content: command.content })
+          } catch (error) {
+            result = { chatId: chat.id, error: error instanceof Error ? error.message : "Unable to start the agent.", promptSaved: await store.hasMessages(chat.id) }
+          }
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastChatAndSidebar(chat.id)
+          return
         }
         case "chat.create": {
           const chat = await store.createChat(command.projectId)

@@ -1,3 +1,6 @@
+import type { QuickCommand } from "../../shared/quick-commands"
+import { isConnectBrowser } from "../lib/remoteSession"
+import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
 import { AsyncQuestionDelivery, getAsyncQuestionDelivery } from "./asyncQuestionDelivery"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
@@ -8,7 +11,7 @@ import {
   INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
 } from "../../shared/transcript-history"
 import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
-import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
+import { createComposerStateForNewChat, NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
@@ -751,6 +754,8 @@ export interface StillOnState {
   closeAddProjectModal: () => void
   loadOlderHistory: () => Promise<void>
   loadToolDetails: (toolIds: string[]) => Promise<void>
+  quickCommandStarting: boolean
+  handleRunQuickCommand: (projectId: string, command: QuickCommand) => Promise<void>
   handleCreateChat: (projectId: string) => Promise<void>
   setDefaultProjectId: (projectId: string | null) => void
   handleForkChat: (chat: SidebarChatRow) => Promise<void>
@@ -1557,6 +1562,36 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
   }, [commandError, hasOlderHistory, isHistoryLoading, loadOlderHistory, serverTranscriptEntries])
 
+  const [quickCommandStarting, setQuickCommandStarting] = useState(false)
+  const quickCommandDelivery = useMemo(() => new QuickCommandDelivery(
+    (request, operationId) => socket.command(request, { operationId }),
+    isConnectBrowser() ? async id => {
+      const response = await fetch(`/api/connect-operations/${encodeURIComponent(id)}`, { cache: "no-store" })
+      if (!response.ok) throw new Error("Unable to check the command result")
+      return await response.json() as QuickCommandReceipt
+    } : undefined,
+  ), [socket])
+  const handleRunQuickCommand = useCallback(async (projectId: string, command: QuickCommand) => {
+    const preferencesStore = useChatPreferencesStore.getState()
+    const sourceState = preferencesStore.getComposerState(activeChatId ?? NEW_CHAT_COMPOSER_ID)
+    const preferences = createComposerStateForNewChat({ ...preferencesStore, sourceState })
+    setQuickCommandStarting(true)
+    try {
+      const completed = await quickCommandDelivery.start(projectId, command, preferences)
+      preferencesStore.setComposerState(completed.result.chatId, completed.preferences as ComposerState)
+      if (completed.result.error && completed.result.promptSaved === false) {
+        useChatInputStore.getState().setDraft(completed.result.chatId, completed.command.prompt)
+      }
+      setSelectedProjectId(completed.projectId)
+      setPendingChatId(completed.result.chatId)
+      navigate(`/chat/${completed.result.chatId}`)
+      setSidebarOpen(false)
+      setCommandError(completed.result.error ? `${completed.result.error} Your command is saved in this new conversation. Set up the agent to continue.` : null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : "Unable to start the command.")
+    } finally { setQuickCommandStarting(false) }
+  }, [activeChatId, navigate, quickCommandDelivery])
+
   const createChatForProject = useCallback(async (projectId: string) => {
     const chatPreferences = useChatPreferencesStore.getState()
     const sourceComposerState = activeChatId
@@ -2276,6 +2311,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     loadOlderHistory,
     loadToolDetails,
     handleCreateChat,
+    handleRunQuickCommand,
+    quickCommandStarting,
     setDefaultProjectId,
     handleForkChat,
     handleOpenLocalProject,

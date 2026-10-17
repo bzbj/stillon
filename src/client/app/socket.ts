@@ -1,3 +1,4 @@
+import { ConfirmedCommandError } from "./quickCommandDelivery"
 import { ChatStreamDecoder, type ChatStreamFrame } from "../../shared/chat-stream"
 import { receiveCodexModelPolicy } from "../stores/codexModelPolicyStore"
 import { traceAsyncAnswer } from "./asyncQuestionDiagnostics"
@@ -155,9 +156,9 @@ export class StillOnSocket {
     }
   }
 
-  command<TResult = unknown>(command: ClientCommand, options?: { signal?: AbortSignal }) {
-    if (this.remote && this.ws?.readyState !== WebSocket.OPEN) return Promise.reject<TResult>(new Error("尚未连接，操作没有发送。请连接后再试。"))
-    const id = this.remote ? `${Date.now()}-${generateUUID()}` : generateUUID()
+  command<TResult = unknown>(command: ClientCommand, options?: { signal?: AbortSignal; operationId?: string }) {
+    if (this.remote && this.ws?.readyState !== WebSocket.OPEN) return Promise.reject<TResult>(new ConfirmedCommandError("Not connected. The command was not sent. Reconnect and try again."))
+    const id = options?.operationId ?? (this.remote ? `${Date.now()}-${generateUUID()}` : generateUUID())
     const envelope: ClientEnvelope = { v: 1, type: "command", id, command }
     return new Promise<TResult>((resolve, reject) => {
       const signal = options?.signal
@@ -322,7 +323,7 @@ export class StillOnSocket {
         const pending = this.pending.get(payload.id)
         if (!pending) return
         this.pending.delete(payload.id)
-        pending.reject(new Error(payload.message))
+        pending.reject(new ConfirmedCommandError(payload.message))
       }
     })
 

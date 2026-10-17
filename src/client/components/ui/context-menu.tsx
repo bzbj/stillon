@@ -27,6 +27,17 @@ function ContextMenu({
 }
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
+const ContextMenuSub = ContextMenuPrimitive.Sub
+const ContextMenuSubTrigger = React.forwardRef<
+  React.ComponentRef<typeof ContextMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger>
+>(({ className, ...props }, ref) => <ContextMenuPrimitive.SubTrigger ref={ref} className={cn("flex cursor-default select-none items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium outline-hidden focus:bg-muted data-[state=open]:bg-muted data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)} {...props} />)
+ContextMenuSubTrigger.displayName = "ContextMenuSubTrigger"
+const ContextMenuSubContent = React.forwardRef<
+  React.ComponentRef<typeof ContextMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => <ContextMenuPrimitive.Portal><ContextMenuPrimitive.SubContent ref={ref} className={cn("z-50 max-h-[var(--radix-context-menu-content-available-height)] min-w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border bg-background p-1 text-foreground shadow-lg outline-hidden", className)} {...props} /></ContextMenuPrimitive.Portal>)
+ContextMenuSubContent.displayName = "ContextMenuSubContent"
 
 const ContextMenuContent = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Content>,
@@ -47,8 +58,8 @@ ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
 const ContextMenuItem = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item>
->(({ className, onSelect, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> & { closeOnSelect?: boolean }
+>(({ className, onSelect, closeOnSelect = true, ...props }, ref) => {
   const closeContextMenu = React.useContext(ContextMenuCloseContext)
 
   return (
@@ -60,7 +71,7 @@ const ContextMenuItem = React.forwardRef<
       )}
       onSelect={(event) => {
         onSelect?.(event)
-        closeContextMenu?.()
+        if (closeOnSelect) closeContextMenu?.()
       }}
       {...props}
     />
@@ -83,6 +94,9 @@ ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName
 export {
   ContextMenu,
   ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
