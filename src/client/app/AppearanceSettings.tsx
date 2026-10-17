@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { Check, Download, ImagePlus, RotateCcw, Upload } from "lucide-react"
-import { APPEARANCE_PALETTES, PALETTE_LABELS, appearanceVariables, defaultAppearance, normalizeAppearance, paletteSwatch, type AppearanceSettings } from "../../shared/appearance"
+import { APPEARANCE_PALETTES, BACKGROUND_ASSET_PATTERN, PALETTE_LABELS, appearanceVariables, defaultAppearance, normalizeAppearance, paletteSwatch, type AppearanceSettings } from "../../shared/appearance"
 import type { AppSettingsPatch, AppSettingsSnapshot, AppThemePreference } from "../../shared/types"
 import { Button } from "../components/ui/button"
 import { useAppearance } from "../hooks/useAppearance"
 import { cn } from "../lib/utils"
+import { readAppearanceResponse } from "../lib/appearanceResponse"
 import { WorkspaceAvatar } from "../components/WorkspaceAvatar"
 
 const fieldClass = "h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
@@ -76,10 +77,14 @@ export function AppearanceSettingsPanel({ settings, onSave }: {
       const response = await fetch(kind === "skin" ? "/api/appearance/skins/import" : "/api/appearance/background", {
         method: "POST", body: file, headers: { "Content-Type": kind === "skin" ? "application/json" : file.type || "application/octet-stream" },
       })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error || "Unable to import this file.")
-      if (kind === "skin") setDraft(normalizeAppearance(result.appearance))
-      else patch({ backgroundAsset: result.asset })
+      const result = await readAppearanceResponse(response)
+      if (kind === "skin") {
+        if (!result.appearance || typeof result.appearance !== "object" || Array.isArray(result.appearance)) throw new Error("StillOn returned an invalid skin. Your appearance has not changed.")
+        setDraft(normalizeAppearance(result.appearance))
+      } else {
+        if (typeof result.asset !== "string" || !BACKGROUND_ASSET_PATTERN.test(result.asset)) throw new Error("StillOn returned an invalid background. Your appearance has not changed.")
+        patch({ backgroundAsset: result.asset })
+      }
       setNotice(`${kind === "skin" ? "Skin" : "Background"} ready to preview. Apply to keep it.`)
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to import this file.") }
     finally { setBusy(false) }
@@ -88,7 +93,7 @@ export function AppearanceSettingsPanel({ settings, onSave }: {
     setBusy(true); setError(null)
     try {
       const response = await fetch("/api/appearance/skin/export")
-      if (!response.ok) { const result = await response.json(); throw new Error(result.error || "Unable to export this skin.") }
+      if (!response.ok) await readAppearanceResponse(response)
       const objectUrl = URL.createObjectURL(await response.blob())
       const anchor = document.createElement("a")
       anchor.href = objectUrl; anchor.download = "stillon-skin.json"; anchor.click()

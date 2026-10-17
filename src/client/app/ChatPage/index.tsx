@@ -10,7 +10,6 @@ import { useAppDialog } from "../../components/ui/app-dialog"
 import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
-import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
 import { downloadUrl } from "../../lib/download"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath } from "../../lib/pathUtils"
@@ -39,7 +38,6 @@ import {
   EMPTY_STATE_TEXT,
   EMPTY_STATE_TYPING_INTERVAL_MS,
   hasFileDragTypes,
-  sameContextWindowSnapshot,
 } from "./utils"
 
 const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
@@ -564,16 +562,6 @@ export function ChatPage() {
   const scrollback = useTerminalPreferencesStore((store) => store.scrollbackLines)
   const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(state.keybindings), [state.keybindings])
-  const baseContextWindowSnapshotRef = useRef<ReturnType<typeof deriveLatestContextWindowSnapshot>>(null)
-  const contextWindowSnapshot = useMemo(() => {
-    const derivedSnapshot = deriveLatestContextWindowSnapshot(state.chatSnapshot?.messages ?? [])
-    const previousSnapshot = baseContextWindowSnapshotRef.current
-    if (sameContextWindowSnapshot(previousSnapshot, derivedSnapshot)) {
-      return previousSnapshot
-    }
-    baseContextWindowSnapshotRef.current = derivedSnapshot
-    return derivedSnapshot
-  }, [state.chatSnapshot?.messages])
 
   const hasTerminals = terminalLayout.terminals.length > 0
   const showTerminalPane = Boolean(projectId && terminalLayout.isVisible && hasTerminals)
@@ -1156,7 +1144,6 @@ export function ChatPage() {
           codexTransport={state.runtime?.codexTransport ?? state.appSettings?.codexTransport ?? "app-server"}
           preferencesReady={state.composerPreferencesReady}
           availableProviders={state.availableProviders}
-          contextWindowSnapshot={contextWindowSnapshot}
           onSubmit={handleChatSubmit}
           onCancel={handleCancel}
         />

@@ -192,7 +192,7 @@ export async function handleAppearanceRequest(req: Request, url: URL, options: {
   if (!asset && !importing && !uploading && !exporting) return new Response("Not found", { status: 404 })
   const method = importing || uploading ? "POST" : "GET"
   if (req.method !== method) return new Response(null, { status: 405, headers: { Allow: method } })
-  if (method === "POST" && !options.validateOrigin(req)) return new Response("Forbidden", { status: 403 })
+  if (method === "POST" && !options.validateOrigin(req)) return Response.json({ error: "Forbidden" }, { status: 403 })
   try {
     if (asset && BACKGROUND_ASSET_PATTERN.test(asset)) {
       const bytes = await readImmutable(await appearanceDirectory(options.dataDir, "assets"), asset)
