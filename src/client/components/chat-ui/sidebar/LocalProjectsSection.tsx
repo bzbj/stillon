@@ -1,5 +1,5 @@
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { WorkspaceAvatar } from "../../WorkspaceAvatar"
+import { WorkspaceAvatar, type WorkspaceActivity } from "../../WorkspaceAvatar"
 import { WorkspaceAvatarPicker } from "../../WorkspaceAvatarPicker"
 import { useWorkspaceAvatarsStore } from "../../../stores/workspaceAvatarsStore"
 import { ChevronRight, GripVertical, Loader2, MessageCirclePlus, MoreHorizontal } from "lucide-react"
@@ -33,6 +33,7 @@ import { ProjectSectionMenu } from "./Menus"
 
 interface Props {
   projectGroups: SidebarProjectGroup[]
+  activeProjectId?: string | null
   collapsedSections: Set<string>
   expandedGroups: Set<string>
   onToggleSection: (key: string) => void
@@ -52,6 +53,7 @@ interface Props {
 
 interface SortableProjectGroupProps {
   group: SidebarProjectGroup
+  isActive: boolean
   isReorderEnabled: boolean
   collapsedSections: Set<string>
   expandedGroups: Set<string>
@@ -153,24 +155,17 @@ function NewConversationButton({
   )
 }
 
-function ProjectUnreadIndicator({ projectTitle }: { projectTitle: string }) {
-  return (
-    <span
-      role="img"
-      aria-label={`${projectTitle} has unread sessions`}
-      title="Unread sessions"
-      className="relative flex size-3.5 shrink-0 items-center justify-center"
-    >
-      <span
-        aria-hidden="true"
-        className="absolute size-2.5 rounded-full bg-emerald-400/80 motion-safe:animate-ping"
-      />
-      <span
-        aria-hidden="true"
-        className="size-2.5 rounded-full bg-emerald-400 ring-2 ring-muted/20 dark:ring-muted/50"
-      />
-    </span>
-  )
+export function getWorkspaceActivity(chats: SidebarChatRow[]): WorkspaceActivity {
+  return {
+    working: chats.some(chat => ["starting", "running", "stopping"].includes(chat.status)),
+    unreadResult: chats.some(chat => chat.unread && chat.status === "idle"),
+    attention: chats.some(chat => chat.status === "waiting_for_user" || chat.status === "stop_failed" || (chat.status === "failed" && chat.unread)),
+  }
+}
+
+function activityDescription(activity: WorkspaceActivity, isActive: boolean) {
+  const parts = [activity.working ? "Working" : null, activity.attention ? "Needs attention" : null, activity.unreadResult ? "New result" : null].filter(Boolean)
+  return parts.length ? parts.join(" · ") : isActive ? "Current workspace" : "Workspace"
 }
 
 export function getProjectGroupReorderPreviewTargetId({
@@ -221,6 +216,7 @@ export function getProjectGroupReorderPreviewTargetId({
 
 const SortableProjectGroup = memo(function SortableProjectGroup({
   group,
+  isActive,
   isReorderEnabled,
   collapsedSections,
   expandedGroups,
@@ -242,7 +238,8 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   const projectTitle = title || getPathBasename(localPath)
   const isExpanded = expandedGroups.has(groupKey)
   const isEmptyProject = group.chats.length === 0
-  const hasUnreadChat = group.chats.some((chat) => chat.unread)
+  const activity = getWorkspaceActivity(group.chats)
+  const description = activityDescription(activity, isActive)
   const hasMore = group.olderChats.length > 0
   const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath)
 
@@ -266,22 +263,21 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
     <div
       data-stillon-part="project-header"
       className={cn(
-        "relative z-10 flex items-center gap-1 p-3",
+        "relative z-10 flex items-center gap-1 px-3 py-2",
         isReorderEnabled && "md:cursor-grab md:active:cursor-grabbing md:select-none md:touch-none",
         isDragging && "cursor-grabbing"
       )}
       onPointerDown={event => { if (isReorderEnabled) listeners?.onPointerDown?.(event) }}
     >
       {isReorderEnabled ? <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Reorder ${projectTitle} workspace`} className="absolute left-0.5 top-1/2 z-20 hidden size-3 -translate-y-1/2 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 group-hover/section:opacity-60 focus-visible:opacity-100 md:flex"><GripVertical className="size-3" /></button> : null}
-      <button type="button" onClick={() => onToggleSection(groupKey)} aria-expanded={!collapsed} aria-label={`${projectTitle} workspace`} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <WorkspaceAvatar workspaceId={groupKey} className="size-10 shrink-0" />
+      <button type="button" onClick={() => onToggleSection(groupKey)} aria-expanded={!collapsed} aria-current={isActive ? "location" : undefined} aria-label={`${projectTitle} workspace`} aria-description={description} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <WorkspaceAvatar workspaceId={groupKey} className="size-8 shrink-0" activity={activity} label={projectTitle} />
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold leading-5">{projectTitle}</span><span className="block text-[10px] leading-4 text-muted-foreground">Workspace</span></span>
+            <span data-stillon-part="workspace-title" className="min-w-0 flex-1 truncate text-sm font-semibold leading-5">{projectTitle}</span>
           </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={4}>{localPath}</TooltipContent>
+          <TooltipContent side="right" sideOffset={4}><p>{localPath}</p><p className="mt-1 opacity-70">{description}</p></TooltipContent>
         </Tooltip>
-        {hasUnreadChat ? <ProjectUnreadIndicator projectTitle={projectTitle} /> : null}
         <ChevronRight aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")} />
       </button>
       {collapsed && onNewLocalChat ? <Button variant="outline" size="icon" className="size-8 shrink-0 rounded-lg" title="New conversation" aria-label={`New conversation with ${projectTitle}`} disabled={!isConnected || startingLocalPath === localPath} onClick={() => onNewLocalChat(localPath)}>{startingLocalPath === localPath ? <Loader2 className="size-4 animate-spin" /> : <MessageCirclePlus className="size-4" />}</Button> : null}
@@ -295,8 +291,11 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       style={style}
       data-stillon-part="workspace-card"
       data-workspace-id={groupKey}
+      data-workspace-active={isActive}
+      data-workspace-working={activity.working}
+      data-workspace-unread={activity.unreadResult}
       className={cn(
-        "group/section mb-3 overflow-hidden rounded-2xl border border-border/70 bg-background/60",
+        "group/section mb-2 overflow-hidden rounded-2xl border border-border/70 bg-background/60",
         isDragging && "opacity-50 shadow-lg z-50 relative"
       )}
     >
@@ -345,6 +344,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
 
 const LocalProjectsSectionImpl = function LocalProjectsSection({
   projectGroups,
+  activeProjectId,
   collapsedSections,
   expandedGroups,
   onToggleSection,
@@ -441,6 +441,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
         <SortableProjectGroup
           key={group.groupKey}
           group={group}
+          isActive={group.groupKey === activeProjectId}
           isReorderEnabled={isReorderEnabled}
           collapsedSections={collapsedSections}
           expandedGroups={expandedGroups}

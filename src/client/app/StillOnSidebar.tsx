@@ -623,6 +623,7 @@ function StillOnSidebarImpl({
               </div>
             ) : <LocalProjectsSection
               projectGroups={data.projectGroups}
+              activeProjectId={currentProjectId}
               onReorderGroups={onReorderProjectGroups}
               collapsedSections={collapsedSections}
               expandedGroups={expandedGroups}
