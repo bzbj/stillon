@@ -41,7 +41,7 @@ interface Props {
   onShowArchivedProject?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
-  onOpenExternalPath?: (action: "open_finder" | "open_editor", localPath: string) => void
+  onOpenExternalPath?: (action: "open_finder" | "open_default", localPath: string) => void
   onRenameProject?: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => void
   onHideProject?: (projectId: string) => void
   onReorderGroups?: (newOrder: string[]) => void
@@ -61,7 +61,7 @@ interface SortableProjectGroupProps {
   onShowArchivedProject?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
-  onOpenExternalPath?: (action: "open_finder" | "open_editor", localPath: string) => void
+  onOpenExternalPath?: (action: "open_finder" | "open_default", localPath: string) => void
   onRenameProject?: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => void
   onHideProject?: (projectId: string) => void
   isConnected?: boolean
@@ -244,7 +244,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   const isEmptyProject = group.chats.length === 0
   const hasUnreadChat = group.chats.some((chat) => chat.unread)
   const hasMore = group.olderChats.length > 0
-  const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath && onOpenExternalPath)
+  const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath)
 
   const {
     attributes,
@@ -305,7 +305,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           onRename={() => onRenameProject?.(groupKey, group.sidebarTitle, group.realTitle || getPathBasename(localPath))}
           onCopyPath={() => onCopyPath?.(localPath)}
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
-          onOpenInFinder={() => onOpenExternalPath?.("open_finder", localPath)}
+          onOpenInFinder={onOpenExternalPath ? () => onOpenExternalPath("open_finder", localPath) : undefined}
           onHide={() => onHideProject?.(groupKey)}
           onCustomizeAvatar={() => setAvatarOpen(true)}
         >

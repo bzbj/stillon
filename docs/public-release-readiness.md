@@ -30,7 +30,7 @@ Linux server support does not imply a packaged Linux desktop installer.
 | Provider discovery and sessions | Primary | Beta | CLI/shim and lifecycle fixtures; independent provider acceptance remains |
 | Agent network settings | System proxy detection | GNOME detection; other desktops manual | User/WinHTTP detection; environment-dependent |
 | Embedded terminal | Supported | Supported where Bun.Terminal is available | Unavailable; use an external terminal |
-| Local file/editor opening | Supported | Desktop/distribution-dependent | Partial; depends on installed editors |
+| File opening | In-app preview or system application | In-app preview or system application | In-app preview or download |
 | Local HTTP process discovery | lsof / ps | lsof / ps | Not implemented |
 | Local file-link parsing | Unix paths | Unix paths | Drive/UNC handling implemented; retain platform regression coverage |
 | Native development installer | DMG for Intel/Apple Silicon | Not packaged | Setup EXE for x64/ARM64 |

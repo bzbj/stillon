@@ -21,7 +21,7 @@ interface Props {
   onSelectChat: (chatId: string) => void
   onRenameChat: (chatId: string) => void
   onShareChat: (chatId: string) => void
-  onOpenInFinder: (localPath: string) => void
+  onOpenInFinder?: (localPath: string) => void
   onForkChat: (chatId: string) => void
   onArchiveChat: (chatId: string) => void
   onDeleteChat: (chatId: string) => void
@@ -152,7 +152,7 @@ function ChatRowImpl({
       canFork={chat.canFork}
       onRename={() => onRenameChat(chat.chatId)}
       onShare={() => onShareChat(chat.chatId)}
-      onOpenInFinder={() => onOpenInFinder(chat.localPath)}
+      onOpenInFinder={onOpenInFinder ? () => onOpenInFinder(chat.localPath) : undefined}
       onFork={() => onForkChat(chat.chatId)}
       onArchive={() => onArchiveChat(chat.chatId)}
       onDelete={() => onDeleteChat(chat.chatId)}

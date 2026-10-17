@@ -4,6 +4,7 @@ import { handleProviderSetupRequest } from "./provider-setup-http"
 import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
 import { WorkspaceAvatarsManager, handleWorkspaceAvatars } from "./workspace-avatars"
+import { isProjectTextPreviewPath } from "../shared/project-file-urls"
 import { LOCAL_PREVIEW_ASSET_PREFIX, PreviewResources, projectPreviewTarget } from "./preview-resources"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
@@ -433,6 +434,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           if (url.pathname === "/ws") {
             const upgraded = serverInstance.upgrade(req, {
               data: {
+                canOpenHostFiles: ingress.kind === "local",
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),
                 ...(ingress.kind === "remote" ? { remoteOwnerId: ingress.ownerId } : {}),
@@ -966,6 +968,9 @@ function inferProjectFilePreviewContentType(fileName: string, fallbackType?: str
     case ".webmanifest":
       return "application/manifest+json; charset=utf-8"
     default:
+      if (isProjectTextPreviewPath(fileName)) {
+        return extension === ".json" ? "application/json; charset=utf-8" : "text/plain; charset=utf-8"
+      }
       return inferProjectFileContentType(fileName, fallbackType)
   }
 }

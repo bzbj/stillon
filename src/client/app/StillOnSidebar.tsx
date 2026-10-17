@@ -122,11 +122,10 @@ interface StillOnSidebarProps {
   onDeleteChat: (chat: SidebarChatRow) => void
   onOpenAddProjectModal: () => void
   onCopyPath: (localPath: string) => void
-  onOpenExternalPath: (action: "open_finder" | "open_editor", localPath: string) => void
+  onOpenExternalPath?: (action: "open_finder" | "open_default", localPath: string) => void
   onRenameProject: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => void
   onHideProject: (projectId: string) => void
   onReorderProjectGroups: (projectIds: string[]) => void
-  editorLabel: string
   onResizeSidebar?: (width: number) => void
 }
 
@@ -159,7 +158,6 @@ function StillOnSidebarImpl({
   onRenameProject,
   onHideProject,
   onReorderProjectGroups,
-  editorLabel,
   onResizeSidebar,
 }: StillOnSidebarProps) {
   const appearanceContext = useOptionalAppearance()
@@ -289,7 +287,7 @@ function StillOnSidebarImpl({
         }}
         onRenameChat={() => onRenameChat(chat)}
         onShareChat={() => onShareChat(chat.chatId)}
-        onOpenInFinder={() => onOpenExternalPath("open_finder", chat.localPath)}
+        onOpenInFinder={onOpenExternalPath ? () => onOpenExternalPath("open_finder", chat.localPath) : undefined}
         onForkChat={() => onForkChat(chat)}
         onArchiveChat={() => onArchiveChat(chat)}
         onDeleteChat={() => onDeleteChat(chat)}

@@ -11,7 +11,8 @@ export type AppThemePreference = "light" | "dark" | "system"
 export type ChatSoundPreference = "never" | "unfocused" | "always"
 export type ChatSoundId = "blow" | "bottle" | "frog" | "funk" | "glass" | "ping" | "pop" | "purr" | "tink"
 export type DefaultProviderPreference = "last_used" | AgentProvider
-export type EditorPreset = "cursor" | "vscode" | "xcode" | "windsurf" | "custom"
+/** Compatibility field for older clients; file opening always uses the system application. */
+export type EditorPreset = "system"
 export const DEFAULT_OPENAI_SDK_MODEL = "gpt-5.4-mini"
 export const DEFAULT_OPENROUTER_SDK_MODEL = "moonshotai/kimi-k2.5:nitro"
 

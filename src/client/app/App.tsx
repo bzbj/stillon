@@ -1,3 +1,4 @@
+import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom"
 import { StandaloneShareDialog } from "../components/chat-ui/StandaloneShareDialog"
@@ -199,7 +200,7 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
   const handleSidebarCopyPath = useCallback((localPath: string) => {
     void state.handleCopyPath(localPath)
   }, [state.handleCopyPath])
-  const handleSidebarOpenExternalPath = useCallback((action: "open_finder" | "open_editor", localPath: string) => {
+  const handleSidebarOpenExternalPath = useCallback((action: "open_finder" | "open_default", localPath: string) => {
     void state.handleOpenExternalPath(action, localPath)
   }, [state.handleOpenExternalPath])
   const handleSidebarHideProject = useCallback((projectId: string) => {
@@ -238,11 +239,10 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
       onDeleteChat={handleSidebarDeleteChat}
       onOpenAddProjectModal={handleOpenAddProjectModal}
       onCopyPath={handleSidebarCopyPath}
-      onOpenExternalPath={handleSidebarOpenExternalPath}
+      onOpenExternalPath={canOpenTranscriptFilesOnHost(window.location.hostname) ? handleSidebarOpenExternalPath : undefined}
       onRenameProject={handleSidebarRenameProject}
       onHideProject={handleSidebarHideProject}
       onReorderProjectGroups={handleSidebarReorderProjectGroups}
-      editorLabel={state.editorLabel}
     />
   ), [
     handleSidebarResize,
@@ -267,7 +267,6 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
     state.closeSidebar,
     state.collapseSidebar,
     state.connectionStatus,
-    state.editorLabel,
     state.expandSidebar,
     state.openSidebar,
     state.sidebarData,

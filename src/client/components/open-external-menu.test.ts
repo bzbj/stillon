@@ -1,86 +1,19 @@
 import { describe, expect, test } from "bun:test"
-import { getOpenAppItems } from "./open-external-menu"
+import { fileActionItems } from "./open-external-menu"
 
-describe("getOpenAppItems", () => {
-  test("keeps the default editor first and custom hidden unless it is default", () => {
-    expect(getOpenAppItems({
-      editorPreset: "windsurf",
-      isMac: true,
-      includeFinder: true,
-      includeTerminal: false,
-      includePreview: true,
-    }).map((item) => item.value)).toEqual([
-      "editor:windsurf",
-      "editor:cursor",
-      "editor:xcode",
-      "preview",
-      "finder",
-    ])
+describe("file actions", () => {
+  test("offers in-app preview and system opening on this computer", () => {
+    expect(fileActionItems({local:true,isMac:true,preview:true,download:true}).map(item=>item.action))
+      .toEqual(["preview","open_default","download","open_finder"])
   })
-
-  test("includes custom only when custom is the default editor", () => {
-    expect(getOpenAppItems({
-      editorPreset: "custom",
-      isMac: true,
-      includeFinder: true,
-      includeTerminal: false,
-      includePreview: true,
-    }).map((item) => item.value)).toEqual([
-      "editor:custom",
-      "editor:cursor",
-      "editor:xcode",
-      "editor:windsurf",
-      "preview",
-      "finder",
-    ])
+  test("offers only preview and download for a remote file", () => {
+    expect(fileActionItems({local:false,isMac:false,preview:true,download:true}).map(item=>item.action))
+      .toEqual(["preview","download"])
+    expect(fileActionItems({local:false,isMac:false,preview:false,download:true}).map(item=>item.action)).toEqual(["download"])
+    expect(fileActionItems({local:false,isMac:false,preview:false,download:false})).toEqual([])
   })
-
-  test("hides Preview off macOS", () => {
-    expect(getOpenAppItems({
-      editorPreset: "cursor",
-      isMac: false,
-      includeFinder: true,
-      includeTerminal: false,
-      includePreview: true,
-    }).map((item) => item.value)).toEqual([
-      "editor:cursor",
-      "editor:xcode",
-      "editor:windsurf",
-      "finder",
-    ])
-  })
-
-  test("puts Default App last when it is included", () => {
-    expect(getOpenAppItems({
-      editorPreset: "cursor",
-      isMac: true,
-      includeFinder: true,
-      includeTerminal: false,
-      includePreview: true,
-      includeDefault: true,
-    }).map((item) => item.value)).toEqual([
-      "editor:cursor",
-      "editor:xcode",
-      "editor:windsurf",
-      "preview",
-      "finder",
-      "default",
-    ])
-  })
-
-  test("orders the navbar menu with Finder and Terminal after the default editor", () => {
-    expect(getOpenAppItems({
-      editorPreset: "cursor",
-      isMac: true,
-      includeFinder: true,
-      includeTerminal: true,
-      menuKind: "navbar",
-    }).map((item) => item.value)).toEqual([
-      "editor:cursor",
-      "finder",
-      "terminal",
-      "editor:xcode",
-      "editor:windsurf",
-    ])
+  test("uses the system folder label on Windows", () => {
+    expect(fileActionItems({local:true,isMac:false,preview:false,download:false}).map(item=>item.label))
+      .toEqual(["Open on this computer","Show in folder"])
   })
 })

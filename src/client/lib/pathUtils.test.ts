@@ -9,7 +9,6 @@ import {
   parseProjectRelativeFileLink,
   parseProjectRelativeHtmlFileLink,
   parseProjectRelativeRenderableFileLink,
-  shouldOpenLocalFileLinkInEditor,
 } from "./pathUtils"
 
 describe("parseLocalFileLink", () => {
@@ -131,22 +130,6 @@ describe("normalizeWindowsLocalFileTarget", () => {
       .toBe("\\\\server\\share\\index.html")
     expect(normalizeWindowsLocalFileTarget("https://example.com/a%5Cb"))
       .toBe("https://example.com/a%5Cb")
-  })
-})
-
-describe("shouldOpenLocalFileLinkInEditor", () => {
-  test("opens source, markdown, and text files in the editor", () => {
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/src/app.ts")).toBe(true)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/README.md")).toBe(true)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/notes.txt")).toBe(true)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/.gitignore")).toBe(true)
-  })
-
-  test("opens media and document files in the default app", () => {
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/shot.png")).toBe(false)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/movie.mp4")).toBe(false)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/report.docx")).toBe(false)
-    expect(shouldOpenLocalFileLinkInEditor("/Users/example/Projects/stillon/archive.zip")).toBe(false)
   })
 })
 

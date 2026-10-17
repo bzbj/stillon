@@ -14,7 +14,8 @@ import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
 import { downloadUrl } from "../../lib/download"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath } from "../../lib/pathUtils"
-import { canOpenTranscriptFilesOnHost, resolveTranscriptLocalFileDisposition } from "../../lib/transcriptLocalLinkPolicy"
+import { canOpenTranscriptFilesOnHost, resolveTranscriptLocalFileDisposition, type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
+import type { OpenLocalLinkTarget } from "../../components/messages/shared"
 import { cn } from "../../lib/utils"
 import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 import { buildProjectFileContentUrl, buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
@@ -562,8 +563,6 @@ export function ChatPage() {
   const setRightSidebarSize = useRightSidebarStore((store) => store.setSize)
   const scrollback = useTerminalPreferencesStore((store) => store.scrollbackLines)
   const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
-  const editorPreset = useTerminalPreferencesStore((store) => store.editorPreset)
-  const editorCommandTemplate = useTerminalPreferencesStore((store) => store.editorCommandTemplate)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(state.keybindings), [state.keybindings])
   const baseContextWindowSnapshotRef = useRef<ReturnType<typeof deriveLatestContextWindowSnapshot>>(null)
   const contextWindowSnapshot = useMemo(() => {
@@ -793,14 +792,18 @@ export function ChatPage() {
     }
   }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
-  const handleOpenTranscriptLocalLink = useCallback<StillOnState["handleOpenLocalLink"]>(async (target, action, editor) => {
+  const handleOpenTranscriptLocalLink = useCallback(async (target: OpenLocalLinkTarget, action?: LocalFileLinkAction) => {
+    const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
+    const projectFilePath = getProjectRelativeFilePath(target.path, projectLocalPath)
+    if (action === "download") {
+      if (projectId && projectFilePath) downloadUrl(buildProjectFileContentUrl(projectId, projectFilePath), getLocalFileName(projectFilePath))
+      return
+    }
     if (target.trigger === "contextmenu" && canOpenHostFiles) {
-      await state.handleOpenLocalLink(target, action, editor)
+      await state.handleOpenLocalLink(target, action)
       return
     }
 
-    const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
-    const projectFilePath = getProjectRelativeFilePath(target.path, projectLocalPath)
     const disposition = resolveTranscriptLocalFileDisposition({
       hostname: window.location.hostname,
       filePath: target.path,
@@ -848,7 +851,7 @@ export function ChatPage() {
     }
 
     if (disposition === "open_host") {
-      await state.handleOpenLocalLink(target, action, editor)
+      await state.handleOpenLocalLink(target, action)
       return
     }
 
@@ -877,7 +880,7 @@ export function ChatPage() {
     toggleRightPanel,
   ])
 
-  const handleOpenBrowserHostFile = useCallback((filePath: string, action: "open_editor" | "open_default") => {
+  const handleOpenBrowserHostFile = useCallback((filePath: string, action: "open_default") => {
     void state.handleOpenLocalLink({ path: filePath }, action)
   }, [state.handleOpenLocalLink])
 
@@ -958,13 +961,13 @@ export function ChatPage() {
 
       if (actionMatchesEvent(resolvedKeybindings, "openInFinder", event)) {
         event.preventDefault()
-        void state.handleOpenExternal("open_finder")
+        if (canOpenHostFiles) void state.handleOpenExternal("open_finder")
         return
       }
 
       if (actionMatchesEvent(resolvedKeybindings, "openInEditor", event)) {
         event.preventDefault()
-        void state.handleOpenExternal("open_editor")
+        if (canOpenHostFiles) void state.handleOpenExternal("open_default")
         return
       }
 
@@ -976,7 +979,7 @@ export function ChatPage() {
 
     window.addEventListener("keydown", handleGlobalKeydown)
     return () => window.removeEventListener("keydown", handleGlobalKeydown)
-  }, [addTerminal, handleToggleEmbeddedTerminal, handleToggleGitPanel, projectId, resolvedKeybindings, state.handleOpenExternal])
+  }, [addTerminal, canOpenHostFiles, handleToggleEmbeddedTerminal, handleToggleGitPanel, projectId, resolvedKeybindings, state.handleOpenExternal])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -1120,8 +1123,6 @@ export function ChatPage() {
               onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
               onOpenLocalLink={handleOpenTranscriptLocalLink}
               canOpenHostFiles={canOpenHostFiles}
-              editorPreset={editorPreset}
-              editorCommandTemplate={editorCommandTemplate}
               platform={state.localProjects?.machine.platform}
               asyncQuestionResponses={state.asyncQuestionResponses}
               onAskUserQuestionSubmit={state.handleAskUserQuestion}
@@ -1205,7 +1206,6 @@ export function ChatPage() {
     return {
       projectId,
       diffs: state.chatDiffSnapshot ?? EMPTY_DIFF_SNAPSHOT,
-      editorLabel: state.editorLabel,
       diffRenderMode,
       wrapLines: wrapDiffLines,
       onOpenFile: handleOpenDiffFile,
@@ -1261,7 +1261,6 @@ export function ChatPage() {
     setDiffRenderMode,
     setWrapDiffLines,
     state.chatDiffSnapshot,
-    state.editorLabel,
     wrapDiffLines,
   ])
   const shouldKeepGitPanelMounted = Boolean(projectId && (showGitPanel || lastOpenedGitPanelProjectId === projectId))

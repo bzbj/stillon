@@ -17,6 +17,7 @@ import type {
 import { buildProjectFileContentUrl, buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
 import { useStickyState } from "../../hooks/useStickyState"
 import { downloadUrl } from "../../lib/download"
+import { canOpenTranscriptFilesOnHost } from "../../lib/transcriptLocalLinkPolicy"
 import { cn } from "../../lib/utils"
 import { isDiffPathChecked, useDiffCommitStore } from "../../stores/diffCommitStore"
 import { useRightSidebarStore } from "../../stores/rightSidebarStore"
@@ -91,7 +92,6 @@ export interface DiffFileActions {
 export interface GitPanelProps extends DiffFileActions {
   projectId: string | null
   diffs: ChatDiffSnapshot
-  editorLabel: string
   diffRenderMode: DiffRenderMode
   wrapLines: boolean
   onLoadPatch: (path: string) => Promise<string>
@@ -1156,7 +1156,6 @@ function DiffFileCard({
   projectId,
   isCollapsed,
   isChecked,
-  editorLabel,
   diffRenderMode,
   wrapLines,
   onToggleCollapsed,
@@ -1172,7 +1171,6 @@ function DiffFileCard({
   projectId: string | null
   isCollapsed: boolean
   isChecked: boolean
-  editorLabel: string
   diffRenderMode: DiffRenderMode
   wrapLines: boolean
   onToggleCollapsed: () => void
@@ -1195,6 +1193,7 @@ function DiffFileCard({
   const previewAttachment = useMemo(() => getDiffPreviewAttachment(projectId, file), [file, projectId])
   const hasPreviewAttachment = previewAttachment !== null
   const canReadProjectFile = Boolean(projectId) && file.changeType !== "deleted"
+  const canOpenHostFiles = typeof window !== "undefined" && canOpenTranscriptFilesOnHost(window.location.hostname)
   const projectFilePreviewUrl = canReadProjectFile && projectId ? buildProjectRenderablePreviewUrl(projectId, file.path) : ""
   const projectFileContentUrl = canReadProjectFile && projectId ? buildProjectFileContentUrl(projectId, file.path) : ""
   const shouldLoadPatchWhenVisible = shouldLoadDiffPatchNow({
@@ -1222,9 +1221,7 @@ function DiffFileCard({
   function handleAttachmentClick(attachment: ChatAttachment) {
     const target = classifyAttachmentPreview(attachment)
     if (target.openInNewTab) {
-      if (typeof window !== "undefined") {
-        window.open(new URL(attachment.contentUrl, window.location.origin).toString(), "_blank", "noopener,noreferrer")
-      }
+      downloadUrl(attachment.contentUrl, attachment.displayName)
       return
     }
     setSelectedAttachmentId(attachment.id)
@@ -1388,15 +1385,16 @@ function DiffFileCard({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem
+        {canOpenHostFiles && <ContextMenuItem
+          disabled={!canReadProjectFile}
           onSelect={(event) => {
             event.stopPropagation()
             fileActions.onOpenFile(file.path)
           }}
         >
           <Code className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Open in {editorLabel}</span>
-        </ContextMenuItem>
+          <span className="text-xs font-medium">Open on this computer</span>
+        </ContextMenuItem>}
         <ContextMenuItem
           disabled={!projectFilePreviewUrl}
           onSelect={(event) => {
@@ -1405,7 +1403,7 @@ function DiffFileCard({
           }}
         >
           <Globe className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Open Preview</span>
+          <span className="text-xs font-medium">Preview in sidebar</span>
         </ContextMenuItem>
         <ContextMenuItem
           disabled={!projectFileContentUrl}
@@ -1417,15 +1415,15 @@ function DiffFileCard({
           <Download className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Download File</span>
         </ContextMenuItem>
-        <ContextMenuItem
+        {canOpenHostFiles && <ContextMenuItem
           onSelect={(event) => {
             event.stopPropagation()
             fileActions.onOpenInFinder(file.path)
           }}
         >
           <FolderOpen className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Open in Finder</span>
-        </ContextMenuItem>
+          <span className="text-xs font-medium">Show in folder</span>
+        </ContextMenuItem>}
         <ContextMenuItem
           onSelect={(event) => {
             event.stopPropagation()
@@ -1485,7 +1483,6 @@ function DiffFileCard({
 function GitPanelImpl({
   projectId,
   diffs,
-  editorLabel,
   diffRenderMode,
   wrapLines,
   onOpenFile,
@@ -1975,7 +1972,6 @@ function GitPanelImpl({
                       projectId={projectId}
                       isCollapsed={isCollapsed}
                       isChecked={isChecked}
-                      editorLabel={editorLabel}
                       diffRenderMode={diffRenderMode}
                       wrapLines={wrapLines}
                       onToggleCollapsed={() => {

@@ -1,3 +1,4 @@
+import { downloadUrl } from "../../lib/download"
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowUp, CircleAlert, CircleDashed, Paperclip } from "lucide-react"
 import {
@@ -859,9 +860,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   function handleAttachmentPreview(attachment: ComposerAttachment) {
     const target = classifyAttachmentPreview(attachment)
     if (target.openInNewTab) {
-      if (typeof window !== "undefined") {
-        window.open(new URL(attachment.contentUrl, window.location.origin).toString(), "_blank", "noopener,noreferrer")
-      }
+      downloadUrl(attachment.contentUrl, attachment.displayName)
       return
     }
 

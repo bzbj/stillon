@@ -11,9 +11,16 @@ export function downloadUrl(url: string, fileName: string) {
   anchor.remove()
 }
 
+export function downloadText(fileName: string, contents: string, contentType = "application/json") {
+  const url = URL.createObjectURL(new Blob([contents], { type: contentType }))
+  downloadUrl(url, fileName)
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
+
 function toDownloadUrl(url: string) {
   if (typeof window === "undefined") return url
   const absoluteUrl = new URL(url, document.baseURI || window.location.href)
+  if (absoluteUrl.protocol === "blob:") return absoluteUrl.toString()
   absoluteUrl.searchParams.set("download", "1")
   return absoluteUrl.toString()
 }

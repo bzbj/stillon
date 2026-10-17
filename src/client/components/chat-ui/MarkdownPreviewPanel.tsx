@@ -13,9 +13,10 @@ import {
   buildProjectFilePreviewUrl,
   buildProjectMarkdownPreviewUrl,
   isProjectMarkdownPreviewPath,
+  isProjectTextPreviewPath,
 } from "../../../shared/project-file-urls"
 import { cn } from "../../lib/utils"
-import { appendLocalFileLinkLocation, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
+import { appendLocalFileLinkLocation } from "../../lib/pathUtils"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "../messages/shared"
 import { TEXT_PREVIEW_LIMIT_BYTES, fetchTextPreview } from "../messages/attachmentPreview"
@@ -38,7 +39,7 @@ interface MarkdownPreviewPanelProps {
   onNavigate: (address: string) => void
   canOpenHostFiles?: boolean
   projectLocalPath?: string | null
-  onOpenHostFile?: (filePath: string, action: "open_editor" | "open_default") => void
+  onOpenHostFile?: (filePath: string, action: "open_default") => void
 }
 
 export function MarkdownPreviewPanel({
@@ -150,7 +151,7 @@ export function MarkdownPreviewPanel({
                 event.preventDefault()
                 onOpenHostFile(
                   hostFilePath,
-                  shouldOpenLocalFileLinkInEditor(hostFilePath) ? "open_editor" : "open_default",
+                  "open_default",
                 )
               }
             }}
@@ -245,7 +246,7 @@ function buildPreviewUrlForLinkedPath(source: MarkdownPreviewSource, filePath: s
   if (isProjectMarkdownPreviewPath(filePath)) {
     return buildProjectMarkdownPreviewUrl(source.projectId, filePath)
   }
-  if (isHtmlPreviewPath(filePath)) {
+  if (isHtmlPreviewPath(filePath) || isProjectTextPreviewPath(filePath)) {
     return buildProjectFilePreviewUrl(source.projectId, filePath)
   }
   return null

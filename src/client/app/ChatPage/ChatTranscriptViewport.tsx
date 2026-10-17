@@ -8,9 +8,10 @@ import { OpenLocalLinkProvider, type OpenLocalLinkTarget } from "../../component
 import { ProcessingMessage } from "../../components/messages/ProcessingMessage"
 import { isStoppingStatus } from "../derived"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../components/ui/context-menu"
-import { OpenExternalContextMenuContent } from "../../components/open-external-menu"
+import { OpenExternalContextMenuContent, fileActionItems } from "../../components/open-external-menu"
+import { resolveTranscriptLocalFileDisposition, type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
 import { cn } from "../../lib/utils"
-import { getProjectRelativeFilePath, parseProjectRelativeFileLink, shouldOpenLocalFileLinkInEditor } from "../../lib/pathUtils"
+import { getProjectRelativeFilePath, parseProjectRelativeFileLink } from "../../lib/pathUtils"
 import {
   buildResolvedTranscriptRows,
   StillOnTranscriptRow,
@@ -22,8 +23,6 @@ import {
   CHAT_NAVBAR_OFFSET_PX,
   EMPTY_STATE_TEXT,
 } from "./utils"
-import type { EditorPreset } from "../../../shared/protocol"
-import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
 
 interface ChatTranscriptViewportProps {
   projectId?: string | null
@@ -45,7 +44,7 @@ interface ChatTranscriptViewportProps {
   onStopDraining: () => void
   onSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
-  onOpenLocalLink: StillOnState["handleOpenLocalLink"]
+  onOpenLocalLink: (target: OpenLocalLinkTarget, action?: LocalFileLinkAction) => Promise<void>
   canOpenHostFiles?: boolean
   asyncQuestionResponses: StillOnState["asyncQuestionResponses"]
   asyncQuestionsReadOnly?: boolean
@@ -59,8 +58,6 @@ interface ChatTranscriptViewportProps {
   isEmptyStateTypingComplete: boolean
   isPageFileDragActive: boolean
   showEmptyState: boolean
-  editorPreset?: EditorPreset
-  editorCommandTemplate?: string
   platform?: NodeJS.Platform
   headerOffsetPx?: number
 }
@@ -135,8 +132,6 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   isEmptyStateTypingComplete,
   isPageFileDragActive,
   showEmptyState,
-  editorPreset = "cursor",
-  editorCommandTemplate,
   platform = "darwin",
   headerOffsetPx = CHAT_NAVBAR_OFFSET_PX,
 }: ChatTranscriptViewportProps) {
@@ -273,7 +268,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   const handleOpenLocalLinkClick = useCallback((target: OpenLocalLinkTarget) => {
     if (target.trigger !== "contextmenu") {
-      const action = shouldOpenLocalFileLinkInEditor(target.path) ? "open_editor" : "open_default"
+      const action = "open_default"
       void onOpenLocalLink(target, action)
       return
     }
@@ -417,13 +412,12 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
         {localLinkMenuTarget && canOpenHostFiles ? (
           <OpenExternalContextMenuContent
             isMac={isMac}
-            editorPreset={editorPreset}
-            editorCommandTemplate={editorCommandTemplate}
-            includeFinder
-            includePreview
-            includeDefault
-            onOpenExternal={(action, editor) => {
-              void onOpenLocalLink(localLinkMenuTarget, action, editor)
+            onPreview={resolveTranscriptLocalFileDisposition({hostname: window.location.hostname, filePath: localLinkMenuTarget.path, isProjectFile: Boolean(getProjectRelativeFilePath(localLinkMenuTarget.path, localPath))}) === "preview"
+              ? () => { void onOpenLocalLink({ ...localLinkMenuTarget, trigger: "click" }) } : undefined}
+            onDownload={getProjectRelativeFilePath(localLinkMenuTarget.path, localPath)
+              ? () => { void onOpenLocalLink(localLinkMenuTarget, "download") } : undefined}
+            onOpenExternal={(action) => {
+              void onOpenLocalLink(localLinkMenuTarget, action)
             }}
           />
         ) : localLinkMenuTarget ? (
@@ -431,9 +425,10 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
             target={localLinkMenuTarget}
             localPath={localPath}
             onActivate={() => {
-              const action = shouldOpenLocalFileLinkInEditor(localLinkMenuTarget.path) ? "open_editor" : "open_default"
+              const action = "open_default"
               void onOpenLocalLink({ ...localLinkMenuTarget, trigger: "click" }, action)
             }}
+            onDownload={() => { void onOpenLocalLink(localLinkMenuTarget, "download") }}
           />
         ) : null}
       </ContextMenu>
@@ -517,32 +512,33 @@ function RemoteFileContextMenuContent({
   target,
   localPath,
   onActivate,
+  onDownload,
 }: {
   target: OpenLocalLinkTarget
   localPath: string | null | undefined
   onActivate: () => void
+  onDownload: () => void
 }) {
-  const canPreview = isLocalHtmlPreviewPath(target.path) || isLocalMarkdownPreviewPath(target.path)
   const canDownload = Boolean(getProjectRelativeFilePath(target.path, localPath))
-  const enabled = canPreview || canDownload
-  const Icon = canPreview ? Eye : canDownload ? Download : Ban
-  const label = canPreview ? "Open Preview" : canDownload ? "Download" : "Unavailable outside workspace"
+  const canPreview = resolveTranscriptLocalFileDisposition({hostname: "remote.invalid", filePath: target.path, isProjectFile: canDownload}) === "preview"
+  const items = fileActionItems({local:false,isMac:false,preview:canPreview,download:canDownload})
 
   return (
     <ContextMenuContent className="rounded-lg p-1">
-      <ContextMenuItem
-        disabled={!enabled}
+      {items.map(({action,label}) => <ContextMenuItem key={action}
         className="rounded-md text-sm font-normal focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground"
         onSelect={(event) => {
           event.preventDefault()
-          if (enabled) onActivate()
+          if (action === "download") onDownload()
+          else onActivate()
         }}
       >
         <span className="flex items-center gap-3">
-          <Icon className="h-5 w-5 shrink-0" />
+          {action === "download" ? <Download className="size-5" /> : <Eye className="size-5" />}
           <span>{label}</span>
         </span>
-      </ContextMenuItem>
+      </ContextMenuItem>)}
+      {!items.length && <ContextMenuItem disabled><Ban className="size-4" />Unavailable outside workspace</ContextMenuItem>}
     </ContextMenuContent>
   )
 }

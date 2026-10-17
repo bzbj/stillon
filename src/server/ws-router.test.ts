@@ -53,6 +53,7 @@ function withSidebarGroupDefaults(group: {
 class FakeWebSocket {
   readonly sent: unknown[] = []
   readonly data = {
+    canOpenHostFiles: undefined as boolean | undefined,
     subscriptions: new Map(),
     protectedDraftChatIds: new Set<string>(),
   }
@@ -61,6 +62,25 @@ class FakeWebSocket {
     this.sent.push(JSON.parse(message))
   }
 }
+
+test("refuses every host file application action for external clients", async () => {
+  const router=createWsRouter({
+    store:{state:createEmptyState()} as never,
+    agent:{getActiveStatuses:()=>new Map(),getDrainingChatIds:()=>new Set()} as never,
+    terminals:{getSnapshot:()=>null,onEvent:()=>()=>{}} as never,
+    keybindings:{getSnapshot:()=>DEFAULT_KEYBINDINGS_SNAPSHOT,onChange:()=>()=>{}} as never,
+    refreshDiscovery:async()=>[],getDiscoveredProjects:()=>[],machineDisplayName:"Computer",
+  })
+  const ws=new FakeWebSocket()
+  ws.data.canOpenHostFiles=false
+  try {
+    for (const permission of [false, undefined]) for (const action of ["open_default","open_editor","open_finder","open_terminal","open_preview"]) {
+      ws.data.canOpenHostFiles=permission
+      await router.handleMessage(ws as never,JSON.stringify({v:1,type:"command",id:action,command:{type:"system.openExternal",action,localPath:"/missing/native-file"}}))
+      expect(ws.sent.at(-1)).toMatchObject({type:"error",id:action,message:expect.stringContaining("Download this file")})
+    }
+  } finally { router.dispose() }
+})
 
 const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
   bindings: {
@@ -90,8 +110,8 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
     minColumnWidth: 450,
   },
   editor: {
-    preset: "cursor",
-    commandTemplate: "cursor {path}",
+    preset: "system",
+    commandTemplate: "",
   },
   defaultProvider: "last_used",
   defaultProjectId: null,

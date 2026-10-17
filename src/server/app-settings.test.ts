@@ -20,6 +20,23 @@ async function createTempFilePath() {
   return path.join(dir, "settings.json")
 }
 
+test("retires saved editor choices and executable templates without resetting other preferences", async () => {
+  const filePath=await createTempFilePath()
+  await writeFile(filePath, JSON.stringify({theme:"dark",terminal:{scrollbackLines:2500,minColumnWidth:500},
+    editor:{preset:"cursor",commandTemplate:"cursor --goto {path}"}}))
+  const manager=new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    expect(manager.getSnapshot().editor).toEqual({preset:"system",commandTemplate:""})
+    expect(manager.getSnapshot().theme).toBe("dark")
+    expect(manager.getSnapshot().terminal).toEqual({scrollbackLines:2500,minColumnWidth:500})
+    const saved=JSON.parse(await readFile(filePath,"utf8"))
+    expect(saved.editor).toEqual({preset:"system",commandTemplate:""})
+    const afterPatch=await manager.writePatch({editor:{preset:"custom",commandTemplate:"run-anything {path}"}} as never)
+    expect(afterPatch.editor).toEqual({preset:"system",commandTemplate:""})
+  } finally { manager.dispose() }
+})
+
 function expectedDisplayPath(filePath: string) {
   const homePath = homedir()
   return filePath.startsWith(`${homePath}${path.sep}`) ? `~${filePath.slice(homePath.length)}` : filePath
@@ -39,8 +56,8 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
       minColumnWidth: 450,
     },
     editor: {
-      preset: "cursor",
-      commandTemplate: "cursor {path}",
+      preset: "system",
+      commandTemplate: "",
     },
     defaultProvider: "last_used",
     defaultProjectId: null,
@@ -253,7 +270,7 @@ describe("AppSettingsManager", () => {
       theme: "dark",
       chatSoundId: "glass",
       terminal: { scrollbackLines: 2_500 },
-      editor: { preset: "vscode" },
+      editor: { preset: "system" },
       providerDefaults: {
         codex: {
           modelOptions: { reasoningEffort: "high", fastMode: true },
@@ -272,8 +289,8 @@ describe("AppSettingsManager", () => {
     expect(snapshot.chatSoundId).toBe("glass")
     expect(snapshot.terminal.scrollbackLines).toBe(2_500)
     expect(snapshot.terminal.minColumnWidth).toBe(450)
-    expect(snapshot.editor.preset).toBe("vscode")
-    expect(snapshot.editor.commandTemplate).toBe("cursor {path}")
+    expect(snapshot.editor.preset).toBe("system")
+    expect(snapshot.editor.commandTemplate).toBe("")
     expect(snapshot.providerDefaults.codex.modelOptions.fastMode).toBe(true)
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
