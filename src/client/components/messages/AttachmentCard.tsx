@@ -18,6 +18,7 @@ import {
 import type { ChatAttachment } from "../../../shared/types"
 import { cn } from "../../lib/utils"
 import { classifyAttachmentIcon, type AttachmentIconKind } from "./attachmentPreview"
+import { AttachmentImage } from "./AttachmentImage"
 
 type BaseAttachmentCardProps = {
   attachment: ChatAttachment
@@ -62,9 +63,10 @@ export function AttachmentImageCard({
         )}
       >
         {source ? (
-          <img
+          <AttachmentImage
             src={source}
             alt={attachment.displayName}
+            loading={isComposer ? "eager" : "lazy"}
             className={cn(
               "rounded-xl object-contain bg-muted",
               isComposer

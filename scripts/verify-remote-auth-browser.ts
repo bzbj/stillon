@@ -100,7 +100,65 @@ try {
   await focus()
   await focus("offline")
   assert.equal(await page.locator("#draft").count(), 0, "An unavailable host must not expose the private workspace")
+
+  await focus()
+  await page.setViewportSize({ width: 412, height: 892 })
+  let failuresLeft = 2
+  const imageRequests: string[] = []
+  await page.route("**/screenshot-light.png?*", async route => {
+    imageRequests.push(route.request().url())
+    if (failuresLeft-- > 0) await route.fulfill({ status: 503, body: "Temporarily unavailable", headers: { "Cache-Control": "no-store" } })
+    else await route.continue()
+  })
+  const imageLoaded = () => page.waitForFunction(() => {
+    const image = document.querySelector<HTMLImageElement>('img[alt="fixture-image.png"]')
+    return image?.complete && image.naturalWidth > 0
+  })
+  await page.reload()
+  await imageLoaded()
+  assert.equal(imageRequests.length, 3, "A thumbnail must recover from temporary remote image failures without opening the modal")
+  assert.ok(imageRequests.slice(1).every(url => new URL(url).searchParams.get("attachment") === "first"), "Retries must retain the original URL parameters")
+  await page.locator('img[alt="fixture-image.png"]').click()
+  await page.getByRole("dialog", { name: "fixture-image.png" }).waitFor()
+  await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('img[alt="fixture-image.png"]')].every(image => image.naturalWidth > 0))
+  await page.keyboard.press("Escape")
+
+  failuresLeft = Infinity
+  imageRequests.length = 0
+  await page.reload()
+  await page.getByRole("img", { name: "fixture-image.png preview unavailable" }).waitFor()
+  assert.equal(imageRequests.length, 4, "Permanent failures must stop after three retries")
+  failuresLeft = 0
+  await page.evaluate(() => window.dispatchEvent(new Event("online")))
+  await imageLoaded()
+  assert.equal(imageRequests.length, 5, "Reconnecting must recover an exhausted thumbnail")
+
+  failuresLeft = Infinity
+  imageRequests.length = 0
+  await page.evaluate(() => (window as any).remoteAuthFixture.setImageSource("/screenshot-light.png?attachment=old"))
+  await page.waitForFunction(() => {
+    const image = document.querySelector<HTMLImageElement>('img[alt="fixture-image.png"]')
+    return image?.src.includes("attachment=old") && image.complete && !image.naturalWidth
+  })
+  failuresLeft = 0
+  await page.evaluate(() => (window as any).remoteAuthFixture.setImageSource("/screenshot-light.png?attachment=new"))
+  await imageLoaded()
+  await page.waitForTimeout(700)
+  assert.equal(imageRequests.filter(url => new URL(url).searchParams.get("attachment") === "old").length, 1, "Replacing the attachment must cancel the old retry")
+  assert.equal(new URL(imageRequests.at(-1)!).searchParams.has("stillon-image-retry"), false, "A new attachment starts with a fresh retry budget")
+
+  failuresLeft = Infinity
+  await page.evaluate(() => (window as any).remoteAuthFixture.setImageSource("/screenshot-light.png?attachment=unmount"))
+  await page.waitForFunction(() => {
+    const image = document.querySelector<HTMLImageElement>('img[alt="fixture-image.png"]')
+    return image?.src.includes("attachment=unmount") && image.complete && !image.naturalWidth
+  })
+  await focus("expired")
+  const requestsAtUnmount = imageRequests.length
+  await page.waitForTimeout(700)
+  assert.equal(imageRequests.length, requestsAtUnmount, "Session expiry must cancel pending image retries")
   console.log(`${browserType.name()} remote auth checks passed: retained focus/restore/reconnect state, modal portal shield, fail-closed retries, expiry and stale-response fencing.`)
+  console.log(`${browserType.name()} attachment image checks passed: transient recovery, bounded retries, online recovery, modal preview, source changes and unmount cleanup.`)
 } finally {
   await browser?.close()
   if (server.exitCode === null && server.signalCode === null) {

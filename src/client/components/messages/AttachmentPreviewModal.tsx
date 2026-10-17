@@ -28,6 +28,7 @@ import {
   type TablePreviewData,
 } from "./attachmentPreview"
 import { formatAttachmentSize } from "./AttachmentCard"
+import { AttachmentImage } from "./AttachmentImage"
 
 type PreviewState =
   | { status: "loading" }
@@ -189,7 +190,7 @@ function renderAttachmentPreviewBody(
   if (kind === "image") {
     return (
       <div className="flex items-center justify-center">
-        <img
+        <AttachmentImage
           src={attachment.contentUrl}
           alt={attachment.displayName}
           className="max-h-[70vh] w-auto max-w-full rounded-2xl object-contain"

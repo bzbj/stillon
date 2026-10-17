@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client"
 import { createPortal } from "react-dom"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+import { UserMessage } from "../../../src/client/components/messages/UserMessage"
 import { useAppAuthState } from "../../../src/client/app/useAppAuthState"
 import { AuthenticatedSessionBoundary } from "../../../src/client/app/AuthenticatedSessionBoundary"
 import "./styles.css"
@@ -14,6 +15,7 @@ const fixture = {
     draft: (document.querySelector("#draft") as HTMLInputElement | null)?.value,
     scroll: document.querySelector("#history")?.scrollTop, timeOrigin: performance.timeOrigin }),
   focus: () => window.dispatchEvent(new Event("focus")),
+  setImageSource: (_source: string) => {},
 }
 ;(window as any).remoteAuthFixture = fixture
 const originalFetch = window.fetch.bind(window)
@@ -37,9 +39,15 @@ window.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
 
 function PrivatePage() {
   useEffect(() => { fixture.mounts++; return () => { fixture.unmounts++ } }, [])
+  const [imageSource, setImageSource] = useState("/screenshot-light.png?attachment=first")
+  useEffect(() => { fixture.setImageSource = setImageSource }, [])
   return <section>
     <h1>Private fixture workspace</h1>
     <input id="draft" aria-label="Unsent draft" defaultValue="" />
+    <UserMessage content="Image recovery fixture" attachments={[{
+      id: "fixture-image", kind: "image", displayName: "fixture-image.png", mimeType: "image/png",
+      absolutePath: "", relativePath: "", contentUrl: imageSource, size: 1024,
+    }]} />
     <div id="history" style={{ height: 160, overflow: "auto" }}>
       {Array.from({ length: 100 }, (_, i) => <p key={i}>Synthetic message {i}</p>)}
     </div>
