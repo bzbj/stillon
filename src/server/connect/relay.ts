@@ -3,7 +3,7 @@ import { CONNECT_MAX_STREAMS, CONNECT_MAX_WS_BYTES } from "../../shared/connect"
 import { randomId } from "./crypto"
 import { isConnectCookie } from "../../shared/connect-preview"
 
-export interface RelayScope { hostId: string; parentId: string; ownerId: string; valid: () => boolean; finished?: () => void }
+export interface RelayScope { hostId: string; parentId: string; ownerId: string; valid: () => boolean; finished?: () => void; onActivity?: (message: string | Buffer) => void }
 interface ActiveStream { scope: RelayScope; close: () => void }
 export interface RelaySocket {
   upstream: WebSocket
@@ -177,6 +177,7 @@ export class ConnectRelay {
       if (data.closed || !this.valid(data.scope) || data.upstream.readyState !== WebSocket.OPEN || data.upstream.bufferedAmount > BUFFER_LIMIT) {
         this.streams.get(data.id)?.close(); return
       }
+      data.scope.onActivity?.(message)
       data.upstream.send(typeof message === "string" ? message : new Uint8Array(message))
     },
     close: (ws: ServerWebSocket<RelaySocket>) => { this.streams.get(ws.data.id)?.close() },

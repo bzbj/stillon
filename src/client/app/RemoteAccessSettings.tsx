@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, ExternalLink, LoaderCircle, Monitor } from "lucide-react"
 import { Button, buttonVariants } from "../components/ui/button"
+import { BrowserSessionSettings } from "./BrowserSessionSettings"
 import type { ConnectHost, ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/connect"
 
 const labels: Record<ConnectLocalStatus["state"], string> = { unbound: "No email linked", pending: "Waiting for email verification", connecting: "Connecting", online: "Remote access is on", offline: "This computer is offline", paused: "Remote access is paused", revoked: "Computer unlinked", "revocation-pending": "Connection closed; unlinking pending" }
@@ -86,6 +87,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       </>}
       {local.error && <p className="text-sm text-muted-foreground">{errors[local.error] ?? "The connection is unavailable. StillOn will try to reconnect automatically."}</p>}
     </> : !error ? <p className="text-sm text-muted-foreground">Loading connection status…</p> : null}
+    {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <BrowserSessionSettings remote={Boolean(remote)} logoutUrl={remote ? `${remote.portalUrl}/logout/complete` : undefined} />}
     {(local || remote) && <div className="space-y-2 border-t pt-4"><Button variant="ghost" onClick={() => void copyDiagnostics()}>{diagnosticsCopied ? "Diagnostics copied" : "Copy connection diagnostics"}</Button><p className="text-xs text-muted-foreground">Includes connection status and version details for troubleshooting. Excludes email addresses, keys and file contents.</p></div>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </section>

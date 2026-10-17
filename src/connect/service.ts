@@ -12,10 +12,12 @@ import { checkBrowserRequest, cookie, cookieName, cookieValue, faultResponse, js
 import { ConnectPreviews } from "./previews"
 import { CONNECT_PREVIEW_PROXY_PREFIX, CONNECT_PREVIEW_START_PREFIX, CONNECT_PREVIEW_UNSUPPORTED_PATH, parseConnectPreviewPath } from "../shared/connect-preview"
 import { BROWSER_PREVIEW_PROXY_PREFIX } from "../shared/browser-preview-proxy"
+import { browserCommandActivity } from "./browser-sessions"
 
 const id = z.string().regex(/^[a-f0-9]{32}$/)
 const name = z.string().trim().min(1).max(80).refine(v => !/[\u0000-\u001f]/.test(v))
-const deviceActions = z.enum(["enroll", "claim", "cancel-enrollment", "connect", "heartbeat", "pause", "resume", "unbind", "rotate"])
+const deviceActions = z.enum(["enroll", "claim", "cancel-enrollment", "connect", "heartbeat", "pause", "resume", "unbind", "rotate", "list-sessions", "revoke-session"])
+const sessionId = z.string().regex(/^[\w-]{1,128}$/)
 const proofSchema = z.object({ subject: z.string().max(128), challenge: z.string().regex(/^[\w-]{43}$/),
   action: deviceActions, payload: z.record(z.string(), z.unknown()), signature: z.string().regex(/^[\w-]{86}$/) }).strict()
 function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw new ConnectFault("INVALID_BODY", 400); return result.data }
@@ -117,6 +119,15 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
       return json({ success: true })
     }
     const host = registry.requireHost(proof.subject)
+    if (proof.action === "list-sessions") {
+      parse(z.object({}).strict(), proof.payload)
+      return json(auth.browserSessions.list(host.ownerId))
+    }
+    if (proof.action === "revoke-session") {
+      const payload = parse(z.object({ sessionId }).strict(), proof.payload)
+      auth.revokeBrowserSession(host.ownerId, payload.sessionId)
+      return json({ success: true })
+    }
     if (proof.action === "connect") {
       const payload = parse(z.object({ instanceId: id, protocol: z.literal(CONNECT_PROTOCOL) }).strict(), proof.payload)
       const connection = registry.openConnection(host.id, payload.instanceId)
@@ -162,6 +173,13 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           return json({ id: entry.id, name: entry.name, fingerprint: entry.publicKey.slice(-8), expiresAt: entry.expiresAt })
         }
         const identity = await authenticated(request)
+        if (route === "/api/connect/sessions" && request.method === "GET") return json(auth.browserSessions.list(identity.userId, identity.id))
+        if (route === "/api/connect/sessions/revoke" && request.method === "POST") {
+          const payload = parse(z.object({ sessionId }).strict(), await jsonBody(request))
+          auth.revokeBrowserSession(identity.userId, payload.sessionId)
+          return json({ success: true, current: payload.sessionId === identity.id })
+        }
+        auth.browserSessions.touch(identity.id)
         if (route === "/api/connect/hosts" && request.method === "GET") return json({ hosts: registry.hosts(identity.userId) })
         if (route === "/api/connect/authorize" && request.method === "POST") {
           const { flow } = parse(z.object({ flow: id }).strict(), await jsonBody(request))
@@ -208,7 +226,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           authenticated: Boolean(session), cacheScope: null, loginUrl: `${origin}/_connect/login`, portalUrl: centralOrigin,
           ...(session ? { host: registry.publicHost(registry.requireHost(hostId)) } : {}) })
         if (!session) {
-          if (["GET", "HEAD"].includes(request.method) && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/auth/") && url.pathname !== "/ws") return redirect(loginUrl)
+          if (["GET", "HEAD"].includes(request.method) && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/auth/") && !url.pathname.startsWith("/_connect/sessions") && url.pathname !== "/ws") return redirect(loginUrl)
           throw new ConnectFault("AUTH_REQUIRED", 401)
         }
         if (["/auth/logout", "/_connect/logout"].includes(url.pathname) && request.method === "POST") {
@@ -219,6 +237,13 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           const headers = new Headers({ "Set-Cookie": cookie(origin, "host-session", "", 0) })
           return url.pathname === "/_connect/logout" ? redirect(`${centralOrigin}/logout/complete`, headers)
             : json({ success: true, logoutUrl: `${centralOrigin}/logout/complete` }, 200, headers)
+        }
+        if (url.pathname.startsWith("/_connect/sessions")) registry.limited(`session-management:${session.ownerId}`, 120, 60)
+        if (url.pathname === "/_connect/sessions" && request.method === "GET") return json(auth.browserSessions.list(session.ownerId, session.parentId))
+        if (url.pathname === "/_connect/sessions/revoke" && request.method === "POST") {
+          const payload = parse(z.object({ sessionId }).strict(), await jsonBody(request))
+          auth.revokeBrowserSession(session.ownerId, payload.sessionId)
+          return json({ success: true, current: payload.sessionId === session.parentId })
         }
         if (url.pathname === "/_connect/hosts" && request.method === "GET") return json({ hosts: registry.hosts(session.ownerId), currentHostId: hostId })
         const dynamicPreview = parseConnectPreviewPath(url.pathname, CONNECT_PREVIEW_START_PREFIX)
@@ -233,6 +258,8 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         if (url.pathname.startsWith(CONNECT_PREVIEW_PROXY_PREFIX) || url.pathname.startsWith(BROWSER_PREVIEW_PROXY_PREFIX)) throw new ConnectFault("LOCAL_ONLY", 403)
         if ((!assetRequest && url.pathname.startsWith("/_connect/")) || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/connect-local/") || url.pathname.startsWith("/_stillon/")) throw new ConnectFault("LOCAL_ONLY", 403)
         registry.limited(`traffic:${session.ownerId}`, 1_200, 60)
+        // Auth refreshes also fetch the sidebar bootstrap while the page is idle.
+        if (!assetRequest && url.pathname !== "/api/sidebar-view") auth.browserSessions.touch(session.parentId)
         if (!registry.publicHost(registry.requireHost(hostId)).online && ["GET", "HEAD"].includes(request.method)
           && request.headers.get("accept")?.includes("text/html")) return offlinePage(hostId, request.method === "HEAD")
         const previewUrl = resource ? new URL(resource.path + url.search, url) : url
@@ -243,6 +270,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         headers.set("host", new URL(origin).host)
         headers.set("x-stillon-connect-lease", signLease(lease, keys.privateKey))
         const scope = { hostId, parentId: session.parentId, ownerId: session.ownerId,
+          onActivity: (message: string | Buffer) => { if (browserCommandActivity(message)) auth.browserSessions.touch(session.parentId) },
           valid: () => registry.validSession(session, auth.identityById) && !registry.requireHost(hostId).paused }
         const target = new URL(transport)
         target.pathname = previewUrl.pathname; target.search = previewUrl.search

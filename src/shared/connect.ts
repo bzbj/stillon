@@ -16,6 +16,21 @@ export interface ConnectHost {
   lastSeen: number | null
   url: string
 }
+/** One account login, including its tabs and computer sessions. Never a bearer token. */
+export interface ConnectBrowserSession {
+  id: string
+  browser: string
+  platform: string
+  createdAt: number
+  expiresAt: number
+  lastUsedAt: number | null
+  current: boolean
+}
+export interface ConnectBrowserSessions {
+  sessions: ConnectBrowserSession[]
+  /** Server time keeps expiry labels independent of the browser clock. */
+  now: number
+}
 export interface ConnectLocalStatus {
   configured: boolean
   origin: string | null

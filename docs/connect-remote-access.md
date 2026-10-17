@@ -200,3 +200,48 @@ pause remote access and use conservative restore instead of replaying old state.
 Independent installation/reboot, macOS arm64/Windows, mobile/cellular access,
 real mail-provider matrix, TLS renewal, infrastructure rollback and a 12-hour
 soak remain required release gates.
+
+## Signed-in browsers
+
+Settings → Remote access lists the linked account's valid browser logins, with
+browser/platform, remaining validity and last use. One account login counts
+once across tabs and computers. Separate profiles or independent logins count
+separately. In a remote workspace, **This device** marks the calling browser's
+login; the local app does not infer a current browser from the computer or IP.
+
+**Sign out** revokes that account session and every computer/preview session
+created from it, closing their active remote streams. Other browser logins,
+computer bindings and running local tasks remain. Signing out the current
+browser returns it to the logout page. The existing email login and 30-day
+absolute expiry policy are unchanged.
+
+Local management uses a fresh, signed device challenge for the bound account.
+Remote management requires the host session and same-origin request. Both
+paths check account ownership; neither returns session bearer tokens or accepts
+a caller-selected account. Local management remains available while remote
+access is paused, provided the account service is reachable.
+
+Last use is recorded by the account service on sign-in, authenticated workspace
+requests and browser commands, with writes coalesced to a minute. Device
+heartbeats, WebSocket pings, session-status checks, sidebar bootstrap polling
+and browser-list polling do not advance it. Existing logins show **Not recorded yet** until activity has
+been observed after upgrading. This timestamp describes observed use, not
+continuous online presence. Browser/platform names are descriptive user-agent
+labels, not trusted device identities.
+
+Client and account service updates are both needed for this feature. An older
+service or a failed request displays an unavailable/error state instead of
+claiming that zero browsers are signed in. Focus and periodic visible-page
+refreshes reconcile changes made through another entry.
+
+Focused end-to-end verification (synthetic mail and isolated data only):
+
+```sh
+bun scripts/test-connect-browser-sessions.ts
+```
+
+This exercises two real local servers, the account gateway, frps/frpc and the
+adapters: count/current markers, cross-entry reads and revocations, durable
+usage updates, multiple-computer stream closure, self-revocation and preserved
+bindings. Unit tests additionally cover cross-account denial, expiry,
+unknown historical usage and restart persistence.

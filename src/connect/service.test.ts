@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite"
 import { afterEach, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import path from "node:path"
@@ -37,7 +38,7 @@ async function fixture(upstreamOrigin = "http://127.0.0.1:9") {
     const challenge = await (await request("device/challenge", { subject, action }, "", false)).json()
     return request("device/request", signProof({ subject, action, challenge: challenge.challenge, payload }, keys.privateKey), "", false)
   }
-  return { service, request, login, device, keys, messages }
+  return { service, request, login, device, keys, messages, dataDir }
 }
 
 test("remote fullscreen resources work without cookies and revoke with their host session", async () => {
@@ -292,4 +293,98 @@ test("frp credentials restrict proxy identity and cloned connector ownership", a
   expect((await (await plugin(content)).json()).reject).toBe(true)
   f.service.registry.revokeHost(host.id)
   expect(() => f.service.registry.requireHost(host.id)).toThrow("NOT_FOUND")
+})
+
+test("local device and remote browser manage only their account's login families", async () => {
+  const f = await fixture()
+  const first = await f.login("sessions@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Computer")
+  f.service.registry.approveEnrollment(enrollment.id, first.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  // Only synthetic fixture mail budgets are reset to create another browser.
+  const guard = new Database(path.join(f.dataDir, "guard.sqlite"))
+  guard.exec("DELETE FROM connect_rate_event"); guard.close()
+  const second = await f.login("sessions@example.com")
+  const other = await f.login("other@example.com")
+  const local = () => f.device("list-sessions", {}, host.id)
+  const rows = await (await local()).json()
+  expect(rows.sessions).toHaveLength(2)
+  expect(rows.sessions.every((row: { current: boolean }) => !row.current)).toBe(true)
+  expect(rows.sessions.every((row: { lastUsedAt: number | null }) => row.lastUsedAt !== null)).toBe(true)
+  const { cookieName } = await import("./http")
+  function enter(identity: typeof first.identity) {
+    const flow = f.service.registry.newFlow(host.id, "/")
+    const callback = new URL(f.service.registry.authorizeFlow(flow.id, identity))
+    return f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier, callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  }
+  const one = enter(first.identity), extraTab = enter(first.identity), two = enter(second.identity)
+  const hostOrigin = f.service.registry.hostOrigin(host.id)
+  function remote(route: string, token: string, body?: unknown, from = hostOrigin) {
+    return f.service.host(new Request(hostOrigin + route, { method: body === undefined ? "GET" : "POST", headers: {
+      origin: from, cookie: `${cookieName(hostOrigin, "host-session")}=${token}`, "content-type": "application/json",
+    }, body: body === undefined ? undefined : JSON.stringify(body) }), null as never)
+  }
+  const listed = await (await remote("/_connect/sessions", one.token))!.json()
+  expect(listed.sessions).toHaveLength(2) // Multiple host tabs still count once.
+  expect(listed.sessions.filter((row: { current: boolean }) => row.current).map((row: { id: string }) => row.id)).toEqual([first.identity.id])
+  expect((await remote("/_connect/sessions", one.token, undefined, "https://evil.example"))!.status).toBe(403)
+  expect((await remote("/_connect/sessions/revoke", one.token, { sessionId: other.identity.id }))!.status).toBe(404)
+  expect((await f.device("revoke-session", { sessionId: other.identity.id }, host.id)).status).toBe(404)
+  expect(f.service.auth.identityById(other.identity.id)).not.toBeNull()
+  expect((await f.request("sessions", undefined, other.cookie)).status).toBe(200)
+  expect((await f.request("sessions/revoke", { sessionId: first.identity.id }, other.cookie)).status).toBe(404)
+  expect((await f.request("sessions")).status).toBe(401)
+  expect((await remote("/_connect/sessions/revoke", one.token, { sessionId: second.identity.id }))!.status).toBe(200)
+  expect(f.service.auth.identityById(second.identity.id)).toBeNull()
+  expect(f.service.registry.sessionForToken(host.id, two.token, f.service.auth.identityById)).toBeNull()
+  expect((await (await local()).json()).sessions).toHaveLength(1)
+  expect((await f.device("revoke-session", { sessionId: first.identity.id }, host.id)).status).toBe(200)
+  expect(f.service.registry.sessionForToken(host.id, one.token, f.service.auth.identityById)).toBeNull()
+  expect(f.service.registry.sessionForToken(host.id, extraTab.token, f.service.auth.identityById)).toBeNull()
+  expect((await (await local()).json()).sessions).toHaveLength(0)
+  expect(f.service.registry.requireHost(host.id).revokedAt).toBeNull() // Binding is preserved.
+  expect((await f.device("revoke-session", { sessionId: first.identity.id }, host.id)).status).toBe(200)
+})
+
+test("a remote browser can revoke itself and cannot reuse its account or host session", async () => {
+  const f = await fixture(), account = await f.login("self@example.com")
+  const response = await f.request("sessions/revoke", { sessionId: account.identity.id }, account.cookie)
+  expect(await response.json()).toEqual({ success: true, current: true })
+  expect((await f.request("sessions", undefined, account.cookie)).status).toBe(401)
+  expect(f.service.registry.isRevoked(account.identity.id)).toBe(true)
+})
+
+test("idle sidebar bootstrap polling preserves last use while workspace requests advance it", async () => {
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) })
+  cleanup.push(async () => { await upstream.stop(true) })
+  const f = await fixture(`http://127.0.0.1:${upstream.port}`)
+  const account = await f.login("idle@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(host.id, randomId())
+  expect(f.service.registry.frpCredential(host.id, connection.token, "idle-test", "Login")).toBe(true)
+  expect(f.service.registry.frpCredential(host.id, connection.token, "idle-test", "NewProxy")).toBe(true)
+  const flow = f.service.registry.newFlow(host.id, "/")
+  const callback = new URL(f.service.registry.authorizeFlow(flow.id, account.identity))
+  const session = f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier,
+    callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  const hostOrigin = f.service.registry.hostOrigin(host.id)
+  const { cookieName } = await import("./http")
+  const headers = { origin: hostOrigin, cookie: `${cookieName(hostOrigin, "host-session")}=${session.token}` }
+  const guard = new Database(path.join(f.dataDir, "guard.sqlite"))
+  const old = Date.now() - 120_000
+  guard.query("UPDATE connect_session_activity SET lastUsedAt=? WHERE sessionId=?").run(old, account.identity.id)
+  guard.close()
+  const lastUse = () => f.service.auth.browserSessions.list(account.identity.userId).sessions[0]!.lastUsedAt
+  for (const route of ["/auth/status", "/_connect/sessions", "/api/sidebar-view"]) {
+    const response = (await f.service.host(new Request(hostOrigin + route, { headers }), null as never))!
+    expect(response.status).toBe(200)
+    await response.arrayBuffer()
+    expect(lastUse()).toBe(old)
+  }
+  const response = (await f.service.host(new Request(hostOrigin + "/api/projects", { headers }), null as never))!
+  expect(response.status).toBe(200)
+  await response.arrayBuffer()
+  expect(lastUse()).toBeGreaterThan(old)
 })
