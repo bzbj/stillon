@@ -561,7 +561,7 @@ function BrowserPanelImpl({
               </div>
             </div>
           ) : (
-            <div className="h-full w-full overflow-auto bg-muted/20">
+            <div className="h-full w-full overflow-hidden bg-muted/20">
               {projectMarkdownPreviewTarget ? (
                 <MarkdownPreviewPanel
                   key={`${address}-${iframeVersion}`}
@@ -598,12 +598,10 @@ function BrowserPanelImpl({
                   src={previewAddress}
                   title="Browser panel"
                   sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-                  className="h-full w-full origin-top-left border-0 bg-background"
-                  style={{
-                    width: `${100 / zoom}%`,
-                    height: `${100 / zoom}%`,
-                    transform: `scale(${zoom})`,
-                  }}
+                  className="block h-full w-full border-0 bg-background"
+                  // Keep layout, native scrollbars and pointer input in one
+                  // coordinate space when the preview is zoomed.
+                  style={{ zoom }}
                 />
               )}
             </div>
