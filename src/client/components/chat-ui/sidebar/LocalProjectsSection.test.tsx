@@ -6,6 +6,7 @@ import type { SidebarChatRow, SidebarProjectGroup } from "../../../../shared/typ
 import { TooltipProvider } from "../../ui/tooltip"
 import {
   getProjectGroupReorderPreviewTargetId,
+  getWorkspaceActivity,
   LocalProjectsSection,
 } from "./LocalProjectsSection"
 
@@ -34,11 +35,13 @@ function renderSection(
     collapsedSections = new Set<string>(),
     onNewLocalChat,
     actionsEnabled = true,
+    activeProjectId,
   }: {
     expandedGroups?: Set<string>
     collapsedSections?: Set<string>
     onNewLocalChat?: (localPath: string) => void
     actionsEnabled?: boolean
+    activeProjectId?: string | null
   } = {}
 ) {
   return renderToStaticMarkup(createElement(
@@ -46,6 +49,7 @@ function renderSection(
     null,
     createElement(LocalProjectsSection, {
       projectGroups,
+      activeProjectId,
       collapsedSections,
       expandedGroups,
       onToggleSection: () => undefined,
@@ -182,7 +186,7 @@ describe("LocalProjectsSection", () => {
       collapsedSections: new Set(["project-a"]),
     })
 
-    expect(html).toContain('aria-label="Project A has unread sessions"')
+    expect(html).toContain('aria-label="Project A has new results to read"')
     expect(html).not.toContain("recent-read")
     expect(html).not.toContain("older-unread")
   })
@@ -203,7 +207,7 @@ describe("LocalProjectsSection", () => {
 
     const html = renderSection(projectGroups)
 
-    expect(html.match(/aria-label="Project A has unread sessions"/g)).toHaveLength(1)
+    expect(html.match(/aria-label="Project A has new results to read"/g)).toHaveLength(1)
     expect(html).toContain("unread-1")
     expect(html).toContain("unread-2")
   })
@@ -229,8 +233,8 @@ describe("LocalProjectsSection", () => {
       previewChats: [readChat],
     }])
 
-    expect(unreadHtml).toContain('aria-label="Project A has unread sessions"')
-    expect(readHtml).not.toContain('aria-label="Project A has unread sessions"')
+    expect(unreadHtml).toContain('aria-label="Project A has new results to read"')
+    expect(readHtml).not.toContain('aria-label="Project A has new results to read"')
   })
 
   test("keeps a compact conversation action when the workspace is collapsed", () => {
@@ -273,6 +277,47 @@ describe("LocalProjectsSection", () => {
 
     expect(html).toContain("New conversation")
     expect(html).toContain("disabled")
+  })
+
+  test("keeps the current workspace selected when folded without selecting its neighbors", () => {
+    const groups = ["Research", "Planning"].map(title => ({
+      groupKey: title, title, realTitle: title, localPath: `/tmp/${title}`,
+      chats: [createChat(`${title}-chat`, nowMs)], previewChats: [], olderChats: [], defaultCollapsed: true,
+    }))
+    for (const collapsedSections of [new Set<string>(), new Set(["Research", "Planning"])]) {
+      const html = renderSection(groups, { activeProjectId: "Research", collapsedSections })
+      expect(html).toContain('data-workspace-id="Research" data-workspace-active="true"')
+      expect(html).toContain('data-workspace-id="Planning" data-workspace-active="false"')
+      expect(html.match(/aria-current="location"/g)).toHaveLength(1)
+      expect(html).toContain('aria-description="Current workspace"')
+      expect(html).not.toContain('leading-4 text-muted-foreground')
+    }
+    expect(renderSection(groups, { activeProjectId: null })).not.toContain('aria-current="location"')
+  })
+
+  test("aggregates working and unread results from separate, hidden conversations", () => {
+    const running = { ...createChat("busy", nowMs), status: "running" as const }
+    const result = createChat("old-result", nowMs - 25 * hourMs, true)
+    const group = { groupKey: "Research", title: "Research", realTitle: "Research", localPath: "/tmp/research",
+      chats: [running, result], previewChats: [running], olderChats: [result], defaultCollapsed: true }
+    const html = renderSection([group], { collapsedSections: new Set(["Research"]) })
+    expect(html).toContain('aria-label="Research is working"')
+    expect(html).toContain('aria-label="Research has new results to read"')
+    expect(html).toContain("Working · New result")
+    expect(getWorkspaceActivity([running, result])).toEqual({ working: true, unreadResult: true, attention: false })
+    expect(getWorkspaceActivity([running, { ...result, unread: false }]).unreadResult).toBe(false)
+  })
+
+  test("does not call unread failures or input requests successful results", () => {
+    for (const status of ["waiting_for_user", "failed", "stop_failed"] as const) {
+      const chat = { ...createChat("attention", nowMs, true), status }
+      expect(getWorkspaceActivity([chat])).toEqual({ working: false, unreadResult: false, attention: true })
+    }
+    for (const status of ["starting", "running", "stopping"] as const) {
+      expect(getWorkspaceActivity([{ ...createChat("work", nowMs, true), status }])).toEqual({ working: true, unreadResult: false, attention: false })
+    }
+    expect(getWorkspaceActivity([createChat("read", nowMs)])).toEqual({ working: false, unreadResult: false, attention: false })
+    expect(getWorkspaceActivity([])).toEqual({ working: false, unreadResult: false, attention: false })
   })
 
   test("starts the downward reorder preview when dragged top plus 20px crosses the target center", () => {

@@ -109,8 +109,11 @@ those values. Schema changes require an explicit API version and migration.
 
 ## Public UI hooks
 
-`data-stillon-part` names are `workspace`, `page`, `sidebar`, `project-header`, `workspace-card`, `workspace-conversations`, `new-conversation`,
+`data-stillon-part` names are `workspace`, `page`, `sidebar`, `project-header`, `workspace-card`, `workspace-conversations`, `new-conversation`, `workspace-avatar`, `workspace-avatar-status`,
 `chat`, `chat-column`, `chat-row`, `composer`, `composer-column`, and `appearance-settings`.
+Workspace cards expose `data-workspace-active`, `data-workspace-working` and
+`data-workspace-unread`; avatar badges expose `data-status` (`working`, `complete`,
+`attention`). Selection remains outlined in Solid, Soft and Glass.
 The implementation maps palette primitives to existing semantic tokens such as
 `--background`, `--foreground`, `--primary`, `--border`, `--radius`, then to
 `--stillon-font`, `--stillon-font-size`, `--stillon-row-height`,

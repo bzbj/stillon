@@ -3,11 +3,13 @@ import { z } from "zod"
 const color = z.string().regex(/^#[0-9a-f]{6}$/iu)
 const vector = z.string().min(1).max(4096).regex(/^[MmLlHhVvCcSsQqTtAaZz0-9.,+\s-]+$/u)
 const shape = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/u), label: z.string().trim().min(1).max(40), body: vector, eyes: vector, eyeWidth: z.number().min(1).max(10) }).strict()
+const statusBadge = z.object({ background: color, foreground: color, mark: vector }).strict()
 export const workspaceAvatarChoiceSchema = z.object({ shape: z.string().max(40), color }).strict()
 export const workspaceAvatarsSchema = z.object({
   schemaVersion: z.literal(1),
   shapes: z.array(shape).min(1).max(32),
   palette: z.array(color).min(1).max(32),
+  statusBadges: z.object({ working: statusBadge, complete: statusBadge, attention: statusBadge }).strict().optional(),
   workspaces: z.record(z.string().min(1).max(256), workspaceAvatarChoiceSchema),
 }).strict().superRefine((value, context) => {
   const ids = new Set(value.shapes.map(item => item.id))
@@ -18,6 +20,14 @@ export const workspaceAvatarsSchema = z.object({
 export type WorkspaceAvatars = z.infer<typeof workspaceAvatarsSchema>
 export type WorkspaceAvatarChoice = z.infer<typeof workspaceAvatarChoiceSchema>
 export interface WorkspaceAvatarsSnapshot { config: WorkspaceAvatars; warning?: string }
+
+export function defaultWorkspaceStatusBadges() {
+  return {
+    working: { background: "#24344b", foreground: "#ffffff", mark: "M4 8h0.01M8 8h0.01M12 8h0.01" },
+    complete: { background: "#168368", foreground: "#ffffff", mark: "M4 8l3 3 5-6" },
+    attention: { background: "#f2bb54", foreground: "#39270c", mark: "M8 4v5M8 12h0.01" },
+  }
+}
 
 export function defaultWorkspaceAvatars(): WorkspaceAvatars {
   const eyes = "M29 20l5 7M41 15l5 7"
@@ -30,6 +40,7 @@ export function defaultWorkspaceAvatars(): WorkspaceAvatars {
       { id: "soft", label: "Soft", body: "M26 5C41 1 55 11 57 25C60 39 54 54 41 58C27 62 8 57 5 46C1 35 14 8 26 5Z", eyes, eyeWidth: 5.5 },
     ],
     palette: ["#4db6a3", "#f3a02d", "#685cf1", "#8a57f5", "#3d7ff5", "#f36d2b", "#d96292", "#566274"],
+    statusBadges: defaultWorkspaceStatusBadges(),
     workspaces: {},
   }
 }
