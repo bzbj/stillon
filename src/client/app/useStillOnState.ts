@@ -11,7 +11,7 @@ import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettin
 import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
-import { getEditorPresetLabel, useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
+import { useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
 import { useChatInputStore } from "../stores/chatInputStore"
 import { useAppSettingsStore } from "../stores/appSettingsStore"
 import { useChatSoundPreferencesStore } from "../stores/chatSoundPreferencesStore"
@@ -37,7 +37,7 @@ import {
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { StillOnSocket, type SocketStatus } from "./socket"
-import type { EditorOpenSettings, LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
+import type { LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
   if (left === right) return true
@@ -367,22 +367,6 @@ function readLegacyBrowserSettingsPatch(): AppSettingsPatch | null {
     if (typeof terminalState.minColumnWidth === "number") {
       patch.terminal.minColumnWidth = terminalState.minColumnWidth
     }
-    const editorPatch: NonNullable<AppSettingsPatch["editor"]> = {}
-    if (
-      terminalState.editorPreset === "cursor"
-      || terminalState.editorPreset === "vscode"
-      || terminalState.editorPreset === "xcode"
-      || terminalState.editorPreset === "windsurf"
-      || terminalState.editorPreset === "custom"
-    ) {
-      editorPatch.preset = terminalState.editorPreset
-    }
-    if (typeof terminalState.editorCommandTemplate === "string") {
-      editorPatch.commandTemplate = terminalState.editorCommandTemplate
-    }
-    if (Object.keys(editorPatch).length > 0) {
-      patch.editor = editorPatch
-    }
   }
 
   const chatPreferencesState = readPersistedZustandState(LEGACY_CHAT_PREFERENCES_STORAGE_KEY)
@@ -410,8 +394,6 @@ function syncRuntimeStoresFromAppSettings(snapshot: AppSettingsSnapshot) {
   const terminalPreferences = useTerminalPreferencesStore.getState()
   terminalPreferences.setScrollbackLines(snapshot.terminal.scrollbackLines)
   terminalPreferences.setMinColumnWidth(snapshot.terminal.minColumnWidth)
-  terminalPreferences.setEditorPreset(snapshot.editor.preset)
-  terminalPreferences.setEditorCommandTemplate(snapshot.editor.commandTemplate)
 
   const chatSoundPreferences = useChatSoundPreferencesStore.getState()
   chatSoundPreferences.setChatSoundPreference(snapshot.chatSoundPreference)
@@ -759,7 +741,6 @@ export interface StillOnState {
   standaloneShareUrl: string | null
   standaloneShareComplete: boolean
   navbarLocalPath?: string
-  editorLabel: string
   hasSelectedProject: boolean
   addProjectModalOpen: boolean
   openSidebar: () => void
@@ -797,9 +778,9 @@ export interface StillOnState {
   handleHideProject: (projectId: string) => Promise<void>
   handleReorderProjectGroups: (projectIds: string[]) => Promise<void>
   handleCopyPath: (localPath: string) => Promise<void>
-  handleOpenExternal: (action: OpenExternalAction, editor?: EditorOpenSettings) => Promise<void>
-  handleOpenExternalPath: (action: "open_finder" | "open_editor", localPath: string) => Promise<void>
-  handleOpenLocalLink: (target: OpenLocalLinkTarget, action?: OpenExternalAction, editor?: EditorOpenSettings) => Promise<void>
+  handleOpenExternal: (action: OpenExternalAction) => Promise<void>
+  handleOpenExternalPath: (action: "open_finder" | "open_default", localPath: string) => Promise<void>
+  handleOpenLocalLink: (target: OpenLocalLinkTarget, action?: OpenExternalAction) => Promise<void>
   handleCompose: () => void
   handleAskUserQuestion: (
     toolUseId: string,
@@ -899,7 +880,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   })
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
-  const editorLabel = getEditorPresetLabel(useTerminalPreferencesStore((store) => store.editorPreset))
   const sidebarProjectGroups = useMemo(
     () => applySidebarProjectOrder(sidebarData.projectGroups, optimisticSidebarProjectOrder),
     [optimisticSidebarProjectOrder, sidebarData.projectGroups]
@@ -1990,23 +1970,15 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     localPath: string
     line?: number
     column?: number
-    editor?: EditorOpenSettings
   }) => {
-    const preferences = useTerminalPreferencesStore.getState()
     setCommandError(null)
     await socket.command({
       type: "system.openExternal",
       ...command,
-      editor: command.action === "open_editor"
-        ? command.editor ?? {
-            preset: preferences.editorPreset,
-            commandTemplate: preferences.editorCommandTemplate,
-          }
-        : undefined,
     })
   }, [socket])
 
-  const handleOpenExternal = useCallback(async (action: OpenExternalAction, editor?: EditorOpenSettings) => {
+  const handleOpenExternal = useCallback(async (action: OpenExternalAction) => {
     const localPath = runtime?.localPath
       ?? localProjects?.projects[0]?.localPath
       ?? (sidebarReady ? sidebarProjectGroups[0]?.localPath : undefined)
@@ -2015,7 +1987,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       await openExternal({
         action,
         localPath,
-        editor,
       })
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
@@ -2036,8 +2007,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const handleOpenLocalLink = useCallback(async (
     target: OpenLocalLinkTarget,
-    action: OpenExternalAction = "open_editor",
-    editor?: EditorOpenSettings,
+    action: OpenExternalAction = "open_default",
   ) => {
     try {
       await openExternal({
@@ -2045,14 +2015,13 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
         localPath: target.path,
         line: target.line,
         column: target.column,
-        editor,
       })
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
   }, [openExternal])
 
-  const handleOpenExternalPath = useCallback(async (action: "open_finder" | "open_editor", localPath: string) => {
+  const handleOpenExternalPath = useCallback(async (action: "open_finder" | "open_default", localPath: string) => {
     try {
       await openExternal({
         action,
@@ -2299,7 +2268,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     standaloneShareUrl,
     standaloneShareComplete,
     navbarLocalPath,
-    editorLabel,
     hasSelectedProject,
     addProjectModalOpen,
     openSidebar,

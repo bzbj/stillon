@@ -26,6 +26,26 @@ async function startProjectFileServer() {
 }
 
 describe("project file routes", () => {
+  test("serves status JSON and text previews without an editor or active HTML", async () => {
+    const {server,project,projectDir}=await startProjectFileServer()
+    try {
+      for (const [name,content,type] of [
+        ["状态 file.json", '{"phase":"succeeded"}', "application/json"],
+        ["app.tsx", "<script>window.shouldNeverRun=true</script>", "text/plain"],
+        [".gitignore", "private/", "text/plain"],
+      ]) {
+        await writeFile(path.join(projectDir,name!),content!)
+        const origin=`http://127.0.0.1:${server.port}`
+        const response=await fetch(origin+`/api/projects/${project.id}/preview/${encodeURIComponent(name!)}`)
+        expect(response.status).toBe(200)
+        expect(response.headers.get("content-type")).toStartWith(type!)
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+        expect(await response.text()).toBe(content!)
+        const download=await fetch(origin+`/api/projects/${project.id}/files/${encodeURIComponent(name!)}/content?download=1`)
+        expect(download.headers.get("content-disposition")).toContain("attachment")
+      }
+    } finally { await server.stop() }
+  })
   test("opaque fullscreen previews load scoped assets and reject traversal, symlinks and stale tokens", async () => {
     const { server, project, projectDir } = await startProjectFileServer()
     try {

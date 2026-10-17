@@ -21,26 +21,6 @@ export interface ProjectRenderablePreviewPath {
   path: string
 }
 
-const EDITOR_OPEN_EXTENSIONS = new Set([
-  ".c", ".cc", ".cfg", ".conf", ".cpp", ".cs", ".css", ".diff", ".env", ".go", ".graphql", ".h",
-  ".hpp", ".html", ".ini", ".java", ".js", ".json", ".jsonc", ".jsx", ".kt", ".log", ".lua",
-  ".md", ".mjs", ".patch", ".php", ".pl", ".properties", ".py", ".rb", ".rs", ".scss", ".sh",
-  ".sql", ".swift", ".toml", ".ts", ".tsx", ".txt", ".vue", ".xml", ".yaml", ".yml", ".zsh",
-])
-
-const EDITOR_OPEN_FILENAMES = new Set([
-  ".gitignore",
-  ".npmrc",
-  ".prettierrc",
-  ".python-version",
-  ".ruby-version",
-  ".tool-versions",
-  "Dockerfile",
-  "Gemfile",
-  "Makefile",
-  "Procfile",
-])
-
 interface ParsedFileTarget {
   path: string
   line?: number
@@ -291,14 +271,6 @@ export function parseProjectRelativeHtmlFileLink(target: string | undefined | nu
   const parsed = parseProjectRelativeRenderableFileLink(target, localPath)
   if (!parsed) return null
   return isHtmlFilePath(parsed.path) ? parsed : null
-}
-
-export function shouldOpenLocalFileLinkInEditor(filePath: string) {
-  const fileName = filePath.split(/[\\/]/).pop() ?? filePath
-  if (EDITOR_OPEN_FILENAMES.has(fileName)) return true
-  const extensionIndex = fileName.lastIndexOf(".")
-  const extension = extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : ""
-  return EDITOR_OPEN_EXTENSIONS.has(extension)
 }
 
 export function appendLocalFileLinkLocation(url: string, target: Pick<ParsedLocalFileLink, "query" | "fragment">) {

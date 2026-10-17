@@ -1,8 +1,9 @@
-import { ArrowLeft, ArrowRight, CornerDownLeft, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
+import { ArrowLeft, ArrowRight, CornerDownLeft, Download, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
-import { buildProjectFileContentUrl, normalizeProjectPreviewAddress, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
+import { buildProjectFileContentUrl, normalizeProjectPreviewAddress, parseProjectFilePreviewUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
+import { downloadUrl } from "../../lib/download"
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../../shared/protocol"
 import type { StillOnSocket } from "../../app/socket"
 import {
@@ -46,7 +47,7 @@ interface BrowserPanelProps {
   socket: StillOnSocket
   localPath?: string | null
   canOpenHostFiles?: boolean
-  onOpenHostFile?: (filePath: string, action: "open_editor" | "open_default") => void
+  onOpenHostFile?: (filePath: string, action: "open_default") => void
   onClose: () => void
   onRunQuickAction: (command: string) => void
 }
@@ -99,6 +100,11 @@ function BrowserPanelImpl({
   const scopedAddress = normalizeProjectPreviewAddress(address, projectId, window.location.origin)
   const projectMarkdownPreviewTarget = parseProjectMarkdownPreviewUrl(scopedAddress)
   const localMarkdownPreviewTarget = parseLocalMarkdownPreviewUrl(address)
+  const projectFileTarget = projectMarkdownPreviewTarget ?? parseProjectFilePreviewUrl(scopedAddress)
+  const fileTarget = projectFileTarget?.projectId === projectId && !/\.html?$/iu.test(projectFileTarget.filePath)
+    ? projectFileTarget : null
+  const isFileAction = Boolean(fileTarget || localMarkdownPreviewTarget)
+  const externalActionLabel = isFileAction ? canOpenHostFiles ? "Open on this computer" : "Download" : "Open external"
   const previewAddress = address ? buildBrowserPreviewProxyUrl(scopedAddress) : ""
   const externalPreviewAddress = projectMarkdownPreviewTarget
     ? buildProjectFileContentUrl(projectMarkdownPreviewTarget.projectId, projectMarkdownPreviewTarget.filePath)
@@ -106,6 +112,21 @@ function BrowserPanelImpl({
       ? buildLocalFileContentUrl(localMarkdownPreviewTarget.filePath)
     : previewAddress
   const zoom = browserState?.zoom ?? 1
+  function openPreviewExternally() {
+    if (isFileAction) {
+      const filePath = fileTarget && localPath
+        ? localPath.replace(/[\\/]+$/u, "") + "/" + fileTarget.filePath
+        : localMarkdownPreviewTarget?.filePath
+      if (canOpenHostFiles && filePath && onOpenHostFile) onOpenHostFile(filePath, "open_default")
+      else {
+        const contentUrl = fileTarget ? buildProjectFileContentUrl(fileTarget.projectId, fileTarget.filePath)
+          : buildLocalFileContentUrl(localMarkdownPreviewTarget!.filePath)
+        downloadUrl(contentUrl, (fileTarget?.filePath ?? localMarkdownPreviewTarget!.filePath).split(/[\\/]/u).pop() || "download")
+      }
+      return
+    }
+    window.open(externalPreviewAddress, "_blank", "noopener,noreferrer")
+  }
   const [addressDraft, setAddressDraft] = useState(address)
   const [iframeVersion, setIframeVersion] = useState(0)
   const [localServers, setLocalServers] = useState<LocalHttpServerInfo[]>(() => getCachedLocalHttpServers() ?? [])
@@ -378,12 +399,12 @@ function BrowserPanelImpl({
                 type="button"
                 variant="ghost"
                 size="none"
-                title="Open external"
-                aria-label="Open external"
-                onClick={() => window.open(externalPreviewAddress, "_blank", "noopener,noreferrer")}
+                title={externalActionLabel}
+                aria-label={externalActionLabel}
+                onClick={openPreviewExternally}
                 className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 border-border/0 text-muted-foreground opacity-0 hover:!border-border/0 hover:!bg-transparent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                {isFileAction && !canOpenHostFiles ? <Download className="size-3.5" /> : <ExternalLink className="size-3.5" />}
               </Button>
             ) : null}
           </form>

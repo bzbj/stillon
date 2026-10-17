@@ -125,6 +125,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 }
 
 export interface ClientState {
+  canOpenHostFiles?: boolean
   remoteOwnerId?: string
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
@@ -520,8 +521,8 @@ export function createWsRouter({
       minColumnWidth: 450,
     },
     editor: {
-      preset: "cursor",
-      commandTemplate: "cursor {path}",
+      preset: "system",
+      commandTemplate: "",
     },
     defaultProvider: "last_used",
     providerDefaults: {
@@ -1412,6 +1413,7 @@ export function createWsRouter({
           return
         }
         case "system.openExternal": {
+          if (ws.data.canOpenHostFiles === false) throw new Error("Download this file or preview it in StillOn. Opening applications is available only on the computer itself.")
           await openExternal(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break

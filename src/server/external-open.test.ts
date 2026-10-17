@@ -1,116 +1,28 @@
 import { describe, expect, test } from "bun:test"
-import { buildDefaultOpenCommand, buildEditorCommand, buildPreviewCommand, tokenizeCommandTemplate } from "./external-open"
+import path from "node:path"
+import { tmpdir } from "node:os"
+import { buildDefaultOpenCommand, openExternal } from "./external-open"
 
-describe("tokenizeCommandTemplate", () => {
-  test("keeps quoted arguments together", () => {
-    expect(tokenizeCommandTemplate('code --reuse-window "{path}"')).toEqual([
-      "code",
-      "--reuse-window",
-      "{path}",
-    ])
+describe("native file opening", () => {
+  test.each([["darwin","open"],["linux","xdg-open"],["win32","explorer.exe"]] as const)("uses the system application on %s", (platform,command) => {
+    const localPath=platform==="win32" ? "C:\\Users\\example\\中文 folder\\status.json" : "/tmp/中文 folder/status.json"
+    expect(buildDefaultOpenCommand({localPath,platform})).toEqual({command,args:[localPath]})
   })
-})
-
-describe("buildEditorCommand", () => {
-  test("builds a preset goto command for file links", () => {
-    expect(
-      buildEditorCommand({
-        localPath: "/Users/example/Projects/stillon/src/client/app/App.tsx",
-        isDirectory: false,
-        line: 12,
-        column: 3,
-        editor: { preset: "vscode", commandTemplate: "code {path}" },
-        platform: "linux",
-      })
-    ).toEqual({
-      command: "code",
-      args: ["--goto", "/Users/example/Projects/stillon/src/client/app/App.tsx:12:3"],
+  test.each(["open_editor","open_preview","open_default"] as const)("neutralizes retired commands and saved editor settings for %s", async action => {
+    const calls:any[]=[]
+    const localPath=path.join(tmpdir(),"sample folder","status.json")
+    await openExternal({type:"system.openExternal",action,localPath,line:12,
+      editor:{preset:"cursor",commandTemplate:"cursor --goto {path}; touch /tmp/should-never-run"}} as never,{
+      platform:"darwin",stat:async()=>({isDirectory:()=>false}),
+      spawn:async(command,args)=>{calls.push({command,args})},
     })
+    expect(calls).toEqual([{command:"open",args:[localPath]}])
   })
-
-  test("builds a preset project command for directory opens", () => {
-    expect(
-      buildEditorCommand({
-        localPath: "/Users/example/Projects/stillon",
-        isDirectory: true,
-        editor: { preset: "cursor", commandTemplate: "cursor {path}" },
-        platform: "linux",
-      })
-    ).toEqual({
-      command: "cursor",
-      args: ["/Users/example/Projects/stillon"],
-    })
-  })
-
-  test("uses the custom template for editor opens", () => {
-    expect(
-      buildEditorCommand({
-        localPath: "/Users/example/Projects/stillon/src/client/app/App.tsx",
-        isDirectory: false,
-        line: 12,
-        column: 1,
-        editor: { preset: "custom", commandTemplate: 'my-editor "{path}" --line {line}' },
-        platform: "linux",
-      })
-    ).toEqual({
-      command: "my-editor",
-      args: ["/Users/example/Projects/stillon/src/client/app/App.tsx", "--line", "12"],
-    })
-  })
-
-  test("builds an Xcode line command with xed", () => {
-    expect(
-      buildEditorCommand({
-        localPath: "/Users/example/Projects/stillon/App.swift",
-        isDirectory: false,
-        line: 24,
-        column: 2,
-        editor: { preset: "xcode", commandTemplate: "xed {path}" },
-        platform: "linux",
-      })
-    ).toEqual({
-      command: "xed",
-      args: ["-l", "24", "/Users/example/Projects/stillon/App.swift"],
-    })
-  })
-})
-
-describe("buildPreviewCommand", () => {
-  test("builds a native macOS Preview open command", () => {
-    expect(
-      buildPreviewCommand({
-        localPath: "/Users/example/Projects/stillon/mock.png",
-        isDirectory: false,
-        platform: "darwin",
-      })
-    ).toEqual({
-      command: "open",
-      args: ["-a", "Preview", "/Users/example/Projects/stillon/mock.png"],
-    })
-  })
-
-  test("rejects non-macOS platforms", () => {
-    expect(() => buildPreviewCommand({
-      localPath: "/Users/example/Projects/stillon/mock.png",
-      isDirectory: false,
-      platform: "linux",
-    })).toThrow("Preview is only available on macOS")
-  })
-})
-
-describe("buildDefaultOpenCommand", () => {
-  test("builds default open commands for supported platforms", () => {
-    expect(buildDefaultOpenCommand({ localPath: "/Users/example/Projects/stillon/mock.png", platform: "darwin" })).toEqual({
-      command: "open",
-      args: ["/Users/example/Projects/stillon/mock.png"],
-    })
-    expect(buildDefaultOpenCommand({ localPath: "/tmp/mock.png", platform: "linux" })).toEqual({
-      command: "xdg-open",
-      args: ["/tmp/mock.png"],
-    })
-    expect(buildDefaultOpenCommand({ localPath: "C:\\Users\\example\\mock.png", platform: "win32" })).toEqual({
-      command: "explorer.exe",
-      args: ["C:\\Users\\example\\mock.png"],
-    })
+  test("does not launch anything when a file is missing", async () => {
+    let spawned=false
+    await expect(openExternal({type:"system.openExternal",action:"open_default",localPath:"/missing/file.json"},{
+      stat:async()=>{throw new Error("missing")},spawn:async()=>{spawned=true},
+    })).rejects.toThrow("Path not found")
+    expect(spawned).toBe(false)
   })
 })

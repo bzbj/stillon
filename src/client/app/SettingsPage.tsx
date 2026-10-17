@@ -1,3 +1,5 @@
+import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
+import { downloadText } from "../lib/download"
 import { AgentSetupPanel } from "./AgentSetupPanel"
 import { CodexModelPolicyPanel } from "./CodexModelPolicyPanel"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
@@ -57,13 +59,12 @@ import {
 } from "../../shared/types"
 import { markdownComponents } from "../components/messages/shared"
 import { ChatPreferenceControls, type PermissionModeChange } from "../components/chat-ui/ChatPreferenceControls"
-import { EDITOR_OPTIONS, EditorIcon } from "../components/editor-icons"
 import { Button, buttonVariants } from "../components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import { Textarea } from "../components/ui/textarea"
-import type { EditorPreset, ManagedUpdateStatus, SourceUpgradePromptResult } from "../../shared/protocol"
+import type { ManagedUpdateStatus, SourceUpgradePromptResult } from "../../shared/protocol"
 import { ManagedUpgradePanel } from "./ManagedUpgradePanel"
 import { SegmentedControl } from "../components/ui/segmented-control"
 import {
@@ -86,7 +87,6 @@ import {
   MAX_TERMINAL_SCROLLBACK,
   MIN_TERMINAL_MIN_COLUMN_WIDTH,
   MIN_TERMINAL_SCROLLBACK,
-  getDefaultEditorCommandTemplate,
   useTerminalPreferencesStore,
 } from "../stores/terminalPreferencesStore"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
@@ -107,7 +107,7 @@ const sidebarItems = [
     id: "general",
     label: "General",
     icon: Settings2,
-    subtitle: "Manage this machine's identity, appearance, editor behavior, and embedded terminal defaults.",
+    subtitle: "Manage this machine's identity, appearance, and embedded terminal defaults.",
   },
   {
     id: "appearance",
@@ -1939,12 +1939,8 @@ export function SettingsPage() {
   const appVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const scrollbackLines = useTerminalPreferencesStore((store) => store.scrollbackLines)
   const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
-  const editorPreset = useTerminalPreferencesStore((store) => store.editorPreset)
-  const editorCommandTemplate = useTerminalPreferencesStore((store) => store.editorCommandTemplate)
   const setScrollbackLines = useTerminalPreferencesStore((store) => store.setScrollbackLines)
   const setMinColumnWidth = useTerminalPreferencesStore((store) => store.setMinColumnWidth)
-  const setEditorPreset = useTerminalPreferencesStore((store) => store.setEditorPreset)
-  const setEditorCommandTemplate = useTerminalPreferencesStore((store) => store.setEditorCommandTemplate)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const setChatSoundPreference = useChatSoundPreferencesStore((store) => store.setChatSoundPreference)
@@ -1961,7 +1957,6 @@ export function SettingsPage() {
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
   const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
   const [minColumnWidthDraft, setMinColumnWidthDraft] = useState(String(minColumnWidth))
-  const [editorCommandDraft, setEditorCommandDraft] = useState(editorCommandTemplate)
   const [machineNameDraft, setMachineNameDraft] = useState("")
   const [isSavingMachineName, setIsSavingMachineName] = useState(false)
   const [machineNameError, setMachineNameError] = useState<string | null>(null)
@@ -2016,9 +2011,6 @@ export function SettingsPage() {
     setMinColumnWidthDraft(String(minColumnWidth))
   }, [minColumnWidth])
 
-  useEffect(() => {
-    setEditorCommandDraft(editorCommandTemplate)
-  }, [editorCommandTemplate])
 
   useEffect(() => {
     if (!confirmedMachineName) return
@@ -2214,30 +2206,10 @@ export function SettingsPage() {
     }
   }
 
-  function commitEditorCommand() {
-    setEditorCommandTemplate(editorCommandDraft)
-    void handleWriteAppSettings({ editor: { commandTemplate: editorCommandDraft } }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save editor settings.")
-    })
-  }
-
   function handleThemeChange(nextTheme: typeof theme) {
     setTheme(nextTheme)
     void handleWriteAppSettings({ theme: nextTheme }).catch((error) => {
       setAppSettingsError(error instanceof Error ? error.message : "Unable to save theme settings.")
-    })
-  }
-
-  function handleEditorPresetChange(nextPreset: EditorPreset) {
-    setEditorPreset(nextPreset)
-    const commandTemplate = nextPreset === "custom" ? editorCommandTemplate : getDefaultEditorCommandTemplate(nextPreset)
-    void handleWriteAppSettings({
-      editor: {
-        preset: nextPreset,
-        commandTemplate,
-      },
-    }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save editor settings.")
     })
   }
 
@@ -2388,13 +2360,6 @@ export function SettingsPage() {
       })
   }
 
-  const customEditorPreviewPath = state.localProjects?.machine.platform === "win32"
-    ? "C:\\Users\\example\\Projects\\sample-app\\src\\App.tsx"
-    : "~/Projects/example/src/App.tsx"
-  const customEditorPreview = editorCommandDraft
-    .replaceAll("{path}", customEditorPreviewPath)
-    .replaceAll("{line}", "12")
-    .replaceAll("{column}", "1")
   const selectedSection = sidebarItems.find((item) => item.id === selectedPage) ?? sidebarItems[0]
   const selectedSectionSubtitle =
     selectedPage === "keybindings"
@@ -2563,11 +2528,12 @@ export function SettingsPage() {
                     {selectedPage === "keybindings" ? (
                       <SettingsHeaderButton
                         onClick={() => {
-                          void state.handleOpenExternalPath("open_editor", keybindingsFilePathDisplay)
+                          if (canOpenTranscriptFilesOnHost(window.location.hostname)) void state.handleOpenExternalPath("open_default", keybindingsFilePathDisplay)
+                          else downloadText("keybindings.json", JSON.stringify(keybindings?.bindings ?? {}, null, 2))
                         }}
                         icon={<Code className="h-4 w-4" />}
                       >
-                        Open in {state.editorLabel}
+                        {typeof window !== "undefined" && canOpenTranscriptFilesOnHost(window.location.hostname) ? "Open on this computer" : "Download"}
                       </SettingsHeaderButton>
                     ) : null}
                     {selectedPage === "usage" ? (
@@ -2748,59 +2714,6 @@ export function SettingsPage() {
                           </SelectContent>
                         </Select>
                       </SettingsRow>
-
-                      <SettingsRow
-                        title="Default Editor"
-                        description="Used when opening transcript links or files from the git diff menu"
-                        alignStart
-                      >
-                        <Select
-                          value={editorPreset}
-                          onValueChange={(value) => handleEditorPresetChange(value as EditorPreset)}
-                        >
-                          <SelectTrigger className="min-w-[180px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {EDITOR_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  <span className="flex items-center gap-2">
-                                    <EditorIcon preset={option.value} className="h-4 w-4 shrink-0" />
-                                    <span>{option.label}</span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </SettingsRow>
-
-                      {editorPreset === "custom" ? (
-                        <div className="border-t border-border">
-                          <div className="flex justify-between gap-8 py-5 pl-6">
-                            <div className="min-w-0 max-w-xl">
-                              <div className="text-sm font-medium text-foreground">Command Template</div>
-                              <div className="mt-1 text-[13px] text-muted-foreground">
-                                Include {"{path}"} and optionally {"{line}"} and {"{column}"} in your command.
-                              </div>
-                            </div>
-                            <div className="flex min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
-                              <Input
-                                type="text"
-                                value={editorCommandDraft}
-                                onChange={(event) => setEditorCommandDraft(event.target.value)}
-                                onBlur={commitEditorCommand}
-                                onKeyDown={(event) => handleTextInputKeyDown(event, commitEditorCommand)}
-                                className="font-mono"
-                              />
-                              <div className="text-xs text-muted-foreground">
-                                Preview: <span className="font-mono">{customEditorPreview}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
 
                       <SettingsRow
                         title="Terminal Scrollback"

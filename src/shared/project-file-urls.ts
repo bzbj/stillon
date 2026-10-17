@@ -34,6 +34,19 @@ export interface ProjectMarkdownPreviewTarget {
   filePath: string
 }
 
+export function parseProjectFilePreviewUrl(address: string): ProjectMarkdownPreviewTarget | null {
+  if (!address.startsWith("/")) return null
+  try {
+    const match = new URL(address, "http://stillon.invalid").pathname.match(/^\/api\/projects\/([^/]+)\/preview\/(.+)$/u)
+    if (!match) return null
+    const projectId = decodeURIComponent(match[1]!)
+    const filePath = decodeProjectPreviewPath(match[2]!).replaceAll("\\", "/")
+    if (!projectId || !filePath || filePath.startsWith("/") || /^[a-z]:/iu.test(filePath)
+      || filePath.includes("\0") || filePath.split("/").some(part => part === "..")) return null
+    return { projectId, filePath }
+  } catch { return null }
+}
+
 export function parseProjectMarkdownPreviewUrl(address: string): ProjectMarkdownPreviewTarget | null {
   if (!address.startsWith("/")) return null
   let pathname: string
@@ -58,6 +71,19 @@ export function parseProjectMarkdownPreviewUrl(address: string): ProjectMarkdown
 export function isProjectMarkdownPreviewPath(filePath: string) {
   const extension = getProjectFileExtension(filePath)
   return extension === ".md" || extension === ".markdown" || extension === ".mdown"
+}
+
+const TEXT_PREVIEW_EXTENSIONS = new Set([
+  ".c", ".cc", ".cfg", ".conf", ".cpp", ".cs", ".css", ".diff", ".env", ".go", ".graphql", ".h",
+  ".hpp", ".ini", ".java", ".js", ".json", ".jsonc", ".jsx", ".kt", ".log", ".lua", ".mjs",
+  ".patch", ".php", ".pl", ".properties", ".py", ".rb", ".rs", ".scss", ".sh", ".sql", ".swift",
+  ".toml", ".ts", ".tsx", ".txt", ".vue", ".xml", ".yaml", ".yml", ".zsh",
+])
+const TEXT_PREVIEW_FILENAMES = new Set([".gitignore", ".npmrc", ".prettierrc", "Dockerfile", "Makefile", "Gemfile", "Procfile"])
+
+export function isProjectTextPreviewPath(filePath: string) {
+  const name = filePath.split(/[\\/]/).pop() ?? filePath
+  return TEXT_PREVIEW_EXTENSIONS.has(getProjectFileExtension(filePath)) || TEXT_PREVIEW_FILENAMES.has(name)
 }
 
 function getProjectFileExtension(filePath: string) {

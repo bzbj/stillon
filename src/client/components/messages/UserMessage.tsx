@@ -1,3 +1,4 @@
+import { downloadUrl } from "../../lib/download"
 import { useMemo, useState } from "react"
 import type { ChatAttachment } from "../../../shared/types"
 import Markdown from "react-markdown"
@@ -50,9 +51,7 @@ export function UserMessage({ content, attachments = [], steered = false }: Prop
 
     const target = classifyAttachmentPreview(attachment)
     if (target.openInNewTab) {
-      if (typeof window !== "undefined") {
-        window.open(new URL(attachment.contentUrl, document.baseURI || window.location.href).toString(), "_blank", "noopener,noreferrer")
-      }
+      downloadUrl(attachment.contentUrl, attachment.displayName)
       return
     }
 

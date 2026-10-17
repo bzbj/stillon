@@ -37,6 +37,7 @@ export interface AsyncQuestionAnswerResult {
 }
 
 export interface EditorOpenSettings {
+  /** Retained for old clients; executable templates are never used for opening files. */
   preset: EditorPreset
   commandTemplate: string
 }
@@ -170,6 +171,7 @@ export type ClientCommand =
   | {
       type: "system.openExternal"
       localPath: string
+      /** open_editor/open_preview are retired aliases for the system application. */
       action: "open_finder" | "open_terminal" | "open_editor" | "open_preview" | "open_default"
       line?: number
       column?: number

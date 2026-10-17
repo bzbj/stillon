@@ -15,6 +15,9 @@ import type {
   GitHubRepoAvailabilityResult,
 } from "../../../shared/types"
 import { useAppDialog } from "../../components/ui/app-dialog"
+import { canOpenTranscriptFilesOnHost } from "../../lib/transcriptLocalLinkPolicy"
+import { downloadUrl } from "../../lib/download"
+import { buildProjectFileContentUrl } from "../../../shared/project-file-urls"
 import type { StillOnState } from "../useStillOnState"
 import {
   DIFF_REFRESH_INTERVAL_MS,
@@ -84,10 +87,14 @@ export function useChatPageSidebarActions({
   }, [refreshDiffs, showRightSidebar])
 
   const handleOpenDiffFile = useCallback((filePath: string) => {
+    if (!canOpenTranscriptFilesOnHost(window.location.hostname)) {
+      if (projectId) downloadUrl(buildProjectFileContentUrl(projectId, filePath), filePath.split(/[\\/]/).pop() || "download")
+      return
+    }
     const projectPath = projectPathRef.current
     const resolvedPath = resolveDiffFilePath(projectPath, filePath)
-    void state.handleOpenLocalLink({ path: resolvedPath }, "open_editor")
-  }, [state.handleOpenLocalLink])
+    void state.handleOpenLocalLink({ path: resolvedPath }, "open_default")
+  }, [projectId, state.handleOpenLocalLink])
 
   const handleCopyDiffFilePath = useCallback((filePath: string) => {
     const projectPath = projectPathRef.current
@@ -201,7 +208,8 @@ export function useChatPageSidebarActions({
   }, [dialog, state.socket])
 
   const handleOpenDiffInFinder = useCallback((filePath: string) => {
-    void state.handleOpenExternalPath("open_finder", filePath)
+    if (!canOpenTranscriptFilesOnHost(window.location.hostname)) return
+    void state.handleOpenExternalPath("open_finder", resolveDiffFilePath(projectPathRef.current, filePath))
   }, [state.handleOpenExternalPath])
 
   const handleCommitDiffs = useCallback(async (args: { paths: string[]; summary: string; description: string; mode: DiffCommitMode }) => {

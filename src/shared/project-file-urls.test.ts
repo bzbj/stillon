@@ -7,9 +7,17 @@ import {
   isProjectMarkdownPreviewPath,
   parseProjectMarkdownPreviewUrl,
   normalizeProjectPreviewAddress,
+  parseProjectFilePreviewUrl,
 } from "./project-file-urls"
 
 describe("project file urls", () => {
+  test("resolves file preview actions on the connected computer with Unicode and locations", () => {
+    expect(parseProjectFilePreviewUrl("/api/projects/p1/preview/output/状态%20file.json?theme=dark#L12"))
+      .toEqual({projectId:"p1",filePath:"output/状态 file.json"})
+    expect(parseProjectFilePreviewUrl("https://external.example/api/projects/p1/preview/status.json")).toBeNull()
+    for (const suffix of ["..%2fsecret.json", "%2fetc%2fpasswd", "C%3a%2fprivate.json", "%00status.json"])
+      expect(parseProjectFilePreviewUrl("/api/projects/p1/preview/"+suffix)).toBeNull()
+  })
   test("keeps saved loopback workspace previews on the connected origin", () => {
     const route = "/api/projects/p1/preview/output/demo%20page.html?theme=dark#chart"
     for (const origin of ["http://localhost:3210", "http://127.0.0.1:3210", "https://h-computer.connect.stillon.cc"]) {

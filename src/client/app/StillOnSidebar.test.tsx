@@ -83,7 +83,6 @@ function renderSidebar({
           onRenameProject={() => undefined}
           onHideProject={() => undefined}
           onReorderProjectGroups={() => undefined}
-          editorLabel="Editor"
         />
       </TooltipProvider>
     </MemoryRouter>

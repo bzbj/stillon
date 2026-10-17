@@ -77,7 +77,7 @@ const MAX_TERMINAL_SCROLLBACK = 5_000
 const DEFAULT_TERMINAL_MIN_COLUMN_WIDTH = 450
 const MIN_TERMINAL_MIN_COLUMN_WIDTH = 250
 const MAX_TERMINAL_MIN_COLUMN_WIDTH = 900
-const DEFAULT_EDITOR_PRESET: EditorPreset = "cursor"
+const DEFAULT_EDITOR_PRESET: EditorPreset = "system"
 const DEFAULT_CHAT_SOUND_PREFERENCE: ChatSoundPreference = "always"
 const DEFAULT_CHAT_SOUND_ID: ChatSoundId = "funk"
 
@@ -90,20 +90,6 @@ function formatDisplayPath(filePath: string) {
   return filePath
 }
 
-function getDefaultEditorCommandTemplate(preset: EditorPreset) {
-  switch (preset) {
-    case "vscode":
-      return "code {path}"
-    case "xcode":
-      return "xed {path}"
-    case "windsurf":
-      return "windsurf {path}"
-    case "custom":
-    case "cursor":
-    default:
-      return "cursor {path}"
-  }
-}
 
 function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
@@ -165,15 +151,12 @@ function normalizeCodexTransport(value: unknown): CodexTransport {
   return value === "exec" ? "exec" : "app-server"
 }
 
-function normalizeEditorPreset(value: unknown): EditorPreset {
-  return value === "vscode" || value === "xcode" || value === "windsurf" || value === "custom" || value === "cursor"
-    ? value
-    : DEFAULT_EDITOR_PRESET
+function normalizeEditorPreset(_value: unknown): EditorPreset {
+  return DEFAULT_EDITOR_PRESET
 }
 
-function normalizeEditorCommandTemplate(value: unknown, preset: EditorPreset) {
-  const trimmed = typeof value === "string" ? value.trim() : ""
-  return trimmed || getDefaultEditorCommandTemplate(preset)
+function normalizeEditorCommandTemplate(_value: unknown, _preset: EditorPreset) {
+  return ""
 }
 
 function normalizeClaudePreference(value?: {

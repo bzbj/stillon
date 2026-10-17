@@ -5,6 +5,15 @@ import {
 } from "./transcriptLocalLinkPolicy"
 
 describe("transcript local link policy", () => {
+  test("previews status JSON and text inside the workspace on Mac, Windows and remote clients", () => {
+    for (const hostname of ["127.0.0.1", "localhost", "stillon.example.com"]) {
+      for (const filePath of ["/workspace/output/status.json", "C:/workspace/中文 folder/status.json", "/workspace/app.ts", "/workspace/.gitignore"]) {
+        expect(resolveTranscriptLocalFileDisposition({hostname,filePath,isProjectFile:true})).toBe("preview")
+      }
+    }
+    expect(resolveTranscriptLocalFileDisposition({hostname:"localhost",filePath:"/outside/status.json",isProjectFile:false})).toBe("open_host")
+    expect(resolveTranscriptLocalFileDisposition({hostname:"stillon.example.com",filePath:"/outside/status.json",isProjectFile:false})).toBe("blocked")
+  })
   test("detects loopback access on macOS and Windows clients", () => {
     expect(canOpenTranscriptFilesOnHost("127.0.0.1")).toBe(true)
     expect(canOpenTranscriptFilesOnHost("localhost")).toBe(true)

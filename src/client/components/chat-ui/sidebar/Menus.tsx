@@ -19,7 +19,7 @@ export function ProjectSectionMenu({
   onRename: () => void
   onCopyPath: () => void
   onShowArchived: () => void
-  onOpenInFinder: () => void
+  onOpenInFinder?: () => void
   onHide: () => void
   onCustomizeAvatar?: () => void
   children: ReactNode
@@ -58,7 +58,7 @@ export function ProjectSectionMenu({
           <Archive className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Show Archived</span>
         </ContextMenuItem>
-        <ContextMenuItem
+        {onOpenInFinder && <ContextMenuItem
           onSelect={(event) => {
             event.stopPropagation()
             onOpenInFinder()
@@ -66,7 +66,7 @@ export function ProjectSectionMenu({
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Show in Finder</span>
-        </ContextMenuItem>
+        </ContextMenuItem>}
         <ContextMenuItem
           onSelect={(event) => {
             event.stopPropagation()
@@ -94,7 +94,7 @@ export function ChatRowMenu({
   canFork?: boolean
   onRename: () => void
   onShare: () => void
-  onOpenInFinder: () => void
+  onOpenInFinder?: () => void
   onFork: () => void
   onArchive: () => void
   onDelete: () => void
@@ -124,7 +124,7 @@ export function ChatRowMenu({
           <UserRoundPlus className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Share</span>
         </ContextMenuItem>
-        <ContextMenuItem
+        {onOpenInFinder && <ContextMenuItem
           onSelect={(event) => {
             event.preventDefault()
             onOpenInFinder()
@@ -132,7 +132,7 @@ export function ChatRowMenu({
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">Open in Finder</span>
-        </ContextMenuItem>
+        </ContextMenuItem>}
         <ContextMenuItem
           disabled={!canFork}
           onSelect={(event) => {

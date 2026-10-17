@@ -4,7 +4,7 @@ export const KEYBINDING_ACTION_LABELS: Record<KeybindingAction, string> = {
   toggleEmbeddedTerminal: "Toggle Embedded Terminal",
   toggleRightSidebar: "Toggle Right Sidebar",
   openInFinder: "Open In Finder",
-  openInEditor: "Open In Editor",
+  openInEditor: "Open workspace folder",
   addSplitTerminal: "Add Split Terminal",
   jumpToSidebarChat: "Jump To Sidebar Chat",
   createChatInCurrentProject: "New Chat In Current Workspace",
