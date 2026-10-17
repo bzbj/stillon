@@ -1413,7 +1413,7 @@ export function createWsRouter({
           return
         }
         case "system.openExternal": {
-          if (ws.data.canOpenHostFiles === false) throw new Error("Download this file or preview it in StillOn. Opening applications is available only on the computer itself.")
+          if (ws.data.canOpenHostFiles !== true) throw new Error("Download this file or preview it in StillOn. Opening applications is available only on the computer itself.")
           await openExternal(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break

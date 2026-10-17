@@ -74,7 +74,8 @@ test("refuses every host file application action for external clients", async ()
   const ws=new FakeWebSocket()
   ws.data.canOpenHostFiles=false
   try {
-    for (const action of ["open_default","open_editor","open_finder","open_terminal","open_preview"]) {
+    for (const permission of [false, undefined]) for (const action of ["open_default","open_editor","open_finder","open_terminal","open_preview"]) {
+      ws.data.canOpenHostFiles=permission
       await router.handleMessage(ws as never,JSON.stringify({v:1,type:"command",id:action,command:{type:"system.openExternal",action,localPath:"/missing/native-file"}}))
       expect(ws.sent.at(-1)).toMatchObject({type:"error",id:action,message:expect.stringContaining("Download this file")})
     }
