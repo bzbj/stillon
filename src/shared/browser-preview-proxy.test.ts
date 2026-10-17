@@ -23,6 +23,19 @@ describe("buildBrowserPreviewProxyUrl", () => {
     )).toBe("https://example.com/demo")
   })
 
+  test("opens managed Connect previews through an isolated-origin handoff", () => {
+    expect(buildBrowserPreviewProxyUrl(
+      "http://127.0.0.1:5173/dashboard?filter=active#chart",
+      new URL("https://h-0123456789abcdef0123456789abcdef.connect.example.com/chat/demo"),
+    )).toBe("/_connect/preview/5173/dashboard?filter=active#chart")
+  })
+
+  test("handles default HTTP ports and explains unsupported local HTTPS previews", () => {
+    const remote = new URL("https://h-0123456789abcdef0123456789abcdef.connect.example.com")
+    expect(buildBrowserPreviewProxyUrl("http://localhost/demo", remote)).toBe("/_connect/preview/80/demo")
+    expect(buildBrowserPreviewProxyUrl("https://localhost:5173/demo", remote)).toBe("/_connect/preview-unsupported")
+  })
+
   test("leaves same-origin relative preview addresses unchanged", () => {
     expect(buildBrowserPreviewProxyUrl(
       "/api/projects/project-1/preview/output/index.html",

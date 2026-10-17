@@ -529,6 +529,7 @@ function BrowserPanelImpl({
                             <span>Open in New Tab</span>
                           </ContextMenuItem>
                           <ContextMenuItem
+                            disabled={!canOpenHostFiles}
                             onSelect={(event) => {
                               event.preventDefault()
                               killServer(server)

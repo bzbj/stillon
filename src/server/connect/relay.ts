@@ -1,6 +1,7 @@
 import type { Server, ServerWebSocket } from "bun"
 import { CONNECT_MAX_STREAMS, CONNECT_MAX_WS_BYTES } from "../../shared/connect"
 import { randomId } from "./crypto"
+import { isConnectCookie } from "../../shared/connect-preview"
 
 export interface RelayScope { hostId: string; parentId: string; ownerId: string; valid: () => boolean; finished?: () => void }
 interface ActiveStream { scope: RelayScope; close: () => void }
@@ -18,18 +19,34 @@ const HOP_HEADERS = ["connection", "keep-alive", "proxy-connection", "proxy-auth
 
 // lib.dom owns the global type in this mixed client/server project. Bun adds
 // authenticated upstream headers to its native WebSocket constructor.
-export function upstreamWebSocket(url: string, headers: Headers) {
+export function upstreamWebSocket(url: string, headers: Headers, protocols: string[] = []) {
   const Client = globalThis.WebSocket as unknown as { new(url: string, options: Bun.WebSocketOptions): WebSocket }
-  return new Client(url, { headers: Object.fromEntries(headers) })
+  return new Client(url, { protocols, headers: Object.fromEntries(headers) })
 }
 
-export function forwardingHeaders(request: Request) {
+export function forwardingHeaders(request: Request, applicationCredentials = false) {
   const headers = new Headers(request.headers)
   for (const name of [...headers.keys()]) {
-    if (HOP_HEADERS.includes(name) || name === "host" || name === "cookie" || name === "authorization"
+    if (HOP_HEADERS.includes(name) || name === "host" || (!applicationCredentials && (name === "cookie" || name === "authorization"))
       || name.startsWith("x-stillon-") || name.startsWith("x-forwarded-") || name === "forwarded" || name === "x-real-ip" || name.startsWith("cf-")) headers.delete(name)
   }
+  if (applicationCredentials && headers.has("cookie")) {
+    const cookies = headers.get("cookie")!.split(";").map(value => value.trim())
+      .filter(value => value.includes("=") && !isConnectCookie(value.slice(0, value.indexOf("="))))
+    if (cookies.length) headers.set("cookie", cookies.join("; "))
+    else headers.delete("cookie")
+  }
   return headers
+}
+
+function copyApplicationCookies(upstream: Headers, outgoing: Headers) {
+  for (const value of upstream.getSetCookie()) {
+    const name = value.slice(0, value.indexOf("=")).trim()
+    if (!name || isConnectCookie(name)) continue
+    // Applications get host-only preview cookies, never cookies for Connect's
+    // parent domain or another computer.
+    outgoing.append("set-cookie", value.split(";").filter(part => !/^\s*domain\s*=/i.test(part)).join(";"))
+  }
 }
 
 /** HTTP/WebSocket relay only. frp owns the tunnel framing and multiplexing. */
@@ -56,7 +73,7 @@ export class ConnectRelay {
   get activeCount() { return this.streams.size }
   stop() { clearInterval(this.timer); this.invalidate({}); this.streams.clear() }
 
-  async http(request: Request, target: string, headers: Headers, scope: RelayScope, transform?: (response: Response) => Response) {
+  async http(request: Request, target: string, headers: Headers, scope: RelayScope, transform?: (response: Response) => Response, applicationCookies = false) {
     const controller = new AbortController()
     let id = ""
     let finished = false
@@ -77,6 +94,7 @@ export class ConnectRelay {
       const outgoing = new Headers(upstream.headers)
       for (const name of HOP_HEADERS) if (name !== "content-length") outgoing.delete(name)
       outgoing.delete("set-cookie"); outgoing.delete("set-cookie2")
+      if (applicationCookies) copyApplicationCookies(upstream.headers, outgoing)
       outgoing.set("Cache-Control", "no-store")
       outgoing.set("Referrer-Policy", "no-referrer")
       if (!upstream.body || request.method === "HEAD") { finish(); return new Response(null, { status: upstream.status, headers: outgoing }) }
@@ -113,9 +131,10 @@ export class ConnectRelay {
     }
     try { data.id = this.reserve(scope, close) } catch (error) { close(); throw error }
     try {
+      const protocols = (headers.get("sec-websocket-protocol") ?? "").split(",").map(value => value.trim()).filter(Boolean)
       // The browser's upgrade headers are not valid for a new handshake.
       for (const name of [...headers.keys()]) if (name.startsWith("sec-websocket-") || HOP_HEADERS.includes(name)) headers.delete(name)
-      const upstream = upstreamWebSocket(target, headers)
+      const upstream = upstreamWebSocket(target, headers, protocols)
       data.upstream = upstream; upstream.binaryType = "arraybuffer"
       upstream.addEventListener("message", event => {
         if (!this.valid(scope) || data.closed) { close(); return }
@@ -137,7 +156,7 @@ export class ConnectRelay {
         upstream.addEventListener("close", () => { clearTimeout(timer); reject(new Error("Connection closed")) }, { once: true })
       })
       if (data.closed || !this.valid(scope)) throw new Error("ACCESS_REVOKED")
-      if (server.upgrade(request, { data })) return undefined
+      if (server.upgrade(request, { data, headers: upstream.protocol ? { "Sec-WebSocket-Protocol": upstream.protocol } : undefined })) return undefined
       close(); return new Response("Upgrade failed", { status: 400 })
     } catch { close(); return Response.json({ error: "CONNECTION_UNAVAILABLE" }, { status: 503 }) }
   }

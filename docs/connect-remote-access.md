@@ -62,10 +62,11 @@ flowchart LR
   A loopback peer is not a remote credential. The separate adapter adds a random
   process-local credential. Remote requests cannot invoke binding controls,
   managed updates, external-app opening or arbitrary localhost preview proxies.
-- Remote HTML/SVG API responses carry a response-level sandbox without
-  `allow-same-origin`. Dynamic localhost previews are disabled for this pilot.
-  Self-contained static reports can render; external scripts/assets may be
-  blocked. The chat header retains the browser globe.
+- Remote file HTML/SVG API responses carry a response-level sandbox without
+  `allow-same-origin`. [Dynamic HTTP previews](connect-dynamic-previews.md) use
+  isolated, computer/port-scoped origins with their own authorization and
+  support same-origin APIs and WebSocket hot updates. Static reports retain
+  read-only folder capabilities. The chat header retains the browser globe.
 - Remote drafts, terminal layouts, sidebar snapshots and answer contents are
   not persisted in browser storage. Focus, reconnect and back/forward restores
   use a non-dismissible modal privacy shield while checking the session. A

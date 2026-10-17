@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { extractHtmlTitle, filterLocalHttpServers, isDescendantPid, isPathWithin, parseLsofListeningEntries, parseLsofListeningPorts } from "./local-http-servers"
+import { extractHtmlTitle, filterLocalHttpServers, isDescendantPid, isPathWithin, parseLsofListeningEntries, parseLsofListeningPorts, parseWindowsListeningEntries } from "./local-http-servers"
 
 describe("local http servers", () => {
   test("extracts html titles", () => {
@@ -27,6 +27,20 @@ other   12347 jake   23u  IPv4 123458      0t0  TCP 127.0.0.1:8080 (LISTEN)
     expect(isPathWithin("/tmp/project", "/tmp/project")).toBe(true)
     expect(isPathWithin("/tmp/project", "/tmp/project/app")).toBe(true)
     expect(isPathWithin("/tmp/project", "/tmp/project-other")).toBe(false)
+  })
+
+  test("discovers Windows IPv4/IPv6 listeners without duplicate ports or non-listening connections", () => {
+    expect(parseWindowsListeningEntries([
+      "  Proto  Local Address          Foreign Address        State           PID",
+      "  TCP    0.0.0.0:5173           0.0.0.0:0              LISTENING       1234",
+      "  TCP    [::]:5173              [::]:0                 LISTENING       1234",
+      "  TCP    127.0.0.1:8080         0.0.0.0:0              LISTENING       5678",
+      "  TCP    127.0.0.1:60000        127.0.0.1:8080         ESTABLISHED     5678",
+      "  TCP    0.0.0.0:70000          0.0.0.0:0              LISTENING       9",
+    ].join("\n"))).toEqual([
+      { port: 5173, owners: [{ command: "", pid: 1234 }] },
+      { port: 8080, owners: [{ command: "", pid: 5678 }] },
+    ])
   })
 
   test("detects descendant processes", () => {

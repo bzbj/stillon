@@ -9,6 +9,9 @@ import { createConnectAuth, type ConnectAuthOptions } from "./auth"
 import { ConnectFault, ConnectRegistry, type AccountIdentity, type HostSessionRecord } from "./registry"
 import { PreviewResources, REMOTE_PREVIEW_ASSET_PREFIX, projectPreviewTarget, type PreviewResourceContext } from "../server/preview-resources"
 import { checkBrowserRequest, cookie, cookieName, cookieValue, faultResponse, json, jsonBody, redirect } from "./http"
+import { ConnectPreviews } from "./previews"
+import { CONNECT_PREVIEW_PROXY_PREFIX, CONNECT_PREVIEW_START_PREFIX, CONNECT_PREVIEW_UNSUPPORTED_PATH, parseConnectPreviewPath } from "../shared/connect-preview"
+import { BROWSER_PREVIEW_PROXY_PREFIX } from "../shared/browser-preview-proxy"
 
 const id = z.string().regex(/^[a-f0-9]{32}$/)
 const name = z.string().trim().min(1).max(80).refine(v => !/[\u0000-\u001f]/.test(v))
@@ -68,6 +71,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
     return identity
   }
   const centralOrigin = new URL(options.origin).origin
+  const previews = new ConnectPreviews({ origin: options.origin, registry, readIdentity: auth.identityById, relay, transport, privateKey: keys.privateKey })
   function offlinePage(hostId: string, head: boolean) {
     const host = registry.publicHost(registry.requireHost(hostId))
     const escaped = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!)
@@ -143,7 +147,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
 
   return {
     auth, registry, relay,
-    hostId: (request: Request) => registry.hostIdForAuthority(new URL(request.url).host),
+    hostId: (request: Request) => registry.hostIdForAuthority(new URL(request.url).host) ?? previews.target(new URL(request.url).host)?.hostId ?? null,
     async central(request: Request, peer: string): Promise<Response | null> {
       const route = new URL(request.url).pathname
       try {
@@ -171,6 +175,9 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
     },
     async host(request: Request, server: Server<RelaySocket>): Promise<Response | undefined> {
       const url = new URL(request.url)
+      if (previews.target(url.host)) {
+        try { return await previews.handle(request, server) } catch (error) { return faultResponse(error) }
+      }
       const hostId = registry.hostIdForAuthority(url.host)
       if (!hostId) return json({ error: "NOT_FOUND" }, 404)
       const origin = registry.hostOrigin(hostId)
@@ -214,6 +221,16 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
             : json({ success: true, logoutUrl: `${centralOrigin}/logout/complete` }, 200, headers)
         }
         if (url.pathname === "/_connect/hosts" && request.method === "GET") return json({ hosts: registry.hosts(session.ownerId), currentHostId: hostId })
+        const dynamicPreview = parseConnectPreviewPath(url.pathname, CONNECT_PREVIEW_START_PREFIX)
+        if (url.pathname === CONNECT_PREVIEW_UNSUPPORTED_PATH && request.method === "GET") return previews.unsupported(hostId)
+        if (dynamicPreview && request.method === "GET") {
+          // A development app on a sibling origin cannot create grants for
+          // other ports by navigating a popup with the user's host cookie.
+          if (["same-site", "cross-site"].includes(request.headers.get("sec-fetch-site") ?? "")) throw new ConnectFault("INVALID_ORIGIN", 403)
+          return previews.start(session, dynamicPreview.port, dynamicPreview.path + url.search)
+        }
+        // Development apps must never execute on StillOn's session origin.
+        if (url.pathname.startsWith(CONNECT_PREVIEW_PROXY_PREFIX) || url.pathname.startsWith(BROWSER_PREVIEW_PROXY_PREFIX)) throw new ConnectFault("LOCAL_ONLY", 403)
         if ((!assetRequest && url.pathname.startsWith("/_connect/")) || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/connect-local/") || url.pathname.startsWith("/_stillon/")) throw new ConnectFault("LOCAL_ONLY", 403)
         registry.limited(`traffic:${session.ownerId}`, 1_200, 60)
         if (!registry.publicHost(registry.requireHost(hostId)).online && ["GET", "HEAD"].includes(request.method)
@@ -263,6 +280,6 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         return json({ reject: false, unchange: true })
       } catch { return json({ reject: true, reject_reason: "Access denied", unchange: true }) }
     },
-    close() { previewResources.clear(); relay.stop(); auth.close(); registry.close() },
+    close() { previews.close(); previewResources.clear(); relay.stop(); auth.close(); registry.close() },
   }
 }

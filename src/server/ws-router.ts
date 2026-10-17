@@ -136,6 +136,7 @@ export interface ClientState {
 }
 
 interface CreateWsRouterArgs {
+  getBrowserPreviewBlockedPorts?: () => number[]
   remoteOperations?: import("./connect/operations").RemoteOperations
   store: EventStore
   diffStore?: Pick<DiffStore, "getProjectSnapshot" | "refreshSnapshot" | "initializeGit" | "getGitHubPublishInfo" | "checkGitHubRepoAvailability" | "publishToGitHub" | "listBranches" | "previewMergeBranch" | "mergeBranch" | "syncBranch" | "checkoutBranch" | "createBranch" | "generateCommitMessage" | "commitFiles" | "discardFile" | "ignoreFile" | "readPatch">
@@ -423,6 +424,7 @@ export function createWsRouter({
   getDiscoveredProjects,
   isDiscoveryInProgress,
   machineDisplayName,
+  getBrowserPreviewBlockedPorts,
 }: CreateWsRouterArgs) {
   function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
     if (ws.data.remoteOwnerId) remoteOperations?.finish(ws.data.remoteOwnerId, message)
@@ -1195,7 +1197,7 @@ export function createWsRouter({
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
     try {
-      if (ws.data.remoteOwnerId && ["browser.listLocalHttpServers", "browser.killLocalHttpServer", "system.openExternal",
+      if (ws.data.remoteOwnerId && ["browser.killLocalHttpServer", "system.openExternal",
         "settings.generateSourceUpgradePrompt", "settings.requestManagedUpdate"].includes(command.type)) throw new Error("This action is available only on the computer itself.")
       switch (command.type) {
         case "system.ping": {
@@ -1208,7 +1210,8 @@ export function createWsRouter({
             projectPath: project?.localPath,
             projectTerminalRootPids: project ? terminals.getRootPidsByCwd(project.localPath) : [],
           })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          const blocked = getBrowserPreviewBlockedPorts?.() ?? []
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: result.filter(server => !blocked.includes(server.port)) })
           return
         }
         case "browser.killLocalHttpServer": {

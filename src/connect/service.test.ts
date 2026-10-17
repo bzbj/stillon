@@ -111,6 +111,75 @@ test("fresh OTP is bound to one enrollment and only the device key can claim it"
   expect(() => f.service.registry.claimEnrollment(enrollment.id, newDeviceKeys().publicKey)).toThrow("NOT_FOUND")
 })
 
+test("dynamic previews isolate app credentials and bind one-use handoffs to a computer, port and parent", async () => {
+  const requests: { url: string; headers: Headers }[] = []
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    requests.push({ url: request.url, headers: new Headers(request.headers) })
+    return new Response("app", { headers: { "set-cookie": "app-session=one; Domain=connect.stillon.example; Path=/",
+      "x-frame-options": "DENY", "clear-site-data": '"cookies"', "content-security-policy": "default-src 'self'; frame-ancestors 'none'" } })
+  } })
+  cleanup.push(async () => { await upstream.stop(true) })
+  const f = await fixture("http://127.0.0.1:" + upstream.port), account = await f.login("preview@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Preview computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const computer = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(computer.id, randomId())
+  f.service.registry.frpCredential(computer.id, connection.token, "preview", "Login")
+  f.service.registry.frpCredential(computer.id, connection.token, "preview", "NewProxy")
+  const flow = f.service.registry.newFlow(computer.id, "/")
+  const callback = new URL(f.service.registry.authorizeFlow(flow.id, account.identity))
+  const session = f.service.registry.exchangeFlow(flow.id, computer.id, flow.verifier, callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  const hostOrigin = f.service.registry.hostOrigin(computer.id)
+  const { cookieName } = await import("./http")
+  const hostCookie = cookieName(hostOrigin, "host-session") + "=" + session.token
+  const hostRequest = (route: string, cookie = hostCookie) => f.service.host(new Request(hostOrigin + route, { headers: { cookie } }), null as never)
+  expect((await hostRequest("/_connect/preview/5173/", ""))!.status).toBe(303) // login, never an authorized preview
+  expect((await hostRequest("/api/connect-preview/5173/"))!.status).toBe(403)
+  expect((await hostRequest("/api/browser-proxy/5173/"))!.status).toBe(403)
+  expect((await f.service.host(new Request(hostOrigin + "/_connect/preview/5173/", { headers: { cookie: hostCookie,
+    "sec-fetch-site": "same-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" } }), null as never))!.status).toBe(403)
+  const start = (await hostRequest("/_connect/preview/5173/dashboard?filter=active"))!
+  expect(start.status).toBe(303)
+  const claim = new URL(start.headers.get("location")!)
+  expect(claim.hostname).toBe("p-" + computer.id + "-5173.connect.stillon.example")
+  expect(f.service.hostId(new Request(claim))).toBe(computer.id)
+  const previewRequest = (route: string, init: RequestInit = {}) => f.service.host(new Request(claim.origin + route, init), null as never)
+  const wrongPort = new URL(claim); wrongPort.hostname = wrongPort.hostname.replace("-5173.", "-5174.")
+  expect((await f.service.host(new Request(wrongPort), null as never))!.status).toBe(410)
+  const claimed = (await f.service.host(new Request(claim), null as never))!
+  expect(claimed.status).toBe(303)
+  expect(claimed.headers.get("location")).toBe(claim.origin + "/dashboard?filter=active")
+  expect(claimed.headers.get("set-cookie")).toContain("HttpOnly")
+  expect(claimed.headers.get("set-cookie")).toContain("Secure")
+  expect(claimed.headers.get("set-cookie")).not.toContain("Domain=")
+  expect((await f.service.host(new Request(claim), null as never))!.status).toBe(410)
+  const previewCookie = cookies(claimed)
+  expect((await previewRequest("/api/data"))!.status).toBe(401)
+  const response = (await previewRequest("/api/data?x=1", { headers: { cookie: previewCookie + "; app-session=one; " + hostCookie, origin: claim.origin, authorization: "Bearer app" } }))!
+  expect(response.status).toBe(200)
+  expect(await response.text()).toBe("app")
+  expect(new URL(requests.at(-1)!.url).pathname).toBe("/api/connect-preview/5173/api/data")
+  expect(requests.at(-1)!.headers.get("cookie")).toBe("app-session=one")
+  expect(requests.at(-1)!.headers.get("authorization")).toBe("Bearer app")
+  expect(response.headers.get("set-cookie")).toBe("app-session=one; Path=/")
+  expect(response.headers.get("clear-site-data")).toBeNull()
+  expect(response.headers.get("x-frame-options")).toBeNull()
+  expect(response.headers.get("content-security-policy")).toContain("default-src 'self'")
+  expect(response.headers.get("content-security-policy")).toContain(hostOrigin)
+  expect((await previewRequest("/api/data", { method: "POST", headers: { cookie: previewCookie, origin: hostOrigin } }))!.status).toBe(403)
+  expect((await previewRequest("/sw.js", { headers: { cookie: previewCookie, "sec-fetch-dest": "serviceworker" } }))!.status).toBe(403)
+  let rateLimited = false
+  for (let i = 0; i < 60; i++) {
+    if ((await hostRequest("/_connect/preview/5173/"))!.status === 429) { rateLimited = true; break }
+  }
+  expect(rateLimited).toBe(true)
+  f.service.registry.setPaused(computer.id, true)
+  expect((await previewRequest("/", { headers: { cookie: previewCookie } }))!.status).toBe(401)
+  f.service.registry.setPaused(computer.id, false)
+  f.service.registry.revokeParent(account.identity.id)
+  expect((await previewRequest("/", { headers: { cookie: previewCookie } }))!.status).toBe(401)
+})
+
 test("two hosts have independent cookies and PKCE; Logout revokes their parent only", async () => {
   const f = await fixture()
   const a = await f.login("owner@example.com")
