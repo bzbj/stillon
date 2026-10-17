@@ -203,6 +203,41 @@ try {
     assert.equal(await readFile(foldSettingsPath, "utf8"), foldsBefore)
     assert.deepEqual(await readFolds(localSocket), expectedFolds)
     assert.deepEqual(await readFolds(otherSocket), otherFolds)
+    const initialOtherView = await (await host(1 - i, "/api/sidebar-view")).json()
+    const readView = async (remote: boolean) => {
+      const response = remote ? await host(i, "/api/sidebar-view") : await fetch(`${localOrigin}/api/sidebar-view`)
+      assert.equal(response.status, 200)
+      assert.equal(response.headers.get("cache-control"), "no-store")
+      const view = await response.json()
+      assert.deepEqual(Object.keys(view).sort(), ["machineName", "workspaceCollapseVersions", "workspaceCollapsed"])
+      return view
+    }
+    assert.deepEqual((await readView(true)).workspaceCollapsed, expectedFolds)
+    const staleVersions = (await readView(false)).workspaceCollapseVersions
+    const saved = await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      workspaceCollapsed: { [workspaceId]: false }, workspaceCollapseExpectedVersions: { [workspaceId]: staleVersions[workspaceId] },
+    } })
+    assert.equal(saved.type, "ack")
+    const viewBefore = await readFile(foldSettingsPath, "utf8")
+    const stale = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      theme: "dark", workspaceCollapsed: { [workspaceId]: true, [extra.id]: false },
+      workspaceCollapseExpectedVersions: { [workspaceId]: staleVersions[workspaceId], [extra.id]: staleVersions[extra.id] },
+    } })
+    assert.equal(stale.type, "error")
+    assert.equal(await readFile(foldSettingsPath, "utf8"), viewBefore)
+    const independent = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: {
+      workspaceCollapsed: { [extra.id]: false }, workspaceCollapseExpectedVersions: { [extra.id]: staleVersions[extra.id] },
+    } })
+    assert.equal(independent.type, "ack")
+    assert.deepEqual((await readView(false)).workspaceCollapsed, { [workspaceId]: false, [extra.id]: false })
+    assert.deepEqual(await readView(false), await readView(true))
+    assert.deepEqual(await (await host(1 - i, "/api/sidebar-view")).json(), initialOtherView)
+    const rejectedViewHeaders: Record<string, string>[] = [{ Cookie: hostCookies[1 - i]! }, { Cookie: "" }, { Origin: bound[1 - i]!.url! }]
+    for (const headers of rejectedViewHeaders) {
+      const denied = await host(i, "/api/sidebar-view", { headers })
+      assert.equal(denied.status, "Origin" in headers ? 403 : 401)
+      await denied.arrayBuffer()
+    }
     const deniedFoldEntry = await host(i, "/ws", { headers: { Cookie: hostCookies[1 - i]! } })
     assert.equal(deniedFoldEntry.status, 401)
     await deniedFoldEntry.arrayBuffer()
@@ -268,6 +303,7 @@ try {
     localSocket.close()
   }
   checks.push("Workspace fold persistence across local/Connect, concurrent per-Workspace writes, explicit false, rejected patches and account/host isolation")
+  checks.push("authenticated sidebar bootstrap, cross-entry preference reads, per-workspace stale-write rejection and independent version guards")
   checks.push("background and skin local/Connect uploads, explicit cross-entry apply/reload, disk persistence and rejected-write/account/host isolation")
   const project = fixture.hosts[0]!.store.listProjects()[0]!
   const operationId = `${Date.now()}-${crypto.randomUUID()}`
