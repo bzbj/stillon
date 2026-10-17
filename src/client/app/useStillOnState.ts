@@ -1,4 +1,6 @@
 import type { QuickCommand } from "../../shared/quick-commands"
+import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { useSidebarCollapse } from "../hooks/useSidebarCollapse"
 import { isConnectBrowser } from "../lib/remoteSession"
 import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
@@ -736,6 +738,7 @@ export interface StillOnState {
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
+  workspaceCollapsed: SidebarViewSnapshot["workspaceCollapsed"] | undefined
   composerPreferencesReady: boolean
   machineName: string | null
   llmProvider: LlmProviderSnapshot | null
@@ -830,7 +833,7 @@ export interface StillOnState {
   handleCopyStandaloneShareLink: () => Promise<boolean>
 }
 
-export function useStillOnState(activeChatId: string | null, cacheScope: string | null): StillOnState {
+export function useStillOnState(activeChatId: string | null, cacheScope: string | null, initialSidebarView?: SidebarViewSnapshot): StillOnState {
   const navigate = useNavigate()
   const socket = useStillOnSocket()
   const modelPolicy = useCodexModelPolicyStore((store) => store.snapshot)
@@ -839,7 +842,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const { resolvedTheme } = useTheme()
 
   const [sidebarBootstrap] = useState(() => {
-    const machineName = readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
+    const machineName = initialSidebarView?.machineName ?? readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
     const identity = createSidebarSnapshotIdentity({
       origin: getBrowserSidebarSnapshotOrigin(),
       authScope: cacheScope,
@@ -848,7 +851,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     const snapshot = identity
       ? loadSidebarSnapshot(identity, getBrowserSidebarSnapshotStorage())
       : null
-    return { identity, machineName, snapshot }
+    return { identity, machineName, snapshot, view: initialSidebarView }
   })
   const [sidebarData, setSidebarData] = useState<SidebarData>(
     sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
@@ -878,7 +881,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [chatReady, setChatReady] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
   const [commandError, setCommandError] = useState<string | null>(null)
   const [isExportingStandalone, setIsExportingStandalone] = useState(false)
@@ -1058,6 +1060,12 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       throw error
     }
   }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
+
+  const writeSidebarCollapsed = useCallback((collapsed: boolean) => handleWriteAppSettings({ sidebarCollapsed: collapsed }), [handleWriteAppSettings])
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, error: sidebarCollapseError } = useSidebarCollapse(
+    appSettings?.sidebarCollapsed ?? sidebarBootstrap.view?.sidebarCollapsed ?? false,
+    appSettings ? writeSidebarCollapsed : undefined,
+  )
 
   const setDefaultProjectId = useCallback((projectId: string | null) => {
     // Update local state and cache first so the star reacts immediately, then
@@ -2190,8 +2198,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
-  const collapseSidebar = useCallback(() => setSidebarCollapsed(true), [])
-  const expandSidebar = useCallback(() => setSidebarCollapsed(false), [])
+  const collapseSidebar = useCallback(() => setSidebarCollapsed(true), [setSidebarCollapsed])
+  const expandSidebar = useCallback(() => setSidebarCollapsed(false), [setSidebarCollapsed])
   const openAddProjectModal = useCallback(() => setAddProjectModalOpen(true), [])
   const closeAddProjectModal = useCallback(() => setAddProjectModalOpen(false), [])
 
@@ -2295,6 +2303,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     chatDiffSnapshot,
     keybindings,
     appSettings,
+    workspaceCollapsed: appSettings?.workspaceCollapsed ?? sidebarBootstrap.view?.workspaceCollapsed,
     composerPreferencesReady,
     machineName,
     llmProvider,
@@ -2303,7 +2312,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     sidebarReady,
     sidebarSnapshotStatus,
     localProjectsReady,
-    commandError,
+    commandError: commandError ?? sidebarCollapseError,
     startingLocalPath,
     sidebarOpen,
     sidebarCollapsed,

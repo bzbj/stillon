@@ -666,6 +666,7 @@ export interface AgentNetworkConnectionTestResult {
 }
 
 export interface AppSettingsSnapshot {
+  sidebarCollapsed?: boolean
   workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsSettings
   appearance: import("./appearance").AppearanceSettings
@@ -696,6 +697,7 @@ export interface AppSettingsSnapshot {
 }
 
 export interface AppSettingsPatch {
+  sidebarCollapsed?: boolean
   workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsPatch
   appearance?: Partial<import("./appearance").AppearanceSettings>

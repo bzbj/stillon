@@ -6,10 +6,10 @@ import { AuthenticatedSessionBoundary } from "../../../src/client/app/Authentica
 import "./styles.css"
 
 const fixture = {
-  mode: "valid", requests: 0, settled: 0, mounts: 0, unmounts: 0, hold: false,
+  mode: "valid", requests: 0, settled: 0, viewRequests: 0, mounts: 0, unmounts: 0, hold: false,
   pending: [] as Array<() => void>,
   release() { for (const resolve of fixture.pending.splice(0)) resolve() },
-  state: () => ({ mode: fixture.mode, requests: fixture.requests, settled: fixture.settled, mounts: fixture.mounts, unmounts: fixture.unmounts,
+  state: () => ({ mode: fixture.mode, requests: fixture.requests, settled: fixture.settled, viewRequests: fixture.viewRequests, mounts: fixture.mounts, unmounts: fixture.unmounts,
     checking: Boolean(document.querySelector("dialog")?.open), pending: fixture.pending.length,
     draft: (document.querySelector("#draft") as HTMLInputElement | null)?.value,
     scroll: document.querySelector("#history")?.scrollTop, timeOrigin: performance.timeOrigin }),
@@ -18,6 +18,12 @@ const fixture = {
 ;(window as any).remoteAuthFixture = fixture
 const originalFetch = window.fetch.bind(window)
 window.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
+  if (String(input) === "/api/sidebar-view") {
+    fixture.viewRequests++
+    return fixture.mode === "view-error"
+      ? new Response("unavailable", { status: 503 })
+      : Response.json({ machineName: "Fixture computer", workspaceCollapsed: {}, sidebarCollapsed: false })
+  }
   if (String(input) !== "/auth/status") return originalFetch(input, options)
   fixture.requests++
   const mode = fixture.mode

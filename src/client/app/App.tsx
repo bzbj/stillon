@@ -18,6 +18,7 @@ import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 import { AuthenticatedSessionBoundary } from "./AuthenticatedSessionBoundary"
 import { useAppAuthState } from "./useAppAuthState"
+import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
 
 const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
 const SettingsPage = lazy(() => import("./SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })))
@@ -159,10 +160,10 @@ export function shouldPlayChatNotificationSound(
   return Boolean(appSettings) && shouldPlayChatSound(preference, doc)
 }
 
-function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
+function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
   const location = useLocation()
   const params = useParams()
-  const state = useStillOnState(params.chatId ?? null, cacheScope)
+  const state = useStillOnState(params.chatId ?? null, cacheScope, sidebarView)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
@@ -231,7 +232,7 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
       onCreateChat={handleSidebarCreateChat}
       onRunQuickCommand={state.quickCommandStarting || !state.composerPreferencesReady ? undefined : state.handleRunQuickCommand}
       onWriteQuickCommands={state.appSettings ? patch => state.handleWriteAppSettings({ quickCommands: patch }) : undefined}
-      workspaceCollapsed={state.appSettings?.workspaceCollapsed}
+      workspaceCollapsed={state.workspaceCollapsed}
       onWriteWorkspaceCollapsed={state.appSettings ? patch => state.handleWriteAppSettings({ workspaceCollapsed: patch }) : undefined}
       onForkChat={handleSidebarForkChat}
       currentProjectId={state.activeProjectId}
@@ -357,17 +358,17 @@ export function App() {
 
   return (
     <AuthenticatedSessionBoundary authenticated={auth.state.status === "ready"} checking={auth.state.status === "checking"} fallback={fallback}>
-      {auth.state.status === "ready" ? <AuthenticatedAppRoutes cacheScope={auth.state.cacheScope} /> : null}
+      {auth.state.status === "ready" ? <AuthenticatedAppRoutes cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} /> : null}
     </AuthenticatedSessionBoundary>
   )
 }
 
-function AuthenticatedAppRoutes({ cacheScope }: { cacheScope: string | null }) {
+function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
   return (
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
-          <Route element={<StillOnLayout cacheScope={cacheScope} />}>
+          <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route

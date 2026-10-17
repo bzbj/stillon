@@ -444,6 +444,16 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
           }
 
+          if (url.pathname === "/api/sidebar-view") {
+            if (req.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } })
+            const settings = appSettings.getSnapshot()
+            return Response.json({
+              machineName: settings.machineName,
+              workspaceCollapsed: settings.workspaceCollapsed,
+              sidebarCollapsed: settings.sidebarCollapsed,
+            }, { headers: { "Cache-Control": "no-store" } })
+          }
+
           if (url.pathname === "/health") {
             return Response.json({ ok: true, port: actualPort,
               ...(url.searchParams.get("update-setup") === "1" ? { managedUpdateProtocol: 1,

@@ -36,6 +36,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  sidebarCollapsed?: unknown
   workspaceCollapsed?: unknown
   quickCommands?: unknown
   appearance?: unknown
@@ -203,6 +204,7 @@ function toFilePayload(state: AppSettingsState) {
     appearance: state.appearance,
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
+    sidebarCollapsed: state.sidebarCollapsed,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -226,6 +228,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     appearance: state.appearance,
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
+    sidebarCollapsed: state.sidebarCollapsed,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -278,6 +281,7 @@ function normalizeAppSettings(
     appearance: normalizeAppearance(source?.appearance),
     quickCommands: normalizeQuickCommands(source?.quickCommands),
     workspaceCollapsed: normalizeWorkspaceCollapsed(source?.workspaceCollapsed),
+    sidebarCollapsed: source?.sidebarCollapsed === true,
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -318,6 +322,7 @@ function toComparablePayload(source: AppSettingsFile) {
     appearance: source.appearance,
     quickCommands: source.quickCommands,
     workspaceCollapsed: source.workspaceCollapsed,
+    sidebarCollapsed: source.sidebarCollapsed,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -335,6 +340,9 @@ function applyPatch(
   patch: AppSettingsPatch,
   defaultMachineName: string,
 ): AppSettingsState {
+  if (patch.sidebarCollapsed !== undefined && typeof patch.sidebarCollapsed !== "boolean") {
+    throw new Error("Sidebar collapse preference must be true or false.")
+  }
   const network = patch.network
     ? applyAgentNetworkPatch(state.network, patch.network)
     : state.network
