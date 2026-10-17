@@ -46,16 +46,21 @@ function renderSidebar({
   connectionStatus,
   ready,
   snapshotStatus,
+  workspaceCollapsed,
+  defaultCollapsed = false,
 }: {
   connectionStatus: "connecting" | "connected" | "disconnected"
   ready: boolean
   snapshotStatus: "empty" | "cached" | "authoritative"
+  workspaceCollapsed?: Record<string, boolean>
+  defaultCollapsed?: boolean
 }) {
   return renderToStaticMarkup(
     <MemoryRouter>
       <TooltipProvider>
         <StillOnSidebar
-          data={sidebarData}
+          data={{ projectGroups: sidebarData.projectGroups.map(group => ({ ...group, defaultCollapsed })) }}
+          workspaceCollapsed={workspaceCollapsed}
           activeChatId={null}
           machineName="Synthetic Mac"
           connectionStatus={connectionStatus}
@@ -121,4 +126,14 @@ describe("StillOnSidebar snapshot state", () => {
     expect(html).toContain("Archive chat")
     expect(html).toContain("Fork chat")
   })
+})
+
+
+test("saved fold choices override recency defaults before effects or sidebar hydration", () => {
+  const collapsed = renderSidebar({ connectionStatus: "disconnected", ready: false, snapshotStatus: "cached", workspaceCollapsed: { "project-a": true } })
+  expect(collapsed).toContain('aria-expanded="false"')
+  expect(collapsed).not.toContain("Saved conversation")
+  const expanded = renderSidebar({ connectionStatus: "connected", ready: true, snapshotStatus: "authoritative", workspaceCollapsed: { "project-a": false }, defaultCollapsed: true })
+  expect(expanded).toContain('aria-expanded="true"')
+  expect(expanded).toContain("Saved conversation")
 })

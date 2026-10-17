@@ -666,6 +666,7 @@ export interface AgentNetworkConnectionTestResult {
 }
 
 export interface AppSettingsSnapshot {
+  workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsSettings
   appearance: import("./appearance").AppearanceSettings
   browserSettingsMigrated: boolean
@@ -695,6 +696,7 @@ export interface AppSettingsSnapshot {
 }
 
 export interface AppSettingsPatch {
+  workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsPatch
   appearance?: Partial<import("./appearance").AppearanceSettings>
   browserSettingsMigrated?: boolean
