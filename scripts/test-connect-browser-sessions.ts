@@ -93,11 +93,16 @@ try {
   const old = Date.now() - 120_000
   guard.query("UPDATE connect_session_activity SET lastUsedAt=? WHERE sessionId=?").run(old, bId)
   await command(wb0, { type: "system.ping" })
+  for (const route of ["/auth/status", "/api/sidebar-view"]) {
+    const response = await host(0, route, b0)
+    assert.equal(response.status, 200)
+    await response.arrayBuffer()
+  }
   assert.equal((await listLocal()).sessions.find(row => row.id === bId)!.lastUsedAt, old)
   await command(wb0, { type: "filesystem.listDirectories", localPath: fixture.root })
   assert.ok((await listLocal()).sessions.find(row => row.id === bId)!.lastUsedAt! > old)
   guard.close()
-  checks.push("real gateway/frp/adapter WebSocket command updates durable usage; background ping does not")
+  checks.push("real gateway/frp/adapter command updates durable usage; background ping, auth and sidebar polling do not")
 
   assert.equal((await host(0, "/api/connect-local/sessions", c0)).status, 403)
   assert.equal((await local(0, "sessions/revoke", { sessionId: aId, extra: true })).status, 400)

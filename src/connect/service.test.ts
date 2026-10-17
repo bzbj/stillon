@@ -353,3 +353,38 @@ test("a remote browser can revoke itself and cannot reuse its account or host se
   expect((await f.request("sessions", undefined, account.cookie)).status).toBe(401)
   expect(f.service.registry.isRevoked(account.identity.id)).toBe(true)
 })
+
+test("idle sidebar bootstrap polling preserves last use while workspace requests advance it", async () => {
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ ok: true }) })
+  cleanup.push(async () => { await upstream.stop(true) })
+  const f = await fixture(`http://127.0.0.1:${upstream.port}`)
+  const account = await f.login("idle@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(host.id, randomId())
+  expect(f.service.registry.frpCredential(host.id, connection.token, "idle-test", "Login")).toBe(true)
+  expect(f.service.registry.frpCredential(host.id, connection.token, "idle-test", "NewProxy")).toBe(true)
+  const flow = f.service.registry.newFlow(host.id, "/")
+  const callback = new URL(f.service.registry.authorizeFlow(flow.id, account.identity))
+  const session = f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier,
+    callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  const hostOrigin = f.service.registry.hostOrigin(host.id)
+  const { cookieName } = await import("./http")
+  const headers = { origin: hostOrigin, cookie: `${cookieName(hostOrigin, "host-session")}=${session.token}` }
+  const guard = new Database(path.join(f.dataDir, "guard.sqlite"))
+  const old = Date.now() - 120_000
+  guard.query("UPDATE connect_session_activity SET lastUsedAt=? WHERE sessionId=?").run(old, account.identity.id)
+  guard.close()
+  const lastUse = () => f.service.auth.browserSessions.list(account.identity.userId).sessions[0]!.lastUsedAt
+  for (const route of ["/auth/status", "/_connect/sessions", "/api/sidebar-view"]) {
+    const response = (await f.service.host(new Request(hostOrigin + route, { headers }), null as never))!
+    expect(response.status).toBe(200)
+    await response.arrayBuffer()
+    expect(lastUse()).toBe(old)
+  }
+  const response = (await f.service.host(new Request(hostOrigin + "/api/projects", { headers }), null as never))!
+  expect(response.status).toBe(200)
+  await response.arrayBuffer()
+  expect(lastUse()).toBeGreaterThan(old)
+})

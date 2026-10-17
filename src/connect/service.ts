@@ -258,7 +258,8 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         if (url.pathname.startsWith(CONNECT_PREVIEW_PROXY_PREFIX) || url.pathname.startsWith(BROWSER_PREVIEW_PROXY_PREFIX)) throw new ConnectFault("LOCAL_ONLY", 403)
         if ((!assetRequest && url.pathname.startsWith("/_connect/")) || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/connect-local/") || url.pathname.startsWith("/_stillon/")) throw new ConnectFault("LOCAL_ONLY", 403)
         registry.limited(`traffic:${session.ownerId}`, 1_200, 60)
-        if (!assetRequest) auth.browserSessions.touch(session.parentId)
+        // Auth refreshes also fetch the sidebar bootstrap while the page is idle.
+        if (!assetRequest && url.pathname !== "/api/sidebar-view") auth.browserSessions.touch(session.parentId)
         if (!registry.publicHost(registry.requireHost(hostId)).online && ["GET", "HEAD"].includes(request.method)
           && request.headers.get("accept")?.includes("text/html")) return offlinePage(hostId, request.method === "HEAD")
         const previewUrl = resource ? new URL(resource.path + url.search, url) : url

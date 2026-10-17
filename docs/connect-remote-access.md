@@ -223,8 +223,8 @@ access is paused, provided the account service is reachable.
 
 Last use is recorded by the account service on sign-in, authenticated workspace
 requests and browser commands, with writes coalesced to a minute. Device
-heartbeats, WebSocket pings, session-status checks and browser-list polling do
-not advance it. Existing logins show **Not recorded yet** until activity has
+heartbeats, WebSocket pings, session-status checks, sidebar bootstrap polling
+and browser-list polling do not advance it. Existing logins show **Not recorded yet** until activity has
 been observed after upgrading. This timestamp describes observed use, not
 continuous online presence. Browser/platform names are descriptive user-agent
 labels, not trusted device identities.
