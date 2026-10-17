@@ -144,7 +144,7 @@ function NewConversationButton({
       data-stillon-part="new-conversation"
       aria-label={`New conversation with ${workspaceTitle}`}
       className={cn(
-        "mx-3 mb-3 flex min-h-9 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "mx-3 mb-3 mt-2 flex min-h-9 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         disabled && "cursor-not-allowed opacity-50"
       )}
       onClick={() => onNewLocalChat(localPath)}
