@@ -47,6 +47,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
   return {
     codexTransport: "app-server",
     quickCommands: defaultQuickCommands(),
+    workspaceCollapsed: {},
     browserSettingsMigrated: false,
     appearance: defaultAppearance(),
     machineName: "This Machine",

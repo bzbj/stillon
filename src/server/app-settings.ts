@@ -1,3 +1,4 @@
+import { mergeWorkspaceCollapsed, normalizeWorkspaceCollapsed } from "../shared/workspace-collapse"
 import { mergeQuickCommands, normalizeQuickCommands } from "../shared/quick-commands"
 import { mergeAppearance, normalizeAppearance } from "../shared/appearance"
 import { watch, type FSWatcher } from "node:fs"
@@ -35,6 +36,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  workspaceCollapsed?: unknown
   quickCommands?: unknown
   appearance?: unknown
   browserSettingsMigrated?: unknown
@@ -200,6 +202,7 @@ function toFilePayload(state: AppSettingsState) {
     theme: state.theme,
     appearance: state.appearance,
     quickCommands: state.quickCommands,
+    workspaceCollapsed: { ...state.workspaceCollapsed },
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -222,6 +225,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     theme: state.theme,
     appearance: state.appearance,
     quickCommands: state.quickCommands,
+    workspaceCollapsed: { ...state.workspaceCollapsed },
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -273,6 +277,7 @@ function normalizeAppSettings(
     theme: normalizeTheme(source?.theme),
     appearance: normalizeAppearance(source?.appearance),
     quickCommands: normalizeQuickCommands(source?.quickCommands),
+    workspaceCollapsed: normalizeWorkspaceCollapsed(source?.workspaceCollapsed),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -312,6 +317,7 @@ function toComparablePayload(source: AppSettingsFile) {
     theme: source.theme,
     appearance: source.appearance,
     quickCommands: source.quickCommands,
+    workspaceCollapsed: source.workspaceCollapsed,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -337,6 +343,7 @@ function applyPatch(
     ...patch,
     appearance: mergeAppearance(state.appearance, patch.appearance),
     quickCommands: mergeQuickCommands(state.quickCommands, patch.quickCommands),
+    workspaceCollapsed: mergeWorkspaceCollapsed(state.workspaceCollapsed, patch.workspaceCollapsed),
     defaultProjectId: "defaultProjectId" in patch ? patch.defaultProjectId : state.defaultProjectId,
     terminal: {
       ...state.terminal,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash, randomBytes } from "node:crypto"
-import { readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { createConnectFixture, eventually } from "./connect-fixture"
@@ -173,6 +173,39 @@ try {
       localSocket.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("Local WebSocket failed")) }, { once: true })
     })
     const remoteSocket = i ? ws2 : ws1
+    const workspaceId = fixture.hosts[i]!.store.listProjects()[0]!.id
+    const extraPath = path.join(fixture.root, `fold-workspace-${i}`)
+    await mkdir(extraPath, { recursive: true })
+    const extra = await fixture.hosts[i]!.store.openProject(extraPath, "Other workspace")
+    const readFolds = async (ws: WebSocket) => {
+      const reply = await command(ws, { type: "settings.readAppSettings" })
+      assert.equal(reply.type, "ack")
+      return reply.result.workspaceCollapsed
+    }
+    const otherSocket = i ? ws1 : ws2
+    const otherFolds = await readFolds(otherSocket)
+    assert.equal((await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [workspaceId]: true, [extra.id]: false } } })).type, "ack")
+    assert.deepEqual(await readFolds(remoteSocket), { [workspaceId]: true, [extra.id]: false })
+    assert.equal((await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [workspaceId]: false } } })).type, "ack")
+    assert.deepEqual(await readFolds(localSocket), { [workspaceId]: false, [extra.id]: false })
+    const concurrent = await Promise.all([
+      command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [workspaceId]: true } } }),
+      command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [extra.id]: true } } }),
+    ])
+    assert.ok(concurrent.every(reply => reply.type === "ack"))
+    const expectedFolds = { [workspaceId]: true, [extra.id]: true }
+    assert.deepEqual(await readFolds(localSocket), expectedFolds)
+    assert.deepEqual(await readFolds(remoteSocket), expectedFolds)
+    const foldSettingsPath = path.join(fixture.root, `computer-${i + 1}/settings.json`)
+    const foldsBefore = await readFile(foldSettingsPath, "utf8")
+    assert.deepEqual(JSON.parse(foldsBefore).workspaceCollapsed, expectedFolds)
+    assert.equal((await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { [workspaceId]: false, [extra.id]: "false" } } })).type, "error")
+    assert.equal(await readFile(foldSettingsPath, "utf8"), foldsBefore)
+    assert.deepEqual(await readFolds(localSocket), expectedFolds)
+    assert.deepEqual(await readFolds(otherSocket), otherFolds)
+    const deniedFoldEntry = await host(i, "/ws", { headers: { Cookie: hostCookies[1 - i]! } })
+    assert.equal(deniedFoldEntry.status, 401)
+    await deniedFoldEntry.arrayBuffer()
     const exportRoute = "/api/appearance/skin/export"
     const originalOther = await (await host(1 - i, exportRoute)).json()
     const original = await (await host(i, exportRoute)).json()
@@ -234,6 +267,7 @@ try {
     assert.deepEqual(await (await host(1 - i, exportRoute)).json(), originalOther)
     localSocket.close()
   }
+  checks.push("Workspace fold persistence across local/Connect, concurrent per-Workspace writes, explicit false, rejected patches and account/host isolation")
   checks.push("background and skin local/Connect uploads, explicit cross-entry apply/reload, disk persistence and rejected-write/account/host isolation")
   const project = fixture.hosts[0]!.store.listProjects()[0]!
   const operationId = `${Date.now()}-${crypto.randomUUID()}`

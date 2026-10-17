@@ -231,6 +231,8 @@ function StillOnLayout({ cacheScope }: { cacheScope: string | null }) {
       onCreateChat={handleSidebarCreateChat}
       onRunQuickCommand={state.quickCommandStarting || !state.composerPreferencesReady ? undefined : state.handleRunQuickCommand}
       onWriteQuickCommands={state.appSettings ? patch => state.handleWriteAppSettings({ quickCommands: patch }) : undefined}
+      workspaceCollapsed={state.appSettings?.workspaceCollapsed}
+      onWriteWorkspaceCollapsed={state.appSettings ? patch => state.handleWriteAppSettings({ workspaceCollapsed: patch }) : undefined}
       onForkChat={handleSidebarForkChat}
       currentProjectId={state.activeProjectId}
       keybindings={state.keybindings}

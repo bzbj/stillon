@@ -1,3 +1,4 @@
+import { mergeWorkspaceCollapsed } from "../../shared/workspace-collapse"
 import { mergeQuickCommands } from "../../shared/quick-commands"
 import { mergeAppearance } from "../../shared/appearance"
 import { create } from "zustand"
@@ -27,6 +28,7 @@ export function mergeAppSettingsPatch(
     ...patch,
     appearance: mergeAppearance(settings.appearance, patch.appearance),
     quickCommands: mergeQuickCommands(settings.quickCommands, patch.quickCommands),
+    workspaceCollapsed: mergeWorkspaceCollapsed(settings.workspaceCollapsed, patch.workspaceCollapsed),
     terminal: {
       ...settings.terminal,
       ...patch.terminal,

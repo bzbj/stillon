@@ -1,3 +1,5 @@
+import { useWorkspaceCollapse } from "../hooks/useWorkspaceCollapse"
+import type { WorkspaceCollapsed } from "../../shared/workspace-collapse"
 import { normalizeQuickCommands, type QuickCommand, type QuickCommandsPatch } from "../../shared/quick-commands"
 import { useAppSettingsStore } from "../stores/appSettingsStore"
 import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
@@ -117,6 +119,8 @@ interface StillOnSidebarProps {
   onCreateChat: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
   onWriteQuickCommands?: (patch: QuickCommandsPatch) => Promise<unknown>
+  onWriteWorkspaceCollapsed?: (patch: WorkspaceCollapsed) => Promise<unknown>
+  workspaceCollapsed?: WorkspaceCollapsed
   onForkChat: (chat: SidebarChatRow) => void
   currentProjectId: string | null
   keybindings: KeybindingsSnapshot | null
@@ -151,6 +155,8 @@ function StillOnSidebarImpl({
   onCreateChat,
   onRunQuickCommand,
   onWriteQuickCommands,
+  onWriteWorkspaceCollapsed,
+  workspaceCollapsed,
   onForkChat,
   currentProjectId,
   keybindings,
@@ -174,8 +180,9 @@ function StillOnSidebarImpl({
   const navigate = useNavigate()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null)
-  const initializedCollapsedGroupKeysRef = useRef<Set<string>>(new Set())
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const { collapsedSections, setSectionCollapsed, error: collapseSaveError } = useWorkspaceCollapse(
+    data.projectGroups, workspaceCollapsed, onWriteWorkspaceCollapsed,
+  )
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [showNumberJumpHints, setShowNumberJumpHints] = useState(false)
@@ -228,49 +235,9 @@ function StillOnSidebarImpl({
     visibleChatsRef.current = visibleChats
   }, [visibleChats])
 
-  useEffect(() => {
-    setCollapsedSections((previous) => {
-      const next = new Set<string>()
-      const projectKeys = new Set(data.projectGroups.map((group) => group.groupKey))
-      const initializedKeys = initializedCollapsedGroupKeysRef.current
-
-      for (const key of previous) {
-        if (projectKeys.has(key)) {
-          next.add(key)
-        }
-      }
-
-      initializedCollapsedGroupKeysRef.current = new Set(
-        [...initializedKeys].filter((key) => projectKeys.has(key))
-      )
-
-      for (const group of data.projectGroups) {
-        if (initializedCollapsedGroupKeysRef.current.has(group.groupKey)) continue
-        initializedCollapsedGroupKeysRef.current.add(group.groupKey)
-        if (group.defaultCollapsed) {
-          next.add(group.groupKey)
-        }
-      }
-
-      if (next.size === previous.size && [...next].every((key) => previous.has(key))) {
-        return previous
-      }
-
-      return next
-    })
-  }, [data.projectGroups])
-
   const toggleSection = useCallback((key: string) => {
-    setCollapsedSections((previous) => {
-      const next = new Set(previous)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
-    })
-  }, [])
+    setSectionCollapsed(key, !collapsedSections.has(key))
+  }, [collapsedSections, setSectionCollapsed])
 
   const toggleExpandedGroup = useCallback((key: string) => {
     setExpandedGroups((previous) => {
@@ -647,12 +614,7 @@ function StillOnSidebarImpl({
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {
-                  setCollapsedSections((previous) => {
-                    if (!previous.has(projectId)) return previous
-                    const next = new Set(previous)
-                    next.delete(projectId)
-                    return next
-                  })
+                  setSectionCollapsed(projectId, false)
                   onCreateChat(projectId)
                 }
               }}
@@ -666,6 +628,7 @@ function StillOnSidebarImpl({
           </div>
         </div>
 
+        {collapseSaveError ? <p role="alert" className="px-3 pb-2 text-xs text-destructive">{collapseSaveError}</p> : null}
         <div className="border-t border-border p-2">
             <button
             type="button"
