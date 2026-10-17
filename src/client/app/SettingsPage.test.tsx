@@ -163,7 +163,8 @@ describe("resolveSettingsSectionId", () => {
     expect(resolveSettingsSectionId("network")).toBe("network")
     expect(resolveSettingsSectionId("providers")).toBe("providers")
     expect(resolveSettingsSectionId("changelog")).toBe("changelog")
-    expect(resolveSettingsSectionId("keybindings")).toBe("keybindings")
+    expect(resolveSettingsSectionId("keybindings")).toBe("quick-commands")
+    expect(resolveSettingsSectionId("quick-commands")).toBe("quick-commands")
     expect(resolveSettingsSectionId("skills")).toBe("skills")
   })
 

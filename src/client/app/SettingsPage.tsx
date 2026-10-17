@@ -1,3 +1,5 @@
+import { normalizeQuickCommands } from "../../shared/quick-commands"
+import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
 import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { downloadText } from "../lib/download"
 import { AgentSetupPanel } from "./AgentSetupPanel"
@@ -140,10 +142,10 @@ const sidebarItems = [
     subtitle: "View local Codex and Claude Code subscription windows and reset times.",
   },
   {
-    id: "keybindings",
-    label: "Keybindings",
+    id: "quick-commands",
+    label: "Quick Commands",
     icon: Command,
-    subtitle: "Edit global app shortcuts stored in the active keybindings file.",
+    subtitle: "Manage global prompts and keyboard shortcuts.",
   },
   {
     id: "remote",
@@ -163,6 +165,7 @@ type SidebarItem = (typeof sidebarItems)[number]
 type SidebarPageId = SidebarItem["id"]
 
 export function resolveSettingsSectionId(sectionId: string | undefined): SidebarPageId | null {
+  if (sectionId === "keybindings") return "quick-commands"
   if (!sectionId) return null
   return sidebarItems.some((item) => item.id === sectionId) ? (sectionId as SidebarPageId) : null
 }
@@ -1963,6 +1966,7 @@ export function SettingsPage() {
   const [machineNameNotice, setMachineNameNotice] = useState<string | null>(null)
   const lastConfirmedMachineNameRef = useRef<string | null>(null)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
+  const [commandsTab, setCommandsTab] = useState<"prompts" | "shortcuts">(sectionId === "keybindings" ? "shortcuts" : "prompts")
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null)
   const [subscriptionUsage, setSubscriptionUsage] = useState<SubscriptionUsageSnapshot | null>(null)
@@ -2362,7 +2366,7 @@ export function SettingsPage() {
 
   const selectedSection = sidebarItems.find((item) => item.id === selectedPage) ?? sidebarItems[0]
   const selectedSectionSubtitle =
-    selectedPage === "keybindings"
+    selectedPage === "quick-commands" && commandsTab === "shortcuts"
       ? getKeybindingsSubtitle(keybindingsFilePathDisplay)
       : selectedSection.subtitle
   const showFooter = !isConnecting
@@ -2417,7 +2421,7 @@ export function SettingsPage() {
 
   return (
     <div data-stillon-part="page" className="relative flex h-full flex-1 min-w-0 bg-background">
-      <div className="flex min-w-0 flex-1">
+      <div className={cn("flex min-w-0 flex-1", showFooter && "pb-[89px]")}>
         <aside className={`hidden w-[200px] shrink-0 md:block ${showFooter ? "pb-[89px]" : ""}`}>
           <div className="flex flex-col gap-1 px-4 py-6">
             <div className="px-3 pb-5 text-[22px] font-extrabold tracking-[-0.5px] text-foreground">
@@ -2525,7 +2529,7 @@ export function SettingsPage() {
                     <div className="text-lg font-semibold tracking-[-0.2px] text-foreground">
                       {selectedSection.label}
                     </div>
-                    {selectedPage === "keybindings" ? (
+                    {selectedPage === "quick-commands" && commandsTab === "shortcuts" ? (
                       <SettingsHeaderButton
                         onClick={() => {
                           if (canOpenTranscriptFilesOnHost(window.location.hostname)) void state.handleOpenExternalPath("open_default", keybindingsFilePathDisplay)
@@ -2946,8 +2950,10 @@ export function SettingsPage() {
                       void readSubscriptionUsage()
                     }}
                   />
-                ) : selectedPage === "keybindings" ? (
-                  <div className="border-b border-border">
+                ) : selectedPage === "quick-commands" ? (
+                  <div className="space-y-5">
+                    <SegmentedControl value={commandsTab} onValueChange={setCommandsTab} options={[{ value: "prompts", label: "Prompts" }, { value: "shortcuts", label: "Keyboard Shortcuts" }]} />
+                    {commandsTab === "prompts" ? <QuickCommandsEditor global commands={normalizeQuickCommands(appSettings?.quickCommands).global} disabled={!appSettings || state.connectionStatus !== "connected"} onSave={global => state.handleWriteAppSettings({ quickCommands: { global } })} /> : <div className="border-b border-border">
                     {keybindingsError ? (
                       <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                         {keybindingsError}
@@ -3010,6 +3016,7 @@ export function SettingsPage() {
                         </SettingsRow>
                       )
                     })}
+                  </div>}
                   </div>
                 ) : selectedPage === "skills" ? (
                   <SkillsSection state={state} />
