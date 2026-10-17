@@ -178,6 +178,7 @@ export type ClientCommand =
       editor?: EditorOpenSettings
     }
   | { type: "chat.create"; projectId: string }
+  | { type: "chat.startQuickCommand"; projectId: string; name: string; content: string; preferences: import("./types").ChatTurnPreferences }
   | { type: "chat.fork"; chatId: string }
   | { type: "chat.rename"; chatId: string; title: string }
   | { type: "chat.archive"; chatId: string }

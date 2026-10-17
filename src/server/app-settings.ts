@@ -1,6 +1,7 @@
+import { mergeQuickCommands, normalizeQuickCommands } from "../shared/quick-commands"
 import { mergeAppearance, normalizeAppearance } from "../shared/appearance"
 import { watch, type FSWatcher } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import { getSettingsFilePath, LOG_PREFIX } from "../shared/branding"
@@ -34,6 +35,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  quickCommands?: unknown
   appearance?: unknown
   browserSettingsMigrated?: unknown
   machineName?: unknown
@@ -197,6 +199,7 @@ function toFilePayload(state: AppSettingsState) {
     machineName: state.machineName,
     theme: state.theme,
     appearance: state.appearance,
+    quickCommands: state.quickCommands,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -218,6 +221,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     machineName: state.machineName,
     theme: state.theme,
     appearance: state.appearance,
+    quickCommands: state.quickCommands,
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -268,6 +272,7 @@ function normalizeAppSettings(
     machineName,
     theme: normalizeTheme(source?.theme),
     appearance: normalizeAppearance(source?.appearance),
+    quickCommands: normalizeQuickCommands(source?.quickCommands),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -306,6 +311,7 @@ function toComparablePayload(source: AppSettingsFile) {
     machineName: source.machineName,
     theme: source.theme,
     appearance: source.appearance,
+    quickCommands: source.quickCommands,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -330,6 +336,7 @@ function applyPatch(
     ...toFilePayload(state),
     ...patch,
     appearance: mergeAppearance(state.appearance, patch.appearance),
+    quickCommands: mergeQuickCommands(state.quickCommands, patch.quickCommands),
     defaultProjectId: "defaultProjectId" in patch ? patch.defaultProjectId : state.defaultProjectId,
     terminal: {
       ...state.terminal,
@@ -393,6 +400,7 @@ export class AppSettingsManager {
   private watcher: FSWatcher | null = null
   private state: AppSettingsState
   private readonly listeners = new Set<(snapshot: AppSettingsSnapshot) => void>()
+  private writeQueue: Promise<unknown> = Promise.resolve()
 
   constructor(filePath = getSettingsFilePath(homedir()), options: AppSettingsManagerOptions = {}) {
     this.filePath = filePath
@@ -423,19 +431,33 @@ export class AppSettingsManager {
     }
   }
 
-  async reload(options?: { persistNormalized?: boolean }) {
-    const nextState = await this.readState(options)
-    this.setState(nextState)
+  reload(options?: { persistNormalized?: boolean }): Promise<void> {
+    const result = this.writeQueue.then(async () => {
+      const nextState = await this.readState(options)
+      this.setState(nextState)
+    })
+    this.writeQueue = result.catch(() => {})
+    return result
   }
 
-  async writePatch(patch: AppSettingsPatch) {
+  writePatch(patch: AppSettingsPatch): Promise<AppSettingsSnapshot> {
+    const result = this.writeQueue.then(() => this.persistPatch(patch))
+    this.writeQueue = result.catch(() => {})
+    return result
+  }
+
+  private async persistPatch(patch: AppSettingsPatch) {
     const nextState = {
       ...applyPatch(this.state, patch, this.defaultMachineName),
       warning: null,
       filePathDisplay: formatDisplayPath(this.filePath),
     }
     await mkdir(path.dirname(this.filePath), { recursive: true })
-    await writeFile(this.filePath, `${JSON.stringify(toFilePayload(nextState), null, 2)}\n`, "utf8")
+    const temporary = `${this.filePath}.${crypto.randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, `${JSON.stringify(toFilePayload(nextState), null, 2)}\n`, { encoding: "utf8", mode: 0o600 })
+      await rename(temporary, this.filePath)
+    } finally { await rm(temporary, { force: true }) }
     this.setState(nextState)
     return toSnapshot(nextState)
   }

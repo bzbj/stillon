@@ -1,84 +1,81 @@
-import type { ReactNode } from "react"
-import { Archive, Copy, EyeOff, FolderOpen, Palette, Pencil, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
+import { Archive, ChevronLeft, ChevronRight, Copy, EyeOff, FolderOpen, Palette, Pencil, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+  ContextMenuSeparator,
 } from "../../ui/context-menu"
 
+import { normalizeQuickCommands, type QuickCommand } from "../../../../shared/quick-commands"
+import { useAppSettingsStore } from "../../../stores/appSettingsStore"
+
+const narrowMenuQuery = "(max-width: 767px)"
+function subscribeToNarrowMenu(listener: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {}
+  const query = window.matchMedia(narrowMenuQuery)
+  query.addEventListener("change", listener)
+  return () => query.removeEventListener("change", listener)
+}
+function isNarrowMenu() {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.(narrowMenuQuery).matches)
+}
+
 export function ProjectSectionMenu({
-  onRename,
-  onCopyPath,
-  onShowArchived,
-  onOpenInFinder,
-  onHide,
-  onCustomizeAvatar,
-  children,
+  workspaceId, onRunQuickCommand, onManageCommands, onRename, onCopyPath,
+  onShowArchived, onHide, onCustomizeAvatar, children,
 }: {
+  workspaceId?: string
+  onRunQuickCommand?: (command: QuickCommand) => void
+  onManageCommands?: () => void
   onRename: () => void
   onCopyPath: () => void
   onShowArchived: () => void
-  onOpenInFinder?: () => void
   onHide: () => void
   onCustomizeAvatar?: () => void
   children: ReactNode
 }) {
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        {children}
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="h-3.5 w-3.5" /><span className="text-xs font-medium">Change avatar</span></ContextMenuItem> : null}
-        <ContextMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            onRename()
-          }}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Rename</span>
-        </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            onCopyPath()
-          }}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Copy Path</span>
-        </ContextMenuItem>
-        <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            onShowArchived()
-          }}
-        >
-          <Archive className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Show Archived</span>
-        </ContextMenuItem>
-        {onOpenInFinder && <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            onOpenInFinder()
-          }}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Show in Finder</span>
-        </ContextMenuItem>}
-        <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            onHide()
-          }}
-        >
-          <EyeOff className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Hide</span>
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  )
+  const stored = useAppSettingsStore(store => store.settings?.quickCommands)
+  const commands = useMemo(() => normalizeQuickCommands(stored), [stored])
+  const local = workspaceId ? commands.workspaces[workspaceId] ?? [] : []
+  const narrow = useSyncExternalStore(subscribeToNarrowMenu, isNarrowMenu, () => false)
+  const [showCommands, setShowCommands] = useState(false)
+  const quickItems = <>
+    {commands.global.map(command => <ContextMenuItem key={`global:${command.id}`} disabled={!onRunQuickCommand} title={command.description || command.name} onSelect={() => onRunQuickCommand?.({ ...command })}><span className="max-w-72 truncate">{command.name}</span></ContextMenuItem>)}
+    {commands.global.length && local.length ? <ContextMenuSeparator className="mx-2 bg-border/50" /> : null}
+    {local.map(command => <ContextMenuItem key={`workspace:${command.id}`} disabled={!onRunQuickCommand} title={command.description || command.name} onSelect={() => onRunQuickCommand?.({ ...command })}><span className="max-w-72 truncate">{command.name}</span></ContextMenuItem>)}
+    {commands.global.length || local.length ? <ContextMenuSeparator className="mx-2 bg-border/50" /> : null}
+    <ContextMenuItem onSelect={event => { event.preventDefault(); onManageCommands?.() }}><Settings2 className="size-3.5" />Manage Workspace Commands…</ContextMenuItem>
+  </>
+
+  return <ContextMenu onOpenChange={open => { if (!open) setShowCommands(false) }}>
+    <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+    <ContextMenuContent aria-label={narrow && showCommands ? "Quick Commands" : undefined} className="max-h-[var(--radix-context-menu-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto">
+      {narrow && showCommands ? <>
+        <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(false) }}><ChevronLeft className="size-3.5" />Back</ContextMenuItem>
+        <ContextMenuSeparator className="mx-2 bg-border/50" />
+        {quickItems}
+      </> : <>
+        {onManageCommands ? narrow ? (
+          <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(true) }}><Sparkles className="size-3.5" />Quick Commands<ChevronRight className="ml-auto size-3.5" /></ContextMenuItem>
+        ) : (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger><Sparkles className="size-3.5" />Quick Commands<ChevronRight className="ml-auto size-3.5" /></ContextMenuSubTrigger>
+            <ContextMenuSubContent>{quickItems}</ContextMenuSubContent>
+          </ContextMenuSub>
+        ) : null}
+        <ContextMenuItem onSelect={event => { event.preventDefault(); onRename() }}><Pencil className="size-3.5" />Rename</ContextMenuItem>
+        {onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="size-3.5" />Change avatar</ContextMenuItem> : null}
+        <ContextMenuItem onSelect={onCopyPath}><Copy className="size-3.5" />Copy Path</ContextMenuItem>
+        <ContextMenuItem onSelect={onShowArchived}><Archive className="size-3.5" />Show Archived</ContextMenuItem>
+        <ContextMenuItem onSelect={onHide}><EyeOff className="size-3.5" />Hide</ContextMenuItem>
+      </>}
+    </ContextMenuContent>
+  </ContextMenu>
 }
 
 export function ChatRowMenu({

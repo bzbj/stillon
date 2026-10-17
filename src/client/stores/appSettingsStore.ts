@@ -1,3 +1,4 @@
+import { mergeQuickCommands } from "../../shared/quick-commands"
 import { mergeAppearance } from "../../shared/appearance"
 import { create } from "zustand"
 import {
@@ -25,6 +26,7 @@ export function mergeAppSettingsPatch(
     ...settings,
     ...patch,
     appearance: mergeAppearance(settings.appearance, patch.appearance),
+    quickCommands: mergeQuickCommands(settings.quickCommands, patch.quickCommands),
     terminal: {
       ...settings.terminal,
       ...patch.terminal,

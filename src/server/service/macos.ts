@@ -234,7 +234,9 @@ export function createMacosServiceBackend(options: MacosServiceBackendOptions = 
       const bootstrap = await context.run(LAUNCHCTL_PATH, ["bootstrap", targets.domain, paths.plistPath])
       assertCommandSucceeded("launchctl bootstrap", bootstrap)
 
-      const kickstart = await context.run(LAUNCHCTL_PATH, ["kickstart", "-k", targets.service])
+      // RunAtLoad may already have started the controller. Do not kill it after
+      // it has spawned an application child during bootstrap.
+      const kickstart = await context.run(LAUNCHCTL_PATH, ["kickstart", targets.service])
       assertCommandSucceeded("launchctl kickstart", kickstart)
 
       context.log(`Installed and started StillOn LaunchAgent: ${paths.plistPath}`)

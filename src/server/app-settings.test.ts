@@ -1,3 +1,4 @@
+import { defaultQuickCommands } from "../shared/quick-commands"
 import { defaultAppearance } from "../shared/appearance"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
@@ -45,6 +46,7 @@ function expectedDisplayPath(filePath: string) {
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
     codexTransport: "app-server",
+    quickCommands: defaultQuickCommands(),
     browserSettingsMigrated: false,
     appearance: defaultAppearance(),
     machineName: "This Machine",
@@ -371,4 +373,24 @@ describe("AppSettingsManager", () => {
     expect((await restarted.writePatch({ codexTransport: "app-server" })).codexTransport).toBe("app-server")
     restarted.dispose()
   })
+})
+
+test("quick commands preserve independent scope edits and survive a settings reload", async () => {
+  const filePath = await createTempFilePath()
+  const manager = new AppSettingsManager(filePath)
+  await manager.initialize()
+  const command = { id: "local", name: "Client Brief", prompt: "Prepare a client update." }
+  try {
+    await Promise.all([
+      manager.writePatch({ quickCommands: { workspaces: { "stable-workspace-id": [command] } } }),
+      manager.writePatch({ quickCommands: { global: [] } }),
+      manager.writePatch({ theme: "dark" }),
+    ])
+    await manager.reload()
+    const snapshot = await readAppSettingsSnapshot(filePath)
+    expect(snapshot.quickCommands).toEqual({ global: [], workspaces: { "stable-workspace-id": [command] } })
+    expect(snapshot.theme).toBe("dark")
+    await manager.writePatch({ machineName: "Renamed computer" })
+    expect((await readAppSettingsSnapshot(filePath)).quickCommands).toEqual(snapshot.quickCommands)
+  } finally { manager.dispose() }
 })

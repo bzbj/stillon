@@ -43,67 +43,71 @@ export function useAppAuthState() {
   const [state, setState] = useState<AppAuthState>({ status: "checking" })
   const retryTimeoutRef = useRef<number | null>(null)
   const requestGeneration = useRef(0)
+  const inFlightRef = useRef<Promise<void> | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback((): Promise<void> => {
+    // focus/pageshow may arrive together. One check is enough until a genuine
+    // invalidation fences it off; routine focus must not paint a modal shield.
+    if (inFlightRef.current) return inFlightRef.current
     const generation = ++requestGeneration.current
     if (retryTimeoutRef.current !== null) {
       window.clearTimeout(retryTimeoutRef.current)
       retryTimeoutRef.current = null
     }
 
-    setState((current) => current.status === "ready" ? current : { status: "checking" })
-
-    let response: Response
-    try {
-      response = await fetch("/auth/status", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-        },
-      })
-    } catch {
-      if (generation !== requestGeneration.current) return
-      if (isConnectBrowser()) setState({ status: "checking" })
-      retryTimeoutRef.current = window.setTimeout(() => {
-        void refresh()
-      }, AUTH_STATUS_RETRY_DELAY_MS)
-      return
-    }
-
-    if (generation !== requestGeneration.current) return
-    if (shouldRetryAuthStatusRequest(response.ok)) {
-      if (isConnectBrowser()) setState({ status: "checking" })
-      retryTimeoutRef.current = window.setTimeout(() => {
-        void refresh()
-      }, AUTH_STATUS_RETRY_DELAY_MS)
-      return
-    }
-
-    const payload = await response.json() as Partial<AuthStatusResponse>
-    if (generation !== requestGeneration.current) return
-    setState(getAppAuthStateFromStatus(payload))
+    const request = (async () => {
+      setState((current) => current.status === "ready" ? current : { status: "checking" })
+      try {
+        const response = await fetch("/auth/status", {
+          method: "GET",
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        })
+        if (generation !== requestGeneration.current) return
+        if (shouldRetryAuthStatusRequest(response.ok)) throw new Error("Session status unavailable")
+        const payload = await response.json() as Partial<AuthStatusResponse>
+        if (generation !== requestGeneration.current) return
+        setState(getAppAuthStateFromStatus(payload))
+      } catch {
+        if (generation !== requestGeneration.current) return
+        // Preserve fail-closed handling for a check that cannot be completed.
+        if (isConnectBrowser()) setState({ status: "checking" })
+        retryTimeoutRef.current = window.setTimeout(() => {
+          void refresh()
+        }, AUTH_STATUS_RETRY_DELAY_MS)
+      }
+    })()
+    inFlightRef.current = request
+    void request.finally(() => {
+      if (inFlightRef.current === request) inFlightRef.current = null
+    })
+    return request
   }, [])
 
   useEffect(() => {
     void refresh()
     const hidePrivatePage = () => {
-      if (isConnectBrowser()) { requestGeneration.current++; flushSync(() => setState({ status: "checking" })) }
+      if (isConnectBrowser()) {
+        requestGeneration.current++
+        inFlightRef.current = null
+        flushSync(() => setState({ status: "checking" }))
+      }
     }
     const recheck = () => { hidePrivatePage(); void refresh() }
     if (isConnectBrowser()) {
       window.addEventListener("stillon:check-session", recheck)
-      window.addEventListener("focus", recheck)
-      window.addEventListener("pageshow", recheck)
+      window.addEventListener("focus", refresh)
+      window.addEventListener("pageshow", refresh)
       window.addEventListener("pagehide", hidePrivatePage)
     }
     const timer = isConnectBrowser() ? window.setInterval(() => { void refresh() }, 15_000) : null
     return () => {
       requestGeneration.current++
+      inFlightRef.current = null
       if (timer !== null) window.clearInterval(timer)
       window.removeEventListener("stillon:check-session", recheck)
-      window.removeEventListener("focus", recheck)
-      window.removeEventListener("pageshow", recheck)
+      window.removeEventListener("focus", refresh)
+      window.removeEventListener("pageshow", refresh)
       window.removeEventListener("pagehide", hidePrivatePage)
       if (retryTimeoutRef.current !== null) {
         window.clearTimeout(retryTimeoutRef.current)

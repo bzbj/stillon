@@ -1,3 +1,4 @@
+import type { QuickCommand } from "../../../../shared/quick-commands"
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { WorkspaceAvatar, type WorkspaceActivity } from "../../WorkspaceAvatar"
 import { WorkspaceAvatarPicker } from "../../WorkspaceAvatarPicker"
@@ -40,6 +41,8 @@ interface Props {
   onToggleExpandedGroup: (key: string) => void
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
+  onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
+  onManageWorkspaceCommands?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
   onOpenExternalPath?: (action: "open_finder" | "open_default", localPath: string) => void
@@ -61,6 +64,8 @@ interface SortableProjectGroupProps {
   onToggleExpandedGroup: (key: string) => void
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
+  onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
+  onManageWorkspaceCommands?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
   onOpenExternalPath?: (action: "open_finder" | "open_default", localPath: string) => void
@@ -144,7 +149,7 @@ function NewConversationButton({
       data-stillon-part="new-conversation"
       aria-label={`New conversation with ${workspaceTitle}`}
       className={cn(
-        "mx-3 mb-3 flex min-h-9 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "mx-3 mb-3 mt-2 flex min-h-9 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         disabled && "cursor-not-allowed opacity-50"
       )}
       onClick={() => onNewLocalChat(localPath)}
@@ -224,6 +229,8 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   onToggleExpandedGroup,
   renderChatRow,
   onShowArchivedProject,
+  onRunQuickCommand,
+  onManageWorkspaceCommands,
   onNewLocalChat,
   onCopyPath,
   onOpenExternalPath,
@@ -304,7 +311,9 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           onRename={() => onRenameProject?.(groupKey, group.sidebarTitle, group.realTitle || getPathBasename(localPath))}
           onCopyPath={() => onCopyPath?.(localPath)}
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
-          onOpenInFinder={onOpenExternalPath ? () => onOpenExternalPath("open_finder", localPath) : undefined}
+          workspaceId={groupKey}
+          onRunQuickCommand={onRunQuickCommand ? command => onRunQuickCommand(groupKey, command) : undefined}
+          onManageCommands={onManageWorkspaceCommands ? () => onManageWorkspaceCommands(groupKey) : undefined}
           onHide={() => onHideProject?.(groupKey)}
           onCustomizeAvatar={() => setAvatarOpen(true)}
         >
@@ -351,6 +360,8 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   onToggleExpandedGroup,
   renderChatRow,
   onShowArchivedProject,
+  onRunQuickCommand,
+  onManageWorkspaceCommands,
   onNewLocalChat,
   onCopyPath,
   onOpenExternalPath,
@@ -449,6 +460,8 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           onToggleExpandedGroup={onToggleExpandedGroup}
           renderChatRow={renderChatRow}
           onShowArchivedProject={onShowArchivedProject}
+          onRunQuickCommand={onRunQuickCommand}
+          onManageWorkspaceCommands={onManageWorkspaceCommands}
           onNewLocalChat={onNewLocalChat}
           onCopyPath={onCopyPath}
           onOpenExternalPath={onOpenExternalPath}

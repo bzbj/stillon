@@ -7,7 +7,7 @@ import { buildWindowsServicePowerShell, buildWindowsTaskXml, encodeWindowsPowerS
 import { assertCommandSucceeded } from "../service/types"
 import { appCommand, appStatus, leaseAlive, pauseManagedServer, resumeManagedServer } from "../updater/control"
 import { UpdateEngine, probeRuntime, verifyRuntime } from "../updater/engine"
-import { withWorkerLease } from "../updater/entry"
+import { withWorkerLease } from "../updater/lease"
 import { atomicJson, exists, json, manifest, sameManifest, type Manifest } from "../updater/files"
 import { FINISHED_PHASES, newerRelease, releaseTag, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { DEFAULT_WORKER, installUpdateWorker, macosUpdaterPlist, wakeUpdateWorker, windowsUpdaterXml, type WorkerIdentity } from "../updater/native"

@@ -308,7 +308,7 @@ function normalizeChatStates(
   )
 }
 
-function createComposerStateForNewChat(args: {
+export function createComposerStateForNewChat(args: {
   defaultProvider: DefaultProviderPreference
   providerDefaults: ChatProviderPreferences
   sourceState?: ComposerState | null

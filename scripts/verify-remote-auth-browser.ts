@@ -26,7 +26,7 @@ try {
     const target = await page.evaluate(({ mode, event }) => {
       const fixture = (window as any).remoteAuthFixture
       fixture.mode = mode
-      const target = fixture.requests + 1
+      const target = fixture.settled + 1
       window.dispatchEvent(new Event(event))
       return target
     }, { mode, event })
@@ -46,7 +46,12 @@ try {
     for (const key of ["mounts", "unmounts", "draft", "scroll", "timeOrigin"]) assert.equal(after[key], before[key], key)
   }
 
-  await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; fixture.focus() })
+  await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; fixture.focus(); window.dispatchEvent(new Event("pageshow")) })
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 1)
+  assert.equal((await state()).checking, false, "Routine focus must revalidate in the background")
+  await page.evaluate(() => { (window as any).remoteAuthFixture.hold = false; (window as any).remoteAuthFixture.release() })
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 0)
+  await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; window.dispatchEvent(new Event("stillon:check-session")) })
   await page.waitForSelector("dialog[open]")
   await page.keyboard.press("Escape")
   assert.equal((await state()).checking, true, "Escape must not dismiss revalidation")
@@ -87,7 +92,7 @@ try {
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; fixture.focus() })
   await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length > 0)
   await page.evaluate(() => { (window as any).remoteAuthFixture.hold = false })
-  await focus("expired")
+  await focus("expired", "stillon:check-session")
   await page.evaluate(() => (window as any).remoteAuthFixture.release())
   await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 0)
   assert.equal(await page.locator("#draft").count(), 0, "A stale successful response must not restore an expired session")

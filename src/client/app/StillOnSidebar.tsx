@@ -1,3 +1,6 @@
+import { normalizeQuickCommands, type QuickCommand, type QuickCommandsPatch } from "../../shared/quick-commands"
+import { useAppSettingsStore } from "../stores/appSettingsStore"
+import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { X, Menu, Search, PanelLeftClose, PanelLeftOpen, MessageCirclePlus, Settings } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
@@ -112,6 +115,8 @@ interface StillOnSidebarProps {
   onCollapse: () => void
   onExpand: () => void
   onCreateChat: (projectId: string) => void
+  onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
+  onWriteQuickCommands?: (patch: QuickCommandsPatch) => Promise<unknown>
   onForkChat: (chat: SidebarChatRow) => void
   currentProjectId: string | null
   keybindings: KeybindingsSnapshot | null
@@ -144,6 +149,8 @@ function StillOnSidebarImpl({
   onCollapse,
   onExpand,
   onCreateChat,
+  onRunQuickCommand,
+  onWriteQuickCommands,
   onForkChat,
   currentProjectId,
   keybindings,
@@ -178,6 +185,10 @@ function StillOnSidebarImpl({
     else if (configuredWidth !== undefined) setSidebarWidth(configuredWidth ?? readStoredSidebarWidth())
   }, [configuredWidth, safeMode])
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+  const [commandsProjectId, setCommandsProjectId] = useState<string | null>(null)
+  const storedCommands = useAppSettingsStore(store => store.settings?.quickCommands)
+  const quickCommands = useMemo(() => normalizeQuickCommands(storedCommands), [storedCommands])
+  const commandsProject = data.projectGroups.find(group => group.groupKey === commandsProjectId)
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -631,6 +642,8 @@ function StillOnSidebarImpl({
               onToggleExpandedGroup={toggleExpandedGroup}
               renderChatRow={renderChatRow}
               onShowArchivedProject={setArchivedProjectId}
+              onRunQuickCommand={onRunQuickCommand}
+              onManageWorkspaceCommands={onWriteQuickCommands ? setCommandsProjectId : undefined}
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {
@@ -724,6 +737,12 @@ function StillOnSidebarImpl({
         />
       </div>
 
+      <Dialog open={Boolean(commandsProject)} onOpenChange={open => { if (!open) setCommandsProjectId(null) }}>
+        <DialogContent size="lg" className="w-[calc(100%-24px)] sm:max-w-2xl">
+          <DialogHeader><DialogTitle>Workspace Commands</DialogTitle><DialogDescription>{commandsProject?.title || "Workspace"} · Commands for this workspace.</DialogDescription></DialogHeader>
+          <DialogBody>{commandsProject && onWriteQuickCommands ? <QuickCommandsEditor key={commandsProject.groupKey} commands={quickCommands.workspaces[commandsProject.groupKey] ?? []} disabled={!actionsEnabled} onSave={commands => onWriteQuickCommands({ workspaces: { [commandsProject.groupKey]: commands } })} /> : null}</DialogBody>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(archivedProject)}
         onOpenChange={(dialogOpen) => {
