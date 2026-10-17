@@ -1872,3 +1872,44 @@ describe("CodexAppServerManager", () => {
     expect(resultEvent?.entry.result).toContain("fatal: app-server crashed")
   })
 })
+
+test("app-server applies HTTPS only on a safe next-session boundary", async () => {
+  let mode: "auto" | "https" = "auto"
+  const spawned: { args: string[]; child: FakeCodexProcess }[] = []
+  const manager = new CodexAppServerManager({
+    getApiTransport: () => mode,
+    getEnvironment: () => ({ CODEX_HOME: "/missing-stillon-transport-test" }),
+    spawnProcess: (_cwd, _env, args) => {
+      const child = new FakeCodexProcess((message, process) => {
+        if (message.id !== undefined) process.writeServerMessage({ id: message.id, result: message.method === "initialize"
+          ? { userAgent: "test" }
+          : message.method === "turn/start" ? { turn: { id: "turn-transport" } }
+          : { thread: { id: "thread-transport" }, model: "gpt-6.1-sol" } })
+      })
+      spawned.push({ args, child })
+      return child as never
+    },
+  })
+  const session = { chatId: "transport", cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: "thread-transport" }
+  try {
+    await manager.startSession(session)
+    expect(spawned[0]?.args).toEqual(["app-server"])
+    mode = "https"
+    await manager.startSession(session)
+    expect(spawned[0]?.child.killed).toBe(true)
+    expect(spawned[1]?.args[0]).toBe("app-server")
+    expect(spawned[1]?.args.join(" ")).toContain("supports_websockets")
+    await manager.startSession(session)
+    expect(spawned).toHaveLength(2)
+    const turn = await manager.startTurn({ chatId: "transport", model: "gpt-6.1-sol", content: "Hello", planMode: false, onToolRequest: async () => ({}) })
+    mode = "auto"
+    await expect(manager.startSession(session)).rejects.toThrow("current Codex turn")
+    expect(spawned[1]?.child.killed).toBe(false)
+    const events = collectStream(turn.stream)
+    spawned[1]!.child.writeServerMessage({ method: "turn/completed", params: { threadId: "thread-transport", turn: { id: "turn-transport", status: "completed" } } })
+    await events
+    await manager.startSession(session)
+    expect(spawned[1]?.child.killed).toBe(true)
+    expect(spawned[2]?.args).toEqual(["app-server"])
+  } finally { manager.stopAll() }
+})

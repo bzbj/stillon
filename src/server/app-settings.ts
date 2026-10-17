@@ -55,6 +55,7 @@ interface AppSettingsFile {
   }
   defaultProvider?: unknown
   codexTransport?: unknown
+  codexApiTransport?: unknown
   defaultProjectId?: unknown
   providerDefaults?: {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
@@ -211,6 +212,7 @@ function toFilePayload(state: AppSettingsState) {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
+    codexApiTransport: state.codexApiTransport ?? "auto",
     defaultProjectId: state.defaultProjectId,
     providerDefaults: {
       ...state.providerDefaults,
@@ -235,6 +237,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     codexTransport: state.codexTransport,
+    codexApiTransport: state.codexApiTransport ?? "auto",
     defaultProjectId: state.defaultProjectId,
     providerDefaults: {
       ...state.providerDefaults,
@@ -294,6 +297,7 @@ function normalizeAppSettings(
     },
     defaultProvider: normalizeDefaultProvider(source?.defaultProvider),
     codexTransport: normalizeCodexTransport(source?.codexTransport),
+    codexApiTransport: source?.codexApiTransport === "https" ? "https" : "auto",
     defaultProjectId: normalizeDefaultProjectId(source?.defaultProjectId),
     providerDefaults: normalizeProviderDefaults(source?.providerDefaults),
     network: normalizedNetwork.settings,
@@ -329,6 +333,7 @@ function toComparablePayload(source: AppSettingsFile) {
     editor: source.editor,
     defaultProvider: source.defaultProvider,
     codexTransport: source.codexTransport,
+    codexApiTransport: source.codexApiTransport,
     defaultProjectId: source.defaultProjectId,
     providerDefaults: source.providerDefaults,
     network: source.network,
@@ -340,6 +345,9 @@ function applyPatch(
   patch: AppSettingsPatch,
   defaultMachineName: string,
 ): AppSettingsState {
+  if ("codexApiTransport" in patch && patch.codexApiTransport !== "auto" && patch.codexApiTransport !== "https") {
+    throw new Error("Codex connection must be Automatic or HTTPS only.")
+  }
   const workspaceView = applyWorkspaceCollapsePatch(state.workspaceCollapsed, state.workspaceCollapseVersions,
     patch.workspaceCollapsed, patch.workspaceCollapseExpectedVersions)
   const network = patch.network

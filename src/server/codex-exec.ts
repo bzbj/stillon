@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
 import type { Readable, Writable } from "node:stream"
 import type {
+  CodexApiTransport,
   CodexPermissionMode,
   CodexReasoningEffort,
   ContextWindowUsageSnapshot,
@@ -13,6 +14,7 @@ import type {
 import { getCodexModelForRole } from "../shared/types"
 import { asyncQuestionContextFromItem } from "./async-question"
 import { inheritAgentEnvironment } from "./agent-environment"
+import { codexApiTransportArgs } from "./codex-api-transport"
 import { getCodexCliCommand } from "./codex-cli-command"
 import {
   defaultProcessControl,
@@ -362,16 +364,19 @@ export class CodexExecManager {
   private readonly writersByThread = new Map<string, PendingTurn>()
   private readonly spawnProcess: SpawnCodexExec
   private readonly getEnvironment: () => NodeJS.ProcessEnv
+  private readonly getApiTransport: () => CodexApiTransport
   private readonly timing: CodexExecTiming
   private readonly processControl: ProcessControl
 
   constructor(args: {
     spawnProcess?: SpawnCodexExec
     getEnvironment?: () => NodeJS.ProcessEnv
+    getApiTransport?: () => CodexApiTransport
     timing?: Partial<CodexExecTiming>
     processControl?: ProcessControl
   } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
+    this.getApiTransport = args.getApiTransport ?? (() => "auto")
     this.spawnProcess = args.spawnProcess ?? ((commandArgs, cwd, environment) =>
       spawn(getCodexCliCommand(process.platform, environment), commandArgs, codexSpawnOptions(cwd, environment)) as unknown as CodexExecProcess)
     this.timing = { ...DEFAULT_TIMING, ...args.timing }
@@ -437,8 +442,11 @@ export class CodexExecManager {
       queue.push({ type: "session_token", sessionToken: context.sessionToken })
     }
 
+    const environment = this.getEnvironment()
     const commandArgs = this.buildCommandArgs(context, args)
-    const child = this.spawnProcess(commandArgs, context.cwd, this.getEnvironment())
+    // exec/resume own their config flags; outer CLI overrides can be replaced.
+    commandArgs.splice(commandArgs[1] === "resume" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment))
+    const child = this.spawnProcess(commandArgs, context.cwd, environment)
     const pendingTurn: PendingTurn = {
       chatId: context.chatId,
       child,

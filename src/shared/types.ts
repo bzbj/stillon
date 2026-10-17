@@ -610,6 +610,8 @@ export interface LocalProjectsSnapshot {
   isDiscovering?: boolean
 }
 
+export type CodexApiTransport = "auto" | "https"
+
 export type AgentNetworkMode = "system" | "detected" | "manual"
 
 export interface AgentNetworkProxySettings {
@@ -685,6 +687,8 @@ export interface AppSettingsSnapshot {
   }
   defaultProvider: DefaultProviderPreference
   codexTransport: CodexTransport
+  /** Missing on older clients; Automatic preserves the Codex user configuration. */
+  codexApiTransport?: CodexApiTransport
   providerDefaults: ChatProviderPreferences
   network: AgentNetworkProxySettings
   /**
@@ -710,6 +714,7 @@ export interface AppSettingsPatch {
   editor?: Partial<AppSettingsSnapshot["editor"]>
   defaultProvider?: DefaultProviderPreference
   codexTransport?: CodexTransport
+  codexApiTransport?: CodexApiTransport
   defaultProjectId?: string | null
   providerDefaults?: {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>

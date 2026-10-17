@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
 import type { Readable, Writable } from "node:stream"
 import type {
+  CodexApiTransport,
   AskUserQuestionItem,
   CodexReasoningEffort,
   CodexPermissionMode,
@@ -14,6 +15,7 @@ import type {
 import { getCodexModelForRole } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
 import { inheritAgentEnvironment } from "./agent-environment"
+import { codexApiTransportArgs } from "./codex-api-transport"
 import { getCodexCliCommand } from "./codex-cli-command"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import {
@@ -73,7 +75,7 @@ interface CodexAppServerProcess {
   once(event: "error", listener: (error: Error) => void): this
 }
 
-type SpawnCodexAppServer = (cwd: string, environment: NodeJS.ProcessEnv) => CodexAppServerProcess
+type SpawnCodexAppServer = (cwd: string, environment: NodeJS.ProcessEnv, commandArgs: string[]) => CodexAppServerProcess
 
 interface PendingRequest<TResult> {
   method: string
@@ -114,6 +116,7 @@ interface PendingTurn {
 }
 
 interface SessionContext {
+  apiTransport: CodexApiTransport
   chatId: string
   cwd: string
   child: CodexAppServerProcess
@@ -758,11 +761,13 @@ export class CodexAppServerManager {
   private readonly sessions = new Map<string, SessionContext>()
   private readonly spawnProcess: SpawnCodexAppServer
   private readonly getEnvironment: () => NodeJS.ProcessEnv
+  private readonly getApiTransport: () => CodexApiTransport
 
-  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv } = {}) {
+  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv; getApiTransport?: () => CodexApiTransport } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
-    this.spawnProcess = args.spawnProcess ?? ((cwd, environment) =>
-      spawn(getCodexCliCommand(process.platform, environment), ["app-server"], {
+    this.getApiTransport = args.getApiTransport ?? (() => "auto")
+    this.spawnProcess = args.spawnProcess ?? ((cwd, environment, commandArgs) =>
+      spawn(getCodexCliCommand(process.platform, environment), commandArgs, {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: environment,
@@ -771,7 +776,11 @@ export class CodexAppServerManager {
 
   async startSession(args: StartCodexSessionArgs) {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd
+    const apiTransport = this.getApiTransport()
+    if (existing?.pendingTurn && existing.apiTransport !== apiTransport) {
+      throw new Error("Wait for the current Codex turn to finish before changing its connection.")
+    }
+    if (existing && !existing.closed && existing.cwd === args.cwd && existing.apiTransport === apiTransport
       && existing.sessionToken === args.sessionToken && !args.pendingForkSessionToken) {
       return
     }
@@ -780,8 +789,10 @@ export class CodexAppServerManager {
       this.stopSession(args.chatId)
     }
 
-    const child = this.spawnProcess(args.cwd, this.getEnvironment())
+    const environment = this.getEnvironment()
+    const child = this.spawnProcess(args.cwd, environment, ["app-server", ...codexApiTransportArgs(apiTransport, environment)])
     const context: SessionContext = {
+      apiTransport,
       chatId: args.chatId,
       cwd: args.cwd,
       child,

@@ -46,6 +46,7 @@ function expectedDisplayPath(filePath: string) {
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
     codexTransport: "app-server",
+    codexApiTransport: "auto",
     quickCommands: defaultQuickCommands(),
     workspaceCollapsed: {},
     workspaceCollapseVersions: {},
@@ -394,5 +395,24 @@ test("quick commands preserve independent scope edits and survive a settings rel
     expect(snapshot.theme).toBe("dark")
     await manager.writePatch({ machineName: "Renamed computer" })
     expect((await readAppSettingsSnapshot(filePath)).quickCommands).toEqual(snapshot.quickCommands)
+  } finally { manager.dispose() }
+})
+
+test("Codex HTTPS preference persists without changing proxy settings and rejects invalid writes", async () => {
+  const filePath = await createTempFilePath()
+  const manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    const before = manager.getSnapshot()
+    expect(before.codexApiTransport).toBe("auto")
+    const https = await manager.writePatch({ codexApiTransport: "https" })
+    expect(https.network).toEqual(before.network)
+    expect(https.codexTransport).toBe(before.codexTransport)
+    expect((await readAppSettingsSnapshot(filePath)).codexApiTransport).toBe("https")
+    const saved = await readFile(filePath, "utf8")
+    await expect(manager.writePatch({ codexApiTransport: "websocket" } as never)).rejects.toThrow("Codex connection")
+    expect(await readFile(filePath, "utf8")).toBe(saved)
+    expect(manager.getSnapshot().codexApiTransport).toBe("https")
+    expect((await manager.writePatch({ codexApiTransport: "auto" })).codexApiTransport).toBe("auto")
   } finally { manager.dispose() }
 })
