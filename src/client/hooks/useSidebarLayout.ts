@@ -8,7 +8,8 @@ export function useSidebarLayout(scope: string) {
   const update = useCallback((patch: Partial<SidebarLayout>) => {
     const next = { ...current.current, ...patch }
     current.current = next
-    writeSidebarLayout(scope, next, browserLayoutStorage())
+    // Save only this action; another open tab may have saved the other field.
+    writeSidebarLayout(scope, patch, browserLayoutStorage())
     setLayout(next)
   }, [scope])
   const setCollapsed = useCallback((collapsed: boolean) => update({ collapsed }), [update])

@@ -21,8 +21,13 @@ export function readSidebarLayout(scope: string, storage?: LayoutStorage | null)
     return { collapsed: value?.collapsed === true, width: typeof value?.width === "number" ? clampSidebarWidth(value.width) : DEFAULT_SIDEBAR_WIDTH }
   } catch { return fallback }
 }
-export function writeSidebarLayout(scope: string, layout: SidebarLayout, storage?: LayoutStorage | null) {
-  try { storage?.setItem(layoutKey(scope), JSON.stringify({ collapsed: layout.collapsed, width: clampSidebarWidth(layout.width) })) }
+export function writeSidebarLayout(scope: string, patch: Partial<SidebarLayout>, storage?: LayoutStorage | null) {
+  try {
+    const saved = readSidebarLayout(scope, storage)
+    if (typeof patch.collapsed === "boolean") saved.collapsed = patch.collapsed
+    if (typeof patch.width === "number") saved.width = clampSidebarWidth(patch.width)
+    storage?.setItem(layoutKey(scope), JSON.stringify(saved))
+  }
   catch { /* Keep the current window usable when browser storage is unavailable. */ }
 }
 export function browserLayoutStorage() {
