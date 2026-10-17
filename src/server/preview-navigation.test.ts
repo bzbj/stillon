@@ -14,7 +14,9 @@ test("preview links preserve canonical destinations through an older gateway bas
     hasAttribute() { return false }
     getAttribute() { return "chart.png" }
   }
-  runInNewContext(script.replace(/^<script[^>]*>/u, "").replace(/<\/script>$/u, ""), {
+  // Extract our own generated script; this is not an HTML sanitization step.
+  const body = script.slice(script.indexOf(">") + 1, -"</script>".length)
+  runInNewContext(body, {
     parent: { postMessage: (...args: unknown[]) => messages.push(args) }, window: {}, Element: Link, URL,
     document: { baseURI: "https://computer.example" + capability, addEventListener: (_type: string, handler: typeof click) => { click = handler } },
   })
