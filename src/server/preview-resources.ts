@@ -67,7 +67,7 @@ export class PreviewResources {
         // The cloud wraps the computer response again: replace its bridge so
         // only the active cloud capability is used for navigation.
         text = text.replace(/<script data-stillon-preview-navigation>[\s\S]*?<\/script>/giu, "")
-        const tag = `<base href="${base}">` + previewNavigationScript(new URL(request.url).origin, context.assetPrefix, context.originalPrefix)
+        const tag = `<base href="${base}">` + previewNavigationScript(context.originalPrefix)
         text = /<head\b[^>]*>/iu.test(text) ? text.replace(/<head\b[^>]*>/iu, match => match + tag) : tag + text
       }
       headers.delete("content-length"); headers.delete("content-encoding")

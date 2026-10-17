@@ -29,7 +29,6 @@ test("cloud wrapping replaces the local base and navigation bridge without chang
   expect(html.match(/<script data-stillon-preview-navigation>/gu)).toHaveLength(1)
   expect(html).toContain(`<base href="${context.assetPrefix}">`)
   expect(html).not.toContain(localContext.assetPrefix)
-  expect(html).toContain('"origin":"https://computer.example"')
   expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts allow-downloads")
   expect(response.headers.get("content-security-policy")).not.toContain("allow-same-origin")
 })
