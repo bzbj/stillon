@@ -137,6 +137,26 @@ Use a file readable only by the account that runs the service, especially if a
 proxy URL includes credentials. After editing it, rerun the same `service
 install --env-file …` command to restart the service with the new settings.
 
+### Codex connection method
+
+In **Settings → Network → Codex connection**, choose **HTTPS only** when Codex
+repeatedly reconnects over WebSocket. **Automatic (Codex default)** preserves
+the user's normal Codex configuration.
+
+The preference is stored in StillOn's settings. StillOn passes command-line
+configuration overrides only to the Codex processes it starts, including chat
+and background Codex requests. It never edits `~/.codex/config.toml`, changes
+other Codex clients or modifies Claude's connection. Existing custom provider
+endpoints and authentication are preserved. For the built-in OpenAI provider,
+a process-local provider alias disables WebSocket while keeping ChatGPT versus
+API-key endpoint selection.
+
+Save the setting from either the local or authenticated Connect entry. It applies
+to the next turn; current work continues. An idle App Server session is recreated
+when its connection method changes, preserving its thread. Switching back to
+Automatic removes StillOn's override; a user-wide HTTPS preference, if configured
+separately, still applies.
+
 ## Verify, update, and roll back
 
 Check the native service and local health endpoint after each deployment:

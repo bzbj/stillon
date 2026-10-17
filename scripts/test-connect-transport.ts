@@ -173,6 +173,24 @@ try {
       localSocket.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("Local WebSocket failed")) }, { once: true })
     })
     const remoteSocket = i ? ws2 : ws1
+    const otherNetworkSocket = i ? ws1 : ws2
+    const beforeConnection = (await command(localSocket, { type: "settings.readAppSettings" })).result
+    const otherConnection = (await command(otherNetworkSocket, { type: "settings.readAppSettings" })).result.codexApiTransport
+    const httpsConnection = await command(localSocket, { type: "settings.writeAppSettingsPatch", patch: { codexApiTransport: "https" } })
+    assert.equal(httpsConnection.type, "ack")
+    assert.equal(httpsConnection.result.codexApiTransport, "https")
+    assert.deepEqual(httpsConnection.result.network, beforeConnection.network)
+    assert.equal((await command(remoteSocket, { type: "settings.readAppSettings" })).result.codexApiTransport, "https")
+    const connectionFile = path.join(fixture.root, `computer-${i + 1}/settings.json`)
+    const savedConnection = await readFile(connectionFile, "utf8")
+    assert.equal(JSON.parse(savedConnection).codexApiTransport, "https")
+    const invalidConnection = await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { codexApiTransport: "invalid" } })
+    assert.equal(invalidConnection.type, "error")
+    assert.equal(await readFile(connectionFile, "utf8"), savedConnection)
+    assert.equal((await command(localSocket, { type: "settings.readAppSettings" })).result.codexApiTransport, "https")
+    assert.equal((await command(otherNetworkSocket, { type: "settings.readAppSettings" })).result.codexApiTransport, otherConnection)
+    assert.equal((await command(remoteSocket, { type: "settings.writeAppSettingsPatch", patch: { codexApiTransport: "auto" } })).type, "ack")
+    assert.equal((await command(localSocket, { type: "settings.readAppSettings" })).result.codexApiTransport, "auto")
     const workspaceId = fixture.hosts[i]!.store.listProjects()[0]!.id
     const extraPath = path.join(fixture.root, `fold-workspace-${i}`)
     await mkdir(extraPath, { recursive: true })
@@ -302,6 +320,7 @@ try {
     assert.deepEqual(await (await host(1 - i, exportRoute)).json(), originalOther)
     localSocket.close()
   }
+  checks.push("Codex HTTPS local/Connect cross-entry save/read, disk persistence, rejected-write and account/host isolation")
   checks.push("Workspace fold persistence across local/Connect, concurrent per-Workspace writes, explicit false, rejected patches and account/host isolation")
   checks.push("authenticated sidebar bootstrap, cross-entry preference reads, per-workspace stale-write rejection and independent version guards")
   checks.push("background and skin local/Connect uploads, explicit cross-entry apply/reload, disk persistence and rejected-write/account/host isolation")

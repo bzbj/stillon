@@ -43,6 +43,7 @@ import {
   PROVIDERS,
   type AgentProvider,
   type CodexTransport,
+  type CodexApiTransport,
   type AgentNetworkConnectionTestResult,
   type AgentNetworkDetectionResult,
   type AgentNetworkProxySettings,
@@ -1651,6 +1652,8 @@ const DEFAULT_AGENT_NETWORK_SETTINGS: AgentNetworkProxySettings = {
 function NetworkSettingsSection({ state }: { state: StillOnState }) {
   const savedSettings = state.appSettings?.network ?? DEFAULT_AGENT_NETWORK_SETTINGS
   const [draft, setDraft] = useState<AgentNetworkProxySettings>(savedSettings)
+  const savedApiTransport = state.appSettings?.codexApiTransport ?? "auto"
+  const [apiTransport, setApiTransport] = useState<CodexApiTransport>(savedApiTransport)
   const [status, setStatus] = useState<AgentNetworkStatus | null>(null)
   const [detection, setDetection] = useState<AgentNetworkDetectionResult | null>(null)
   const [tests, setTests] = useState<Partial<Record<AgentProvider, AgentNetworkConnectionTestResult>>>({})
@@ -1661,7 +1664,8 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
   const [restartRequired, setRestartRequired] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const hasUnsavedChanges = JSON.stringify(draft) !== JSON.stringify(savedSettings)
+  const proxyChanged = JSON.stringify(draft) !== JSON.stringify(savedSettings)
+  const hasUnsavedChanges = proxyChanged || apiTransport !== savedApiTransport
 
   async function refreshStatus() {
     try {
@@ -1682,6 +1686,8 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
   // The socket is stable for the lifetime of this settings page.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedSettings.mode, savedSettings.httpProxy, savedSettings.httpsProxy, savedSettings.allProxy, savedSettings.noProxy])
+
+  useEffect(() => { setApiTransport(savedApiTransport) }, [savedApiTransport])
 
   function updateProxyField(field: keyof Omit<AgentNetworkProxySettings, "mode">, value: string) {
     setDraft((current) => ({
@@ -1716,11 +1722,14 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
     setError(null)
     setNotice(null)
     try {
-      const snapshot = await state.handleWriteAppSettings({ network: draft })
+      const snapshot = await state.handleWriteAppSettings({ network: draft, codexApiTransport: apiTransport })
       setDraft(snapshot.network)
+      setApiTransport(snapshot.codexApiTransport ?? "auto")
       setTests({})
-      setRestartRequired(true)
-      setNotice("Saved. New Agent sessions use this environment immediately; restart existing sessions before their next turn.")
+      if (proxyChanged) setRestartRequired(true)
+      setNotice(proxyChanged
+        ? "Saved. New Agent sessions use this environment immediately; restart existing sessions before their next turn."
+        : "Saved. Codex will use this connection method from its next turn. Current runs will finish normally.")
       await refreshStatus()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save Agent network settings.")
@@ -1784,6 +1793,28 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
       ) : null}
 
       <div className="border-b border-border">
+        <SettingsRow
+          title="Codex connection"
+          description="Choose HTTPS only if Codex keeps reconnecting. This applies only to Codex started by StillOn."
+          alignStart
+        >
+          <div className="flex w-full max-w-[440px] flex-col gap-2">
+            <Select value={apiTransport} onValueChange={(value) => {
+              setApiTransport(value as CodexApiTransport)
+              setError(null)
+              setNotice(null)
+            }}>
+              <SelectTrigger aria-label="Codex connection" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="auto">Automatic (Codex default)</SelectItem>
+                  <SelectItem value="https">HTTPS only</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p className="text-xs leading-5 text-muted-foreground">Changes apply to the next turn without interrupting current work.</p>
+          </div>
+        </SettingsRow>
         <SettingsRow
           title="Outbound network mode"
           description="System mode preserves the service environment and OS routing. A connected system VPN needs no StillOn-specific port."
@@ -1850,9 +1881,9 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
           </>
         ) : null}
 
-        <SettingsRow title="Save Agent network" description="Only non-empty saved proxy variables override values inherited from the service or --env-file." alignStart>
+        <SettingsRow title="Save Agent network" description="Connection and proxy settings apply to agents started by StillOn." alignStart>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" disabled={!hasUnsavedChanges || saving} onClick={() => setDraft(savedSettings)}>Discard</Button>
+            <Button type="button" variant="outline" disabled={!hasUnsavedChanges || saving} onClick={() => { setDraft(savedSettings); setApiTransport(savedApiTransport) }}>Discard</Button>
             <Button type="button" disabled={!hasUnsavedChanges || saving} onClick={() => { void saveNetworkSettings() }}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save network settings

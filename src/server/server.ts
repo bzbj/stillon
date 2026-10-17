@@ -149,11 +149,12 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     defaultMachineName: machineDisplayName,
   })
   const getAgentEnvironment = () => mergeAgentNetworkEnvironment(providerCliSettings.environment(cliEnvironment.get()), appSettings.getSnapshot().network)
+  const getCodexApiTransport = () => appSettings.getSnapshot().codexApiTransport ?? "auto"
   const providerSetup = createProviderSetup({ dataDir: store.dataDir, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
   const diffStore = new DiffStore(store.dataDir, {
     generateCommitMessage: (args) => generateCommitMessageDetailed(
       args,
-      new QuickResponseAdapter({ getEnvironment: getAgentEnvironment }),
+      new QuickResponseAdapter({ getEnvironment: getAgentEnvironment, getCodexApiTransport }),
     ),
   })
   await store.initialize()
@@ -253,10 +254,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     store,
     getEnvironment: getAgentEnvironment,
     getCodexTransport: () => appSettings.getSnapshot().codexTransport,
+    getCodexApiTransport,
     generateTitle: (messageContent, cwd) => generateTitleForChatDetailed(
       messageContent,
       cwd,
-      new QuickResponseAdapter({ getEnvironment: getAgentEnvironment }),
+      new QuickResponseAdapter({ getEnvironment: getAgentEnvironment, getCodexApiTransport }),
     ),
     onStateChange: (chatId?: string, options?: { immediate?: boolean }) => {
       if (chatId) {

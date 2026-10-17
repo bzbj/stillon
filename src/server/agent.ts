@@ -11,6 +11,7 @@ import type {
   ContextWindowUsageSnapshot,
   CodexPermissionMode,
   CodexTransport,
+  CodexApiTransport,
   CodexReasoningEffort,
   ModelOptions,
   NormalizedToolCall,
@@ -171,6 +172,7 @@ interface AgentCoordinatorArgs {
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   codexManager?: CodexManager
   getCodexTransport?: () => CodexTransport
+  getCodexApiTransport?: () => CodexApiTransport
   stopConfirmTimeoutMs?: number
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   getEnvironment?: () => NodeJS.ProcessEnv
@@ -209,8 +211,9 @@ function createDefaultCodexManager(
   store: EventStore,
   getEnvironment: () => NodeJS.ProcessEnv,
   getCodexTransport: () => CodexTransport,
+  getApiTransport?: () => CodexApiTransport,
 ): CodexManager {
-  return new CodexTransportManager(store, getCodexTransport, getEnvironment)
+  return new CodexTransportManager(store, getCodexTransport, getEnvironment, undefined, getApiTransport)
 }
 
 const STEERED_MESSAGE_PREFIX = `<system-message>
@@ -889,6 +892,7 @@ export class AgentCoordinator {
       this.store,
       this.getEnvironment,
       args.getCodexTransport ?? (() => "exec"),
+      args.getCodexApiTransport,
     )
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession

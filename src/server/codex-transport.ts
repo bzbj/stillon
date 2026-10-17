@@ -1,4 +1,4 @@
-import type { CodexTransport } from "../shared/types"
+import type { CodexApiTransport, CodexTransport } from "../shared/types"
 import { CodexAppServerManager, type StartCodexTurnArgs } from "./codex-app-server"
 import { CodexExecManager, type StartCodexExecSessionArgs, type StartCodexExecTurnArgs } from "./codex-exec"
 import type { EventStore } from "./event-store"
@@ -16,9 +16,10 @@ export class CodexTransportManager {
     private readonly getDefaultTransport: () => CodexTransport,
     getEnvironment: () => NodeJS.ProcessEnv,
     managers?: { exec?: CodexExecManager; appServer?: CodexAppServerManager },
+    getApiTransport: () => CodexApiTransport = () => "auto",
   ) {
-    this.exec = managers?.exec ?? new CodexExecManager({ getEnvironment })
-    this.appServer = managers?.appServer ?? new CodexAppServerManager({ getEnvironment })
+    this.exec = managers?.exec ?? new CodexExecManager({ getEnvironment, getApiTransport })
+    this.appServer = managers?.appServer ?? new CodexAppServerManager({ getEnvironment, getApiTransport })
   }
 
   private transportFor(chatId: string): CodexTransport {

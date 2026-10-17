@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk"
 import { homedir } from "node:os"
 import OpenAI from "openai"
 import { getDataRootDir } from "../shared/branding"
-import { getCodexModelForRole, type LlmProviderSnapshot } from "../shared/types"
+import { getCodexModelForRole, type CodexApiTransport, type LlmProviderSnapshot } from "../shared/types"
 import { CodexExecManager } from "./codex-exec"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import { createAgentNetworkFetch } from "./agent-network"
@@ -40,6 +40,7 @@ interface QuickResponseAdapterArgs {
   ) => Promise<unknown | null>
   runCodexStructured?: (args: Omit<StructuredQuickResponseArgs<unknown>, "parse">) => Promise<unknown | null>
   getEnvironment?: () => NodeJS.ProcessEnv
+  getCodexApiTransport?: () => CodexApiTransport
 }
 
 type CodexStructuredManager = Pick<CodexExecManager, "generateStructured">
@@ -197,8 +198,9 @@ export async function runCodexStructured(
 
 export function createDefaultQuickResponseCodexManager(
   getEnvironment: () => NodeJS.ProcessEnv = () => inheritAgentEnvironment(),
+  getApiTransport?: () => CodexApiTransport,
 ): CodexStructuredManager {
-  return new CodexExecManager({ getEnvironment })
+  return new CodexExecManager({ getEnvironment, getApiTransport })
 }
 
 export class QuickResponseAdapter {
@@ -219,7 +221,7 @@ export class QuickResponseAdapter {
   constructor(args: QuickResponseAdapterArgs = {}) {
     const getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.getEnvironment = getEnvironment
-    this.codexManager = args.codexManager ?? createDefaultQuickResponseCodexManager(getEnvironment)
+    this.codexManager = args.codexManager ?? createDefaultQuickResponseCodexManager(getEnvironment, args.getCodexApiTransport)
     this.readLlmProvider = args.readLlmProvider ?? (() => readLlmProviderSnapshot())
     this.runOpenAIStructured = args.runOpenAIStructured ?? runOpenAIStructured
     this.runClaudeStructured = args.runClaudeStructured ?? runClaudeStructured

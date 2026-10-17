@@ -939,3 +939,39 @@ describe("CodexExecManager writer lifecycle (#126)", () => {
     expect(processes[0]!.signals).toEqual([])
   })
 })
+
+test("HTTPS selection is scoped to each new exec process and Auto removes the overrides", async () => {
+  let mode: "auto" | "https" = "https"
+  const spawned: string[][] = []
+  const children: FakeCodexExecProcess[] = []
+  const environment = { CODEX_HOME: "/missing-stillon-transport-test", HTTPS_PROXY: "http://127.0.0.1:7897" }
+  const manager = new CodexExecManager({
+    getApiTransport: () => mode,
+    getEnvironment: () => environment,
+    spawnProcess: (args, _cwd, env) => {
+      spawned.push(args)
+      expect(env).toBe(environment)
+      const child = new FakeCodexExecProcess()
+      children.push(child)
+      return child as never
+    },
+  })
+  try {
+    for (const selected of ["https", "auto"] as const) {
+      mode = selected
+      const chatId = `transport-${selected}`
+      await manager.startSession({ chatId, cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: selected === "https" ? "existing-thread" : null })
+      const turn = await manager.startTurn({ chatId, model: "gpt-6.1-sol", content: "Hello", planMode: false, onToolRequest: async () => ({}) })
+      const child = children.at(-1)!
+      const events = collectStream(turn.stream)
+      child.writeJson({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })
+      child.closeWithCode(0)
+      await events
+    }
+    expect(spawned[0]?.join(" ")).toContain("supports_websockets")
+    expect(spawned[0]?.slice(0, 3)).toEqual(["exec", "resume", "-c"])
+    expect(spawned[1]?.[0]).toBe("exec")
+    expect(spawned[1]?.join(" ")).not.toContain("supports_websockets")
+    expect(environment).toEqual({ CODEX_HOME: "/missing-stillon-transport-test", HTTPS_PROXY: "http://127.0.0.1:7897" })
+  } finally { await manager.stopAll() }
+})
