@@ -16,7 +16,7 @@ test("bundled desktop worker with refreshed PATH reaches the journal without an 
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     })
     const timer = setTimeout(() => { timedOut = true; child?.kill() }, 10_000)
-    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr as ReadableStream<Uint8Array>).text()])
     clearTimeout(timer)
     expect(timedOut).toBe(false)
     expect(code).not.toBe(0)
