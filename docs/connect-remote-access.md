@@ -117,9 +117,11 @@ bun scripts/test-connect-transport.ts
 ```
 
 The last command uses two isolated real StillOn instances, accounts, frps/frpc
-and a fake sender. It verifies enrollment, authorization, HTTP/WS, 1/20/100 MiB
-file integrity, Range/HEAD/Unicode names, over-limit rejection, receipts, lease
-renewal, Logout and pause/resume/unbind. It does not call
+and a fake sender. It verifies enrollment, authorization, HTTP/WS, avatar saves
+through both local and Connect entries with cross-entry reloads and persistence,
+rejected avatar writes and account isolation, 1/20/100 MiB file integrity,
+Range/HEAD/Unicode names, over-limit rejection, receipts, lease renewal, Logout
+and pause/resume/unbind. It does not call
 an agent model or send real email. `bun scripts/preview-connect.ts` provides the
 same isolation for browser QA; synthetic mail is in ignored test artifacts.
 
