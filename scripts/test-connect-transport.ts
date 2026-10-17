@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url"
 import { createConnectFixture, eventually } from "./connect-fixture"
 import { upstreamWebSocket } from "../src/server/connect/relay"
 import type { ConnectLocalStatus } from "../src/shared/connect"
+import { workspaceAvatarsSchema } from "../src/shared/workspace-avatars"
 
 // No provider requests, real mail, production ports or personal projects.
 for (const key of Object.keys(process.env)) if (key.startsWith("STILLON_UPDATE_") || key === "STILLON_RUNTIME_PROFILE") delete process.env[key]
@@ -34,7 +35,7 @@ const bound: ConnectLocalStatus[] = []
 const hostCookies: string[] = []
 async function host(index: number, route: string, init: RequestInit = {}) {
   const url = new URL(bound[index]!.url!)
-  return fetch(`http://127.0.0.1:${fixture.port}${route}`, { ...init, signal: AbortSignal.timeout(30_000), redirect: "manual", headers: { Host: url.host, Origin: url.origin, Cookie: hostCookies[index] ?? "", ...Object.fromEntries(new Headers(init.headers)) } })
+  return fetch(`http://127.0.0.1:${fixture.port}${route}`, { ...init, signal: AbortSignal.timeout(30_000), redirect: "manual", headers: { host: url.host, origin: url.origin, cookie: hostCookies[index] ?? "", ...Object.fromEntries(new Headers(init.headers)) } })
 }
 async function enter(index: number, parent: string) {
   const redirect = await host(index, "/_connect/login")
@@ -45,6 +46,14 @@ async function enter(index: number, parent: string) {
   const response = await host(index, callback.pathname + callback.search, { headers: { Cookie: cookies(redirect) } })
   assert.equal(response.status, 303)
   return cookies(response)
+}
+async function avatarConfig(response: Response) {
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get("content-type") ?? "", /application\/json/)
+  assert.equal(response.headers.get("cache-control"), "no-store")
+  const snapshot = await response.json()
+  assert.equal(snapshot.warning, undefined)
+  return workspaceAvatarsSchema.parse(snapshot.config)
 }
 async function socket(index: number) {
   const url = new URL(bound[index]!.url!)
@@ -102,6 +111,56 @@ try {
   assert.equal((await host(0, "/health", { headers: { Origin: bound[1]!.url! } })).status, 403)
   assert.equal((await host(0, "/api/test", { headers: { Cookie: hostCookies[1]! } })).status, 401)
   checks.push("owner, origin, local controls and private-network preview isolation")
+  const avatarRoute = "/api/appearance/avatars"
+  const avatarConfigs = await Promise.all(fixture.hosts.map(async server =>
+    avatarConfig(await fetch(`http://127.0.0.1:${server.port}${avatarRoute}`))))
+  for (let i = 0; i < 2; i++) {
+    const workspaceId = fixture.hosts[i]!.store.listProjects()[0]!.id
+    const other = 1 - i
+    const localOrigin = `http://127.0.0.1:${fixture.hosts[i]!.port}`
+    const endpoint = localOrigin + avatarRoute
+    assert.deepEqual(await avatarConfig(await host(i, avatarRoute)), avatarConfigs[i])
+    const localChoice = { shape: "pebble", color: "#3d7ff5" }
+    const localSaved = await avatarConfig(await fetch(endpoint, {
+      method: "POST", headers: { Origin: localOrigin, "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId, ...localChoice }),
+    }))
+    assert.deepEqual(localSaved, { ...avatarConfigs[i]!, workspaces: { ...avatarConfigs[i]!.workspaces, [workspaceId]: localChoice } })
+    avatarConfigs[i] = localSaved
+    assert.deepEqual(await avatarConfig(await host(i, avatarRoute)), localSaved)
+
+    const remoteChoice = { shape: "drop", color: "#4db6a3" }
+    const body = JSON.stringify({ workspaceId, ...remoteChoice })
+    const remoteSaved = await avatarConfig(await host(i, avatarRoute, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body,
+    }))
+    assert.deepEqual(remoteSaved, { ...localSaved, workspaces: { ...localSaved.workspaces, [workspaceId]: remoteChoice } })
+    avatarConfigs[i] = remoteSaved
+    assert.deepEqual(await avatarConfig(await fetch(endpoint)), remoteSaved)
+
+    // A rejected request must not change either entry's view or the saved file.
+    const attempts: { headers?: Record<string, string>; body?: string; status: number }[] = [
+      { headers: { Cookie: "" }, status: 401 },
+      { headers: { Cookie: hostCookies[other]! }, status: 401 },
+      { headers: { Origin: bound[other]!.url! }, status: 403 },
+      { body: JSON.stringify({ workspaceId: "unknown", shape: "round", color: "#112233" }), status: 404 },
+      { body: JSON.stringify({ workspaceId, shape: "unknown", color: "#112233" }), status: 400 },
+    ]
+    for (const attempt of attempts) {
+      const denied = await host(i, avatarRoute, {
+        method: "POST", headers: { "Content-Type": "application/json", ...attempt.headers },
+        body: attempt.body ?? JSON.stringify({ workspaceId, shape: "round", color: "#112233" }),
+      })
+      assert.equal(denied.status, attempt.status)
+      await denied.arrayBuffer()
+    }
+    assert.deepEqual(await avatarConfig(await fetch(endpoint)), remoteSaved)
+    assert.deepEqual(await avatarConfig(await host(i, avatarRoute)), remoteSaved)
+    const persisted = JSON.parse(await readFile(path.join(fixture.root, `computer-${i + 1}`, "customizations/appearance/avatars.json"), "utf8"))
+    assert.deepEqual(workspaceAvatarsSchema.parse(persisted), remoteSaved)
+    assert.deepEqual(await avatarConfig(await host(other, avatarRoute)), avatarConfigs[other])
+  }
+  checks.push("avatar saves through local and full Connect entries, cross-entry reloads, disk persistence and rejected-write/account isolation")
   const ws1 = await socket(0), ws2 = await socket(1)
   const project = fixture.hosts[0]!.store.listProjects()[0]!
   const operationId = `${Date.now()}-${crypto.randomUUID()}`
