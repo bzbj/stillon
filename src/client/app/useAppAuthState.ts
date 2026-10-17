@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import type { ConnectHost } from "../../shared/connect"
 import { isConnectBrowser } from "../lib/remoteSession"
+import { parseSidebarViewSnapshot, type SidebarViewSnapshot } from "../../shared/sidebar-view"
 
 const AUTH_STATUS_RETRY_DELAY_MS = 500
 
@@ -17,7 +18,7 @@ interface AuthStatusResponse {
 
 type AppAuthState =
   | { status: "checking" }
-  | { status: "ready"; cacheScope: string | null }
+  | { status: "ready"; cacheScope: string | null; sidebarView?: SidebarViewSnapshot }
   | { status: "locked"; error: string | null }
   | { status: "connect-unavailable"; loginUrl: string; portalUrl: string; host?: ConnectHost }
 
@@ -67,7 +68,19 @@ export function useAppAuthState() {
         if (shouldRetryAuthStatusRequest(response.ok)) throw new Error("Session status unavailable")
         const payload = await response.json() as Partial<AuthStatusResponse>
         if (generation !== requestGeneration.current) return
-        setState(getAppAuthStateFromStatus(payload))
+        const next = getAppAuthStateFromStatus(payload)
+        if (next.status === "ready") {
+          // Do not paint recency defaults while persisted view choices are
+          // still loading. This read uses the same authenticated host entry.
+          const viewResponse = await fetch("/api/sidebar-view", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
+          if (generation !== requestGeneration.current) return
+          const sidebarView = viewResponse.ok ? parseSidebarViewSnapshot(await viewResponse.json()) : null
+          if (!sidebarView) throw new Error("Sidebar view unavailable")
+          if (generation !== requestGeneration.current) return
+          setState({ ...next, sidebarView })
+        } else {
+          setState(next)
+        }
       } catch {
         if (generation !== requestGeneration.current) return
         // Preserve fail-closed handling for a check that cannot be completed.

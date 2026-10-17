@@ -28,12 +28,14 @@ function ColorField({ label, value, fallback, onChange }: { label: string; value
   </label>
 }
 
-export function AppearanceSettingsPanel({ settings, onSave }: {
+export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSaveSidebarWidth }: {
   settings: AppSettingsSnapshot | null
+  sidebarWidth: number
+  onSaveSidebarWidth: (width: number) => void
   onSave: (patch: AppSettingsPatch) => Promise<AppSettingsSnapshot>
 }) {
   const { preview, safeMode, setPreview } = useAppearance()
-  const confirmed = useMemo(() => normalizeAppearance(settings?.appearance), [settings?.appearance])
+  const confirmed = useMemo(() => normalizeAppearance({ ...settings?.appearance, sidebarWidth }), [settings?.appearance, sidebarWidth])
   const [draft, setDraft] = useState(confirmed)
   const [mode, setMode] = useState<AppThemePreference>(settings?.theme ?? "system")
   const [busy, setBusy] = useState(false)
@@ -62,9 +64,11 @@ export function AppearanceSettingsPanel({ settings, onSave }: {
   async function apply() {
     setBusy(true); setError(null); setNotice(null)
     try {
-      await onSave({ appearance: draft, theme: mode })
+      const { sidebarWidth: width, ...sharedAppearance } = draft
+      await onSave({ appearance: sharedAppearance, theme: mode })
+      onSaveSidebarWidth(width ?? 275)
       setPreview(null)
-      setNotice("Appearance applied. Your skin and layout are saved on this machine.")
+      setNotice("Appearance applied. Sidebar width is saved in this browser.")
     } catch (cause) { setPreview(null); setError(cause instanceof Error ? cause.message : "Unable to save appearance. Your previous settings are kept.") }
     finally { setBusy(false) }
   }
@@ -143,7 +147,7 @@ export function AppearanceSettingsPanel({ settings, onSave }: {
         <Field title="Corners"><label className="flex items-center gap-3"><input aria-label="Corners" type="range" min={4} max={20} value={draft.cornerRadius} onChange={(event) => patch({ cornerRadius: Number(event.target.value) })} /><span className="w-9 text-right text-xs tabular-nums">{draft.cornerRadius}px</span></label></Field>
         <Field title="Density" description="Spacing in workspace and conversation lists."><Choices label="Density" value={draft.density} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(density) => patch({ density })} /></Field>
         <Field title="Panels" description="Solid is flat, Soft lifts the workspace cards, and Glass adds a frosted surface."><Choices label="Panel style" value={draft.surface} options={[["solid", "Solid"], ["soft", "Soft"], ["glass", "Glass"]]} onChange={(surface) => patch({ surface })} /></Field>
-        <Field title="Sidebar width" description="Saved on this machine. The sidebar fits the available window space."><label className="flex items-center gap-3"><input aria-label="Sidebar width" type="range" min={220} max={520} step={5} value={draft.sidebarWidth ?? 275} onChange={(event) => patch({ sidebarWidth: Number(event.target.value) })} /><span className="w-10 text-right text-xs tabular-nums">{draft.sidebarWidth ?? 275}px</span></label></Field>
+        <Field title="Sidebar width" description="Saved in this browser. The sidebar fits the available window space."><label className="flex items-center gap-3"><input aria-label="Sidebar width" type="range" min={220} max={520} step={5} value={draft.sidebarWidth ?? 275} onChange={(event) => patch({ sidebarWidth: Number(event.target.value) })} /><span className="w-10 text-right text-xs tabular-nums">{draft.sidebarWidth ?? 275}px</span></label></Field>
         <Field title="Conversation width"><Choices label="Conversation width" value={draft.chatWidth} options={[["comfortable", "Focused"], ["wide", "Wide"], ["full", "Full"]]} onChange={(chatWidth) => patch({ chatWidth })} /></Field>
       </section>
 
