@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, CornerDownLeft, Download, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
+import { projectPreviewNavigationAddress } from "../../../shared/preview-navigation"
 import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
 import { buildProjectFileContentUrl, normalizeProjectPreviewAddress, parseProjectFilePreviewUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
 import { downloadUrl } from "../../lib/download"
@@ -212,6 +213,16 @@ function BrowserPanelImpl({
   useEffect(() => {
     setAddressDraft(address)
   }, [address])
+
+  useEffect(() => {
+    function onPreviewNavigation(event: MessageEvent) {
+      if (event.origin !== "null" || event.source !== iframeRef.current?.contentWindow) return
+      const nextAddress = projectPreviewNavigationAddress(event.data, scopedAddress)
+      if (nextAddress) navigateBrowser(projectId, nextAddress)
+    }
+    window.addEventListener("message", onPreviewNavigation)
+    return () => window.removeEventListener("message", onPreviewNavigation)
+  }, [navigateBrowser, projectId, scopedAddress])
 
   useEffect(() => {
     if (address) return
