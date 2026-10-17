@@ -493,7 +493,7 @@ function StillOnSidebarImpl({
             <BrandMark className="h-7 w-7 shrink-0 rounded-md object-contain sm:h-8 sm:w-8" />
             <SidebarIdentity machineName={machineName} />
           </button>
-          <div className="flex items-center justify-self-end md:justify-self-auto">
+          <div className="flex shrink-0 items-center justify-self-end md:justify-self-auto">
             <Button
               variant="ghost"
               size="icon"
@@ -501,7 +501,7 @@ function StillOnSidebarImpl({
                 setSearchOpen((current) => !current)
                 setSearchQuery("")
               }}
-              className="size-10 rounded-full"
+              className="size-10 rounded-full md:size-8"
               title="Search conversations"
               aria-label="Search conversations"
             >
@@ -510,28 +510,27 @@ function StillOnSidebarImpl({
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => {
+                navigate("/")
+                onClose()
+              }}
+              className="size-10 rounded-full md:size-8"
+              title="New conversation"
+              aria-label="New conversation"
+            >
+              <MessageCirclePlus className="size-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onCollapse}
-              className="hidden size-10 rounded-full md:inline-flex"
+              className="hidden size-10 rounded-full md:inline-flex md:size-8"
               title="Close sidebar"
               aria-label="Close sidebar"
             >
               <PanelLeftClose className="size-5" />
             </Button>
           </div>
-        </div>
-
-        <div className="px-3 pb-3 pt-2">
-          <button
-            type="button"
-            onClick={() => {
-              navigate("/")
-              onClose()
-            }}
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-base font-medium shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <MessageCirclePlus className="size-5" />
-            New conversation
-          </button>
         </div>
 
         {searchOpen && (
