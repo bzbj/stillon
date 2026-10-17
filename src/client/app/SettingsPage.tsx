@@ -2573,7 +2573,7 @@ export function SettingsPage() {
                 {selectedPage === "welcome" ? (
                   <WelcomeChecklist state={state} />
                 ) : selectedPage === "appearance" ? (
-                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} />
+                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} sidebarWidth={state.sidebarWidth} onSaveSidebarWidth={state.setSidebarWidth} />
                 ) : selectedPage === "general" ? (
                   <>
                     {appSettingsError ? (

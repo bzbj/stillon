@@ -1,4 +1,6 @@
 import type { QuickCommand } from "../../shared/quick-commands"
+import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { useSidebarLayout } from "../hooks/useSidebarLayout"
 import { isConnectBrowser } from "../lib/remoteSession"
 import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
@@ -736,6 +738,11 @@ export interface StillOnState {
   chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
+  workspaceCollapsed: SidebarViewSnapshot["workspaceCollapsed"] | undefined
+  workspaceCollapseVersions: SidebarViewSnapshot["workspaceCollapseVersions"]
+  handleWriteWorkspaceCollapsed: (patch: SidebarViewSnapshot["workspaceCollapsed"], expected: SidebarViewSnapshot["workspaceCollapseVersions"]) => Promise<AppSettingsSnapshot>
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
   composerPreferencesReady: boolean
   machineName: string | null
   llmProvider: LlmProviderSnapshot | null
@@ -830,7 +837,7 @@ export interface StillOnState {
   handleCopyStandaloneShareLink: () => Promise<boolean>
 }
 
-export function useStillOnState(activeChatId: string | null, cacheScope: string | null): StillOnState {
+export function useStillOnState(activeChatId: string | null, cacheScope: string | null, initialSidebarView?: SidebarViewSnapshot): StillOnState {
   const navigate = useNavigate()
   const socket = useStillOnSocket()
   const modelPolicy = useCodexModelPolicyStore((store) => store.snapshot)
@@ -839,7 +846,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const { resolvedTheme } = useTheme()
 
   const [sidebarBootstrap] = useState(() => {
-    const machineName = readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
+    const machineName = initialSidebarView?.machineName ?? readStoredMachineIdentityName(getBrowserMachineIdentityStorage())
     const identity = createSidebarSnapshotIdentity({
       origin: getBrowserSidebarSnapshotOrigin(),
       authScope: cacheScope,
@@ -848,8 +855,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     const snapshot = identity
       ? loadSidebarSnapshot(identity, getBrowserSidebarSnapshotStorage())
       : null
-    return { identity, machineName, snapshot }
+    return { identity, machineName, snapshot, view: initialSidebarView }
   })
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed, width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarLayout(
+    JSON.stringify([getBrowserSidebarSnapshotOrigin(), cacheScope]),
+  )
   const [sidebarData, setSidebarData] = useState<SidebarData>(
     sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
   )
@@ -878,7 +888,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [chatReady, setChatReady] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
   const [commandError, setCommandError] = useState<string | null>(null)
   const [isExportingStandalone, setIsExportingStandalone] = useState(false)
@@ -1054,6 +1063,22 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       return snapshot
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
+      await handleReadAppSettings()
+      throw error
+    }
+  }, [applyAppSettingsSnapshot, handleReadAppSettings, socket])
+
+  const handleWriteWorkspaceCollapsed = useCallback(async (
+    patch: SidebarViewSnapshot["workspaceCollapsed"], expected: SidebarViewSnapshot["workspaceCollapseVersions"],
+  ) => {
+    try {
+      const snapshot = await socket.command<AppSettingsSnapshot>({
+        type: "settings.writeAppSettingsPatch",
+        patch: { workspaceCollapsed: patch, workspaceCollapseExpectedVersions: expected },
+      }, { signal: AbortSignal.timeout(10_000) })
+      applyAppSettingsSnapshot(snapshot)
+      return snapshot
+    } catch (error) {
       await handleReadAppSettings()
       throw error
     }
@@ -2190,8 +2215,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
-  const collapseSidebar = useCallback(() => setSidebarCollapsed(true), [])
-  const expandSidebar = useCallback(() => setSidebarCollapsed(false), [])
+  const collapseSidebar = useCallback(() => setSidebarCollapsed(true), [setSidebarCollapsed])
+  const expandSidebar = useCallback(() => setSidebarCollapsed(false), [setSidebarCollapsed])
   const openAddProjectModal = useCallback(() => setAddProjectModalOpen(true), [])
   const closeAddProjectModal = useCallback(() => setAddProjectModalOpen(false), [])
 
@@ -2295,6 +2320,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     chatDiffSnapshot,
     keybindings,
     appSettings,
+    workspaceCollapsed: sidebarBootstrap.view?.workspaceCollapsed,
+    workspaceCollapseVersions: appSettings?.workspaceCollapseVersions ?? sidebarBootstrap.view?.workspaceCollapseVersions ?? {},
+    handleWriteWorkspaceCollapsed,
+    sidebarWidth,
+    setSidebarWidth,
     composerPreferencesReady,
     machineName,
     llmProvider,

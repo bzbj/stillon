@@ -40,6 +40,7 @@ try {
     document.querySelector("#history")!.scrollTop = 500
   })
   const before = await state()
+  assert.ok(before.viewRequests > 0, "The initial authenticated view must load before mounting the workspace")
   for (let attempt = 0; attempt < 5; attempt++) {
     await focus()
     const after = await state()
@@ -76,7 +77,7 @@ try {
   await focus("valid", "pageshow")
   assert.equal((await state()).mounts, before.mounts, "Restoring a valid page must retain the workspace")
 
-  for (const mode of ["network-error", "http-error"]) {
+  for (const mode of ["network-error", "http-error", "view-error"]) {
     await page.evaluate(mode => { const fixture = (window as any).remoteAuthFixture; fixture.mode = mode; fixture.focus() }, mode)
     await page.waitForFunction(() => (window as any).remoteAuthFixture.state().checking)
     assert.equal((await state()).mounts, before.mounts)
