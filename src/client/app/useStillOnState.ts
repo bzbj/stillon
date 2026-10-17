@@ -636,6 +636,26 @@ function getProjectIdForChat(projectGroups: SidebarData["projectGroups"], chatId
   return projectGroups.find((group) => group.chats.some((chat) => chat.chatId === chatId))?.groupKey ?? null
 }
 
+export function resolveActiveProjectId({
+  activeChatId,
+  snapshotProjectId,
+  projectGroups,
+  pendingChatId,
+  selectedProjectId,
+}: {
+  activeChatId: string | null
+  snapshotProjectId: string | null | undefined
+  projectGroups: SidebarData["projectGroups"]
+  pendingChatId: string | null
+  selectedProjectId: string | null
+}): string | null {
+  if (!activeChatId) return null
+  return snapshotProjectId
+    ?? getProjectIdForChat(projectGroups, activeChatId)
+    // A newly created chat may not have reached either subscription yet.
+    ?? (pendingChatId === activeChatId ? selectedProjectId : null)
+}
+
 export function shouldAutoFollowTranscript(distanceFromBottom: number) {
   return distanceFromBottom < 24
 }
@@ -1280,10 +1300,14 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     [activeChatId, chatSnapshot]
   )
   const activeProjectId = useMemo(
-    () => activeChatSnapshot?.runtime.projectId
-      ?? (sidebarReady ? getProjectIdForChat(sidebarProjectGroups, activeChatId) : null)
-      ?? selectedProjectId,
-    [activeChatId, activeChatSnapshot?.runtime.projectId, selectedProjectId, sidebarProjectGroups, sidebarReady]
+    () => resolveActiveProjectId({
+      activeChatId,
+      snapshotProjectId: activeChatSnapshot?.runtime.projectId,
+      projectGroups: sidebarReady ? sidebarProjectGroups : [],
+      pendingChatId,
+      selectedProjectId,
+    }),
+    [activeChatId, activeChatSnapshot?.runtime.projectId, pendingChatId, selectedProjectId, sidebarProjectGroups, sidebarReady]
   )
   const chatDiffSnapshot = useMemo(() => {
     const currentDiffs = activeProjectId ? (projectDiffSnapshots[activeProjectId] ?? null) : null

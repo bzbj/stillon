@@ -15,6 +15,7 @@ import {
   reconcileHistoryPaginationSnapshot,
   reconcileOptimisticUserPrompts,
   reconcileSidebarProjectSelection,
+  resolveActiveProjectId,
   resolveComposeIntent,
   shouldMarkActiveChatRead,
   shouldAutoFollowTranscript,
@@ -112,6 +113,42 @@ function createSidebarData(): SidebarData {
     ],
   }
 }
+
+describe("active workspace selection", () => {
+  const groups = createSidebarData().projectGroups
+  const context = {
+    activeChatId: null as string | null,
+    snapshotProjectId: undefined as string | undefined,
+    projectGroups: groups,
+    pendingChatId: null as string | null,
+    selectedProjectId: "project-1",
+  }
+
+  test("home and settings do not select the first or remembered workspace", () => {
+    expect(resolveActiveProjectId(context)).toBeNull()
+    expect(resolveActiveProjectId({ ...context, selectedProjectId: "project-2" })).toBeNull()
+    expect(resolveActiveProjectId({ ...context, projectGroups: [] })).toBeNull()
+  })
+
+  test("returning home clears the active workspace even before old chat state is released", () => {
+    expect(resolveActiveProjectId({ ...context, snapshotProjectId: "project-2", pendingChatId: "chat-4" })).toBeNull()
+  })
+
+  test("a conversation selects its actual workspace instead of the remembered compose target", () => {
+    expect(resolveActiveProjectId({ ...context, activeChatId: "chat-4" })).toBe("project-2")
+    expect(resolveActiveProjectId({ ...context, activeChatId: "chat-1", selectedProjectId: "project-2" })).toBe("project-1")
+  })
+
+  test("the matching chat snapshot supplies context before the sidebar is ready", () => {
+    expect(resolveActiveProjectId({ ...context, activeChatId: "chat-4", snapshotProjectId: "project-2", projectGroups: [] })).toBe("project-2")
+  })
+
+  test("only the exact pending new conversation may use its captured workspace", () => {
+    expect(resolveActiveProjectId({ ...context, activeChatId: "new-chat", pendingChatId: "new-chat", selectedProjectId: "project-2" })).toBe("project-2")
+    expect(resolveActiveProjectId({ ...context, activeChatId: "other-chat", pendingChatId: "new-chat", selectedProjectId: "project-2" })).toBeNull()
+    expect(resolveActiveProjectId({ ...context, activeChatId: "unknown-chat" })).toBeNull()
+  })
+})
 
 describe("getNewestRemainingChatId", () => {
   test("returns the next newest chat from the same project", () => {
