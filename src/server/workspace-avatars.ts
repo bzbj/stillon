@@ -56,7 +56,7 @@ export async function handleWorkspaceAvatars(request: Request, manager: Workspac
   const headers = { "Cache-Control": "no-store" }
   if (request.method === "GET") return Response.json(await manager.snapshot(), { headers })
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "GET, POST" } })
-  if (!options.validateOrigin(request)) return new Response("Forbidden", { status: 403 })
+  if (!options.validateOrigin(request)) return Response.json({ error: "Forbidden" }, { status: 403, headers })
   try {
     const text = (await boundedBody(request, 2048)).toString("utf8")
     const input = JSON.parse(text)

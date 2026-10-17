@@ -480,7 +480,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
           const avatarsResponse = await handleWorkspaceAvatars(req, workspaceAvatars, {
             workspaceExists: id => Boolean(store.getProject(id)),
-            validateOrigin: request => auth ? auth.validateOrigin(request) : request.headers.get("origin") === url.origin,
+            // Ingress already validated the browser origin against the declared
+            // origins. An HTTPS proxy legitimately uses an HTTP upstream URL.
+            validateOrigin: request => Boolean(request.headers.get("origin")) && (!auth || auth.validateOrigin(request)),
           })
           if (avatarsResponse) return avatarsResponse
           const appearanceResponse = await handleAppearanceRequest(req, url, {

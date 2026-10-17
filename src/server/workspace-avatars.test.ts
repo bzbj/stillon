@@ -71,7 +71,10 @@ test("avatar HTTP mutations require origin and an existing workspace, and bound 
   const { manager } = await fixture(), origin = "http://localhost:3210"
   const options = { validateOrigin: (request: Request) => request.headers.get("origin") === origin, workspaceExists: (id: string) => id === "finance" }
   const post = (body: unknown, from = origin) => handleWorkspaceAvatars(new Request(origin + "/api/appearance/avatars", { method: "POST", headers: { origin: from }, body: JSON.stringify(body) }), manager, options)
-  expect((await post({ workspaceId: "finance", shape: "round", color: "#112233" }, "null"))?.status).toBe(403)
+  const forbidden = (await post({ workspaceId: "finance", shape: "round", color: "#112233" }, "null"))!
+  expect(forbidden.status).toBe(403)
+  expect(forbidden.headers.get("cache-control")).toBe("no-store")
+  expect(await forbidden.json()).toEqual({ error: "Forbidden" })
   expect((await post({ workspaceId: "unknown", shape: "round", color: "#112233" }))?.status).toBe(404)
   expect((await post({ workspaceId: "finance", shape: "missing", color: "#112233" }))?.status).toBe(400)
   expect((await post({ workspaceId: "finance", shape: "drop", color: "#112233" }))?.status).toBe(200)
@@ -90,4 +93,35 @@ test("older avatar files remain valid and badge customization accepts only bound
     expect(workspaceAvatarsSchema.safeParse({ ...config, statusBadges: { ...config.statusBadges, complete: { ...config.statusBadges!.complete, mark } } }).success).toBe(false)
   }
   expect(workspaceAvatarsSchema.safeParse({ ...config, statusBadges: { ...config.statusBadges, working: { ...config.statusBadges!.working, background: "red;display:none" } } }).success).toBe(false)
+})
+
+test("Connect avatar writes require a signed lease and persist through the authenticated adapter", async () => {
+  const { startRemoteAdapter } = await import("./connect/adapter")
+  const { validateIngress } = await import("./connect/ingress")
+  const { newDeviceKeys, randomId, randomToken, signLease } = await import("./connect/crypto")
+  const { manager, directory } = await fixture()
+  const keys = newDeviceKeys(), secret = randomToken(), hostId = randomId()
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request, server) {
+    const ingress = validateIngress(request, { port: server.port!, hostname: "127.0.0.1", peer: server.requestIP(request)?.address, secret })
+    if (ingress instanceof Response) return ingress
+    expect(ingress).toEqual({ kind: "remote", ownerId: "sample-owner" })
+    return (await handleWorkspaceAvatars(request, manager, {
+      workspaceExists: id => id === "sample",
+      validateOrigin: from => from.headers.get("origin") === new URL(from.url).origin,
+    })) ?? new Response(null, { status: 404 })
+  } })
+  const adapter = startRemoteAdapter({ targetOrigin: `http://127.0.0.1:${target.port}`, localSecret: secret, publicKey: keys.publicKey, hostId, epoch: 1, generation: 1 })
+  const route = "/api/appearance/avatars", endpoint = `http://127.0.0.1:${adapter.port}${route}`
+  const body = JSON.stringify({ workspaceId: "sample", shape: "pebble", color: "#3d7ff5" })
+  try {
+    const denied = await fetch(endpoint, { method: "POST", body })
+    expect(denied.status).toBe(403)
+    await denied.text()
+    const now = Date.now()
+    const lease = { v: 1 as const, id: randomId(), hostId, sessionId: "sample-session", parentId: "sample-parent", ownerId: "sample-owner", epoch: 1, generation: 1, method: "POST", path: route, issuedAt: now, expiresAt: now + 10_000 }
+    const saved = await fetch(endpoint, { method: "POST", body, headers: { origin: "https://computer.stillon.example", "content-type": "application/json", "x-stillon-connect-lease": signLease(lease, keys.privateKey) } })
+    expect(saved.status).toBe(200)
+    expect((await saved.json()).config.workspaces.sample).toEqual({ shape: "pebble", color: "#3d7ff5" })
+    expect((await new WorkspaceAvatarsManager(directory).snapshot()).config.workspaces.sample).toEqual({ shape: "pebble", color: "#3d7ff5" })
+  } finally { await adapter.stop(); await target.stop(true) }
 })
