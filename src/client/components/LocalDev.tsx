@@ -21,6 +21,7 @@ import type { StillOnState } from "../app/useStillOnState"
 import { PageHeader } from "../app/PageHeader"
 import { resolveHomeProject } from "../lib/defaultProject"
 import { NewProjectModal } from "./NewProjectModal"
+import { WorkspaceAvatar } from "./WorkspaceAvatar"
 import { Button } from "./ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
@@ -260,7 +261,7 @@ export function LocalDev({
                     disabled={!sidebarReady}
                     className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
                   >
-                    <FolderOpen className="h-4 w-4 shrink-0" />
+                    {selectedProject ? <WorkspaceAvatar workspaceId={selectedProject.groupKey} className="size-6 shrink-0" /> : <FolderOpen className="h-4 w-4 shrink-0" />}
                     <span className="max-w-[240px] truncate">{selectedProject?.sidebarTitle ?? selectedProject?.title ?? (sidebarReady ? "Choose a workspace" : "Loading workspaces")}</span>
                     <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
                   </button>
@@ -275,7 +276,7 @@ export function LocalDev({
                         onClick={() => { setSelectedProjectId(group.groupKey); setProjectMenuOpen(false) }}
                         className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                       >
-                        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <WorkspaceAvatar workspaceId={group.groupKey} className="size-6 shrink-0" />
                         <span className="min-w-0 flex-1 truncate">{group.sidebarTitle ?? group.title}</span>
                         {selectedProject?.groupKey === group.groupKey ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
                       </button>
