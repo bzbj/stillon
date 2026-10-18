@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -168,6 +169,34 @@ function getListeningEntryListSignature(entries: ListeningPortEntry[]) {
 async function findListeningTcpEntry(port: number) {
   const entries = await listListeningTcpEntries()
   return entries.find((entry) => entry.port === port)
+}
+
+export class PreviewServiceUnavailableError extends Error {}
+
+/** A port number is not a process identity. Do not reuse discovery's TTL here. */
+export async function readPreviewServiceIdentity(port: number) {
+  const entry = await findListeningTcpEntry(port)
+  if (!entry?.owners.length) throw new PreviewServiceUnavailableError("The local web service is unavailable")
+  if (process.platform === "win32") {
+    const ids = entry.owners.map(owner => owner.pid).sort((a, b) => a - b)
+    const { stdout } = await execFileAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+      "Get-Process -Id " + ids.join(",") + " -ErrorAction Stop | ForEach-Object { '{0}:{1}' -f $_.Id,$_.StartTime.ToUniversalTime().Ticks }"],
+    { timeout: 5_000, maxBuffer: 64 * 1024, windowsHide: true })
+    const values = stdout.trim().split(/\r?\n/u)
+    if (values.length !== ids.length || values.some(value => !/^\d+:\d+$/u.test(value))) throw new Error("The local service identity could not be verified")
+    return values.sort().join("|")
+  }
+  return (await Promise.all(entry.owners.map(async owner => {
+    let started: string
+    if (process.platform === "linux") {
+      const value = await readFile("/proc/" + owner.pid + "/stat", "utf8")
+      started = value.slice(value.lastIndexOf(")") + 2).trim().split(/\s+/u)[19] ?? ""
+    } else {
+      started = (await execFileAsync("ps", ["-p", String(owner.pid), "-o", "lstart="], { timeout: 1_500, maxBuffer: 4096 })).stdout.trim()
+    }
+    if (!started) throw new Error("The local service identity could not be verified")
+    return owner.pid + ":" + started
+  }))).sort().join("|")
 }
 
 export async function killLocalHttpServer(port: number) {

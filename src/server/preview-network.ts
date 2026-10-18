@@ -5,6 +5,7 @@ import { lookup } from "node:dns/promises"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { isLoopbackPreviewHost } from "../shared/browser-preview-proxy"
 import { protectPreviewPort, releasePreviewPort } from "./preview-ports"
+import { readPreviewServiceIdentity, PreviewServiceUnavailableError } from "./local-http-servers"
 
 export function isPublicPreviewAddress(address: string) {
   // Conservative HTTP policy from IANA's IPv4/IPv6 special-purpose registries:
@@ -60,9 +61,22 @@ export async function createPreviewNetworkProxy(blocked: () => Iterable<number>,
   const expected = Buffer.from("Basic " + Buffer.from(username + ":" + password).toString("base64"))
   const sockets = new Set<net.Socket>()
   let closed = false
-  const resolveTarget = (url: URL) => {
+  let grantedIdentity: string | undefined, readingIdentity: Promise<string> | undefined, grantGeneration = 0
+  const resolveTarget = async (url: URL) => {
     if (denyNetwork) throw new Error("File previews cannot access external services")
-    return resolvePreviewNetworkTarget(url, blocked(), loopbackOrigin)
+    const destination = await resolvePreviewNetworkTarget(url, blocked(), loopbackOrigin)
+    if (["127.0.0.1", "::1"].includes(destination.address)) {
+      const generation = grantGeneration
+      // Coalesce concurrent resource checks, without caching an old listener.
+      if (!readingIdentity) {
+        const reading = readPreviewServiceIdentity(destination.port).finally(() => { if (readingIdentity === reading) readingIdentity = undefined })
+        readingIdentity = reading
+      }
+      const identity = await readingIdentity
+      if (generation !== grantGeneration || (grantedIdentity && identity !== grantedIdentity)) throw new Error("The local service changed. Retry to authorize it again.")
+      grantedIdentity = identity
+    }
+    return destination
   }
   async function connect(destination: { address: string; port: number }, protocol: string) {
     if (closed) throw new Error("Preview network is closed")
@@ -120,7 +134,10 @@ export async function createPreviewNetworkProxy(blocked: () => Iterable<number>,
       upstream.on("error", () => { if (!response.headersSent) response.writeHead(502, { "X-StillOn-Preview-Transport": "unavailable" }); response.end("Preview service unavailable") })
       response.on("close", () => upstream.destroy())
       request.pipe(upstream)
-    } catch { response.writeHead(403, { "X-StillOn-Preview-Transport": "denied" }); response.end("Preview destination denied") }
+    } catch (error) {
+      const unavailable = error instanceof PreviewServiceUnavailableError
+      response.writeHead(unavailable ? 502 : 403, { "X-StillOn-Preview-Transport": unavailable ? "unavailable" : "denied" }); response.end(unavailable ? "Preview service unavailable" : "Preview destination denied")
+    }
   })
   server.on("connection", socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); socket.setTimeout(120_000, () => socket.destroy()) })
   server.on("upgrade", async (request, client, head) => {
@@ -153,5 +170,6 @@ export async function createPreviewNetworkProxy(blocked: () => Iterable<number>,
   const port = (server.address() as net.AddressInfo).port
   protectPreviewPort(port)
   return { server: "http://127.0.0.1:" + port, username, password,
+    reauthorize: () => { grantGeneration++; grantedIdentity = undefined; readingIdentity = undefined },
     close: () => new Promise<void>(resolve => { closed = true; for (const socket of sockets) socket.destroy(); server.close(() => { releasePreviewPort(port); resolve() }) }) }
 }

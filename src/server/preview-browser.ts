@@ -162,12 +162,16 @@ export class PreviewBrowser {
     if (existing && !existing.page.isClosed()) {
       existing.touched = Date.now()
       if (viewer) existing.viewers.set(viewer, Date.now())
-      if (reload || this.address(existing) !== target.address) {
+      // A new authenticated open is an explicit service authorization. Page
+      // resource requests and passive frame polling cannot renew this grant.
+      existing.proxy?.reauthorize()
+      const forceGet = reload || Boolean(existing.error)
+      if (forceGet || this.address(existing) !== target.address) {
         existing.error = undefined
         existing.lastAddress = target.address
         const location = new URL(target.address, "http://stillon.invalid")
         const destination = existing.virtualOrigin && file ? existing.virtualOrigin + "/" + encodeURIComponent(path.basename(file)) + location.search + location.hash : target.address
-        const navigation = existing.tail.catch(() => undefined).then(() => this.load(existing, destination, reload)).catch(() => { existing.error = "The page could not be loaded. Check the service and retry." })
+        const navigation = existing.tail.catch(() => undefined).then(() => this.load(existing, destination, forceGet)).catch(() => { existing.error = "The page could not be loaded. Check the service and retry." })
         existing.tail = navigation
         await navigation
       }
@@ -323,6 +327,7 @@ export class PreviewBrowser {
               ? session.virtualOrigin + "/" + logical.pathname.slice(session.originalPrefix.length) + logical.search + logical.hash
               : logical.href
             session.error = undefined
+            session.proxy?.reauthorize()
             await this.load(session, destination, true).catch(() => { session.error = "The page could not be loaded. Check the service and retry." })
           }
           else if (action.type === "navigate" && typeof action.address === "string") {

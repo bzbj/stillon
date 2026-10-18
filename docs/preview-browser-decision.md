@@ -18,6 +18,12 @@ authorized document directory, including canonical symlink/junction checks.
 They can use modules, storage and same-origin static fetches without gaining
 StillOn API access or starting backend code.
 
+Loopback connections also verify the listener's process ID and start time,
+independently of cached service discovery. A replacement process cannot inherit
+an existing grant; an explicit reopen or refresh authorizes the service again.
+Unavailable listener metadata fails closed. Unix hosts need `lsof` (and `ps` on
+macOS); Windows uses its native listener and process metadata.
+
 The browser denies downloads, popups, device permissions, service workers and
 clipboard access. Inputs, viewport, file sizes, session counts and idle lifetime
 are bounded. Closing a view releases its browser session after the idle grace
