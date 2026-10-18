@@ -31,7 +31,7 @@ export function PreviewPage() {
       <Button variant="ghost" onClick={() => window.history.back()}>Back</Button>
       <Button variant="ghost" onClick={() => window.history.forward()}>Forward</Button>
       <Button variant="ghost" onClick={() => {
-        if (!entry) { window.location.reload(); return }
+        if (!entry || entry.target.kind === "external-http") { window.location.reload(); return }
         setError(undefined); setVersion(value => value + 1)
         const sequence = ++navigationSequence.current
         void registerPreviewTarget(entry.target.address, entry.projectId).then(url => {

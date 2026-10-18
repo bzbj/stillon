@@ -38,8 +38,12 @@ try {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
     await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
-    let browserRequests = 0
-    context.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/preview-browser")) browserRequests++ })
+    let browserRequests = 0, externalRegistrations = 0
+    context.on("request", request => {
+      const path = new URL(request.url()).pathname
+      if (path.startsWith("/api/preview-browser")) browserRequests++
+      if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
+    })
     const page = await context.newPage()
     currentPage = page
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
@@ -82,6 +86,11 @@ try {
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Escape")
     await page.getByRole("menu").waitFor({ state: "hidden" })
+    await guide.focus(); await page.keyboard.press("Shift+F10")
+    assert.equal(await page.getByRole("menu").count(), 1)
+    await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
+    await page.keyboard.press("Enter")
+    await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, stable custom file menu", result: "Pass" })
     const menuLabels = (previewable: boolean) => entry.name === "loopback"
       ? [...(previewable ? ["Preview in sidebar"] : []), "Open on this computer", "Show in folder"]
@@ -138,6 +147,7 @@ try {
       await external.getByRole("heading", { name: "Controlled external website" }).waitFor()
       assert.equal(external.url(), destination)
       assert.equal(browserRequests, before)
+      assert.equal(externalRegistrations, 0)
       await external.close(); await page.bringToFront()
       await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     }
@@ -158,9 +168,11 @@ try {
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     assert((await page.getByPlaceholder("Enter a URL").inputValue()).endsWith("/markdown-preview/TREE-ENTRY.md"))
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+b" : "Control+b")
     await page.getByRole("button", { name: "Changes", exact: true }).click()
     await page.getByText("TREE-IMAGE.png", { exact: true }).click()
     await page.waitForFunction(() => [...document.images].some(image => image.alt.endsWith("TREE-IMAGE.png") && image.naturalWidth > 0))
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+b" : "Control+b")
     await page.getByRole("button", { name: "Changes", exact: true }).click()
     const officeItem = page.getByText("TREE-OFFICE.docx", { exact: true })
     await officeItem.click({ button: "right" })
@@ -305,17 +317,14 @@ try {
       const image = page.locator('img[alt*="图 image."]')
       assert(await image.evaluate(image => (image as HTMLImageElement).naturalWidth / (image as HTMLImageElement).naturalHeight > 0))
       if (["gif", "apng"].includes(extension)) {
-        const colors = await image.evaluate(async element => {
-          const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1
-          const context = canvas.getContext("2d")!, colors = new Set<string>()
-          for (let i = 0; i < 32; i++) {
-            context.clearRect(0, 0, 1, 1); context.drawImage(element as HTMLImageElement, 0, 0)
-            colors.add([...context.getImageData(0, 0, 1, 1).data].join(","))
-            await new Promise(resolve => setTimeout(resolve, 25))
-          }
-          return colors.size
-        })
-        assert(colors > 1, "The native animated image must keep changing frames")
+        // Canvas image import can select the default frame. Observe the actual
+        // displayed pixels instead, without rewriting or decoding the image.
+        const frames = new Set<string>()
+        for (let attempt = 0; attempt < 12 && frames.size < 2; attempt++) {
+          frames.add((await image.screenshot({ animations: "allow" })).toString("base64"))
+          await page.waitForTimeout(40 + attempt * 7)
+        }
+        assert(frames.size > 1, "The native animated image must keep changing frames")
       }
       if (extension === "svg") assert.equal(await page.evaluate(() => (window as Window & { svgExecuted?: boolean }).svgExecuted), undefined)
       const popupPromise = context.waitForEvent("page")
