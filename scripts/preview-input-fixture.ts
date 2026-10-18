@@ -3,8 +3,9 @@ export const previewInputHtml = `<!doctype html><meta charset="utf-8"><title>Inp
 <h1>Input acceptance</h1><textarea id="editor" aria-label="Application text"></textarea><div id="drag">Drag me</div><pre id="status">Ready</pre><button id="cancel-button" style="position:absolute;left:24px;top:400px;width:140px;height:44px">Cancel test</button>
 <script>
 const key=new URL(location.href).searchParams.get('case'),editor=document.querySelector('#editor'),drag=document.querySelector('#drag');
-let revision=0,dragMoves=0,dragX=0,start=0,down=false,pointerType='',ups=0,cancels=0,activations=0;
-function report(){const value={revision:++revision,text:editor.value,dragMoves,dragX,down,pointerType,ups,cancels,activations};document.querySelector('#status').textContent=JSON.stringify(value);fetch('/input-state?case='+encodeURIComponent(key),{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})}
+let revision=0,dragMoves=0,dragX=0,start=0,down=false,pointerType='',ups=0,cancels=0,activations=0,lastKey='';
+function report(){const value={revision:++revision,text:editor.value,dragMoves,dragX,down,pointerType,ups,cancels,activations,lastKey,focused:document.hasFocus()};document.querySelector('#status').textContent=JSON.stringify(value);fetch('/input-state?case='+encodeURIComponent(key),{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})}
+document.addEventListener('keydown',e=>{lastKey=e.key;report()});
 editor.addEventListener('input',report);
 drag.addEventListener('pointerdown',e=>{down=true;pointerType=e.pointerType;start=e.clientX-dragX;drag.setPointerCapture(e.pointerId);report()});
 drag.addEventListener('pointermove',e=>{if(down){dragX=e.clientX-start;dragMoves++;drag.style.transform='translateX('+dragX+'px)';report()}});

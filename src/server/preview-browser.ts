@@ -394,6 +394,10 @@ export class PreviewBrowser {
         if (request.method === "POST") {
           const action = await request.json() as Record<string, unknown>
           const number = (value: unknown, max: number) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max
+          // Native key presses can be discarded by a background Chromium tab
+          // even while insertText still works. Activate only an interacting
+          // page; passive frames/hover must not steal focus from another view.
+          if (["click", "text", "key", "scroll"].includes(String(action.type)) || (action.type === "pointer" && action.phase === "down")) await session.page.bringToFront()
           if (action.type === "pointer") {
             if (!await this.pointerInput(session, viewer, action)) return Response.json({ error: "Invalid preview pointer input" }, { status: 400 })
             return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } })
