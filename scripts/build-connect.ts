@@ -21,6 +21,14 @@ await mkdir(path.join(destination, "docs"), { recursive: true })
 await copyFile("docs/connect-email-login.md", path.join(destination, "docs/connect-email-login.md"))
 await copyFile("docs/connect-remote-access.md", path.join(destination, "docs/connect-remote-access.md"))
 await copyFile("docs/connect-dynamic-previews.md", path.join(destination, "docs/connect-dynamic-previews.md"))
+for (const name of ["workspace-previews.md", "preview-browser-decision.md", "validation/workspace-previews.md"]) {
+  await mkdir(path.dirname(path.join(destination, "docs", name)), { recursive: true })
+  await copyFile(path.join("docs", name), path.join(destination, "docs", name))
+}
+for (const name of ["workspace-preview-standalone.png", "workspace-preview-dynamic.png", "workspace-preview-html.jpg"]) {
+  await mkdir(path.join(destination, "docs/images"), { recursive: true })
+  await copyFile(path.join("docs/images", name), path.join(destination, "docs/images", name))
+}
 await copyFile("src/connect/.env.example", path.join(destination, "connect.env.example"))
 const files: Record<string, { sha256: string; bytes: number }> = {}
 for await (const file of new Bun.Glob("**/*").scan({ cwd: destination, onlyFiles: true, dot: true })) {

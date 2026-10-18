@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.6.2",
   "private": true,
-  "description": "Still On — leave your Mac, keep your coding agents",
+  "description": "Still On \u2014 leave your Mac, keep your coding agents",
   "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://github.com/bzbj/stillon#readme",
   "bugs": {
@@ -61,6 +61,7 @@
     "prepublishOnly": "bun run build",
     "test:async-answer:browser": "bun build ./scripts/verify-async-answer-browser.ts --target=node --packages=external --outfile=./test-artifacts/async-answer-runner.mjs && node ./test-artifacts/async-answer-runner.mjs",
     "test:remote-auth:browser": "bun build ./scripts/verify-remote-auth-browser.ts --target=node --packages=external --outfile=./test-artifacts/remote-auth-runner.mjs && node ./test-artifacts/remote-auth-runner.mjs",
+    "test:previews:browser": "bun build ./scripts/verify-workspace-previews-browser.ts --target=node --packages=external --outfile=./test-artifacts/workspace-previews-browser.mjs && node ./test-artifacts/workspace-previews-browser.mjs",
     "build:desktop": "bun scripts/build-desktop.ts",
     "verify:desktop": "bun scripts/verify-desktop.ts"
   },
@@ -84,7 +85,8 @@
     "kysely": "0.29.6",
     "openai": "^6.34.0",
     "react-resizable-panels": "^4.7.3",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "playwright": "1.62.1"
   },
   "overrides": {
     "@babel/core": "^7.29.7",
@@ -122,7 +124,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.24.0",
-    "playwright": "1.62.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",

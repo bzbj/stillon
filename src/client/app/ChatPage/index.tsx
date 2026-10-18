@@ -780,6 +780,12 @@ export function ChatPage() {
     }
   }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
+  const handleOpenTranscriptBrowserLink = useCallback((address: string) => {
+    if (!projectId) return
+    navigateBrowser(projectId, address)
+    if (activeRightPanel !== "browser") toggleRightPanel(projectId, "browser")
+  }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
+
   const handleOpenTranscriptLocalLink = useCallback(async (target: OpenLocalLinkTarget, action?: LocalFileLinkAction) => {
     const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
     const projectFilePath = getProjectRelativeFilePath(target.path, projectLocalPath)
@@ -1110,6 +1116,7 @@ export function ChatPage() {
               onSteerQueuedMessage={state.handleSteerQueuedMessage}
               onRemoveQueuedMessage={state.handleRemoveQueuedMessage}
               onOpenLocalLink={handleOpenTranscriptLocalLink}
+              onOpenBrowserLink={projectId ? handleOpenTranscriptBrowserLink : undefined}
               canOpenHostFiles={canOpenHostFiles}
               platform={state.localProjects?.machine.platform}
               asyncQuestionResponses={state.asyncQuestionResponses}

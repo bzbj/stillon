@@ -22,5 +22,5 @@ export function projectPreviewNavigationAddress(message: unknown, currentAddress
 export function isPreviewResourcePath(relative: string) {
   return Boolean(relative) && !relative.split("/").some(part => !part || part === "." || part === ".."
     || part.startsWith(".") || /[\\\u0000:]/u.test(part))
-    && /\.(?:html?|css|[cm]?js|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|mp[34]|webm|wav|ogg)$/iu.test(relative)
+    && /\.(?:html?|css|[cm]?js|json|svg|png|apng|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|mp[34]|webm|wav|ogg|wasm|webmanifest)$/iu.test(relative)
 }

@@ -1,5 +1,23 @@
 import { describe, expect, test } from "bun:test"
-import { buildBrowserPreviewProxyUrl } from "./browser-preview-proxy"
+import { buildBrowserPreviewProxyUrl, parseLoopbackPreviewUrl } from "./browser-preview-proxy"
+
+describe("parseLoopbackPreviewUrl", () => {
+  test("recognizes HTTP previews on all supported loopback hosts", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      const address = `http://${host}:5173/dashboard?filter=active#chart`
+      expect(parseLoopbackPreviewUrl(address)?.href).toBe(address)
+    }
+    expect(parseLoopbackPreviewUrl("https://localhost/demo")?.protocol).toBe("https:")
+  })
+
+  test("excludes external hosts, credentials, files and non-HTTP protocols", () => {
+    for (const address of [undefined, null, "", "/tmp/index.html", "output/index.html",
+      "https://localhost.example.com/", "https://example.com/", "file:///tmp/index.html",
+      "ftp://localhost/", "javascript:alert(1)", "http://user:secret@localhost:5173/", "http://localhost:99999/"]) {
+      expect(parseLoopbackPreviewUrl(address)).toBeNull()
+    }
+  })
+})
 
 describe("buildBrowserPreviewProxyUrl", () => {
   test("keeps localhost addresses direct during local Still On access", () => {

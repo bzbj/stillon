@@ -73,6 +73,7 @@ const SAFE_SVG_CSP = [
 interface LocalHtmlPreviewSession {
   rootPath: string
   expiresAt: number
+  owner?: string
 }
 
 export interface LocalHtmlPreviewManagerOptions {
@@ -83,9 +84,11 @@ export interface LocalHtmlPreviewManagerOptions {
 
 export interface LocalHtmlPreviewRequestOptions {
   allowCreate: boolean
+  owner?: string
 }
 
 export interface LocalHtmlPreviewManager {
+  resolveFile: (address: string, owner: string) => Promise<string>
   handleRequest: (
     req: Request,
     url: URL,
@@ -122,7 +125,7 @@ export function createLocalHtmlPreviewManager(
     }
   }
 
-  async function createSession(req: Request, allowCreate: boolean) {
+  async function createSession(req: Request, allowCreate: boolean, owner?: string) {
     if (req.method !== "POST") {
       return new Response(null, { status: 405, headers: { Allow: "POST" } })
     }
@@ -178,6 +181,7 @@ export function createLocalHtmlPreviewManager(
     sessions.set(token, {
       rootPath: path.dirname(canonicalFilePath),
       expiresAt,
+      owner,
     })
 
     const entryPath = encodePathSegments(path.basename(canonicalFilePath))
@@ -207,6 +211,7 @@ export function createLocalHtmlPreviewManager(
     if (!relativePath) {
       return Response.json({ error: "Invalid local HTML preview path." }, { status: 400 })
     }
+    if (relativePath.split("/").some(part => part.startsWith("."))) return Response.json({ error: "Hidden preview resources are denied." }, { status: 403 })
 
     const candidatePath = path.resolve(session.rootPath, ...relativePath.split("/"))
     let canonicalFilePath: string
@@ -224,6 +229,7 @@ export function createLocalHtmlPreviewManager(
     if (!fileInfo.isFile()) {
       return Response.json({ error: "Local HTML preview resource was not found." }, { status: 404 })
     }
+    if (fileInfo.size > 25 * 1024 * 1024) return Response.json({ error: "Preview resource exceeds 25 MB." }, { status: 413 })
 
     const extension = path.extname(canonicalFilePath).toLowerCase()
     if (!ALLOWED_PREVIEW_EXTENSIONS.has(extension)) {
@@ -244,9 +250,19 @@ export function createLocalHtmlPreviewManager(
   }
 
   return {
+    async resolveFile(address, owner) {
+      const match = new URL(address, "http://stillon.invalid").pathname.match(/^\/api\/local-html-previews\/([A-Za-z0-9_-]+)\/(.+)$/u)
+      const session = match ? sessions.get(match[1]!) : null
+      if (!session || session.expiresAt <= now() || (session.owner && session.owner !== owner)) throw new Error("HTML preview expired. Reopen the original file.")
+      const relative = decodeRelativePath(match![2]!)
+      if (!relative || !relative.split("/").every(part => part && !part.startsWith("."))) throw new Error("Invalid HTML preview path")
+      const file = await realpath(path.resolve(session.rootPath, relative))
+      if (!isPathInsideRoot(session.rootPath, file) || !isHtmlFile(file)) throw new Error("Outside HTML preview folder")
+      return file
+    },
     async handleRequest(req, url, requestOptions) {
       if (url.pathname === LOCAL_HTML_PREVIEW_SESSION_ENDPOINT) {
-        return createSession(req, requestOptions.allowCreate)
+        return createSession(req, requestOptions.allowCreate, requestOptions.owner)
       }
 
       const match = url.pathname.match(/^\/api\/local-html-previews\/([A-Za-z0-9_-]+)\/(.+)$/)
@@ -340,7 +356,7 @@ function getPreviewHeaders(filePath: string, fallbackType?: string) {
   return headers
 }
 
-function inferPreviewContentType(filePath: string, fallbackType?: string) {
+export function inferPreviewContentType(filePath: string, fallbackType?: string) {
   const extension = path.extname(filePath).toLowerCase()
   switch (extension) {
     case ".html":

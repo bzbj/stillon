@@ -20,6 +20,8 @@ import { appendLocalFileLinkLocation } from "../../lib/pathUtils"
 import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "../messages/shared"
 import { TEXT_PREVIEW_LIMIT_BYTES, fetchTextPreview } from "../messages/attachmentPreview"
+import { parsePreviewTarget, isPlainPreviewClick } from "../../../shared/preview-target"
+import { usePreviewHref } from "../../lib/usePreviewHref"
 
 type MarkdownPreviewState =
   | { status: "loading" }
@@ -33,6 +35,8 @@ export type MarkdownPreviewSource =
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/i
 
 interface MarkdownPreviewPanelProps {
+  address?: string
+  workspaceId?: string
   source: MarkdownPreviewSource
   refreshVersion: number
   zoom: number
@@ -43,6 +47,8 @@ interface MarkdownPreviewPanelProps {
 }
 
 export function MarkdownPreviewPanel({
+  address,
+  workspaceId,
   source,
   refreshVersion,
   zoom,
@@ -55,6 +61,11 @@ export function MarkdownPreviewPanel({
   const [navigationError, setNavigationError] = useState<string | null>(null)
   const { filePath } = source
   const contentUrl = buildMarkdownContentUrl(source)
+  useEffect(() => {
+    if (previewState.status !== "ready" || !address) return
+    const hash = new URL(address, window.location.origin).hash.slice(1)
+    try { if (hash) document.getElementById(decodeURIComponent(hash))?.scrollIntoView() } catch { /* malformed fragment */ }
+  }, [address, previewState])
 
   useEffect(() => {
     let cancelled = false
@@ -85,15 +96,40 @@ export function MarkdownPreviewPanel({
       ...baseComponents,
       a: ({ children, href, onClick, ...props }: ComponentPropsWithoutRef<"a">) => {
         const linkedPath = resolveMarkdownResourcePath(source, href)
+        const webTarget = href && /^https?:\/\//iu.test(href) ? parsePreviewTarget(href) : null
+        const location = getMarkdownTargetLocation(href)
+        const previewUrl = linkedPath ? buildPreviewUrlForLinkedPath(source, linkedPath) : null
+        const [localHtmlAddress, setLocalHtmlAddress] = useState<string>()
+        useEffect(() => {
+          let cancelled = false
+          if (source.kind === "local" && linkedPath && isHtmlPreviewPath(linkedPath)) {
+            void requestLocalHtmlPreviewUrl(linkedPath).then(url => { if (!cancelled) setLocalHtmlAddress(url) }).catch(() => undefined)
+          }
+          return () => { cancelled = true }
+        }, [source.kind, linkedPath])
+        const locatedPreviewUrl = previewUrl ? appendLocalFileLinkLocation(previewUrl, location) : localHtmlAddress ? appendLocalFileLinkLocation(localHtmlAddress, location) : null
+        const standaloneHref = usePreviewHref(locatedPreviewUrl ?? webTarget?.address ?? null, source.kind === "project" ? source.projectId : workspaceId)
         if (!linkedPath) {
           const isDocumentFragment = href?.startsWith("#") ?? false
           return (
             <a
               className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
-              href={href}
-              target={isDocumentFragment ? undefined : "_blank"}
-              rel={isDocumentFragment ? undefined : "noopener noreferrer"}
-              onClick={onClick}
+              href={standaloneHref ?? (webTarget && typeof window !== "undefined" ? undefined : href)}
+              role={webTarget ? "link" : undefined}
+              tabIndex={webTarget ? 0 : undefined}
+              onKeyDown={event => { if (webTarget && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !standaloneHref) { event.preventDefault(); onNavigate(webTarget.address) } }}
+              target={isDocumentFragment || webTarget ? undefined : "_blank"}
+              rel={isDocumentFragment || webTarget ? undefined : "noopener noreferrer"}
+              onClick={event => {
+                onClick?.(event)
+                if (event.defaultPrevented || !isPlainPreviewClick(event)) return
+                if (webTarget) { event.preventDefault(); onNavigate(webTarget.address) }
+                if (isDocumentFragment && href) {
+                  event.preventDefault()
+                  const current = address ?? (source.kind === "project" ? buildProjectMarkdownPreviewUrl(source.projectId, source.filePath) : buildLocalMarkdownPreviewUrl(source.filePath))
+                  onNavigate(current.split("#")[0] + href)
+                }
+              }}
               {...props}
             >
               {children}
@@ -101,9 +137,6 @@ export function MarkdownPreviewPanel({
           )
         }
 
-        const location = getMarkdownTargetLocation(href)
-        const previewUrl = buildPreviewUrlForLinkedPath(source, linkedPath)
-        const locatedPreviewUrl = previewUrl ? appendLocalFileLinkLocation(previewUrl, location) : null
         const isLocalHtmlLink = source.kind === "local" && isHtmlPreviewPath(linkedPath)
         const hostFilePath = getHostFilePath(source, linkedPath, projectLocalPath)
         const shouldOpenOnHost = canOpenHostFiles && Boolean(hostFilePath && onOpenHostFile)
@@ -126,13 +159,13 @@ export function MarkdownPreviewPanel({
         return (
           <a
             className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
-            href={locatedPreviewUrl ?? (isLocalHtmlLink || shouldOpenOnHost ? "#" : linkUrl)}
+            href={standaloneHref ?? locatedPreviewUrl ?? (isLocalHtmlLink || shouldOpenOnHost ? undefined : linkUrl)}
             target={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "_blank"}
             rel={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "noopener noreferrer"}
-            download={shouldDownload ? getFileName(linkedPath) : undefined}
+            download={shouldDownload && !locatedPreviewUrl ? getFileName(linkedPath) : undefined}
             onClick={(event: ReactMouseEvent<HTMLAnchorElement>) => {
               onClick?.(event)
-              if (event.defaultPrevented) return
+              if (event.defaultPrevented || !isPlainPreviewClick(event)) return
               if (locatedPreviewUrl) {
                 event.preventDefault()
                 onNavigate(locatedPreviewUrl)
@@ -175,7 +208,7 @@ export function MarkdownPreviewPanel({
         )
       },
     }
-  }, [canOpenHostFiles, onNavigate, onOpenHostFile, projectLocalPath, source])
+  }, [address, canOpenHostFiles, onNavigate, onOpenHostFile, projectLocalPath, source, workspaceId])
 
   return (
     <div className="h-full w-full overflow-auto overscroll-contain bg-background">
@@ -215,7 +248,7 @@ export function MarkdownPreviewPanel({
               ) : null}
               <article className="prose prose-sm max-w-none text-foreground dark:prose-invert">
                 <Markdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[remarkGfm, previewHeadingIds]}
                   components={components}
                   urlTransform={localFileMarkdownUrlTransform}
                 >
@@ -228,6 +261,22 @@ export function MarkdownPreviewPanel({
       </div>
     </div>
   )
+}
+
+function previewHeadingIds() {
+  return (tree: any) => {
+    const used = new Map<string, number>()
+    const visit = (node: any) => {
+      if (node.type === "heading") {
+        const text = (part: any): string => part.value ?? (part.children ?? []).map(text).join("")
+        const slug = text(node).toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/gu, "-")
+        const count = used.get(slug) ?? 0; used.set(slug, count + 1)
+        node.data = { ...node.data, hProperties: { ...node.data?.hProperties, id: slug + (count ? `-${count}` : "") } }
+      }
+      for (const child of node.children ?? []) visit(child)
+    }
+    visit(tree)
+  }
 }
 
 function buildMarkdownContentUrl(source: MarkdownPreviewSource) {

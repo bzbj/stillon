@@ -7,7 +7,7 @@ import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
 import { WorkspaceAvatarsManager, handleWorkspaceAvatars } from "./workspace-avatars"
 import { isProjectTextPreviewPath } from "../shared/project-file-urls"
-import { LOCAL_PREVIEW_ASSET_PREFIX, PreviewResources, projectPreviewTarget } from "./preview-resources"
+import { LOCAL_PREVIEW_ASSET_PREFIX, PreviewResources, projectPreviewTarget, localHtmlPreviewTarget } from "./preview-resources"
 import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
 import { APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
@@ -40,6 +40,10 @@ import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileConten
 import { resolveProjectUploadFilePath } from "./paths"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
 import { createLocalHtmlPreviewManager, isLoopbackBindHost } from "./local-html-preview"
+import { PreviewTargets } from "./preview-targets"
+import { PreviewBrowser, isWithinPreviewDirectory } from "./preview-browser"
+import { REMOTE_SESSION_HEADER, REMOTE_EXPIRY_HEADER } from "./connect/adapter"
+import { protectPreviewPort, protectedPreviewPorts, releasePreviewPort } from "./preview-ports"
 import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
@@ -281,6 +285,25 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
+  const previewTargets = new PreviewTargets(path.join(store.dataDir, "preview-targets.json"), (address, owner) => localHtmlPreviews.resolveFile(address, owner))
+  const previewBrowser = new PreviewBrowser({
+    blockedPorts: protectedPreviewPorts,
+    resolveFile: async (target, owner) => {
+      if (target.kind === "host-html") {
+        if (!target.filePath) return localHtmlPreviews.resolveFile(target.address, owner)
+        const file = await realpath(target.filePath)
+        if (!isWithinPreviewDirectory(path.dirname(target.filePath), file)) throw new Error("Outside HTML preview folder")
+        return file
+      }
+      if (target.kind !== "project-file" || !/\.html?$/iu.test(target.filePath)) throw new Error("Unsupported preview file")
+      const project = store.getProject(target.projectId)
+      if (!project) throw new Error("Workspace unavailable")
+      const root = await realpath(project.localPath)
+      const file = await realpath(path.resolve(root, target.filePath))
+      if (!isWithinPreviewDirectory(root, file)) throw new Error("Outside workspace")
+      return file
+    },
+  })
   providerCliUpdates = new ProviderCliUpdates({
     ...options.providerCliUpdates,
     getEnvironment: async () => { await cliEnvironment.refresh(); return getUpdateEnvironment() },
@@ -322,7 +345,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     getDiscoveredProjects: () => discoveredProjects,
     isDiscoveryInProgress: () => discoveryRefresh !== null,
     machineDisplayName: () => appSettings.getSnapshot().machineName,
-    getBrowserPreviewBlockedPorts: () => [server.port!],
+    getBrowserPreviewBlockedPorts: () => [...protectedPreviewPorts()],
   })
   const staleEmptyChatPruneInterval = setInterval(() => {
     void router.pruneStaleEmptyChats()
@@ -381,7 +404,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               if (!resource) return new Response("Preview expired or unavailable", { status: 403 })
               const target = new URL(resource.path, url)
               target.searchParams.set("preview-root", resource.context.directory)
-              const response = await handleProjectFilePreview(req, target, store)
+              const response = resource.context.projectId ? await handleProjectFilePreview(req, target, store)
+                : await localHtmlPreviews.handleRequest(req, target, { allowCreate: false })
               return response ? previewResources.wrap(response, req, resource.context, resource.filePath) : new Response(null, { status: 404 })
             }
             if (url.pathname.startsWith("/api/connect-local/")) {
@@ -422,6 +446,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
 
             previewResources.clear()
+            await previewBrowser.closeScope("local")
             return auth
               ? auth.handleLogout(req)
               : Response.json({ ok: true })
@@ -530,6 +555,22 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           })
           if (appearanceResponse) return appearanceResponse
 
+          const previewOwner = ingress.kind === "remote" ? ingress.ownerId : "local"
+          if ((url.pathname.startsWith("/api/preview-targets") || url.pathname.startsWith("/api/preview-browser")) && ingress.kind === "external" && !auth) {
+            return Response.json({ error: "Preview access requires local access, Connect or application authentication." }, { status: 403 })
+          }
+          if (url.pathname.startsWith("/api/preview-browser") && ingress.kind === "remote"
+            && (!req.headers.get(REMOTE_SESSION_HEADER) || !req.headers.get(REMOTE_EXPIRY_HEADER))) {
+            return Response.json({ error: "Update the StillOn remote adapter before using isolated previews." }, { status: 409 })
+          }
+          const previewScope = ingress.kind === "remote" ? previewOwner + ":" + req.headers.get(REMOTE_SESSION_HEADER) : "local"
+          const targetResponse = await previewTargets.handle(req, url, previewOwner, id => Boolean(store.getProject(id)))
+          if (targetResponse) return targetResponse
+          const previewBrowserResponse = await previewBrowser.handle(req, url, { owner: previewOwner, scope: previewScope,
+            expiresAt: ingress.kind === "remote" ? Number(req.headers.get(REMOTE_EXPIRY_HEADER)) : undefined,
+            target: id => previewTargets.get(id, previewOwner) })
+          if (previewBrowserResponse) return previewBrowserResponse
+
           const browserPreviewProxyResponse = await handleBrowserPreviewProxy(req, url, {
             blockedPorts: [actualPort],
             signal: serverOperationAbortController.signal,
@@ -570,8 +611,13 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
           const localHtmlPreviewResponse = await localHtmlPreviews.handleRequest(req, url, {
             allowCreate: Boolean(auth) || isLoopbackBindHost(url.hostname),
+            owner: previewOwner,
           })
           if (localHtmlPreviewResponse) {
+            const target = localHtmlPreviewTarget(url.pathname)
+            if (ingress.kind !== "remote" && target && localHtmlPreviewResponse.ok && localHtmlPreviewResponse.headers.get("content-type")?.includes("text/html")) {
+              return previewResources.wrap(localHtmlPreviewResponse, req, previewResources.createLocalHtml(target.prefix, target.filePath), target.filePath)
+            }
             return localHtmlPreviewResponse
           }
 
@@ -600,6 +646,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
         },
       })
       actualPort = server.port!
+      protectPreviewPort(actualPort)
       break
     } catch (err: unknown) {
       const isAddrInUse =
@@ -635,6 +682,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       serverOperationAbortController.abort()
       forceDiscoveryRefreshPending = false
       await connector?.stop()
+      await previewBrowser.close()
 
       // Stop new network work first, then let handlers that already entered
       // the server unwind before compacting EventStore or returning to callers
@@ -649,6 +697,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       router.dispose()
       remoteOperations.close()
       localHtmlPreviews.dispose()
+      previewTargets.clear()
+      releasePreviewPort(actualPort)
       previewResources.clear()
       appSettings.dispose()
       keybindings.dispose()

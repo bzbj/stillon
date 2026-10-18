@@ -41,7 +41,7 @@ async function fixture(upstreamOrigin = "http://127.0.0.1:9") {
   return { service, request, login, device, keys, messages, dataDir }
 }
 
-test("remote fullscreen resources work without cookies and revoke with their host session", async () => {
+test.each(["/api/projects/workspace/preview/output/", "/api/local-html-previews/test-session/output/"])("remote HTML resources work without cookies and revoke with their host session: %s", async (directoryUrl) => {
   const paths: string[] = []
   const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     paths.push(new URL(request.url).pathname + new URL(request.url).search)
@@ -67,7 +67,7 @@ test("remote fullscreen resources work without cookies and revoke with their hos
   const { cookieName } = await import("./http")
   const hostCookie = `${cookieName(hostOrigin, "host-session")}=${session.token}`
   const request = (route: string, headers: Record<string, string> = {}, method = "GET") => f.service.host(new Request(hostOrigin + route, { method, headers }), null as never)
-  const response = (await request("/api/projects/workspace/preview/output/index.html", { cookie: hostCookie }))!
+  const response = (await request(directoryUrl + "index.html", { cookie: hostCookie }))!
   expect(response.status).toBe(200)
   const prefix = /<base href="([^"]+)"/u.exec(await response.text())![1]!
   expect(prefix).toStartWith("/_connect/preview-assets/")
@@ -77,14 +77,14 @@ test("remote fullscreen resources work without cookies and revoke with their hos
   expect(script.status).toBe(200)
   expect(script.headers.get("access-control-allow-origin")).toBe("null")
   expect(await script.text()).toContain("Loaded")
-  expect(paths.at(-1)).toBe("/api/projects/workspace/preview/output/app.js?preview-root=output")
+  expect(paths.at(-1)).toBe(directoryUrl + "app.js?preview-root=output")
   expect((await request(prefix + "%2e%2e%2fprivate.json"))!.status).toBe(403)
   expect((await request(prefix + "app.js", { origin: hostOrigin }, "POST"))!.status).toBe(403)
   const otherEnrollment = f.service.registry.createEnrollment(newDeviceKeys().publicKey, "Other computer")
   f.service.registry.approveEnrollment(otherEnrollment.id, account.identity)
   const otherHost = f.service.registry.claimEnrollment(otherEnrollment.id, otherEnrollment.publicKey)!
   expect((await f.service.host(new Request(f.service.registry.hostOrigin(otherHost.id) + prefix + "app.js"), null as never))!.status).toBe(403)
-  expect((await request("/api/projects/workspace/preview/output/app.js", { origin: "null" }))!.status).toBe(403)
+  expect((await request(directoryUrl + "app.js", { origin: "null" }))!.status).toBe(403)
   f.service.registry.setPaused(host.id, true)
   expect((await request(prefix + "app.js"))!.status).toBe(403)
   f.service.registry.setPaused(host.id, false)

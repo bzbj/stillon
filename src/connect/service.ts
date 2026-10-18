@@ -7,7 +7,7 @@ import { newDeviceKeys, safeRelativePath, signLease, validateDeviceKeys, verifyL
 import { ConnectRelay, forwardingHeaders, type RelaySocket } from "../server/connect/relay"
 import { createConnectAuth, type ConnectAuthOptions } from "./auth"
 import { ConnectFault, ConnectRegistry, type AccountIdentity, type HostSessionRecord } from "./registry"
-import { PreviewResources, REMOTE_PREVIEW_ASSET_PREFIX, projectPreviewTarget, type PreviewResourceContext } from "../server/preview-resources"
+import { PreviewResources, REMOTE_PREVIEW_ASSET_PREFIX, projectPreviewTarget, localHtmlPreviewTarget, type PreviewResourceContext } from "../server/preview-resources"
 import { checkBrowserRequest, cookie, cookieName, cookieValue, faultResponse, json, jsonBody, redirect } from "./http"
 import { ConnectPreviews } from "./previews"
 import { CONNECT_PREVIEW_PROXY_PREFIX, CONNECT_PREVIEW_START_PREFIX, CONNECT_PREVIEW_UNSUPPORTED_PATH, parseConnectPreviewPath } from "../shared/connect-preview"
@@ -266,7 +266,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         if (resource) previewUrl.searchParams.set("preview-root", resource.context.directory)
         const lease = registry.makeLease(session, request.method, previewUrl.pathname + previewUrl.search)
         const headers = forwardingHeaders(request)
-        if (projectPreviewTarget(previewUrl.pathname)) headers.set("accept-encoding", "identity")
+        if (projectPreviewTarget(previewUrl.pathname) || localHtmlPreviewTarget(previewUrl.pathname)) headers.set("accept-encoding", "identity")
         headers.set("host", new URL(origin).host)
         headers.set("x-stillon-connect-lease", signLease(lease, keys.privateKey))
         const scope = { hostId, parentId: session.parentId, ownerId: session.ownerId,
@@ -278,10 +278,12 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         const response = await relay.http(request, target.href, headers, scope)
         if (resource) return await previewResources.wrap(response, request, resource.context, resource.filePath)
         const preview = projectPreviewTarget(url.pathname)
-        if (preview && response.ok && response.headers.get("content-type")?.includes("text/html")) {
-          const context = previewResources.create(preview.projectId, preview.filePath, scope.valid)
+        const localPreview = localHtmlPreviewTarget(url.pathname)
+        if ((preview || localPreview) && response.ok && response.headers.get("content-type")?.includes("text/html")) {
+          const context = preview ? previewResources.create(preview.projectId, preview.filePath, scope.valid)
+            : previewResources.createLocalHtml(localPreview!.prefix, localPreview!.filePath, scope.valid)
           previewSessions.set(context, { hostId, session })
-          return await previewResources.wrap(response, request, context, preview.filePath)
+          return await previewResources.wrap(response, request, context, preview?.filePath ?? localPreview!.filePath)
         }
         return response
       } catch (error) { return faultResponse(error) }

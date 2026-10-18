@@ -21,6 +21,7 @@ export interface ProjectBrowserPanelState {
 }
 
 interface RightSidebarState {
+  syncBrowserAddress: (projectId: string, address: string, mode: "replace" | "pop") => void
   size: number
   projects: Record<string, ProjectRightSidebarVisibilityState>
   projectUi: Record<string, ProjectRightSidebarUiState>
@@ -167,6 +168,17 @@ export const useRightSidebarStore = create<RightSidebarState>()(
           },
         })),
       setSize: (size) => set({ size: clampSize(size) }),
+      syncBrowserAddress: (projectId, address, mode) => set(state => {
+        const current = getProjectBrowserState(state.projectBrowser, projectId)
+        const nextAddress = normalizeBrowserAddress(address)
+        if (!nextAddress || current.address === nextAddress) return state
+        const history = [...current.history]
+        let historyIndex = current.historyIndex
+        if (mode === "pop" && history.includes(nextAddress)) historyIndex = history.lastIndexOf(nextAddress)
+        else if (historyIndex >= 0) history[historyIndex] = nextAddress
+        else { history.push(nextAddress); historyIndex = 0 }
+        return { projectBrowser: { ...state.projectBrowser, [projectId]: { ...current, address: nextAddress, history, historyIndex } } }
+      }),
       navigateBrowser: (projectId, address) => set((state) => {
         const current = getProjectBrowserState(state.projectBrowser, projectId)
         const nextAddress = normalizeBrowserAddress(address)

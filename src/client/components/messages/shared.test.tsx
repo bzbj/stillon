@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { TranscriptRenderOptionsProvider } from "./render-context"
 import {
   createMarkdownComponents,
   localFileMarkdownUrlTransform,
@@ -45,6 +46,43 @@ describe("localFileMarkdownUrlTransform", () => {
 })
 
 describe("markdownComponents", () => {
+  test("routes loopback web links to the sidebar when a browser handler is available", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      const html = renderToStaticMarkup(
+        <OpenLocalLinkProvider onOpenBrowserLink={() => {}}>
+          <Markdown components={createMarkdownComponents()}>
+            {`[Interactive preview](http://${host}:5173/demo?mode=interactive#screen)`}
+          </Markdown>
+        </OpenLocalLinkProvider>
+      )
+      expect(html).toContain(`href="http://${host}:5173/demo?mode=interactive#screen"`)
+      expect(html).not.toContain('target="_blank"')
+    }
+  })
+
+  test("keeps links without a browser handler as new tabs and routes external websites to the pane", () => {
+    for (const address of ["https://example.com/", "http://127.0.0.1:5173/"]) {
+      const html = renderToStaticMarkup(<Markdown components={createMarkdownComponents()}>{`[Open](${address})`}</Markdown>)
+      expect(html).toContain('target="_blank"')
+    }
+    const html = renderToStaticMarkup(
+      <OpenLocalLinkProvider onOpenBrowserLink={() => {}}>
+        <Markdown components={createMarkdownComponents()}>{"[Website](https://example.com/)"}</Markdown>
+      </OpenLocalLinkProvider>
+    )
+    expect(html).not.toContain('target="_blank"')
+  })
+
+  test("exports loopback previews as text when local links are disabled", () => {
+    const html = renderToStaticMarkup(
+      <TranscriptRenderOptionsProvider value={{ localLinkMode: "text" }}>
+        <Markdown components={createMarkdownComponents()}>{"[Preview](http://127.0.0.1:5173/)"}</Markdown>
+      </TranscriptRenderOptionsProvider>
+    )
+    expect(html).toContain("Preview")
+    expect(html).not.toContain("<a")
+  })
+
   test("renders markdown headings with transcript-specific sizes and no bold weight", () => {
     const html = renderToStaticMarkup(
       <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

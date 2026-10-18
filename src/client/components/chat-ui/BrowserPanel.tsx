@@ -1,10 +1,6 @@
-import { ArrowLeft, ArrowRight, CornerDownLeft, Download, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
+import { ArrowLeft, ArrowRight, CornerDownLeft, Ellipsis, ExternalLink, Globe, Home, Minus, Play, Plus, RefreshCw, SquareArrowOutUpRight, Trash2, Zap } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
-import { buildBrowserPreviewProxyUrl } from "../../../shared/browser-preview-proxy"
-import { projectPreviewNavigationAddress } from "../../../shared/preview-navigation"
-import { buildLocalFileContentUrl, parseLocalMarkdownPreviewUrl } from "../../../shared/local-file-urls"
-import { buildProjectFileContentUrl, normalizeProjectPreviewAddress, parseProjectFilePreviewUrl, parseProjectMarkdownPreviewUrl } from "../../../shared/project-file-urls"
-import { downloadUrl } from "../../lib/download"
+import { normalizeProjectPreviewAddress } from "../../../shared/project-file-urls"
 import type { LocalHttpServerInfo, ProjectQuickAction } from "../../../shared/protocol"
 import type { StillOnSocket } from "../../app/socket"
 import {
@@ -20,7 +16,8 @@ import { Button } from "../ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../ui/context-menu"
 import { Input } from "../ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
-import { MarkdownPreviewPanel } from "./MarkdownPreviewPanel"
+import { PreviewSurface } from "./PreviewSurface"
+import { openStandalonePreview } from "../../lib/previewTarget"
 
 function formatOwnerPath(ownerPath: string) {
   const homeMatch = ownerPath.match(/^\/(?:Users|home)\/[^/]+(?=\/|$)/)
@@ -90,43 +87,21 @@ function BrowserPanelImpl({
 }: BrowserPanelProps) {
   const browserState = useRightSidebarStore((store) => store.projectBrowser[projectId])
   const navigateBrowser = useRightSidebarStore((store) => store.navigateBrowser)
+  const syncBrowserAddress = useRightSidebarStore(store => store.syncBrowserAddress)
   const goBrowserBack = useRightSidebarStore((store) => store.goBrowserBack)
   const goBrowserForward = useRightSidebarStore((store) => store.goBrowserForward)
   const setBrowserZoom = useRightSidebarStore((store) => store.setBrowserZoom)
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const address = browserState?.address ?? ""
   const historyIndex = browserState?.historyIndex ?? -1
   const canGoBack = Boolean(address) && historyIndex > 0
   const canGoForward = Boolean(address) && historyIndex >= 0 && historyIndex < (browserState?.history.length ?? 0) - 1
   const scopedAddress = normalizeProjectPreviewAddress(address, projectId, window.location.origin)
-  const projectMarkdownPreviewTarget = parseProjectMarkdownPreviewUrl(scopedAddress)
-  const localMarkdownPreviewTarget = parseLocalMarkdownPreviewUrl(address)
-  const projectFileTarget = projectMarkdownPreviewTarget ?? parseProjectFilePreviewUrl(scopedAddress)
-  const fileTarget = projectFileTarget?.projectId === projectId && !/\.html?$/iu.test(projectFileTarget.filePath)
-    ? projectFileTarget : null
-  const isFileAction = Boolean(fileTarget || localMarkdownPreviewTarget)
-  const externalActionLabel = isFileAction ? canOpenHostFiles ? "Open on this computer" : "Download" : "Open external"
-  const previewAddress = address ? buildBrowserPreviewProxyUrl(scopedAddress) : ""
-  const externalPreviewAddress = projectMarkdownPreviewTarget
-    ? buildProjectFileContentUrl(projectMarkdownPreviewTarget.projectId, projectMarkdownPreviewTarget.filePath)
-    : localMarkdownPreviewTarget
-      ? buildLocalFileContentUrl(localMarkdownPreviewTarget.filePath)
-    : previewAddress
+  const externalActionLabel = "Open standalone"
   const zoom = browserState?.zoom ?? 1
+  const [openError, setOpenError] = useState<string | null>(null)
   function openPreviewExternally() {
-    if (isFileAction) {
-      const filePath = fileTarget && localPath
-        ? localPath.replace(/[\\/]+$/u, "") + "/" + fileTarget.filePath
-        : localMarkdownPreviewTarget?.filePath
-      if (canOpenHostFiles && filePath && onOpenHostFile) onOpenHostFile(filePath, "open_default")
-      else {
-        const contentUrl = fileTarget ? buildProjectFileContentUrl(fileTarget.projectId, fileTarget.filePath)
-          : buildLocalFileContentUrl(localMarkdownPreviewTarget!.filePath)
-        downloadUrl(contentUrl, (fileTarget?.filePath ?? localMarkdownPreviewTarget!.filePath).split(/[\\/]/u).pop() || "download")
-      }
-      return
-    }
-    window.open(externalPreviewAddress, "_blank", "noopener,noreferrer")
+    setOpenError(null)
+    void openStandalonePreview(scopedAddress, projectId).catch(error => setOpenError(error.message))
   }
   const [addressDraft, setAddressDraft] = useState(address)
   const [iframeVersion, setIframeVersion] = useState(0)
@@ -214,15 +189,6 @@ function BrowserPanelImpl({
     setAddressDraft(address)
   }, [address])
 
-  useEffect(() => {
-    function onPreviewNavigation(event: MessageEvent) {
-      if (event.origin !== "null" || event.source !== iframeRef.current?.contentWindow) return
-      const nextAddress = projectPreviewNavigationAddress(event.data, scopedAddress)
-      if (nextAddress) navigateBrowser(projectId, nextAddress)
-    }
-    window.addEventListener("message", onPreviewNavigation)
-    return () => window.removeEventListener("message", onPreviewNavigation)
-  }, [navigateBrowser, projectId, scopedAddress])
 
   useEffect(() => {
     if (address) return
@@ -415,7 +381,7 @@ function BrowserPanelImpl({
                 onClick={openPreviewExternally}
                 className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 border-border/0 text-muted-foreground opacity-0 hover:!border-border/0 hover:!bg-transparent hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
               >
-                {isFileAction && !canOpenHostFiles ? <Download className="size-3.5" /> : <ExternalLink className="size-3.5" />}
+                <ExternalLink className="size-3.5" />
               </Button>
             ) : null}
           </form>
@@ -522,7 +488,7 @@ function BrowserPanelImpl({
                           <ContextMenuItem
                             onSelect={(event) => {
                               event.preventDefault()
-                              window.open(buildBrowserPreviewProxyUrl(server.address), "_blank", "noopener,noreferrer")
+                              void openStandalonePreview(server.address, projectId).catch(error => setOpenError(error.message))
                             }}
                           >
                             <SquareArrowOutUpRight className="h-3.5 w-3.5" />
@@ -562,48 +528,10 @@ function BrowserPanelImpl({
             </div>
           ) : (
             <div className="h-full w-full overflow-hidden bg-muted/20">
-              {projectMarkdownPreviewTarget ? (
-                <MarkdownPreviewPanel
-                  key={`${address}-${iframeVersion}`}
-                  source={{
-                    kind: "project",
-                    projectId: projectMarkdownPreviewTarget.projectId,
-                    filePath: projectMarkdownPreviewTarget.filePath,
-                  }}
-                  refreshVersion={iframeVersion}
-                  zoom={zoom}
-                  onNavigate={(nextAddress) => navigateBrowser(projectId, nextAddress)}
-                  canOpenHostFiles={canOpenHostFiles}
-                  projectLocalPath={localPath}
-                  onOpenHostFile={onOpenHostFile}
-                />
-              ) : localMarkdownPreviewTarget ? (
-                <MarkdownPreviewPanel
-                  key={`${address}-${iframeVersion}`}
-                  source={{
-                    kind: "local",
-                    filePath: localMarkdownPreviewTarget.filePath,
-                  }}
-                  refreshVersion={iframeVersion}
-                  zoom={zoom}
-                  onNavigate={(nextAddress) => navigateBrowser(projectId, nextAddress)}
-                  canOpenHostFiles={canOpenHostFiles}
-                  projectLocalPath={localPath}
-                  onOpenHostFile={onOpenHostFile}
-                />
-              ) : (
-                <iframe
-                  ref={iframeRef}
-                  key={`${previewAddress}-${iframeVersion}`}
-                  src={previewAddress}
-                  title="Browser panel"
-                  sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-                  className="block h-full w-full border-0 bg-background"
-                  // Keep layout, native scrollbars and pointer input in one
-                  // coordinate space when the preview is zoomed.
-                  style={{ zoom }}
-                />
-              )}
+              {openError && <div role="alert" className="p-3 text-sm text-destructive">{openError}</div>}
+              <PreviewSurface address={scopedAddress} projectId={projectId} refreshVersion={iframeVersion} zoom={zoom}
+                canOpenHostFiles={canOpenHostFiles} projectLocalPath={localPath} onOpenHostFile={onOpenHostFile}
+                onNavigate={(nextAddress, mode) => mode ? syncBrowserAddress(projectId, nextAddress, mode) : navigateBrowser(projectId, nextAddress)} />
             </div>
           )}
         </div>

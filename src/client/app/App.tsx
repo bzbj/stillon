@@ -17,6 +17,7 @@ import { LocalProjectsPage } from "./LocalProjectsPage"
 import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 import { AuthenticatedSessionBoundary } from "./AuthenticatedSessionBoundary"
+import { PreviewPage } from "./PreviewPage"
 import { useAppAuthState } from "./useAppAuthState"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
 
@@ -373,6 +374,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: strin
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
+          <Route path="/preview/:targetId" element={<PreviewPage />} />
           <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />

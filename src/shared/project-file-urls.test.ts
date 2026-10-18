@@ -27,6 +27,18 @@ describe("project file urls", () => {
       expect(normalizeProjectPreviewAddress(url, "p1", "https://h-computer.connect.stillon.cc")).toBe(url)
     }
   })
+  test("does not turn application URLs or credential URLs into file grants", () => {
+    const route = "/api/projects/p1/preview/private.html"
+    for (const origin of ["http://localhost:3210", "https://h-computer.connect.stillon.cc"]) {
+      for (const url of ["http://localhost:5173" + route, "http://127.0.0.1:443" + route,
+        "http://user:password@localhost:3210" + route, "https://user:password@h-computer.connect.stillon.cc" + route]) {
+        expect(normalizeProjectPreviewAddress(url, "p1", origin)).toBe(url)
+      }
+    }
+    expect(normalizeProjectPreviewAddress("http://localhost:43210" + route, "p1", "http://127.0.0.1:43210")).toBe(route)
+    expect(normalizeProjectPreviewAddress("http://localhost:43210" + route, "p1", "https://h-computer.connect.stillon.cc"))
+      .toBe("http://localhost:43210" + route)
+  })
   test("builds content and download urls with encoded file paths", () => {
     expect(buildProjectFileContentUrl("project-1", "dist/demo page.html"))
       .toBe("/api/projects/project-1/files/dist%2Fdemo%20page.html/content")

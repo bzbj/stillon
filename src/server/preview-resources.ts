@@ -10,6 +10,11 @@ export function projectPreviewTarget(pathname: string) {
   if (!match) return null
   try { return { projectId: decodeURIComponent(match[1]!), filePath: match[2]!.split("/").map(decodeURIComponent).join("/") } } catch { return null }
 }
+export function localHtmlPreviewTarget(pathname: string) {
+  const match = /^(\/api\/local-html-previews\/[A-Za-z0-9_-]+\/)(.+)$/u.exec(pathname)
+  if (!match) return null
+  try { return { prefix: match[1]!, filePath: match[2]!.split("/").map(decodeURIComponent).join("/") } } catch { return null }
+}
 function isValid(context: PreviewResourceContext) {
   try { return context.valid() } catch { return false }
 }
@@ -33,6 +38,11 @@ export class PreviewResources {
     this.contexts.set(token, context)
     return context
   }
+  createLocalHtml(prefix: string, filePath: string, valid: () => boolean = () => true) {
+    const context = this.create("", filePath, valid)
+    context.originalPrefix = prefix + (context.directory === "." ? "" : context.directory.split("/").map(encodeURIComponent).join("/") + "/")
+    return context
+  }
   resolve(pathname: string): { context: PreviewResourceContext; path: string; filePath: string } | null {
     if (!pathname.startsWith(this.prefix)) return null
     const [token, ...parts] = pathname.slice(this.prefix.length).split("/")
@@ -42,7 +52,7 @@ export class PreviewResources {
     try { relative = parts.map(decodeURIComponent).join("/") } catch { return null }
     if (!isPreviewResourcePath(relative)) return null
     const filePath = (context.directory === "." ? "" : context.directory + "/") + relative
-    return { context, filePath, path: `/api/projects/${encodeURIComponent(context.projectId)}/preview/${filePath.split("/").map(encodeURIComponent).join("/")}` }
+    return { context, filePath, path: context.originalPrefix + relative.split("/").map(encodeURIComponent).join("/") }
   }
   async wrap(response: Response, request: Request, context: PreviewResourceContext, filePath: string) {
     const headers = new Headers(response.headers)
