@@ -1,6 +1,8 @@
 import { ProviderCliSettings } from "./provider-cli-settings"
 import { createProviderSetup } from "./provider-setup"
 import { handleProviderSetupRequest } from "./provider-setup-http"
+import { ProviderCliUpdates, type ProviderCliUpdatesOptions } from "./provider-cli-updates"
+import { handleProviderCliUpdates } from "./provider-cli-updates-http"
 import { createCliEnvironment } from "./cli-environment"
 import { handleAppearanceRequest } from "./appearance-assets"
 import { WorkspaceAvatarsManager, handleWorkspaceAvatars } from "./workspace-avatars"
@@ -92,6 +94,7 @@ export async function persistUploadedFiles(args: {
 }
 
 export interface StartStillOnServerOptions {
+  providerCliUpdates?: Pick<ProviderCliUpdatesOptions, "inspect" | "release" | "install" | "verify">
   codexModelDiscovery?: CodexModelDiscoveryOptions
   port?: number
   host?: string
@@ -148,7 +151,12 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
     defaultMachineName: machineDisplayName,
   })
-  const getAgentEnvironment = () => mergeAgentNetworkEnvironment(providerCliSettings.environment(cliEnvironment.get()), appSettings.getSnapshot().network)
+  let providerCliUpdates: ProviderCliUpdates
+  const getUpdateEnvironment = () => mergeAgentNetworkEnvironment(providerCliSettings.environment(cliEnvironment.get()), appSettings.getSnapshot().network)
+  const getAgentEnvironment = () => {
+    if (providerCliUpdates?.busy) throw new Error("A CLI update is in progress. Wait for verification before starting agent work.")
+    return getUpdateEnvironment()
+  }
   const getCodexApiTransport = () => appSettings.getSnapshot().codexApiTransport ?? "auto"
   const providerSetup = createProviderSetup({ dataDir: store.dataDir, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
   const diffStore = new DiffStore(store.dataDir, {
@@ -273,6 +281,14 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
+  providerCliUpdates = new ProviderCliUpdates({
+    ...options.providerCliUpdates,
+    getEnvironment: async () => { await cliEnvironment.refresh(); return getUpdateEnvironment() },
+    reserve: async () => {
+      if (terminals.hasRunningSessions() || codexModelPolicy.busy) throw new Error("Close running terminals and wait for model discovery before updating the CLI.")
+      return agent.reserveCliUpdate()
+    },
+  })
   const workspaceAvatars = new WorkspaceAvatarsManager(store.dataDir)
   const previewResources = new PreviewResources(LOCAL_PREVIEW_ASSET_PREFIX)
   router = createWsRouter({
@@ -336,7 +352,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     instance: process.env.STILLON_UPDATE_INSTANCE,
     secret: process.env.STILLON_UPDATE_SECRET,
     verifying: process.env.STILLON_UPDATE_VERIFYING === "1",
-    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy,
+    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || providerCliUpdates.busy,
     shutdown: async () => { await shutdown(); process.emit("SIGTERM") },
   })
 
@@ -460,7 +476,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({ ok: true, port: actualPort,
               ...(url.searchParams.get("update-setup") === "1" ? { managedUpdateProtocol: 1,
                 runtimeProfile: getRuntimeProfile(),
-                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy } : {}),
+                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || providerCliUpdates.busy } : {}),
               ...(managedUpdate.instance ? { updateInstance: managedUpdate.instance, updateProtocol: 1, version: APP_VERSION } : {}),
             })
           }
@@ -485,6 +501,13 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
           }
 
+          const cliUpdateResponse = await handleProviderCliUpdates(req, url, providerCliUpdates,
+            request => request.headers.has("origin") && (!auth || auth.validateOrigin(request)))
+          if (cliUpdateResponse) return cliUpdateResponse
+          if (providerCliUpdates.busy && req.method === "POST" && url.pathname.startsWith("/api/provider-setup/")) {
+            await req.arrayBuffer().catch(() => undefined)
+            return Response.json({ error: "Wait for the CLI update to finish before changing provider setup." }, { status: 409 })
+          }
           const providerSetupResponse = await handleProviderSetupRequest(req, url, {
             local: ingress.kind === "local", setup: providerSetup, settings: providerCliSettings,
             validateOrigin: request => auth ? auth.validateOrigin(request) : request.headers.get("origin") === url.origin,
@@ -619,6 +642,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       await stopConnectListener(server)
       await codexModelPolicy.close()
       await Promise.allSettled([...pendingServerOperations])
+      await providerCliUpdates.close()
       await discoveryRefresh
       // Stop every run and wait for its processes, so none outlives the service.
       await agent.shutdown()

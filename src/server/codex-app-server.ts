@@ -68,6 +68,8 @@ interface CodexAppServerProcess {
   stdout: Readable
   stderr: Readable
   killed?: boolean
+  exitCode?: number | null
+  signalCode?: NodeJS.Signals | null
   kill(signal?: NodeJS.Signals | number): void
   on(event: "close", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
@@ -1055,10 +1057,18 @@ export class CodexAppServerManager {
     }
   }
 
-  stopAll() {
+  async stopAll() {
+    const exits = [...this.sessions.values()].map(context => {
+      if (context.child.exitCode != null || context.child.signalCode != null) return Promise.resolve()
+      return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Codex App Server did not exit.")), 10_000)
+        context.child.once("close", () => { clearTimeout(timeout); resolve() })
+      })
+    })
     for (const chatId of this.sessions.keys()) {
       this.stopSession(chatId)
     }
+    await Promise.all(exits)
   }
 
   private requireSession(chatId: string) {

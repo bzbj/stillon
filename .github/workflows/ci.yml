@@ -43,6 +43,9 @@ jobs:
 
       - run: bun run test
 
+      - name: Verify isolated CLI update and App Server lifecycle
+        run: bun scripts/test-provider-cli-updates.ts
+
       - name: Rehearse native Windows updater recovery
         if: runner.os == 'Windows'
         timeout-minutes: 8
