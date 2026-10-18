@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile, rm, symlink, realpath } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { PreviewFiles } from "./preview-files"
@@ -14,6 +14,7 @@ test("file targets read exact bytes; direct HTML isolates origin and authorizes 
   let valid = true
   try {
     await mkdir(folder)
+    const canonicalFolder = await realpath(folder)
     await writeFile(path.join(folder, "index.html"), '<!doctype html><head></head><input><script type="module" src="/module.mjs"></script>')
     await writeFile(path.join(folder, "module.mjs"), "document.body.dataset.loaded='yes'")
     await writeFile(path.join(folder, "data.json"), '{"label":"中文"}')
@@ -24,7 +25,7 @@ test("file targets read exact bytes; direct HTML isolates origin and authorizes 
     const target = parsePreviewTarget(buildLocalFilePreviewUrl(path.join(folder, "index.html")))!
     await files.authorize(target)
     const sibling = buildLocalFilePreviewUrl(path.join(folder, "raw.docx"))
-    expect(await files.linkedAddress(target, sibling)).toEqual({ address: sibling, directory: folder })
+    expect(await files.linkedAddress(target, sibling)).toEqual({ address: sibling, directory: canonicalFolder })
     await expect(files.linkedAddress(target, buildLocalFilePreviewUrl(path.join(root, "private.json")))).rejects.toThrow("outside the authorized HTML directory")
     const entry = new URL(await files.localEntry(target, "local", "http://localhost:3210", () => valid))
     expect(entry.hostname).toMatch(/^f-[a-f0-9]{48}\.localhost$/u)
@@ -38,7 +39,7 @@ test("file targets read exact bytes; direct HTML isolates origin and authorizes 
     const restarted = new PreviewTargets(storage, undefined, target => files.authorize(target))
     const descriptor = await (await restarted.handle(read, new URL(read.url), "local", () => true))!.json()
     const child = descriptor.target
-    expect(child.resourceRoot).toBe(folder)
+    expect(child.resourceRoot).toBe(canonicalFolder)
     const childEntry = new URL(await files.localEntry(child, "local", "http://localhost:3210", () => valid))
     expect(childEntry.origin).toBe(entry.origin)
     expect(childEntry.pathname).toBe("/nested/next.html")

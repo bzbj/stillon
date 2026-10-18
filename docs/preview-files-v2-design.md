@@ -79,6 +79,11 @@ require a visible action in the trusted parent UI; forged child messages cannot
 launch a default application. Regular authored StillOn links use normal B01–B08
 activation, with no extra prompt.
 The parent reauthorizes document links and stores their logical location.
+For modifier/middle clicks, the child reserves a tab during its native gesture
+and clears its opener. A transferred MessageChannel receives only the resulting
+authenticated standalone URL after parent-side containment/authorization. This
+does not depend on cross-origin gesture propagation to the parent; missing popup
+permission gives a visible error. Host execution still needs the trusted UI.
 
 ## Engines and boundaries
 

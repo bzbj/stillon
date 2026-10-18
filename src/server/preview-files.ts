@@ -60,7 +60,19 @@ function navigationBridge(parent: string) {
         if(['http:','https:'].includes(url.protocol)){a.target='_blank';a.rel='noopener noreferrer'}return
       }
       if(!standalone&&url.pathname===location.pathname&&url.search===location.search)return;
-      event.preventDefault();parent.postMessage({type:'stillon:file-link',path:url.pathname,query:url.search,fragment:url.hash,standalone},parentOrigin);
+      event.preventDefault();
+      if(!standalone){parent.postMessage({type:'stillon:file-link',path:url.pathname,query:url.search,fragment:url.hash,standalone:false},parentOrigin);return}
+      // Chromium does not consistently propagate middle-button activation from
+      // a cross-origin frame to its parent. Reserve the tab in this gesture.
+      const popup=window.open('about:blank','_blank');if(popup)popup.opener=null;
+      const channel=new MessageChannel();
+      const timer=setTimeout(()=>{channel.port1.close();if(popup)popup.close()},30000);
+      channel.port1.onmessage=event=>{
+        clearTimeout(timer);channel.port1.close();
+        try{const target=new URL(event.data.url);if(target.origin!==parentOrigin||!/^\\/preview\\/[\\w-]+$/.test(target.pathname))throw new Error('Invalid preview');if(popup)popup.location.replace(target.href)}
+        catch{if(popup)popup.close()}
+      };
+      parent.postMessage({type:'stillon:file-link',path:url.pathname,query:url.search,fragment:url.hash,standalone:true,popupBlocked:!popup},parentOrigin,[channel.port2]);
     };window.addEventListener('click',follow);window.addEventListener('auxclick',follow);addEventListener('DOMContentLoaded',report);
   })()</script>`
 }

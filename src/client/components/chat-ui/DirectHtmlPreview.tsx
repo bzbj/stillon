@@ -20,6 +20,8 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
   const loadedVersion = useRef(-1)
   const frameRoot = useRef("")
   const frameTargetId = useRef<string | undefined>(undefined)
+  const latest = useRef({ target, onNavigate })
+  latest.current = { target, onNavigate }
   useEffect(() => {
     let active = true
     if (url && current.current === target.address && loadedVersion.current === refreshVersion) return
@@ -50,6 +52,7 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
     let active = true
     const receive = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== new URL(url).origin) return
+      const { target, onNavigate } = latest.current
       const data = event.data
       if (data?.type === "stillon:file-dependency-error" && typeof data.label === "string") {
         setDependencyError("A file dependency could not load: " + data.label.slice(0, 160) + ". Refresh to retry. File previews support authorized local resources.")
@@ -57,7 +60,7 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
       }
       if (data?.type === "stillon:file-service-link") {
         const service = typeof data.address === "string" && parseLoopbackPreviewUrl(data.address)
-        if (service && navigator.userActivation.isActive) setLinkedAction({ address: service.href, label: service.href, service: true })
+        if (service) setLinkedAction({ address: service.href, label: service.href, service: true })
         return
       }
       if (!["stillon:file-link", "stillon:file-navigation"].includes(data?.type) || typeof data.path !== "string" || typeof data.query !== "string" || typeof data.fragment !== "string") return
@@ -75,35 +78,37 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
       const address = (target.kind === "project-file" ? buildProjectFilePreviewUrl(target.projectId, path) : buildLocalFilePreviewUrl(path)) + data.query + data.fragment
       if (address === current.current && data.standalone !== true) return
       const navigation = data.type === "stillon:file-navigation"
-      if (navigation ? fileRenderer(path) !== "html" : !navigator.userActivation.isActive) return
+      if (navigation && fileRenderer(path) !== "html") return
       const id = frameTargetId.current, source = event.source
       if (!id) return
-      // Reserve a tab during activation, before asynchronous canonical-path checks.
       const standalone = !navigation && data.standalone === true && Boolean(fileRenderer(path))
-      const tab = standalone ? window.open("about:blank", "_blank") : null
-      if (tab) tab.opener = null
+      const reply = event.ports[0]
+      if (standalone && (!reply || data.popupBlocked)) {
+        reply?.postMessage({ error: "Popup unavailable" }); reply?.close()
+        setDependencyError("Your browser blocked the preview tab. Allow popups and reopen this file link.")
+        return
+      }
       void (async () => {
         // Lexical containment is insufficient: a symlink/junction may leave the
         // HTML directory while remaining inside the broader project workspace.
         const response = await fetch(`/api/file-previews/${id}/link`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }) })
         const value = await response.json()
         if (!response.ok || value.address !== address) throw new Error(value.error || "The linked file is outside this preview's authorization.")
-        if (!active || source !== frame.current?.contentWindow || frameTargetId.current !== id) { tab?.close(); return }
+        if (!active || source !== frame.current?.contentWindow || frameTargetId.current !== id) { reply?.postMessage({ error: "Preview changed" }); reply?.close(); return }
         if (navigation) { current.current = address; onNavigate(address, "replace") }
         else if (standalone) {
           const destination = await registerPreviewTarget(address, projectId)
-          if (!active || source !== frame.current?.contentWindow) { tab?.close(); return }
-          if (tab) tab.location.replace(destination)
-          else window.location.assign(destination)
+          if (!active || source !== frame.current?.contentWindow) { reply?.postMessage({ error: "Preview changed" }); reply?.close(); return }
+          reply?.postMessage({ url: new URL(destination, window.location.origin).href }); reply?.close()
         } else if (fileRenderer(path)) onNavigate(address)
         // A child document cannot turn postMessage into a host app launcher.
         // Privileged actions require a click on the trusted parent UI.
-        else setLinkedAction({ address, label: parts.join("/") })
-      })().catch(e => { tab?.close(); if (active) setDependencyError(e.message) })
+        else { reply?.postMessage({ error: "No preview renderer" }); reply?.close(); setLinkedAction({ address, label: parts.join("/") }) }
+      })().catch(e => { reply?.postMessage({ error: "File preview unavailable" }); reply?.close(); if (active) setDependencyError(e.message) })
     }
     window.addEventListener("message", receive)
     return () => { active = false; window.removeEventListener("message", receive) }
-  }, [url, target, onNavigate, capabilities, projectId])
+  }, [url, projectId])
   if (error) return <div role="alert" className="p-6 text-sm">{error}</div>
   if (!url) return <p className="p-6 text-sm">Loading file preview…</p>
   return <div className="flex h-full flex-col">
