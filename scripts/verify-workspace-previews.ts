@@ -63,18 +63,28 @@ async function fixtureFiles(directory: string) {
 }
 try {
   if (connect) {
+    stage = "connect:request-enrollment"
     const enroll = await eventually(async () => {
       const response = await request(entries[0]!, "/api/connect-local/enroll", {})
       return response.ok ? response.json() : null
     }, value => Boolean(value?.id))
     const intent = { purpose: "enroll", id: enroll.id }, email = "preview@example.com"
+    stage = "connect:verify-enrollment"
     const central = (route: string, body: object, cookie = "") => fetch(connect.origin + "/api/connect/" + route, {
       method: "POST", headers: { Origin: connect.origin, "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body), redirect: "manual" })
     const pending = await central("request-code", { email, intent })
     const verified = await central("verify-code", { email, intent, code: connect.messages.at(-1)!.code, remember: true }, cookies(pending))
     assert.equal(verified.status, 200)
-    const status = await eventually(async () => (await request(entries[0]!, "/api/connect-local/status")).json(), value => value.state === "online")
+    stage = "connect:wait-online"
+    let lastConnectState = ""
+    const status = await eventually(async () => {
+      const value = await (await request(entries[0]!, "/api/connect-local/status")).json() as any
+      const state = String(value.state) + ":" + String(value.error ?? "")
+      if (state !== lastConnectState) { console.log("Connect fixture state", state); lastConnectState = state }
+      return value
+    }, value => value.state === "online")
     const remote: Entry = { name: "connect-integration", origin: new URL(status.url!).origin, gateway: connect.origin }
+    stage = "connect:authenticate-workspace"
     const login = await request(remote, "/_connect/login")
     const flow = new URL(login.headers.get("location")!).searchParams.get("flow")
     const authorized = await central("authorize", { flow }, cookies(verified))
@@ -86,10 +96,16 @@ try {
   const projectPath = path.join(root, "workspace")
   const outsidePath = path.join(root, "outside")
   await fixtureFiles(projectPath); await fixtureFiles(outsidePath)
+  for (const arguments_ of [["init", "--quiet"], ["add", "."], ["-c", "user.name=Preview test", "-c", "user.email=preview@example.com", "commit", "--quiet", "-m", "Preview fixture"]]) {
+    const git = Bun.spawn(["git", "-C", projectPath, ...arguments_], { stdout: "ignore", stderr: "ignore" })
+    assert.equal(await git.exited, 0)
+  }
   const project = await server.store.openProject(projectPath, "Preview workspace")
   const chat = await server.store.createChat(project.id)
+  await writeFile(path.join(projectPath, "TREE-ENTRY.md"), await readFile(path.join(projectPath, "README.md")))
   let count = 0
   let activeSockets = 0
+  let serviceListPort = 0
   const app = Bun.serve({ hostname: "127.0.0.1", port: 0,
     async fetch(request, appServer) {
       const url = new URL(request.url)
@@ -107,6 +123,8 @@ try {
   })
   servers.push(app)
   const appOrigin = `http://127.0.0.1:${app.port}`
+  for (const directory of [projectPath, outsidePath]) await writeFile(path.join(directory, "README.md"),
+    await readFile(path.join(directory, "README.md"), "utf8") + `\n[Host HTTP application](${appOrigin}/app?tab=one#section)\n`)
   await server.store.appendMessage(chat.id, { kind: "assistant_text", _id: "preview-fixture-links", createdAt: Date.now(),
     text: `[Read guide](<${path.join(projectPath, "README.md").replaceAll("\\", "/")}>) · [HTML sample](<${path.join(projectPath, "index.html").replaceAll("\\", "/")}>) · [HTTP application](${appOrigin}/app?tab=one#section)` })
   const addresses: Record<string, Record<string, string>> = {}
@@ -213,6 +231,7 @@ try {
     const unavailable = await json(entry, "/api/preview-browser/" + recoverySession.id)
     assert.ok(unavailable.error)
     const restored = Bun.serve({ hostname: "127.0.0.1", port: restartPort, fetch: () => new Response('<!doctype html><title>Service restored</title><h1>Ready</h1>', { headers: { "Content-Type": "text/html" } }) })
+    serviceListPort = restored.port!
     servers.push(restored)
     const retried = await json(entry, "/api/preview-browser", { targetId: recoveryTarget.id })
     assert.equal(retried.id, recoverySession.id, "Retry reopens the same target with an explicit GET")
@@ -249,7 +268,7 @@ try {
   await writeFile(path.join(output, "api-results.json"), JSON.stringify({ localOnly, checks }, null, 2))
   console.log(JSON.stringify({ localOnly, checks }, null, 2))
   if (browserOutput) {
-    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, output, gatewayVersion: "source fixture", sourceVersion: "0.6.2" }))
+    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, output, gatewayVersion: "source fixture", sourceVersion: "0.6.2" }))
     console.log("Workspace browser fixture ready")
     if (stopFile) { while (true) { try { await readFile(stopFile); break } catch { await Bun.sleep(200) } } }
     else await new Promise<void>(resolve => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve) })

@@ -68,10 +68,41 @@ try {
     }
     assert.equal(await guide.evaluate(link => { const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); link.dispatchEvent(event); return event.defaultPrevented }), false)
     checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, native context menu", result: "Pass" })
+    stage = entry.name + ":markdown-body-links"
+    for (const label of ["HTML application", "Host HTTP application"]) {
+      await page.getByRole("link", { name: label, exact: true }).click()
+      await page.getByAltText("Interactive browser preview").waitFor()
+      await page.getByRole("button", { name: "Back", exact: true }).click()
+      await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+    }
+    checks.push({ entry: entry.name, check: "Markdown body HTML and host HTTP links route through the shared sidebar", result: "Pass" })
+    stage = entry.name + ":file-list"
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+b" : "Control+b")
+    await page.getByRole("button", { name: "Changes", exact: true }).click()
+    await page.getByText("TREE-ENTRY.md", { exact: true }).click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
+    await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+    assert((await page.getByPlaceholder("Enter a URL").inputValue()).endsWith("/markdown-preview/TREE-ENTRY.md"))
+    checks.push({ entry: entry.name, check: "File-list context action opens rendered Markdown in the sidebar", result: "Pass" })
     const browserButton = page.getByRole("button", { name: "Browser", exact: true })
     if (await browserButton.getAttribute("aria-pressed") !== "true") await browserButton.click()
     const address = page.getByPlaceholder("Enter a URL")
     await address.waitFor()
+    stage = entry.name + ":service-list"
+    await page.getByRole("button", { name: "Home", exact: true }).click()
+    const service = page.getByRole("button", { name: "Service restored Server actions http://localhost:" + config.serviceListPort, exact: true })
+    await service.click()
+    await page.getByAltText("Interactive browser preview").waitFor()
+    assert.equal(new URL(await address.inputValue()).port, String(config.serviceListPort))
+    await page.getByRole("button", { name: "Home", exact: true }).click()
+    await service.getByRole("button", { name: "Server actions", exact: true }).click()
+    const servicePopup = context.waitForEvent("page")
+    await page.getByRole("menuitem", { name: "Open in New Tab", exact: true }).click()
+    const independentService = await servicePopup
+    await independentService.getByAltText("Interactive browser preview").waitFor()
+    assert.equal(new URL(await independentService.getByLabel("Preview address").textContent() ?? "").port, String(config.serviceListPort))
+    await independentService.close(); await page.bringToFront()
+    checks.push({ entry: entry.name, check: "Service-list ordinary click and native menu open the authorized service in sidebar and standalone", result: "Pass" })
     for (const name of Object.keys(config.addresses[entry.name])) {
       stage = entry.name + ":" + name + ":sidebar"
       await address.fill(config.addresses[entry.name][name]); await address.press("Enter")

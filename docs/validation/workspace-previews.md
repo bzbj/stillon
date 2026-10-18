@@ -79,7 +79,7 @@ second-device portions remain blocked pending authorized test access.
 | IDs | Evidence or remaining gate |
 | --- | --- |
 | A01 | Chat document/HTTP routing, real sidebar API button write |
-| A02 | Shared renderer and Markdown/address checks; file-tree/service-list manual coverage pending |
+| A02 | Shared renderer and Markdown/address checks; file-list and service-list local browser checks, plus authenticated Connect CI assertions |
 | A03 | Modifier/middle click and native-context-menu checks |
 | A04 | Workspace/history isolation regressions; multi-device exercise pending |
 | A05–A06 | Markdown formatting, relative images/documents, anchors and shared renderer |
