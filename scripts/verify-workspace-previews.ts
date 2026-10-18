@@ -271,7 +271,7 @@ try {
       target: () => ({ target: { kind: "host-http" as const, address: leasedAddress } }) }
     const opened = await leasedBrowser.handle(new Request("http://stillon.invalid/api/preview-browser", {
       method: "POST", body: JSON.stringify({ targetId: "fixture", viewerId: "pointer-owner" }), headers: { "Content-Type": "application/json" },
-    }), new URL("http://stillon.invalid/api/preview-browser"), { ...options, expiresAt: Date.now() + 30_000 })
+    }), new URL("http://stillon.invalid/api/preview-browser"), { ...options, expiresAt: Date.now() + 45_000 })
     assert.equal(opened?.status, 200)
     const session = await opened!.json() as { id: string }
     const pointerState = async () => await (await fetch(appOrigin + "/input-state?case=pointer-lifecycle")).json() as any
@@ -282,6 +282,20 @@ try {
       return await leasedBrowser.handle(new Request(url, { method: "POST", body: JSON.stringify({ type: "pointer", phase,
         pointerId: 1, pointerType: "mouse", button: 0, buttons: phase === "down" ? 1 : 0, x: 50, y }) }), url, options)
     }
+    const input = async (action: object) => {
+      const url = pointerRoute("pointer-owner")
+      return await leasedBrowser.handle(new Request(url, { method: "POST", body: JSON.stringify({ ...action, inputOnly: true }) }), url, options)
+    }
+    assert.equal((await input({ type: "click", x: 50, y: 120 }))?.status, 200)
+    assert.equal((await input({ type: "text", text: "hello" }))?.status, 200)
+    const foreground = new URL("http://stillon.invalid/api/preview-browser")
+    const originalAddress = leasedAddress
+    leasedAddress = leasedAddress.replace("127.0.0.1", "localhost").replace("pointer-lifecycle", "other-tab")
+    assert.equal((await leasedBrowser.handle(new Request(foreground, { method: "POST", body: JSON.stringify({ targetId: "other", viewerId: "other-tab" }) }), foreground, options))?.status, 200)
+    leasedAddress = originalAddress
+    assert.equal((await input({ type: "key", key: "Space" }))?.status, 200)
+    await eventually(pointerState, value => value.text === "hello ")
+    checks.push({ entry: "keyboard-focus", check: "Native Space reaches an editor after another isolated tab becomes active", result: "Pass" })
     assert.equal((await pointerAction("down"))?.status, 200)
     await eventually(pointerState, value => value.down)
     const secondViewer = new URL("http://stillon.invalid/api/preview-browser")

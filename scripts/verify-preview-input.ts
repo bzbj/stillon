@@ -8,19 +8,21 @@ export async function verifyPreviewInput(options: {
   prepare: (address: string) => Promise<void>; stage: (name: string) => void; screenshot: string
 }) {
   const { page, appOrigin, name, direct, chromium, prepare } = options
+  const sentInputs: object[] = []
   const key = name + "-" + Date.now()
   const state = async () => await (await fetch(appOrigin + "/input-state?case=" + encodeURIComponent(key))).json() as any
   const wait = async (predicate: (value: any) => boolean) => {
     const until = Date.now() + 15_000
     let value: any
     do { value = await state(); if (predicate(value)) return value; await new Promise(resolve => setTimeout(resolve, 80)) } while (Date.now() < until)
-    throw new Error("Input state did not settle: " + JSON.stringify(value).slice(0, 400))
+    throw new Error("Input state did not settle: " + JSON.stringify(value).slice(0, 400) + "; recent inputs: " + JSON.stringify(sentInputs.slice(-6)))
   }
   const textRequests: string[] = []
   const record = (request: import("playwright").Request) => {
     if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/preview-browser/")) {
       const action = request.postDataJSON()
       if (action?.type === "text") textRequests.push(action.text)
+      if (action?.type === "text" || action?.type === "key") sentInputs.push({ type: action.type, text: action.text?.slice(0, 30), key: action.key })
     }
   }
   page.on("request", record)

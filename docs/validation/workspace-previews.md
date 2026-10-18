@@ -89,11 +89,12 @@ Connect and physical input methods remain outstanding acceptance gates below.
 ![The same input application in an independent page](../images/workspace-preview-input-standalone.png)
 
 The Windows type/build checks, audit and focused preview regressions pass.
-The latest full local run recorded 1,438 passes, 11 skips and 11 existing `EPERM`
-symlink failures. An earlier run also encountered `EPERM` spawning an unchanged
-long encoded PowerShell test. Both kinds of failure reproduce in the clean
-baseline worktree. This is **not** a passing full-suite result. The PR's full
-supported-platform CI matrix must pass before merge.
+The latest full local run recorded 1,441 passes, 14 skips and 13 failures, with
+two hook/test errors: 11 existing `EPERM` symlink failures and two migration
+timeouts during concurrent validation. The unchanged PR #223 baseline reran all
+six migration cases successfully in isolation, including those two cases. The
+symlink failures also reproduce in the clean baseline. This is **not** a passing
+full-suite result. The PR's full supported-platform CI matrix must pass before merge.
 
 Windows Defender blocks extraction of the checksum-verified official frp test
 package here. No security exclusions or policy changes were made. CI runs real
