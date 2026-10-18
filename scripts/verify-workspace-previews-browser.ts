@@ -33,7 +33,6 @@ try {
     }))
     const page = await context.newPage()
     currentPage = page
-    page.setDefaultTimeout(15_000)
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
     for (const name of ["project-markdown", "outside-markdown"]) {
       stage = entry.name + ":" + name + ":document-navigation"
