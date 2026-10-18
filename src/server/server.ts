@@ -584,7 +584,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               try {
                 const body = JSON.parse(payload ?? "")
                 if (typeof body?.address !== "string") return Response.json({ error: "Invalid file link." }, { status: 400 })
-                return Response.json({ address: await previewFiles.linkedAddress(entry.target, body.address, entry.projectId) })
+                const linked = await previewFiles.linkedAddress(entry.target, body.address, entry.projectId)
+                const registration = new Request(new URL("/api/preview-targets", url), { method: "POST", body: JSON.stringify({ address: linked.address, projectId: entry.projectId }) })
+                const result = await previewTargets.handle(registration, new URL(registration.url), previewOwner, id => Boolean(store.getProject(id)), undefined, linked.directory)
+                if (!result?.ok) return result ?? new Response("Link unavailable", { status: 403 })
+                return Response.json({ address: linked.address })
               } catch (error) { return Response.json({ error: (error as Error).message }, { status: error instanceof FileAccessError ? error.status : 403 }) }
             }
             if (operation === "content" && ["GET", "HEAD"].includes(req.method)) return previewFiles.content(req, entry.target, url.searchParams.get("download") === "1")
@@ -598,13 +602,13 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               try {
                 const file = await previewFiles.resolve(entry.target)
                 if (!/\.html?$/iu.test(file)) return Response.json({ error: "An HTML document is required." }, { status: 415 })
-                if (ingress.kind === "remote") return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, path: "/" + encodeURIComponent(path.basename(file)), scopeKey: previewFiles.scopeKey(file) })
+                if (ingress.kind === "remote") return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, path: previewFiles.entryPath(entry.target, file), scopeKey: previewFiles.scopeKey(file, previewFiles.directory(entry.target, file)) })
                 const previewUrl = await previewFiles.localEntry(entry.target, previewOwner, url.origin, () => !shuttingDown && (!auth || auth.isAuthenticated(req)))
                 return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, url: previewUrl })
               } catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
             }
             if (operation === "resource" && ingress.kind === "remote") {
-              try { const file = await previewFiles.resolve(entry.target); if (!/\.html?$/iu.test(file)) return new Response("Only HTML documents authorize a resource directory.", { status: 403 }); return previewFiles.resource(req, path.dirname(file), fileRequest[3] ?? "/", url.origin) }
+              try { const file = await previewFiles.resolve(entry.target); if (!/\.html?$/iu.test(file)) return new Response("Only HTML documents authorize a resource directory.", { status: 403 }); return previewFiles.resource(req, previewFiles.directory(entry.target, file), fileRequest[3] ?? "/", url.origin) }
               catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
             }
             return new Response("Method not allowed", { status: 405 })

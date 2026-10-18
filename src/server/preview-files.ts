@@ -69,15 +69,18 @@ export class PreviewFiles {
   private local?: ReturnType<typeof Bun.serve>
   private readonly grants = new Map<string, { root: string; owner: string; valid: () => boolean; parent: string; expires: number }>()
   constructor(private readonly projectRoot: (id: string) => string | undefined) {}
-  scopeKey(file: string) { return createHash("sha256").update(path.dirname(file)).digest("hex") }
+  directory(target: PreviewTarget, file: string) { return "resourceRoot" in target && target.resourceRoot ? target.resourceRoot : path.dirname(file) }
+  entryPath(target: PreviewTarget, file: string) { return "/" + path.relative(this.directory(target, file), file).split(path.sep).map(encodeURIComponent).join("/") }
+  scopeKey(file: string, root = path.dirname(file)) { return createHash("sha256").update(root).digest("hex") }
   async linkedAddress(rootTarget: PreviewTarget, address: string, projectId?: string) {
     const root = await this.resolve(rootTarget)
     if (fileRenderer(root) !== "html") throw new FileAccessError("Only HTML documents authorize file navigation.", 403)
     const next = parsePreviewTarget(address, projectId)
     if (!next || !("filePath" in next)) throw new FileAccessError("This is not a file link.", 400)
     const file = await this.resolve(next)
-    if (!isWithinPreviewDirectory(path.dirname(root), file)) throw new FileAccessError("Link is outside the authorized HTML directory.", 403)
-    return address
+    const directory = this.directory(rootTarget, root)
+    if (!isWithinPreviewDirectory(directory, file)) throw new FileAccessError("Link is outside the authorized HTML directory.", 403)
+    return { address, directory }
   }
 
   async resolve(target: PreviewTarget, allowDirectory = false) {
@@ -91,6 +94,11 @@ export class PreviewFiles {
     if (path.extname(candidate).toLowerCase() !== path.extname(file).toLowerCase()) throw new FileAccessError("File type differs from the linked path. Open its real file path.", 415)
     if (rootPath && !isWithinPreviewDirectory(await realpath(rootPath), file)) throw new Error("File is outside the workspace.")
     if (target.canonicalPath && target.canonicalPath !== file) throw new Error("File authorization changed. Open the original link again.")
+    if (target.resourceRoot) {
+      const root = await realpath(target.resourceRoot)
+      if (root !== target.resourceRoot || !isWithinPreviewDirectory(root, file)
+        || rootPath && !isWithinPreviewDirectory(await realpath(rootPath), root)) throw new FileAccessError("HTML resource directory authorization changed.", 403)
+    }
     const info = await stat(file)
     if (!info.isFile() && !(allowDirectory && info.isDirectory())) throw new FileAccessError("Target must be a file.", 400)
     return file
@@ -144,7 +152,7 @@ export class PreviewFiles {
       protectPreviewPort(this.local.port!)
     }
     for (const [key, grant] of this.grants) if (grant.expires <= Date.now() || !grant.valid()) this.grants.delete(key)
-    const root = path.dirname(file)
+    const root = this.directory(target, file)
     let token = [...this.grants].find(([, g]) => g.root === root && g.owner === owner && g.parent === parent && g.valid())?.[0]
     if (!token) {
       if (this.grants.size >= 128) throw new Error("File preview grant limit reached. Older grants expire after one hour.")
@@ -152,7 +160,7 @@ export class PreviewFiles {
       this.grants.set(token, { root, owner, valid, parent, expires: Date.now() + 60 * 60_000 })
     }
     const location = new URL(target.address, parent)
-    return `http://f-${token}.localhost:${this.local.port}/${encodeURIComponent(path.basename(file))}${location.search}${location.hash}`
+    return `http://f-${token}.localhost:${this.local.port}${this.entryPath(target, file)}${location.search}${location.hash}`
   }
   async resource(request: Request, root: string, pathname: string, parent: string) {
     if (!["GET", "HEAD"].includes(request.method)) return new Response("File previews are read only.", { status: 405 })

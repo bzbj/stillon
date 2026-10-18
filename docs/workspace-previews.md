@@ -40,6 +40,8 @@ show it as a complete file. Refresh rereads disk; image failures offer retry.
 See [the implementation design](preview-files-v2-design.md). HTML can load local
 classic/module scripts, CSS, images, fonts and static JSON from its authorized
 document directory and descendants. Root-relative URLs map to that same directory.
+HTML child documents retain the already authorized package directory when opened
+through a document link, including a standalone reload of a nested child.
 Parent/hidden paths and escaping symlinks/junctions are denied. The origin is stable
 during the live grant and does not change on resize. HTML has native selection,
 input, IME, pointer events, storage, Canvas and frontend animation.

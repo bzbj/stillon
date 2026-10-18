@@ -38,7 +38,8 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
       destination.search = logical.search; destination.hash = logical.hash
       if (active) {
         frameTargetId.current = id
-        frameRoot.current = "filePath" in target ? target.filePath?.replaceAll("\\", "/").replace(/[^/]*$/u, "") ?? "" : ""
+        const resourceParts = destination.pathname.split("/").filter(Boolean).length
+        frameRoot.current = "filePath" in target && target.filePath ? target.filePath.replaceAll("\\", "/").split("/").slice(0, -resourceParts).join("/") + "/" : ""
         current.current = target.address; loadedVersion.current = refreshVersion; setUrl(destination.href)
       }
     }).catch(e => { if (active) setError(e.message) })
@@ -115,8 +116,8 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
       }}>{linkedAction.service ? "Preview host service" : capabilities?.local ? "Open linked file" : "Download linked file"}</button>
       <button className="underline" onClick={() => setLinkedAction(undefined)}>Dismiss</button>
     </div> : null}
-    <div className="min-h-0 flex-1"><iframe key={`${url}:${refreshVersion}`} ref={frame} title="HTML file preview" src={url}
+    <div className="min-h-0 flex-1 overflow-hidden"><iframe key={`${url}:${refreshVersion}`} ref={frame} title="HTML file preview" src={url}
     sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer"
-    className="h-full w-full border-0 bg-white" style={{ zoom, width: `${100 / zoom}%`, height: `${100 / zoom}%` }} /></div>
+    className="h-full w-full border-0 bg-white" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%`, height: `${100 / zoom}%` }} /></div>
   </div>
 }

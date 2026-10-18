@@ -229,12 +229,16 @@ try {
             await next.click(options)
             const independent = await opened
             await independent.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
+            await independent.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
+            await independent.reload({ waitUntil: "domcontentloaded" })
+            await independent.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
             assert.match(independent.url(), /\/preview\/[\w-]+$/u)
             assert((await independent.getByLabel("Preview address").textContent())?.endsWith("next.html?tab=one#section"))
             await independent.close(); await page.bringToFront()
           }
           await next.click()
           await page.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
+          await page.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
           assert((await address.inputValue()).endsWith("next.html?tab=one#section"))
           await page.getByRole("button", { name: "Back", exact: true }).click()
           await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()

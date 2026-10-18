@@ -21,6 +21,7 @@ export class PreviewTargets {
           const target = parsePreviewTarget(entry.target?.address, entry.projectId)
           if (target?.kind === "host-html" && typeof entry.target?.filePath === "string" && path.isAbsolute(entry.target.filePath) && /\.html?$/iu.test(entry.target.filePath)) target.filePath = entry.target.filePath
           if (target && "filePath" in target && typeof entry.target?.canonicalPath === "string" && path.isAbsolute(entry.target.canonicalPath)) target.canonicalPath = entry.target.canonicalPath
+          if (target && "filePath" in target && typeof entry.target?.resourceRoot === "string" && path.isAbsolute(entry.target.resourceRoot)) target.resourceRoot = entry.target.resourceRoot
           if (target) this.entries.set(id, { owner: entry.owner, projectId: entry.projectId, target, expiresAt: entry.expiresAt })
         }
       } catch { /* A missing or invalid registry never expands authorization. */ }
@@ -48,7 +49,7 @@ export class PreviewTargets {
     const entry = this.entries.get(id)
     return entry && entry.owner === owner && entry.expiresAt > Date.now() ? entry : null
   }
-  async handle(request: Request, url: URL, owner: string, projectExists: (id: string) => boolean, projectPath?: (id: string) => string | undefined) {
+  async handle(request: Request, url: URL, owner: string, projectExists: (id: string) => boolean, projectPath?: (id: string) => string | undefined, authorizedHtmlDirectory?: string) {
     if (!url.pathname.startsWith("/api/preview-targets")) return null
     await this.ready
     if (url.pathname === "/api/preview-targets" && request.method === "POST") {
@@ -65,7 +66,16 @@ export class PreviewTargets {
       }
       if (this.validateFile) {
         const prior = [...this.entries.values()].find(entry => entry.owner === owner && entry.projectId === projectId && entry.expiresAt > Date.now() && entry.target.address === target.address)
-        if ("filePath" in target && prior && "canonicalPath" in prior.target) target.canonicalPath = prior.target.canonicalPath
+        if ("filePath" in target && prior && "filePath" in prior.target) {
+          target.canonicalPath = prior.target.canonicalPath
+          target.resourceRoot = prior.target.resourceRoot
+        }
+        // This argument is supplied only after the server validates a link from
+        // an existing HTML grant. JSON request fields cannot authorize a folder.
+        if (authorizedHtmlDirectory && "filePath" in target && fileRenderer(target.filePath ?? "") === "html") {
+          const relation = target.resourceRoot ? path.relative(target.resourceRoot, authorizedHtmlDirectory) : ".."
+          if (!target.resourceRoot || relation === ".." || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) target.resourceRoot = authorizedHtmlDirectory
+        }
         try { await this.validateFile(target) }
         catch (error) { return Response.json({ error: error instanceof Error ? error.message : "File unavailable" }, { status: error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 403 }) }
       }

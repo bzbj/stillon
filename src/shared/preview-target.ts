@@ -5,9 +5,9 @@ import { fileRenderer } from "./file-renderers"
 import { parseProjectFilePreviewUrl, parseProjectMarkdownPreviewUrl } from "./project-file-urls"
 
 export type PreviewTarget =
-  | { kind: "project-file"; address: string; projectId: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean }
-  | { kind: "host-file"; address: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean }
-  | { kind: "host-html"; address: string; filePath?: string; canonicalPath?: string }
+  | { kind: "project-file"; address: string; projectId: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean; resourceRoot?: string }
+  | { kind: "host-file"; address: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean; resourceRoot?: string }
+  | { kind: "host-html"; address: string; filePath?: string; canonicalPath?: string; resourceRoot?: string }
   | { kind: "host-http" | "external-http"; address: string }
 
 export function parsePreviewTarget(address: string, projectId?: string): PreviewTarget | null {

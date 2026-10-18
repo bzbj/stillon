@@ -40,3 +40,11 @@ test("concurrent link resolution persists every owner-bound target", async () =>
     }
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test("client JSON cannot supply an HTML resource directory", async () => {
+  let directory: string | undefined = "unexpected"
+  const registry = new PreviewTargets(undefined, undefined, async target => { directory = "resourceRoot" in target ? target.resourceRoot : undefined })
+  const request = new Request("http://localhost/api/preview-targets", { method: "POST", body: JSON.stringify({ address: "/api/local-files/preview/%2Ftmp%2Findex.html", resourceRoot: "/private" }) })
+  expect((await registry.handle(request, new URL(request.url), "account-one", () => true))?.status).toBe(201)
+  expect(directory).toBeUndefined()
+})

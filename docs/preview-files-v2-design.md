@@ -68,6 +68,12 @@ Location fields are validated separately to prevent query/fragment fields from
 becoming path traversal. An authenticated link-resolution endpoint rechecks both
 canonical paths against the original HTML directory before the parent registers
 another target; lexical paths alone cannot authorize a junction outside it.
+Validated HTML descendants inherit that existing directory mapping. Their opaque
+targets retain the canonical root across standalone/reload and registry restart,
+so a nested page's root-relative CSS/module/JSON still uses the original package.
+Client JSON cannot nominate a resource root. Reauthorization keeps a previously
+authorized enclosing root and checks that the root itself has not become a
+different symlink/junction target; project roots remain confined to the workspace.
 Unsupported-file/system actions and host-service grants originating inside HTML
 require a visible action in the trusted parent UI; forged child messages cannot
 launch a default application. Regular authored StillOn links use normal B01–B08

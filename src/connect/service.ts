@@ -313,7 +313,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         if (fileEntry && request.method === "POST" && response.ok) {
           if (response.headers.get("x-stillon-file-preview-transport") !== "1") { await response.body?.cancel(); return json({ error: "Update the StillOn adapter for direct HTML file previews." }, 409) }
           const value = await response.json()
-          if (value.protocol !== 1 || typeof value.path !== "string" || !/^\/[^/]+$/u.test(value.path) || typeof value.scopeKey !== "string" || !/^[a-f0-9]{64}$/u.test(value.scopeKey)) return json({ error: "Update the StillOn host and adapter for direct file previews." }, 409)
+          if (value.protocol !== 1 || typeof value.path !== "string" || !/^\/[^?#\u0000-\u001f]+$/u.test(value.path) || value.path.includes("//") || typeof value.scopeKey !== "string" || !/^[a-f0-9]{64}$/u.test(value.scopeKey)) return json({ error: "Update the StillOn host and adapter for direct file previews." }, 409)
           return json({ protocol: 1, url: filePreviews.start(session, fileEntry[1]!, value.path, value.scopeKey) })
         }
         if (resource) return await previewResources.wrap(response, request, resource.context, resource.filePath)

@@ -6,9 +6,10 @@ export async function verifyDirectFileInput(page: Page, chromium: boolean) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
   const displayedBox = async (element: Locator) => {
     await element.scrollIntoViewIfNeeded()
+    await (await frameElement.elementHandle())!.waitForElementState("stable")
     const outer = await frameElement.boundingBox()
     assert(outer)
-    const size = await frameElement.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
+    const size = await frameElement.evaluate(element => ({ width: (element as HTMLElement).offsetWidth, height: (element as HTMLElement).offsetHeight }))
     const inner = await element.evaluate(element => { const rect = element.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
     const scale = outer.width / size.width, scaleY = outer.height / size.height
     // Locator coordinates across CSS-zoomed frames can omit the frame's scale.

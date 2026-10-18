@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { PreviewFiles } from "./preview-files"
+import { PreviewTargets } from "./preview-targets"
 import { parsePreviewTarget } from "../shared/preview-target"
 import { buildLocalFilePreviewUrl } from "../shared/local-file-urls"
 import { buildProjectFilePreviewUrl } from "../shared/project-file-urls"
@@ -17,14 +18,30 @@ test("file targets read exact bytes; direct HTML isolates origin and authorizes 
     await writeFile(path.join(folder, "module.mjs"), "document.body.dataset.loaded='yes'")
     await writeFile(path.join(folder, "data.json"), '{"label":"中文"}')
     await writeFile(path.join(folder, "raw.docx"), Buffer.from([0, 1, 2, 255]))
+    await mkdir(path.join(folder, "nested"))
+    await writeFile(path.join(folder, "nested", "next.html"), '<!doctype html><script type="module" src="/module.mjs"></script>')
     await writeFile(path.join(root, "private.json"), '{"private":true}')
     const target = parsePreviewTarget(buildLocalFilePreviewUrl(path.join(folder, "index.html")))!
     await files.authorize(target)
     const sibling = buildLocalFilePreviewUrl(path.join(folder, "raw.docx"))
-    expect(await files.linkedAddress(target, sibling)).toBe(sibling)
+    expect(await files.linkedAddress(target, sibling)).toEqual({ address: sibling, directory: folder })
     await expect(files.linkedAddress(target, buildLocalFilePreviewUrl(path.join(root, "private.json")))).rejects.toThrow("outside the authorized HTML directory")
     const entry = new URL(await files.localEntry(target, "local", "http://localhost:3210", () => valid))
     expect(entry.hostname).toMatch(/^f-[a-f0-9]{48}\.localhost$/u)
+    const childAddress = buildLocalFilePreviewUrl(path.join(folder, "nested", "next.html"))
+    const linked = await files.linkedAddress(target, childAddress)
+    const storage = path.join(root, "targets.json"), registry = new PreviewTargets(storage, undefined, target => files.authorize(target))
+    const registration = new Request("http://localhost/api/preview-targets", { method: "POST", body: JSON.stringify({ address: childAddress }) })
+    const registered = await registry.handle(registration, new URL(registration.url), "local", () => true, undefined, linked.directory)
+    expect(registered?.status).toBe(201)
+    const { id } = await registered!.json(), read = new Request("http://localhost/api/preview-targets/" + id)
+    const restarted = new PreviewTargets(storage, undefined, target => files.authorize(target))
+    const descriptor = await (await restarted.handle(read, new URL(read.url), "local", () => true))!.json()
+    const child = descriptor.target
+    expect(child.resourceRoot).toBe(folder)
+    const childEntry = new URL(await files.localEntry(child, "local", "http://localhost:3210", () => valid))
+    expect(childEntry.origin).toBe(entry.origin)
+    expect(childEntry.pathname).toBe("/nested/next.html")
     const request = (resource: string) => fetch(`http://127.0.0.1:${entry.port}${resource}`, { headers: { Host: entry.host } })
     const html = await request(entry.pathname)
     expect(html.status).toBe(200)
