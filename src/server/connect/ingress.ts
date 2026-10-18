@@ -37,10 +37,15 @@ export function validateIngress(request: Request, options: {
   const previewNavigation = request.method === "GET" && projectPreviewTarget(url.pathname)
     && request.headers.get("sec-fetch-mode") === "navigate" && request.headers.get("sec-fetch-dest") === "document"
     && request.headers.get("sec-fetch-user") === "?1" && !origin
+  // A file frame may open the read-only standalone app shell after asynchronous
+  // authorization. The target API still checks the owner; no API/iframe request
+  // gains this top-level navigation exception.
+  const standaloneNavigation = request.method === "GET" && /^\/preview\/[\w-]{32}$/u.test(url.pathname) && !origin
+    && request.headers.get("sec-fetch-mode") === "navigate" && request.headers.get("sec-fetch-dest") === "document"
   // The updater has its own bearer credential and only accepts loopback peers.
   // No browser may use this exception, even if it forges forwarding headers.
   const updater = url.pathname.startsWith("/_stillon/update/") && loopback(options.peer) && !origin && !site
-  if (!updater && !previewNavigation && ((origin !== null && !origins.has(origin)) || ["cross-site", "same-site"].includes(site ?? "")
+  if (!updater && !previewNavigation && !standaloneNavigation && ((origin !== null && !origins.has(origin)) || ["cross-site", "same-site"].includes(site ?? "")
     || ((! ["GET", "HEAD", "OPTIONS"].includes(request.method) || url.pathname === "/ws") && !origin))) return denied()
   const local = loopback(options.peer) && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
     && (!origin || ["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname))

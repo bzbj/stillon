@@ -1,4 +1,4 @@
-import { verifyDirectFileInput } from "./verify-direct-file-input"
+import { clickDirectFileLink, verifyDirectFileInput } from "./verify-direct-file-input"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile, rename, stat } from "node:fs/promises"
@@ -214,29 +214,36 @@ try {
           const input = page.frameLocator('iframe[title="HTML file preview"]').getByRole("textbox", { name: "File input" })
           await input.fill("Native state survives zoom and resize")
           await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+          await page.waitForFunction(() => (document.querySelector('iframe[title="HTML file preview"]') as HTMLElement)?.style.transform === "scale(0.9)")
           await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+          await page.waitForFunction(() => (document.querySelector('iframe[title="HTML file preview"]') as HTMLElement)?.style.transform === "scale(0.8)")
           await page.setViewportSize({ width: 1280, height: 900 })
           assert.equal(await input.inputValue(), "Native state survives zoom and resize")
           await verifyDirectFileInput(page, type === chromium)
           await page.setViewportSize({ width: 1440, height: 1000 })
           await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+          await page.waitForFunction(() => (document.querySelector('iframe[title="HTML file preview"]') as HTMLElement)?.style.transform === "scale(0.9)")
           await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+          await page.waitForFunction(() => (document.querySelector('iframe[title="HTML file preview"]') as HTMLElement)?.style.transform === "scale(1)")
           assert.equal(await input.inputValue(), "你日本語🙂")
           checks.push({ entry: entry.name, check: "Native HTML retains state across 80% zoom and resize; IME and 150 CSS px drag remain correct", result: "Pass" })
           const next = page.frameLocator('iframe[title="HTML file preview"]').getByRole("link", { name: "Next page", exact: true })
           for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
+            stage = entry.name + ":project-html:nested-open:" + ("button" in options ? "middle" : "modified")
             const opened = context.waitForEvent("page")
-            await next.click(options)
+            await clickDirectFileLink(page, next, options)
             const independent = await opened
+            currentPage = independent
+            stage = entry.name + ":project-html:nested-standalone:" + ("button" in options ? "middle" : "modified")
             await independent.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
             await independent.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
             await independent.reload({ waitUntil: "domcontentloaded" })
             await independent.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
             assert.match(independent.url(), /\/preview\/[\w-]+$/u)
             assert((await independent.getByLabel("Preview address").textContent())?.endsWith("next.html?tab=one#section"))
-            await independent.close(); await page.bringToFront()
+            await independent.close(); currentPage = page; await page.bringToFront()
           }
-          await next.click()
+          await clickDirectFileLink(page, next)
           await page.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
           await page.frameLocator('iframe[title="HTML file preview"]').getByText("Nested resources ready", { exact: true }).waitFor()
           assert((await address.inputValue()).endsWith("next.html?tab=one#section"))
@@ -401,6 +408,8 @@ try {
   console.error("Browser validation failed at " + stage)
   if (currentPage && !currentPage.isClosed()) {
     console.error("Preview status:", await currentPage.getByRole("status").allTextContents())
+    console.error("Preview alerts:", await currentPage.getByRole("alert").allTextContents())
+    console.error("Validation path:", new URL(currentPage.url()).pathname, "frames:", currentPage.frames().map(frame => { try { return new URL(frame.url()).pathname } catch { return frame.url() } }))
     await currentPage.screenshot({ path: path.join(output, "failure.png") }).catch(() => undefined)
     await writeFile(path.join(output, "failure.txt"), await currentPage.locator("body").innerText()).catch(() => undefined)
   }

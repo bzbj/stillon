@@ -410,10 +410,10 @@ function BrowserPanelImpl({
                   setIsZoomTooltipOpen(false)
                 }}
               >
-                <BrowserToolbarButton label="Zoom out" onClick={() => setBrowserZoom(projectId, zoom - 0.1)}>
+                <BrowserToolbarButton label="Zoom out" onClick={() => setBrowserZoom(projectId, value => value - 0.1)}>
                   <Minus className="h-4 w-4" />
                 </BrowserToolbarButton>
-                <BrowserToolbarButton label="Zoom in" onClick={() => setBrowserZoom(projectId, zoom + 0.1)}>
+                <BrowserToolbarButton label="Zoom in" onClick={() => setBrowserZoom(projectId, value => value + 0.1)}>
                   <Plus className="h-4 w-4" />
                 </BrowserToolbarButton>
               </div>
