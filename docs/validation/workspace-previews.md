@@ -17,6 +17,8 @@ deployment, host upgrade, managed metadata edit or startup change was performed.
 Full product acceptance is **NotRun**: second-device Connect, physical OS input
 methods, mobile and macOS Finder still have required work below.
 
+![Native HTML file with Chinese/Japanese text and a 150 CSS px drag](../images/preview-v2-native-html.png)
+
 ### Commands and evidence scope
 
 | Command/check | Local result | Evidence |
@@ -56,6 +58,9 @@ and generic screenshots. Engine results do not overwrite each other. Private
 fixture JSON contains generated credentials and is excluded from artifact uploads.
 CI uses real frps/frpc, but its synthetic account and same-machine browser are not
 a real second device or the deployed managed workspace.
+Repeated standalone reloads are paced below the gateway's unchanged 1,200/minute
+workspace limit; browser routing is removed after the controlled external tests.
+This avoids turning the expanded matrix into an artificial uncached traffic burst.
 
 ### V2 preview matrix (36 cells)
 

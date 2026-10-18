@@ -40,12 +40,26 @@ try {
     }))
     await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
     let browserRequests = 0, externalRegistrations = 0
+    const requestTimes: number[] = []
     context.on("request", request => {
+      if (new URL(request.url()).origin === entry.origin) requestTimes.push(Date.now())
       const path = new URL(request.url()).pathname
       if (path.startsWith("/api/preview-browser")) browserRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
     context.on("response", response => { if (response.status() === 429 || response.status() >= 500) networkFailures.push({ path: new URL(response.url()).pathname, status: response.status() }) })
+    const paceConnect = async () => {
+      if (!entry.gateway) return
+      while (true) {
+        const now = Date.now()
+        while (requestTimes.length && requestTimes[0]! < now - 60_000) requestTimes.shift()
+        if (requestTimes.length < 700) return
+        // The real gateway serves authenticated data without cache and limits
+        // traffic to 1,200/minute. Leave room for bootstrap within one cell;
+        // do not relax production authorization or abuse limits for this test.
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
     const page = await context.newPage()
     currentPage = page
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
@@ -210,6 +224,7 @@ try {
     checks.push({ entry: entry.name, check: "Service-list ordinary click and native menu open the authorized service in sidebar and standalone", result: "Pass" })
     }
     for (const name of Object.keys(config.addresses[entry.name]).filter(name => !filesOnly || name !== "dynamic")) {
+      await paceConnect()
       stage = entry.name + ":" + name + ":sidebar"
       await address.fill(config.addresses[entry.name][name]); await address.press("Enter")
       await page.waitForFunction(value => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value === value, config.addresses[entry.name][name])
@@ -337,6 +352,7 @@ try {
     }
     stage = entry.name + ":image-formats"
     for (const outside of [false, true]) for (const extension of ["png", "jpg", "webp", "gif", "svg", "avif", "apng", "bmp", "ico"]) {
+      await paceConnect()
       stage = entry.name + ":image:" + (outside ? "host:" : "project:") + extension
       const fileName = "图 image." + extension
       const base = outside ? config.addresses[entry.name]["outside-image"].replace(/[^/]+$/u, encodeURIComponent(config.outsidePath + "/" + fileName))

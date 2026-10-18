@@ -68,7 +68,7 @@ jobs:
 
   workspace-preview-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       STILLON_PREVIEW_BROWSER: /usr/bin/google-chrome
     steps:

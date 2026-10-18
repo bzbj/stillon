@@ -25,7 +25,7 @@ for (const name of ["workspace-previews.md", "preview-browser-decision.md", "val
   await mkdir(path.dirname(path.join(destination, "docs", name)), { recursive: true })
   await copyFile(path.join("docs", name), path.join(destination, "docs", name))
 }
-for (const name of ["workspace-preview-standalone.png", "workspace-preview-dynamic.png", "workspace-preview-html.jpg", "workspace-preview-input-sidebar.png", "workspace-preview-input-standalone.png"]) {
+for (const name of ["workspace-preview-standalone.png", "workspace-preview-dynamic.png", "workspace-preview-html.jpg", "workspace-preview-input-sidebar.png", "workspace-preview-input-standalone.png", "preview-v2-native-html.png"]) {
   await mkdir(path.join(destination, "docs/images"), { recursive: true })
   await copyFile(path.join("docs/images", name), path.join(destination, "docs/images", name))
 }
