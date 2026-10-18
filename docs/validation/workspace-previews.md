@@ -76,6 +76,13 @@ upgrade or a claim that Bun itself is fixed. Final platform and authenticated
 browser CI must pass on this relay revision before merge; the first crash log
 remains part of the evidence.
 
+One fresh Windows runner also exceeded the old ten-second PowerShell/.NET helper
+watchdog on its first discovery scan; the next 29 scans passed. The helper now
+has a twenty-second initialization allowance while each actual HTTP request
+retains its 1.5-second deadline. Helper errors propagate instead of becoming a
+cached empty service list. Final acceptance still requires 30/30 fresh scans;
+there is no discarded warm-up scan or cached replacement for a failed scan.
+
 ### V2 preview matrix (36 cells)
 
 Pass below is scoped to executed local source-fixture assertions. Connect source

@@ -90,7 +90,9 @@ export async function probeWindowsHttpPorts(ports: number[]) {
   if (!ports.length) return new Map<number, Response>()
   const output = await new Promise<string>((resolve, reject) => {
     const child = execFile("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-      { timeout: 10_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, encoding: "utf8" }, (error, stdout) => error ? reject(error) : resolve(stdout))
+      // Cold PowerShell/.NET compilation can exceed ten seconds on a fresh
+      // Windows host. Each actual HTTP probe still has its own 1.5s deadline.
+      { timeout: 20_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, encoding: "utf8" }, (error, stdout) => error ? reject(error) : resolve(stdout))
     child.stdin?.on("error", () => undefined)
     child.stdin?.end(JSON.stringify(ports))
   })

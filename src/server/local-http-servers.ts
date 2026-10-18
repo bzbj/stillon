@@ -345,7 +345,11 @@ export async function listLocalHttpServers(options: {
   })))
 
   const windowsResponses = process.platform === "win32" && !fetchImpl
-    ? await probeWindowsHttpPorts(entries.map(entry => entry.port)).catch(() => new Map<number, Response>()) : undefined
+    // A failed system probe is an error, not evidence that no services exist.
+    // Do not cache a false empty list when its helper could not initialize.
+    ? await probeWindowsHttpPorts(entries.map(entry => entry.port)).catch(error => {
+      throw new Error("Local service discovery is temporarily unavailable. Refresh to retry.", { cause: error })
+    }) : undefined
   const results = await Promise.all(entries.map((entry) => {
     if (windowsResponses && !windowsResponses.has(entry.port)) return null
     const primaryOwner = entry.owners[0]
