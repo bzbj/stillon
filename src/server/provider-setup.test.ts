@@ -130,7 +130,9 @@ test("setup HTTP rejects remote terminal/config actions, wrong methods and cross
   const setup = { status: async (provider: "codex" | "claude", local: boolean) => ({ provider, state: "missing" as const, installed: false, platform: "darwin", canOpenTerminal: local }), openTerminal: async () => { launches++; return { opened: true } } }
   const url = new URL("http://localhost/api/provider-setup/codex/login")
   const options = { local: false, validateOrigin: () => true, settings: { set: async () => {} }, setup }
-  expect((await handleProviderSetupRequest(new Request(url, { method: "POST" }), url, options))!.status).toBe(403)
+  const rejected = new Request(url, { method: "POST", body: JSON.stringify({ executable: "/chosen/codex" }) })
+  expect((await handleProviderSetupRequest(rejected, url, options))!.status).toBe(403)
+  expect(rejected.bodyUsed).toBe(true)
   expect(launches).toBe(0)
   expect((await handleProviderSetupRequest(new Request(url, { method: "POST" }), url, { ...options, local: true, validateOrigin: () => false }))!.status).toBe(403)
   expect((await handleProviderSetupRequest(new Request(url), url, { ...options, local: true }))!.status).toBe(405)

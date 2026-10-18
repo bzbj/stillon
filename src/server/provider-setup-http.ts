@@ -13,6 +13,9 @@ export async function handleProviderSetupRequest(req: Request, url: URL, options
   const method = action === "status" ? "GET" : "POST"
   if (req.method !== method) return new Response(null, { status: 405, headers: { Allow: method } })
   if (method === "POST" && (!options.local || !options.validateOrigin(req))) {
+    // Finish the body before replying so a rejected write cannot corrupt the
+    // next request on a reused tunnel connection.
+    await req.body?.pipeTo(new WritableStream()).catch(() => {})
     return Response.json({ error: "Open StillOn locally on the Agent computer to install or sign in." }, { status: 403 })
   }
   try {

@@ -45,8 +45,9 @@ async function remote(index: number, target: string, init: RequestInit = {}) {
     headers: { host: url.host, origin: url.origin, cookie: sessions[index] ?? "", ...Object.fromEntries(new Headers(init.headers)) } })
 }
 async function status(response: Response, executable: string) {
-  assert.equal(response.status, 200)
-  const value = await response.json() as ProviderSetupStatus
+  const body = await response.text()
+  assert.equal(response.status, 200, `${response.url}: ${body}`)
+  const value = JSON.parse(body) as ProviderSetupStatus
   assert.equal(value.state, "ready", value.message ?? "CLI should be ready")
   assert.equal(value.executable, executable)
   return value
@@ -98,6 +99,7 @@ try {
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executable: standalone }),
     } : {}) })
     assert.equal(denied.status, 403, `${action}: ${await denied.text()}`)
+    await status(await remote(0, route + "status"), manual)
   }
   assert.equal((await remote(0, route + "status", { headers: { Cookie: "" } })).status, 401)
   assert.equal((await remote(0, route + "status", { headers: { Cookie: sessions[1]! } })).status, 401)
