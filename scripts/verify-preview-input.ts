@@ -72,8 +72,12 @@ export async function verifyPreviewInput(options: {
     const paste = async (value: string) => {
       if (direct) await page.keyboard.insertText(value)
       else await page.getByLabel("Preview keyboard input").evaluate((element, text) => {
-        const data = new DataTransfer(); data.setData("text/plain", text)
-        element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }))
+        // Firefox protects DataTransfer data outside a trusted paste. Supply the
+        // event's read interface explicitly; exercise the actual paste handler
+        // without accessing either operating system clipboard.
+        const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true })
+        Object.defineProperty(event, "clipboardData", { value: { getData: (format: string) => format === "text/plain" ? text : "" } })
+        element.dispatchEvent(event)
       }, value)
       expected += value; await wait(value => value.text === expected)
     }
@@ -130,6 +134,6 @@ export async function verifyPreviewInput(options: {
       await touch("touchCancel")
       await wait(value => !value.down && value.cancels > 0)
     }
-    return { nativeIme: Boolean(cdp), nativeTouch: Boolean(cdp), paste: direct ? "native text baseline" : "visiting-device paste event; OS clipboard untouched" }
+    return { nativeIme: Boolean(cdp), nativeTouch: Boolean(cdp), paste: direct ? "native text baseline" : "scripted visiting-device paste handler; OS clipboard untouched" }
   } finally { page.off("request", record); await cdp?.detach() }
 }
