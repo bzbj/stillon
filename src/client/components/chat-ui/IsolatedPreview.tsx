@@ -21,6 +21,11 @@ export function IsolatedPreview({ address, projectId, refreshVersion, zoom = 1, 
   const container = useRef<HTMLDivElement>(null)
   const viewer = useRef(crypto.randomUUID())
   const lastMove = useRef(0)
+  const composing = useRef(false)
+  const compositionCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pointer = useRef<{ id: number; type: string; button: number; x: number; y: number; startX: number; startY: number } | undefined>(undefined)
+  const inputQueue = useRef<{ id: string; action: Record<string, unknown> }[]>([])
+  const sending = useRef(false)
   const release = useCallback((id: string) => fetch(`/api/preview-browser/${id}?viewer=${viewer.current}`, { method: "DELETE", keepalive: true }).catch(() => undefined), [])
   const update = useCallback((value: Frame) => {
     setFrame(value); setError(value.error); setLoading(false)
@@ -32,11 +37,69 @@ export function IsolatedPreview({ address, projectId, refreshVersion, zoom = 1, 
   const request = useCallback(async (id: string, action?: object) => {
     const width = Math.max(320, Math.min(1600, container.current?.clientWidth ?? 1100))
     const height = Math.max(200, Math.min(1200, container.current?.clientHeight ?? 800))
-    const response = await fetch(`/api/preview-browser/${id}?viewer=${viewer.current}&width=${width}&height=${height}`, action ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) } : { cache: "no-store" })
+    const held = pointer.current ? `&pointer=${pointer.current.id}` : ""
+    const response = await fetch(`/api/preview-browser/${id}?viewer=${viewer.current}&width=${width}&height=${height}${held}`, {
+      signal: AbortSignal.timeout(15_000), ...(action ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) } : { cache: "no-store" as const }),
+    })
     const value = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(value.error || "The preview connection is unavailable. Retry when the computer is online.")
     if (active.current === id && typeof value.image === "string") update(value)
   }, [update])
+
+  // Connect requests can arrive out of order. Coalesce only adjacent moves,
+  // never a press, release or text commit.
+  const send = useCallback((action: Record<string, unknown>) => {
+    const id = active.current
+    if (!id) return
+    const previous = inputQueue.current.at(-1)
+    if (previous?.id === id && previous.action.type === "pointer" && previous.action.phase === "move"
+      && action.type === "pointer" && action.phase === "move") previous.action = action
+    else if (previous?.id === id && previous.action.type === "text" && action.type === "text"
+      && typeof previous.action.text === "string" && typeof action.text === "string" && previous.action.text.length + action.text.length <= 2000) previous.action.text += action.text
+    else inputQueue.current.push({ id, action })
+    if (sending.current) return
+    sending.current = true
+    void (async () => {
+      try {
+        while (inputQueue.current.length) {
+          const next = inputQueue.current.shift()!
+          if (active.current !== next.id) continue
+          await request(next.id, { ...next.action, inputOnly: true }).catch(e => { if (active.current === next.id) setError(e.message) })
+        }
+      } finally { sending.current = false }
+    })()
+  }, [request])
+  const cancelPointer = useCallback(() => {
+    const current = pointer.current
+    pointer.current = undefined
+    if (current) {
+      send({ type: "pointer", phase: "cancel", pointerId: current.id, pointerType: current.type, button: current.button, buttons: 0, x: current.x, y: current.y })
+      if (image.current?.hasPointerCapture(current.id)) image.current.releasePointerCapture(current.id)
+    }
+  }, [send])
+  const commitText = useCallback(() => {
+    clearTimeout(compositionCommit.current); compositionCommit.current = undefined
+    if (composing.current || !textInput.current) return
+    let value = textInput.current.value
+    textInput.current.value = ""
+    while (value) {
+      let length = Math.min(value.length, 2000)
+      if (length < value.length && /[\uD800-\uDBFF]/u.test(value[length - 1]!)) length--
+      send({ type: "text", text: value.slice(0, length) }); value = value.slice(length)
+    }
+  }, [send])
+  useEffect(() => {
+    const blur = () => cancelPointer()
+    const visibility = () => { if (document.visibilityState !== "visible") cancelPointer() }
+    window.addEventListener("blur", blur)
+    document.addEventListener("visibilitychange", visibility)
+    return () => {
+      cancelPointer(); clearTimeout(compositionCommit.current)
+      composing.current = false
+      if (textInput.current) textInput.current.value = ""
+      window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", visibility)
+    }
+  }, [session, cancelPointer])
 
   useEffect(() => {
     if (reported.current === address && version.current === refreshVersion && session) { reported.current = undefined; return }
@@ -103,13 +166,12 @@ export function IsolatedPreview({ address, projectId, refreshVersion, zoom = 1, 
     const wheel = (event: WheelEvent) => {
       if (!active.current || !image.current?.contains(event.target as Node)) return
       event.preventDefault()
-      void request(active.current, { type: "scroll", dx: Math.max(-2000, Math.min(2000, event.deltaX)), dy: Math.max(-2000, Math.min(2000, event.deltaY)) }).catch(e => setError(e.message))
+      send({ type: "scroll", dx: Math.max(-2000, Math.min(2000, event.deltaX)), dy: Math.max(-2000, Math.min(2000, event.deltaY)) })
     }
     element.addEventListener("wheel", wheel, { passive: false })
     return () => element.removeEventListener("wheel", wheel)
-  }, [request])
+  }, [send])
 
-  const send = (action: object) => { if (active.current) void request(active.current, action).catch(e => setError(e.message)) }
   return <div ref={container} style={{ zoom }} className="relative flex h-full w-full flex-col overflow-auto bg-background">
     {(loading || error) && <div role="status" className="flex items-center gap-3 border-b border-border bg-background px-4 py-3 text-sm">
       <span>{loading ? "Loading preview…" : error}</span>
@@ -117,22 +179,61 @@ export function IsolatedPreview({ address, projectId, refreshVersion, zoom = 1, 
     </div>}
     {frame && <div className="relative w-full">
       <img ref={image} src={`data:image/jpeg;base64,${frame.image}`} alt="Interactive browser preview" draggable={false} className="block w-full select-none"
-        onMouseMove={event => {
-          if (Date.now() - lastMove.current < 80 || !active.current) return
-          lastMove.current = Date.now()
+        style={{ touchAction: "none" }}
+        onContextMenu={event => event.preventDefault()}
+        onPointerDown={event => {
+          if (pointer.current || !active.current || ![0, 1, 2].includes(event.button)) return
+          event.preventDefault()
           const rect = event.currentTarget.getBoundingClientRect()
-          void request(active.current, { type: "move", x: (event.clientX - rect.left) * frame.width / rect.width, y: (event.clientY - rect.top) * frame.height / rect.height }).catch(() => undefined)
+          const x = Math.max(0, Math.min(frame.width - 1, (event.clientX - rect.left) * frame.width / rect.width))
+          const y = Math.max(0, Math.min(frame.height - 1, (event.clientY - rect.top) * frame.height / rect.height))
+          pointer.current = { id: event.pointerId, type: event.pointerType, button: event.button, x, y, startX: event.clientX, startY: event.clientY }
+          event.currentTarget.setPointerCapture(event.pointerId)
+          send({ type: "pointer", phase: "down", pointerId: event.pointerId, pointerType: event.pointerType, button: event.button, buttons: event.buttons, x, y })
         }}
-        onClick={event => {
+        onPointerMove={event => {
+          const current = pointer.current
+          if (current && current.id !== event.pointerId) return
           const rect = event.currentTarget.getBoundingClientRect()
-          send({ type: "click", x: (event.clientX - rect.left) * frame.width / rect.width, y: (event.clientY - rect.top) * frame.height / rect.height })
-          textInput.current?.focus({ preventScroll: true })
-        }} />
+          const x = Math.max(0, Math.min(frame.width - 1, (event.clientX - rect.left) * frame.width / rect.width))
+          const y = Math.max(0, Math.min(frame.height - 1, (event.clientY - rect.top) * frame.height / rect.height))
+          if (current) { current.x = x; current.y = y }
+          else if (Date.now() - lastMove.current < 80) return
+          lastMove.current = Date.now()
+          send({ type: "pointer", phase: "move", pointerId: event.pointerId, pointerType: event.pointerType, button: current?.button ?? 0, buttons: event.buttons, x, y })
+        }}
+        onPointerUp={event => {
+          const current = pointer.current
+          if (!current || current.id !== event.pointerId) return
+          const rect = event.currentTarget.getBoundingClientRect()
+          pointer.current = undefined
+          send({ type: "pointer", phase: "up", pointerId: current.id, pointerType: current.type, button: current.button, buttons: 0,
+            x: Math.max(0, Math.min(frame.width - 1, (event.clientX - rect.left) * frame.width / rect.width)),
+            y: Math.max(0, Math.min(frame.height - 1, (event.clientY - rect.top) * frame.height / rect.height)) })
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (current.type === "mouse" || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < 5) textInput.current?.focus({ preventScroll: true })
+        }}
+        onPointerCancel={cancelPointer} onLostPointerCapture={cancelPointer} />
       <textarea ref={textInput} aria-label="Preview keyboard input" className="absolute left-0 top-0 h-px w-px opacity-0" autoCapitalize="off" autoCorrect="off" spellCheck={false}
-        onChange={event => { if (event.target.value) send({ type: "text", text: event.target.value.slice(0, 2000) }); event.target.value = "" }}
+        onCompositionStart={() => { clearTimeout(compositionCommit.current); compositionCommit.current = undefined; composing.current = true }}
+        onCompositionEnd={() => {
+          composing.current = false
+          // The final input can precede or follow compositionend across engines.
+          clearTimeout(compositionCommit.current); compositionCommit.current = setTimeout(commitText, 0)
+        }}
+        onChange={event => { if (!composing.current && !(event.nativeEvent as InputEvent).isComposing && compositionCommit.current === undefined) commitText() }}
+        onBlur={event => {
+          if (composing.current) { composing.current = false; event.currentTarget.value = "" }
+          else commitText()
+        }}
+        onPaste={event => {
+          const value = event.clipboardData.getData("text/plain")
+          if (value && !composing.current) { event.preventDefault(); event.currentTarget.value += value; commitText() }
+        }}
         onKeyDown={event => {
-          if (event.nativeEvent.isComposing) return
+          if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return
           const key = event.key === " " ? "Space" : event.key
+          if (["Control", "Meta", "Alt", "Shift", "AltGraph", "CapsLock", "Dead", "Unidentified", "Process"].includes(key)) return
           // Paste into this device's input; never ask the computer's browser to
           // read or write the host operating system clipboard.
           if ((event.ctrlKey || event.metaKey) && /^[cvx]$/iu.test(key)) return

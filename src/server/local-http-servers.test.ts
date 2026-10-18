@@ -8,10 +8,12 @@ describe("local http servers", () => {
       return new Response("<!doctype html><title>Loopback fixture " + port + "</title>", { status: request.headers.get("host") === "localhost:" + port ? 200 : 400, headers: { "Content-Type": "text/html" } })
     } }))
     try {
-      const servers = await listLocalHttpServers({ projectPath: "preview-discovery-" + apps.map(app => app.port).join("-") })
-      for (const app of apps) expect(servers.find(server => server.port === app.port)?.title).toBe("Loopback fixture " + app.port)
+      for (let scan = 0; scan < 5; scan++) {
+        const servers = await listLocalHttpServers({ projectPath: "preview-discovery-" + apps.map(app => app.port).join("-") + "-" + scan })
+        for (const app of apps) expect(servers.find(server => server.port === app.port)?.title).toBe("Loopback fixture " + app.port)
+      }
     } finally { for (const app of apps) await app.stop(true) }
-  }, 10_000)
+  }, 60_000)
 
   test("extracts html titles", () => {
     expect(extractHtmlTitle("<html><head><title> Vite App </title></head></html>")).toBe("Vite App")

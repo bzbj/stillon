@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { previewInputHtml } from "./preview-input-fixture"
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -104,12 +105,22 @@ try {
   const project = await server.store.openProject(projectPath, "Preview workspace")
   const chat = await server.store.createChat(project.id)
   await writeFile(path.join(projectPath, "TREE-ENTRY.md"), await readFile(path.join(projectPath, "README.md")))
+  const inputStates = new Map<string, { revision: number }>()
   let count = 0
   let activeSockets = 0
   let serviceListPort = 0
   const app = Bun.serve({ hostname: "127.0.0.1", port: 0,
     async fetch(request, appServer) {
       const url = new URL(request.url)
+      if (url.pathname === "/input-state") {
+        const key = url.searchParams.get("case") ?? ""
+        if (request.method === "POST") {
+          const value = await request.json() as { revision: number }
+          if (value.revision > (inputStates.get(key)?.revision ?? 0)) inputStates.set(key, value)
+        }
+        return Response.json(inputStates.get(key) ?? {})
+      }
+      if (url.pathname === "/input") return new Response(previewInputHtml, { headers: { "Content-Type": "text/html;charset=utf-8", "X-Frame-Options": "DENY" } })
       if (url.pathname === "/socket" && appServer.upgrade(request)) return
       if (url.pathname === "/api/counter") {
         if (request.method === "POST") count++
@@ -255,13 +266,43 @@ try {
   stage = "browser-authorization-expiry"
   const leasedBrowser = new PreviewBrowser({ blockedPorts: () => [], resolveFile: async () => { throw new Error("No file grant") } })
   try {
+    let leasedAddress = appOrigin + "/input?case=pointer-lifecycle"
     const options = { owner: "fixture-owner", scope: "fixture-owner:parent-session",
-      target: () => ({ target: { kind: "host-http" as const, address: appOrigin + "/app" } }) }
+      target: () => ({ target: { kind: "host-http" as const, address: leasedAddress } }) }
     const opened = await leasedBrowser.handle(new Request("http://stillon.invalid/api/preview-browser", {
-      method: "POST", body: JSON.stringify({ targetId: "fixture" }), headers: { "Content-Type": "application/json" },
+      method: "POST", body: JSON.stringify({ targetId: "fixture", viewerId: "pointer-owner" }), headers: { "Content-Type": "application/json" },
     }), new URL("http://stillon.invalid/api/preview-browser"), { ...options, expiresAt: Date.now() + 30_000 })
     assert.equal(opened?.status, 200)
     const session = await opened!.json() as { id: string }
+    const pointerState = async () => await (await fetch(appOrigin + "/input-state?case=pointer-lifecycle")).json() as any
+    await eventually(pointerState, value => value.revision > 0)
+    const pointerRoute = (viewer: string) => new URL("http://stillon.invalid/api/preview-browser/" + session.id + "?viewer=" + viewer)
+    const pointerAction = async (phase: string, viewer = "pointer-owner", y = 230) => {
+      const url = pointerRoute(viewer)
+      return await leasedBrowser.handle(new Request(url, { method: "POST", body: JSON.stringify({ type: "pointer", phase,
+        pointerId: 1, pointerType: "mouse", button: 0, buttons: phase === "down" ? 1 : 0, x: 50, y }) }), url, options)
+    }
+    assert.equal((await pointerAction("down"))?.status, 200)
+    await eventually(pointerState, value => value.down)
+    const secondViewer = new URL("http://stillon.invalid/api/preview-browser")
+    assert.equal((await leasedBrowser.handle(new Request(secondViewer, { method: "POST", body: JSON.stringify({ targetId: "fixture", viewerId: "another-viewer" }) }), secondViewer, options))?.status, 200)
+    assert.equal((await pointerAction("up", "another-viewer"))?.status, 400)
+    assert.equal((await pointerState()).down, true)
+    // Background session keepalives must not hold a lost pointer indefinitely.
+    const heartbeat = setInterval(() => {
+      const url = new URL(pointerRoute("pointer-owner") + "&ping=1")
+      void leasedBrowser.handle(new Request(url), url, options)
+    }, 500)
+    try { await eventually(pointerState, value => !value.down, 8_000) } finally { clearInterval(heartbeat) }
+    assert.equal((await pointerAction("down", "pointer-owner", 420))?.status, 200)
+    const owner = pointerRoute("pointer-owner")
+    assert.equal((await leasedBrowser.handle(new Request(owner, { method: "DELETE" }), owner, options))?.status, 200)
+    await eventually(pointerState, value => !value.down)
+    assert.equal((await pointerState()).activations, 0, "Cancelling a held pointer must not activate its button")
+    assert.equal((await pointerAction("down"))?.status, 410)
+    checks.push({ entry: "pointer-lifecycle", check: "Viewer ownership, lost-pointer watchdog despite background heartbeats, release and stale-input rejection", result: "Pass" })
+    leasedAddress = appOrigin + "/app"
+    assert.equal((await leasedBrowser.handle(new Request(secondViewer, { method: "POST", body: JSON.stringify({ targetId: "fixture", viewerId: "another-viewer" }) }), secondViewer, options))?.status, 200)
     await eventually(async () => activeSockets, value => value === 1)
     const route = new URL("http://stillon.invalid/api/preview-browser/" + session.id + "?ping=1")
     const ping = await leasedBrowser.handle(new Request(route), route, { ...options, expiresAt: Date.now() + 200 })

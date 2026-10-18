@@ -37,6 +37,52 @@ never replayed by the acceptance fixture.
 Only result summaries and generic screenshots may be uploaded. Private fixture
 JSON includes generated test credentials and must remain private.
 
+## Follow-up to the independent PR #223 acceptance
+
+The independent review found duplicated IME commits, missing drag presses/releases,
+and intermittent Windows service-list omissions. Those findings supersede a blanket
+claim that the earlier browser matrix covered all interactive applications.
+
+Composition now remains in the visiting textarea until committed. Ordered input
+delivery preserves text/key/pointer order over Connect; long pastes preserve emoji
+across request boundaries. Native Chromium IME dispatch checks Chinese and Japanese
+in the direct application, sidebar and independent page. Firefox checks its
+composition event lifecycle explicitly; that is not native IME evidence.
+Paste-event tests leave both operating system clipboards untouched. Real OS input
+methods and physical touch keyboards still require device acceptance.
+
+Mouse and touch now transmit press, movement, release and cancellation, with scaled
+coordinates and visiting pointer capture. Viewer release, navigation and a
+five-second lost-pointer watchdog release held input without activating a button.
+Only a foreground view reporting the held pointer renews that press; background
+session heartbeats cannot keep it stuck. Browser tests exercise scaled mouse/touch
+drags and capture/touch cancellation. API assertions exercise viewer ownership,
+background heartbeat/watchdog behavior, release and stale queued-input rejection.
+
+Discovery connects to actual loopback addresses while preserving localhost Host
+semantics. Windows batches metadata through the system HTTP client in a hidden,
+profile-free PowerShell process: Bun's HTTP client ignores socket overrides here,
+and raw refused-connection probes exposed native Windows Bun crashes. The Windows
+probe has a 1.5-second per-port response budget, excluding process/compiler startup,
+bounded metadata, cancellation, no cookies/proxy and same-port loopback redirects.
+Unix uses bounded direct sockets. Discovery cache lifetime is five seconds; the
+separate process-identity authorization checks retain no discovery TTL.
+
+```sh
+bun scripts/verify-preview-discovery.ts --scans=30
+bun run test:previews:browser --local-only
+bun run test:previews:browser --local-only --firefox
+```
+
+The discovery script records each fresh scan and both families. CI includes an
+additional Windows Edge/discovery job and retains separate Chromium/Firefox
+browser summaries so one engine cannot overwrite the other's IME evidence.
+These are source-fixture checks. Deployment, a real second device, production
+Connect and physical input methods remain outstanding acceptance gates below.
+
+![Chinese text and a 150 px scaled mouse drag in the sidebar](../images/workspace-preview-input-sidebar.png)
+![The same input application in an independent page](../images/workspace-preview-input-standalone.png)
+
 The Windows type/build checks, audit and focused preview regressions pass.
 The latest full local run recorded 1,438 passes, 11 skips and 11 existing `EPERM`
 symlink failures. An earlier run also encountered `EPERM` spawning an unchanged
