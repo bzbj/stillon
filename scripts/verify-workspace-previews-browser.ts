@@ -211,6 +211,18 @@ try {
       else if (name.endsWith("html")) {
         await verifyDirectFileInput(page, type === chromium)
         if (name === "project-html") {
+          const input = page.frameLocator('iframe[title="HTML file preview"]').getByRole("textbox", { name: "File input" })
+          await input.fill("Native state survives zoom and resize")
+          await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+          await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+          await page.setViewportSize({ width: 1280, height: 900 })
+          assert.equal(await input.inputValue(), "Native state survives zoom and resize")
+          await verifyDirectFileInput(page, type === chromium)
+          await page.setViewportSize({ width: 1440, height: 1000 })
+          await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+          await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+          assert.equal(await input.inputValue(), "你日本語🙂")
+          checks.push({ entry: entry.name, check: "Native HTML retains state across 80% zoom and resize; IME and 150 CSS px drag remain correct", result: "Pass" })
           const next = page.frameLocator('iframe[title="HTML file preview"]').getByRole("link", { name: "Next page", exact: true })
           for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
             const opened = context.waitForEvent("page")
