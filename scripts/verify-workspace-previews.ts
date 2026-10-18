@@ -9,6 +9,7 @@ import { createConnectFixture, eventually } from "./connect-fixture"
 import { startStillOnServer } from "../src/server/server"
 import { PreviewBrowser } from "../src/server/preview-browser"
 import { listLocalHttpServers } from "../src/server/local-http-servers"
+import { ConnectRelay } from "../src/server/connect/relay"
 
 // Synthetic accounts/files only. Never enrolls a production computer, sends
 // mail, starts an Agent, or changes the installed application's environment.
@@ -22,6 +23,21 @@ const root = await mkdtemp(path.join(os.tmpdir(), "stillon-workspace-previews-")
 if (filesOnly) process.env.STILLON_PREVIEW_BROWSER = path.join(root, "browser-intentionally-unavailable")
 const output = browserOutput ? path.dirname(path.resolve(browserOutput)) : path.resolve("test-artifacts/workspace-previews")
 await mkdir(output, { recursive: true })
+// Report only synthetic transport state on failure, never headers, tokens,
+// target authorities or response bodies. Successful relay behavior is unchanged.
+const relayHttp = ConnectRelay.prototype.http
+ConnectRelay.prototype.http = async function (...args) {
+  const [request, , , scope] = args
+  const diagnostic = (error?: unknown) => {
+    let authorized = false
+    try { authorized = scope.valid() } catch { /* Expired fixture scope. */ }
+    console.warn("Preview relay diagnostic:", JSON.stringify({ hop: request.headers.has("x-stillon-connect-lease") ? "adapter" : "gateway",
+      path: new URL(request.url).pathname, active: this.activeCount, authorized,
+      code: error instanceof Error && /^[A-Z_]+$/u.test(error.message) ? error.message : undefined }))
+  }
+  try { const response = await relayHttp.apply(this, args); if (response.status === 503) diagnostic(); return response }
+  catch (error) { diagnostic(error); throw error }
+}
 const connect = localOnly ? undefined : await createConnectFixture(2)
 const server = connect?.hosts[0] ?? await startStillOnServer({ port: 0, dataDir: path.join(root, "data"), discoveryHome: root, codexModelDiscovery: { discover: async () => { throw new Error("Disabled in preview fixture") } } })
 const servers: ReturnType<typeof Bun.serve>[] = []

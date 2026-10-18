@@ -26,7 +26,7 @@ async function waitForFixtureExit(milliseconds: number) {
 }
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
-const networkFailures: { path: string; status: number }[] = []
+const networkFailures: { path: string; status: number; reason?: string }[] = []
 const browserErrors: string[] = []
 const assetFailures: Record<string, unknown>[] = []
 const safeError = (value: string) => value.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gu, raw => { try { return new URL(raw).pathname } catch { return "[URL]" } }).slice(0, 600)
@@ -80,7 +80,16 @@ try {
       if (path.startsWith("/api/preview-browser")) browserRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
-    context.on("response", response => { if (response.status() === 429 || response.status() >= 500) networkFailures.push({ path: new URL(response.url()).pathname, status: response.status() }) })
+    context.on("response", response => {
+      if (response.status() !== 429 && response.status() < 500) return
+      const failure = { path: new URL(response.url()).pathname, status: response.status(), reason: undefined as string | undefined }
+      networkFailures.push(failure)
+      void response.text().then(body => {
+        try { const value = JSON.parse(body); if (typeof value.error === "string" && /^[A-Z_]+$/u.test(value.error)) failure.reason = value.error } catch { /* A native error document. */ }
+        if (!failure.reason) failure.reason = body.includes("Computer offline") ? "COMPUTER_OFFLINE"
+          : body === "Connection unavailable" ? "ADAPTER_CONNECTION_UNAVAILABLE" : body === "Connection limit" ? "ADAPTER_CONNECTION_LIMIT" : "UNCLASSIFIED_ERROR_RESPONSE"
+      }).catch(() => { failure.reason = "ERROR_BODY_UNAVAILABLE" })
+    })
     const paceConnect = async () => {
       if (!entry.gateway) return
       const waitingSince = Date.now(), previousStage = stage
