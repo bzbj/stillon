@@ -2,24 +2,155 @@
 
 ## V2 candidate (2026-10-19)
 
-The v2 implementation starts at `64de04c`. The updated image-path handoff has
-SHA-256 `65acb8991372d5f73076f34d9f58fffc734a6053c0dd5f6f0c4b554c9ad90820`.
-Final candidate evidence is being collected separately for file-native rendering,
-the retained service browser, gateway/adapter transport, and physical devices.
-The current implementation is not a declaration that final product acceptance has
-passed. Real second-device Connect, physical OS IME, mobile and Finder acceptance
-remain unexecuted. No installed runtime or gateway has been upgraded.
+Implementation starts at `64de04c`; final navigation implementation is `6f57ddb`.
+The image-path handoff SHA-256 is
+`65acb8991372d5f73076f34d9f58fffc734a6053c0dd5f6f0c4b554c9ad90820`.
+The exact tested client/server/adapter/gateway source revision, dirty flag,
+browser version and host OS are recorded in each generated result. The final
+checkout builds and supported-platform results are linked from
+[PR #225](https://github.com/bzbj/stillon/pull/225).
 
-The source-fixture Edge file-only run passes with the host browser deliberately
-unavailable: project/authorized-host Markdown, HTML, text and image paths in the
-sidebar and standalone, refresh/deletion/recovery, nine image formats, damaged and
-oversized images, zoom and long-image scrolling. It asserts zero browser-engine
-requests. Final full Edge/Firefox and supported-platform CI records will follow.
+Source development and source-fixture testing are separate from final product
+acceptance. The installed Windows application stays at 0.6.2 / `0b695e9daff2`;
+the deployed production gateway revision is unknown. No release, gateway
+deployment, host upgrade, managed metadata edit or startup change was performed.
+Full product acceptance is **NotRun**: second-device Connect, physical OS input
+methods, mobile and macOS Finder still have required work below.
 
-Windows Explorer selection was observed for an original synthetic TXT file after
-the real Show action. Default Open returned from the shell but no fixture document
-window was observable; the configured TXT ProgID has no Application registration.
-That Open result is Blocked, not Pass. No file associations were changed.
+### Commands and evidence scope
+
+| Command/check | Local result | Evidence |
+| --- | --- | --- |
+| `bun install --frozen-lockfile` | Pass, exit 0 | Unchanged lockfile/dependencies |
+| `bun run check` | Pass, exit 0 | Type check; client, export viewer and Connect builds |
+| Focused changed-file and sidebar-store tests | Pass, 109 tests | Canonical files/junctions, restart persistence, owner isolation, ingress, protocol, paths, policy and existing images |
+| `bun run audit` | Pass, exit 0 | Repository audit command with its existing advisory exception |
+| `bun run test` | Fail, exit 1 | 1,452 pass, 14 skip, 12 permission failures before the final navigation follow-ups |
+| Unchanged-baseline permission subset | Fail, exit 1 | Same 12 failures: 11 symlink `EPERM`, one long PowerShell spawn `EPERM` |
+| Edge file-only browser fixture | Pass, exit 0 | Unavailable host browser, zero browser-engine requests, eight file cells in both views |
+| Full local Edge/Firefox browser fixtures | Pass, exit 0 each | Edge 155.0.4283.62 and Firefox 153.0; implementation `6f57ddb`, clean checkout |
+| `bun scripts/verify-preview-discovery.ts --scans=30` | Pass, exit 0 | All 30 fresh Windows scans find the IPv4 and IPv6 fixtures |
+| `bun run prepare:connect-runtime --server` | Blocked, exit 1 | Windows security software removes the checksum-verified official frp archive before extraction; no exclusions were added |
+| `bun scripts/test-connect-dynamic-preview.ts` on this Windows host | Blocked, exit 1 | Required native frp binaries are unavailable |
+| Real-frp Connect source integration | See final CI | Authenticated gateway -> tunnel -> adapter -> host, synthetic OTP delivery, one CI machine |
+
+The full local repository result is not a passing suite. The 12 failures reproduce
+in the unchanged #224 worktree; the affected files are unchanged from the base.
+The supported-platform CI suite must pass for the final PR revision before merge.
+
+Reproduce the browser checks after `bun run check`:
+
+```sh
+bun run test:previews:browser --local-only
+bun run test:previews:browser --local-only --firefox
+bun run test:previews:browser --local-only --files-only
+bun run prepare:connect-runtime --server
+bun scripts/test-connect-dynamic-preview.ts
+bun run test:previews:browser
+bun run test:previews:browser --firefox
+```
+
+Results live in `test-artifacts/workspace-previews/{chromium,firefox}/`, including
+`api-results*.json`, `browser-results*.json`, original download sizes/MIME/SHA-256,
+and generic screenshots. Engine results do not overwrite each other. Private
+fixture JSON contains generated credentials and is excluded from artifact uploads.
+CI uses real frps/frpc, but its synthetic account and same-machine browser are not
+a real second device or the deployed managed workspace.
+
+### V2 preview matrix (36 cells)
+
+Pass below is scoped to executed local source-fixture assertions. Connect source
+integration is additional evidence; it does not fill either second-device column.
+
+| Content | Local sidebar | Local standalone | Second-device Connect sidebar | Second-device Connect standalone |
+| --- | --- | --- | --- | --- |
+| Project Markdown | Pass | Pass | NotRun | NotRun |
+| Authorized host Markdown | Pass | Pass | NotRun | NotRun |
+| Project HTML | Pass | Pass | NotRun | NotRun |
+| Authorized host HTML | Pass | Pass | NotRun | NotRun |
+| Project text | Pass | Pass | NotRun | NotRun |
+| Authorized host text | Pass | Pass | NotRun | NotRun |
+| Project image path | Pass | Pass | NotRun | NotRun |
+| Authorized host image path | Pass | Pass | NotRun | NotRun |
+| Host HTTP service | Pass | Pass | NotRun | NotRun |
+
+File checks cover native content, modules/classic JS, CSS/fonts/JSON/Canvas,
+escaped text, images, independent URLs, reload, deletion/recovery and navigation.
+HTML retains state during 80% zoom and resize, commits Chinese input to `你`,
+accepts Japanese/emoji, and completes a native 150 CSS px drag. Nested HTML retains
+the authorized package root across modifier/middle clicks, standalone reload and
+registry restart. Native input is not a physical operating-system IME test.
+
+PNG/JPEG/WebP/GIF/SVG/AVIF/APNG/BMP/ICO decode in both scopes and views; actual
+GIF/APNG display frames change. SVG remains an image. Damaged, 25 MB and 40 MP
+errors, retry, long-image aspect/zoom/scrolling and existing inline-image contracts
+have source-fixture evidence. DOCX/PPTX use real synthetic Office documents,
+participate in action/download checks, and are outside the preview matrix.
+
+### Behavior/source ledger (22 groups)
+
+This ledger records complete group acceptance, not just the shared policy unit
+test. A partially automated group is NotRun; its remaining actions still need a
+source-specific demonstration. All visible local Open/Show combinations and
+second-device actions must be exercised before declaring B01–B08 fully accepted.
+
+| Source | Row | Status | Executed evidence / remaining gate |
+| --- | --- | --- | --- |
+| Chat | B01 | Pass | Controlled external HTTP(S) `.html`/`.md`, original browser tab, native menu, zero external target/session registration |
+| Chat | B02 | NotRun | Same-host Connect browser check in CI; second device outstanding |
+| Chat | B03 | NotRun | Sidebar text/image, ordered menu, keyboard, modifier/middle; all source-specific OS actions outstanding |
+| Chat | B04 | NotRun | CI sidebar and real browser downloads; second device outstanding |
+| Chat | B05 | NotRun | Office menu; real API/OS launch evidence below; source-specific menu/default activation outstanding |
+| Chat | B06 | NotRun | CI menu/default Office download hashes; second device outstanding |
+| Chat | B07 | NotRun | Service sidebar/menu; original system-browser Open demonstration outstanding |
+| Chat | B08 | NotRun | CI host service; second device outstanding |
+| Markdown | B01 | Pass | Controlled external target and native menu; no preview/session registration |
+| Markdown | B02 | NotRun | Same-host CI external target; second device outstanding |
+| Markdown | B03 | NotRun | Relative HTML/image links and shared menu; all OS actions outstanding |
+| Markdown | B04 | NotRun | CI relative files/download actions; second device outstanding |
+| Markdown | B05 | NotRun | Office menu; source-specific OS activation outstanding |
+| Markdown | B06 | NotRun | CI menu/default original Office download; second device outstanding |
+| Markdown | B07 | NotRun | Service link/sidebar; system-browser Open outstanding |
+| Markdown | B08 | NotRun | CI host service; second device outstanding |
+| Git file item | B03 | NotRun | Markdown menu and image filename preview; all OS actions outstanding |
+| Git file item | B04 | NotRun | CI rendered files and ordered actions; second device outstanding |
+| Git file item | B05 | NotRun | Office menu; OS activation outstanding |
+| Git file item | B06 | NotRun | CI menu/default original Office download; second device outstanding |
+| Service list | B07 | NotRun | Sidebar and standalone; original system-browser Open outstanding |
+| Service list | B08 | NotRun | CI host service; second device outstanding |
+
+Windows OS evidence uses the real action API plus UI Automation/Explorer COM,
+not a mocked spawn or an API 200 alone. Generated DOCX and PPTX appeared in Word
+and PowerPoint (protected view). Explorer selected original synthetic TXT, PPTX
+and HTML files. TXT/HTML default-app windows and the Word-file selection were not
+observable in those probes and are Blocked evidence, not Pass. File associations
+were left intact. This is representative OS-layer evidence, not completion of
+every local source/menu combination or macOS Finder.
+
+### Detailed coverage and remaining acceptance
+
+| Cases | Source-fixture evidence | Remaining work |
+| --- | --- | --- |
+| L01–L07 | Native external opening, actual-href classification, loopback/IPv6, file URI/home/relative/Unicode/single-decode parsing, stable file menus | Physical host path/permission variants beyond the synthetic fixtures |
+| L08–L10 | Shared B01–B08 unit policy; right-click, Escape, Shift+F10/Enter and opaque modifier/middle URLs; representative OS actions | Complete all 22 groups and every visible OS action |
+| F11–F14 | Unavailable host browser; real document DOM/resources; native composition, Unicode and scaled mouse drag/resize | Physical OS IME and mobile input methods |
+| F15 | Native DOM and scrollable document/image panels | Manual selection/copy/clipboard/animation review; no OS clipboard was modified by tests |
+| F16–F17 | Markdown tables/code/images/relative navigation; escaped script-looking TXT | Full source/action permutations and large-text UI variants |
+| F18 | Original MD/HTML/TXT/PNG/DOCX/PPTX hashes and UTF-8 names; CI browser menu/default downloads | Actual second-device download verification |
+| F19 | Abort-aware download implementation; deletion/recovery and revoked target/session contracts | Browser cancellation, expired file grants, offline/reconnect download combinations |
+| F20–F21 | Current opaque targets, nested HTML resource roots, history/reload, deleted-file restoration | Additional on-disk edits and OS permission-change UI cases |
+| F22–F24 | Chat/Markdown/Git image paths; nine native formats; animated frames; aspect/zoom/scroll; damaged/oversize/pixel limits; inline-image regressions | Every outside-file source combination, transparency review, physical mobile, revocation/offline image UI combinations |
+| D01–D05 | Explicit deep service admission; root 404/no title/slow root/401/403/500/IPv6; API/form exactly once/WS; stop/recovery; 30 fresh scans | Actual managed deployment revisions and device acceptance |
+| D06–D08 | CI authentic transport, bidirectional backend counter, current service navigation/standalone | Separate HOST-A/VIEWER-B devices with the same port and cross-entry writes |
+| D09–D10 | Retained #224 composition/paste/Space/pointer ownership/watchdog/capture/touch protocol regressions | Physical keyboards/touch; deployed host offline/reconnect/auth-expiry checks |
+| S01–S03 | Owner-bound IDs, canonical paths, real junction denial, root persistence, SOP/cookie/storage/API isolation | Real distinct-account/device file acceptance beyond unit/source transport |
+| S04–S06 | Repeated forged-local Open/Show denied over frp; protected ports; gateway session/pause/revocation and existing one-second relay cancellation contracts | Deployed file-stream revocation timings and service process replacement/device combinations |
+| C01–C04 | Old target parsing, file reauthorization, explicit external browser card, protocol/adapter capability errors, existing attachment/settings/other repository regressions | Historical live-data UI review and all deployed old/new version combinations |
+
+Record code, local acceptance, same-host integration, real remote acceptance,
+merge, release and host upgrade independently. NotRun and Blocked are not passing
+cells. The remaining physical/device steps require their own concrete evidence;
+no production upgrade was performed to manufacture that evidence.
 
 ## Historical PR #223/#224 evidence
 

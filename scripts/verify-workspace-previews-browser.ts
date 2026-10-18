@@ -16,6 +16,7 @@ const environment = Object.fromEntries(Object.entries(process.env).filter(([name
 const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true })
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
+const networkFailures: { path: string; status: number }[] = []
 let currentPage: Page | undefined
 let stage = "startup"
 const progress = setInterval(() => console.log("Browser validation stage: " + stage), 10_000)
@@ -44,6 +45,7 @@ try {
       if (path.startsWith("/api/preview-browser")) browserRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
+    context.on("response", response => { if (response.status() === 429 || response.status() >= 500) networkFailures.push({ path: new URL(response.url()).pathname, status: response.status() }) })
     const page = await context.newPage()
     currentPage = page
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
@@ -136,7 +138,8 @@ try {
     } else await page.keyboard.press("Escape")
     checks.push({ entry: entry.name, check: "Chat/Markdown text, image and Office menu policies; native image sidebar; remote menu/default downloads preserve original bytes", result: "Pass" })
     stage = entry.name + ":external-links"
-    await context.route(/^https?:\/\/example\.com\/report\.(?:html|md)$/u, route => route.fulfill({ status: 200, contentType: "text/html", headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" }, body: '<h1>Controlled external website</h1>' }))
+    const externalPattern = /^https?:\/\/example\.com\/report\.(?:html|md)$/u
+    await context.route(externalPattern, route => route.fulfill({ status: 200, contentType: "text/html", headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" }, body: '<h1>Controlled external website</h1>' }))
     for (const label of ["External website", "External HTTP", "External"]) {
       const link = page.getByRole("link", { name: label, exact: true })
       const destination = await link.getAttribute("href"), before = browserRequests
@@ -152,6 +155,9 @@ try {
       await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     }
     checks.push({ entry: entry.name, check: "Chat/Markdown external HTTP(S) .html/.md links open original visiting-device tabs with native menus and no browser sessions", result: "Pass" })
+    // Routing disables the context's HTTP cache. Restore normal caching before
+    // many standalone reloads so the fixture models visiting-browser traffic.
+    await context.unroute(externalPattern)
     stage = entry.name + ":markdown-body-links"
     for (const label of filesOnly ? ["HTML application"] : ["HTML application", "Host HTTP application"]) {
       await page.getByRole("link", { name: label, exact: true }).click()
@@ -406,6 +412,7 @@ try {
   console.log(JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
 } catch (error) {
   console.error("Browser validation failed at " + stage)
+  console.error("Recent network failures:", networkFailures.slice(-20))
   if (currentPage && !currentPage.isClosed()) {
     console.error("Preview status:", await currentPage.getByRole("status").allTextContents())
     console.error("Preview alerts:", await currentPage.getByRole("alert").allTextContents())
