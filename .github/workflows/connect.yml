@@ -24,9 +24,9 @@ jobs:
       - run: bun run check
       - run: bun run prepare:connect-runtime --server
       - run: bun scripts/build-connect.ts
+      - name: Verify CLI updates through local and authenticated Connect entries
+        run: bun scripts/test-connect-provider-cli-updates.ts --cloud-package=dist/connect-service
       - name: Verify the packaged cloud with two isolated computers
         run: bun scripts/test-connect-transport.ts --cloud-package=dist/connect-service
       - name: Verify dynamic previews with a real development server
         run: bun scripts/test-connect-dynamic-preview.ts --cloud-package=dist/connect-service
-      - name: Verify CLI updates through local and authenticated Connect entries
-        run: bun scripts/test-connect-provider-cli-updates.ts --cloud-package=dist/connect-service

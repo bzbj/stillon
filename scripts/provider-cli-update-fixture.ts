@@ -39,7 +39,7 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   await mkdir(npmDirectory, { recursive: true })
   await writeFile(path.join(npmDirectory, "../package.json"), JSON.stringify({ name: "npm", type: "commonjs" }))
   const npmScript = path.join(npmDirectory, "npm-cli.js")
-  await writeFile(npmScript, `const fs=require('node:fs');const args=process.argv.slice(2);if(args[0]!=='install'||args[1]!=='--global'||args[2]!=='--prefix'||args[3]!==${JSON.stringify(root)})process.exit(4);fs.appendFileSync(${JSON.stringify(calls)},'install\\n');if(fs.existsSync(${JSON.stringify(failure)}))process.exit(5);const expected=${JSON.stringify(packageName + "@")};if(!args[4].startsWith(expected))process.exit(6);const target=args[4].slice(expected.length);if(!/^\\d+\\.\\d+\\.\\d+$/.test(target))process.exit(6);setTimeout(()=>fs.writeFileSync(${JSON.stringify(version)},target),750);`)
+  await writeFile(npmScript, `const fs=require('node:fs');const args=process.argv.slice(2);if(args[0]!=='install'||args[1]!=='--global'||args[2]!=='--prefix'||fs.realpathSync(args[3])!==fs.realpathSync(${JSON.stringify(root)}))process.exit(4);fs.appendFileSync(${JSON.stringify(calls)},'install\\n');if(fs.existsSync(${JSON.stringify(failure)}))process.exit(5);const expected=${JSON.stringify(packageName + "@")};if(!args[4].startsWith(expected))process.exit(6);const target=args[4].slice(expected.length);if(!/^\\d+\\.\\d+\\.\\d+$/.test(target))process.exit(6);setTimeout(()=>fs.writeFileSync(${JSON.stringify(version)},target),750);`)
   await chmod(npmScript, 0o700)
   const executable = path.join(bin, `${provider}${windows ? ".cmd" : ""}`)
   if (windows) {
