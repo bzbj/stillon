@@ -22,7 +22,8 @@ try {
     await new Promise(resolve => setTimeout(resolve, 200))
   }
   const type = process.argv.includes("--firefox") ? firefox : chromium
-  browser = await type.launch({ ...(type === chromium && process.platform === "win32" ? { channel: "msedge" } : {}), headless: true })
+  // Native tab gestures need the full browser, not Chromium's headless shell.
+  browser = await type.launch({ ...(type === chromium ? { channel: process.platform === "win32" ? "msedge" : "chromium" } : {}), headless: true })
   for (const entry of config.entries) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
     context.setDefaultTimeout(15_000)
@@ -34,6 +35,7 @@ try {
     page.setDefaultTimeout(15_000)
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
     for (const name of ["project-markdown", "outside-markdown"]) {
+      stage = entry.name + ":" + name + ":document-navigation"
       const url = entry.origin + "/preview/" + config.targetIds[entry.name][name]
       await page.goto(url)
       await page.getByRole("heading", { name: "Preview guide" }).waitFor()
@@ -50,20 +52,18 @@ try {
       await page.getByRole("heading", { name: "Details" }).waitFor()
       checks.push({ entry: entry.name, check: name + " standalone rendering, relative image, links, reload, back, fragment", result: "Pass" })
     }
+    stage = entry.name + ":chat:link-resolution"
     await page.goto(entry.origin + "/chat/" + config.chatId)
     const guide = page.getByRole("link", { name: "Read guide", exact: true })
     await guide.waitFor()
     await guide.click()
     await page.getByRole("heading", { name: "Preview guide" }).waitFor()
     assert.equal(new URL(page.url()).pathname, "/chat/" + config.chatId)
-    await guide.evaluate(async link => {
-      const until = Date.now() + 10_000
-      while (!link.getAttribute("href")?.startsWith("/preview/") && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 50))
-    })
+    await page.waitForFunction(() => [...document.querySelectorAll("a")].some(link => link.textContent === "Read guide" && link.getAttribute("href")?.startsWith("/preview/")))
+    assert.match(await guide.getAttribute("href") ?? "", /^\/preview\/[\w-]+$/u)
     for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
-      const opened = context.waitForEvent("page")
-      await guide.click(options)
-      const popup = await opened
+      stage = entry.name + ":chat:" + ("button" in options ? "middle-click" : "modified-click")
+      const [popup] = await Promise.all([context.waitForEvent("page"), guide.click(options)])
       await popup.getByRole("heading", { name: "Preview guide" }).waitFor(); await popup.close(); await page.bringToFront()
     }
     assert.equal(await guide.evaluate(link => { const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); link.dispatchEvent(event); return event.defaultPrevented }), false)
