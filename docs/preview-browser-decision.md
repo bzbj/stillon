@@ -24,6 +24,13 @@ an existing grant; an explicit reopen or refresh authorizes the service again.
 Unavailable listener metadata fails closed. Unix hosts need `lsof` (and `ps` on
 macOS); Windows uses its native listener and process metadata.
 
+Service-list discovery is separate from admission. Windows probes HTTP metadata
+through its system HTTP client, in one hidden PowerShell process per uncached
+scan, because Bun's HTTP socket overrides and refused raw connections are
+unreliable on that platform. This adds cold process/compiler startup cost, but
+preserves the intended address family and bypasses configured egress proxies for
+loopback only. Metadata, redirects and scan lifetime remain bounded.
+
 The browser denies downloads, popups, device permissions, service workers and
 clipboard access. Inputs, viewport, file sizes, session counts and idle lifetime
 are bounded. Closing a view releases its browser session after the idle grace
@@ -33,6 +40,12 @@ parent lease expiry forwarded by the adapter; without authorized renewal, its
 context and live network connections close within the 45-second lease limit.
 Browser contexts and their storage are ephemeral and never reuse a personal
 profile. URL navigation does not migrate arbitrary unsaved application state.
+
+Text is committed once after visiting-device composition. Mouse/touch presses,
+movement and releases are ordered across the HTTP transport. Held input belongs
+to one viewer and is cancelled on view release/navigation or after five seconds
+without foreground pointer renewal. Passive background heartbeats cannot retain
+a press. Cancellation does not synthesize a button activation.
 
 Clipboard permissions are denied for each secure navigation origin, and every
 frame disables the async clipboard object and legacy copy/cut/paste commands.
@@ -44,6 +57,10 @@ Playwright drives an installed Chromium browser (Edge/Chrome or Playwright's
 Chromium); no browser is silently downloaded at runtime. Missing browser support
 is a recoverable capability error with retry guidance.
 StillOn host, adapter and all other StillOn listeners must remain blocked.
+
+Public IPv6-only plain HTTP is explicitly unsupported and fails closed with
+guidance to use HTTPS or IPv4. It must never be forwarded through a localhost
+substitution. Authorized loopback IPv6 and HTTPS CONNECT retain their own paths.
 
 Target-resolution and browser endpoints travel through existing generic Connect
 HTTP forwarding, so they do not require a new gateway protocol. Older servers

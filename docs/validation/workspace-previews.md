@@ -37,12 +37,66 @@ never replayed by the acceptance fixture.
 Only result summaries and generic screenshots may be uploaded. Private fixture
 JSON includes generated test credentials and must remain private.
 
+## Follow-up to the independent PR #223 acceptance
+
+The independent review found duplicated IME commits, missing drag presses/releases,
+and intermittent Windows service-list omissions. Those findings supersede a blanket
+claim that the earlier browser matrix covered all interactive applications.
+
+Composition now remains in the visiting textarea until committed. Ordered input
+delivery preserves text/key/pointer order over Connect; long pastes preserve emoji
+across request boundaries. Native Chromium IME dispatch checks Chinese and Japanese
+in the direct application, sidebar and independent page. Firefox checks its
+composition event lifecycle explicitly; that is not native IME evidence.
+Native keys activate the target's private tab before dispatch; a cross-tab
+Space assertion covers background key loss.
+Paste-event tests leave both operating system clipboards untouched. Real OS input
+methods and physical touch keyboards still require device acceptance.
+
+Mouse and touch now transmit press, movement, release and cancellation, with scaled
+coordinates and visiting pointer capture. Viewer release, navigation and a
+five-second lost-pointer watchdog release held input without activating a button.
+Only a foreground view reporting the held pointer renews that press; background
+session heartbeats cannot keep it stuck. Browser tests exercise scaled mouse/touch
+drags and capture/touch cancellation. API assertions exercise viewer ownership,
+background heartbeat/watchdog behavior, release and stale queued-input rejection.
+
+Discovery connects to actual loopback addresses while preserving localhost Host
+semantics. Windows batches metadata through the system HTTP client in a hidden,
+profile-free PowerShell process: Bun's HTTP client ignores socket overrides here,
+and raw refused-connection probes exposed native Windows Bun crashes. The Windows
+probe has a 1.5-second per-port response budget, excluding process/compiler startup,
+bounded metadata, cancellation, no cookies/proxy and same-port loopback redirects.
+Unix uses bounded direct sockets. Discovery cache lifetime is five seconds; the
+separate process-identity authorization checks retain no discovery TTL.
+
+```sh
+bun scripts/verify-preview-discovery.ts --scans=30
+bun run test:previews:browser --local-only
+bun run test:previews:browser --local-only --firefox
+```
+
+The discovery script records each fresh scan and both families. CI includes an
+additional Windows Edge/discovery job and retains separate Chromium/Firefox
+browser summaries so one engine cannot overwrite the other's IME evidence.
+One Windows x64 stress run, alongside the repository suite and browser checks,
+found both listeners in all 30 fresh scans. Cold scans took 3.85–7.14 seconds in
+that busy sample, including process/compiler startup; these are observations,
+not a latency guarantee. The focused preview run recorded 47 passes and three
+Unix-only skips, with the Windows native batch exercised instead.
+These are source-fixture checks. Deployment, a real second device, production
+Connect and physical input methods remain outstanding acceptance gates below.
+
+![Chinese text and a 150 px scaled mouse drag in the sidebar](../images/workspace-preview-input-sidebar.png)
+![The same input application in an independent page](../images/workspace-preview-input-standalone.png)
+
 The Windows type/build checks, audit and focused preview regressions pass.
-The latest full local run recorded 1,438 passes, 11 skips and 11 existing `EPERM`
-symlink failures. An earlier run also encountered `EPERM` spawning an unchanged
-long encoded PowerShell test. Both kinds of failure reproduce in the clean
-baseline worktree. This is **not** a passing full-suite result. The PR's full
-supported-platform CI matrix must pass before merge.
+The latest full local run recorded 1,441 passes, 14 skips and 13 failures, with
+two hook/test errors: 11 existing `EPERM` symlink failures and two migration
+timeouts during concurrent validation. The unchanged PR #223 baseline reran all
+six migration cases successfully in isolation, including those two cases. The
+symlink failures also reproduce in the clean baseline. This is **not** a passing
+full-suite result. The PR's full supported-platform CI matrix must pass before merge.
 
 Windows Defender blocks extraction of the checksum-verified official frp test
 package here. No security exclusions or policy changes were made. CI runs real
@@ -88,7 +142,7 @@ second-device portions remain blocked pending authorized test access.
 | A09 | Blocked: external HTML through the deployed production Connect version |
 | A10 | Bounded file-app storage/fetch and real HTTP backend writes; no implicit backend execution |
 | A11–A12 | Titleless, root 404 and 900 ms root variants admit the actual application path |
-| A13–A14 | IPv4/IPv6/encoding/query/fragment regressions and localhost listener fallback |
+| A13–A14 | Loopback IPv4/IPv6/encoding/query/fragment regressions; public IPv6-only plain HTTP is explicitly unsupported and cannot substitute a local destination |
 | A15 | Actual API, native form, WebSocket echo; refresh does not replay POST |
 | A16 | Resource/redirect policy regressions and transport integration; production check pending |
 | A17 | Gap: arbitrary absolute localhost URLs and multi-port backends are not automatically remapped |

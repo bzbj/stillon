@@ -68,7 +68,7 @@ test("file previews deny network egress even through transports outside HTTP rou
   } finally { await proxy.close() }
 })
 
-test("IPv6 loopback forwarding uses the pinned socket and preserves the original authority", async () => {
+test("IPv6 loopback forwarding preserves its authorized port and authority", async () => {
   const app = Bun.serve({ hostname: "::1", port: 0, fetch: request => new Response(request.headers.get("host")) })
   const origin = "http://[::1]:" + app.port
   const proxy = await createPreviewNetworkProxy(() => [], origin)
@@ -77,6 +77,18 @@ test("IPv6 loopback forwarding uses the pinned socket and preserves the original
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("[::1]:" + app.port)
   } finally { await proxy.close(); await app.stop(true) }
+})
+
+test("public IPv6-only plain HTTP is explicitly unsupported without substituting a local destination", async () => {
+  let hits = 0
+  const local = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { hits++; return new Response("Synthetic local responder") } })
+  const proxy = await createPreviewNetworkProxy(() => [])
+  try {
+    const response = await readProxy(proxy, "http://[2606:4700:4700::1111]:" + local.port + "/")
+    expect(response.status).toBe(501)
+    expect(response.headers.get("x-stillon-preview-transport")).toBe("unsupported")
+    expect(hits).toBe(0)
+  } finally { await proxy.close(); await local.stop(true) }
 })
 
 test("a replacement process cannot inherit an existing service grant without explicit reauthorization", async () => {

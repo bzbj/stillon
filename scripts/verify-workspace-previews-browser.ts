@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { chromium, firefox, type Page } from "playwright"
+import { verifyPreviewInput } from "./verify-preview-input"
 
 const output = path.resolve("test-artifacts/workspace-previews")
 await mkdir(output, { recursive: true })
@@ -14,6 +15,8 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
 let currentPage: Page | undefined
 let stage = "startup"
+const progress = setInterval(() => console.log("Browser validation stage: " + stage), 10_000)
+progress.unref()
 try {
   let config: any
   for (let attempt = 0; ; attempt++) {
@@ -147,9 +150,30 @@ try {
       checks.push({ entry: entry.name, check: name + " sidebar, independent window, direct refresh", result: "Pass" })
       if (name === "project-markdown" || name === "dynamic") await page.screenshot({ path: path.join(output, entry.name + "-" + name + "-sidebar.png") })
     }
+    for (const view of ["direct", "sidebar", "standalone"] as const) {
+      const inputPage = view === "sidebar" ? page : await context.newPage()
+      currentPage = inputPage
+      const evidence = await verifyPreviewInput({ page: inputPage, appOrigin: config.appOrigin,
+        name: entry.name + "-" + view, direct: view === "direct", chromium: type === chromium,
+        stage: value => { stage = value }, screenshot: path.join(output, entry.name + "-" + type.name() + "-input-" + view + ".png"),
+        prepare: async destination => {
+          if (view === "direct") await inputPage.goto(destination, { waitUntil: "domcontentloaded" })
+          else if (view === "sidebar") { await address.fill(destination); await address.press("Enter"); await inputPage.getByAltText("Interactive browser preview").waitFor() }
+          else {
+            const response = await inputPage.request.post(entry.origin + "/api/preview-targets", { headers: { Origin: entry.origin }, data: { projectId: config.projectId, address: destination } })
+            assert(response.ok()); const target = await response.json()
+            await inputPage.goto(entry.origin + target.url, { waitUntil: "domcontentloaded" })
+          }
+        } })
+      checks.push({ entry: entry.name, check: view + " English, Chinese/Japanese " + (evidence.nativeIme ? "native IME" : "synthetic composition lifecycle")
+        + ", emoji, long paste, scaled mouse drag, capture release" + (evidence.nativeTouch ? ", native touch drag/cancel" : "") + "; " + evidence.paste, result: "Pass" })
+      if (inputPage !== page) await inputPage.close()
+    }
     await context.close()
   }
-  await writeFile(path.join(output, "browser-results.json"), JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
+  const report = JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2)
+  await writeFile(path.join(output, "browser-results.json"), report)
+  await writeFile(path.join(output, "browser-results-" + type.name() + ".json"), report)
   console.log(JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
 } catch (error) {
   console.error("Browser validation failed at " + stage)
@@ -160,6 +184,7 @@ try {
   }
   throw error
 } finally {
+  clearInterval(progress)
   await browser?.close()
   await writeFile(stopFile, "stop")
   await Promise.race([new Promise<void>(resolve => { if (child.exitCode !== null) resolve(); else child.once("exit", () => resolve()) }), new Promise<void>(resolve => setTimeout(resolve, 15_000))])

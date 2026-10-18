@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto"
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
-import type { Browser, BrowserContext, ConnectOverCDPTransport, Page } from "playwright"
+import type { Browser, BrowserContext, CDPSession, ConnectOverCDPTransport, Page } from "playwright"
 import type { PreviewTarget } from "../shared/preview-target"
 import { isGrantedPreviewNavigation } from "../shared/preview-target"
 import { isPreviewResourcePath } from "../shared/preview-navigation"
@@ -23,6 +23,8 @@ interface Session {
   navigationType?: "push" | "replace" | "pop"
   viewers: Map<string, number>
   deadline?: number
+  input: CDPSession
+  pointer?: { viewer: string | null; id: number; type: string; button: "left" | "middle" | "right"; seen: number; releasing?: boolean }
 }
 class PreviewFramePendingError extends Error {}
 
@@ -37,6 +39,7 @@ export class PreviewBrowser {
   private readonly timer = setInterval(() => {
     for (const session of this.sessions.values()) {
       if (Date.now() - session.touched > 180_000 || (session.deadline !== undefined && performance.now() >= session.deadline)) void this.closeSession(session)
+      else if (session.pointer && Date.now() - session.pointer.seen > 5_000) void this.queuePointerRelease(session)
     }
   }, 1_000)
   constructor(private readonly options: {
@@ -126,7 +129,51 @@ export class PreviewBrowser {
     if (session.virtualOrigin && url.origin === session.virtualOrigin) return session.lastAddress = session.originalPrefix + url.pathname.slice(1) + url.search + url.hash
     return ["http:", "https:"].includes(url.protocol) ? session.lastAddress = url.href : session.lastAddress
   }
+  private async releasePointer(session: Session) {
+    const pointer = session.pointer
+    session.pointer = undefined
+    if (!pointer) return
+    if (pointer.type === "touch") await session.input.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] }).catch(() => undefined)
+    else await session.page.mouse.up({ button: pointer.button, clickCount: 0 }).catch(() => undefined)
+  }
+  private queuePointerRelease(session: Session) {
+    const pointer = session.pointer
+    if (!pointer || pointer.releasing) return Promise.resolve()
+    pointer.releasing = true
+    const operation = session.tail.catch(() => undefined).then(async () => { if (session.pointer === pointer) await this.releasePointer(session) })
+    session.tail = operation
+    return operation
+  }
+  private async pointerInput(session: Session, viewer: string | null, action: Record<string, unknown>) {
+    const { phase, pointerId, pointerType, button, buttons, x, y } = action
+    const viewport = session.page.viewportSize()!
+    if (!["down", "move", "up", "cancel"].includes(String(phase)) || !Number.isSafeInteger(pointerId) || (pointerId as number) < 0
+      || !["mouse", "touch", "pen"].includes(String(pointerType)) || ![0, 1, 2].includes(button as number)
+      || !Number.isInteger(buttons) || (buttons as number) < 0 || (buttons as number) > 7
+      || typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > viewport.width
+      || typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > viewport.height) return false
+    const held = session.pointer
+    if (phase !== "down" && held && (held.viewer !== viewer || held.id !== pointerId || held.type !== pointerType)) return false
+    if (phase === "cancel") { await this.releasePointer(session); return true }
+    if (phase === "down") {
+      await this.releasePointer(session)
+      session.pointer = { viewer, id: pointerId as number, type: String(pointerType), button: (["left", "middle", "right"] as const)[button as number]!, seen: Date.now() }
+    } else if (phase === "up" && !held) return true
+    else if (held) held.seen = Date.now()
+    if (pointerType === "touch") {
+      if (!session.pointer) return true
+      await session.input.send("Input.dispatchTouchEvent", { type: phase === "down" ? "touchStart" : phase === "up" ? "touchEnd" : "touchMove",
+        touchPoints: phase === "up" ? [] : [{ x, y, id: pointerId as number, radiusX: 1, radiusY: 1, force: 1 }] })
+    } else {
+      await session.page.mouse.move(x, y)
+      if (phase === "down") await session.page.mouse.down({ button: session.pointer!.button })
+      else if (phase === "up") await session.page.mouse.up({ button: held!.button })
+    }
+    if (phase === "up") session.pointer = undefined
+    return true
+  }
   private async load(session: Session, destination: string, forceGet = false) {
+    await this.releasePointer(session)
     // Navigating to an identical URL with a fragment can be a same-document
     // jump. Start a fresh document to force GET, including after a POST form.
     if (forceGet) await session.page.goto("about:blank", { waitUntil: "commit", timeout: 5_000 })
@@ -226,7 +273,8 @@ export class PreviewBrowser {
       await denyClipboard(virtualOrigin ?? new URL(target.address).origin)
       const id = randomBytes(24).toString("base64url")
       const session: Session = { id, scope, group, targetId, target, context, page, proxy, virtualOrigin,
-        touched: Date.now(), pending: 0, tail: Promise.resolve(), lastAddress: target.address, viewers: new Map(viewer ? [[viewer, Date.now()]] : []) }
+        touched: Date.now(), pending: 0, tail: Promise.resolve(), lastAddress: target.address, viewers: new Map(viewer ? [[viewer, Date.now()]] : []), input: permissions }
+      page.on("framenavigated", frame => { if (frame === page.mainFrame()) void this.queuePointerRelease(session) })
       page.on("request", request => {
         if (request.isNavigationRequest() && request.frame() === page.mainFrame() && /^https?:\/\//u.test(request.url())) {
           if (isGrantedPreviewNavigation(target, request.url(), virtualOrigin)) {
@@ -242,7 +290,9 @@ export class PreviewBrowser {
       page.on("response", response => {
         if (!response.request().isNavigationRequest() || response.frame() !== page.mainFrame()) return
         const transport = response.headers()["x-stillon-preview-transport"]
-        if (transport) session.error = transport === "unavailable" ? "The web server is unavailable. Start it on the computer and retry." : "This destination is outside the preview's authorized service. Open its own preview to continue."
+        if (transport) session.error = transport === "unavailable" ? "The web server is unavailable. Start it on the computer and retry."
+          : transport === "unsupported" ? "Public IPv6-only HTTP previews are unavailable. Use HTTPS or IPv4."
+            : "This destination is outside the preview's authorized service. Open its own preview to continue."
       })
       const binding = "__stillonNavigation_" + randomBytes(8).toString("hex")
       await page.exposeBinding(binding, ({ frame }, kind: unknown) => {
@@ -322,17 +372,23 @@ export class PreviewBrowser {
       session.touched = Date.now()
       const viewer = url.searchParams.get("viewer")
       if (request.method === "DELETE") {
-        if (viewer) session.viewers.delete(viewer); else await this.closeSession(session)
+        if (viewer) {
+          session.viewers.delete(viewer)
+          if (session.pointer?.viewer === viewer) await this.queuePointerRelease(session)
+        } else await this.closeSession(session)
         return Response.json({ ok: true })
       }
       if (viewer) {
         if (!session.viewers.has(viewer)) return Response.json({ error: "Preview viewer expired. Retry to reopen the current page." }, { status: 410 })
         session.viewers.set(viewer, Date.now())
       }
+      if (session.pointer?.viewer === viewer && url.searchParams.get("pointer") === String(session.pointer?.id)) session.pointer.seen = Date.now()
       if (request.method === "GET" && url.searchParams.get("ping") === "1") return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } })
       if (session.pending >= 8) return Response.json({ error: "Preview busy" }, { status: 429 })
       session.pending++
       const operation = session.tail.catch(() => undefined).then(async () => {
+        // A queued press must not revive a viewer released while it was waiting.
+        if (viewer && !session.viewers.has(viewer)) return Response.json({ error: "Preview viewer expired" }, { status: 410 })
         const width = Number(url.searchParams.get("width")), height = Number(url.searchParams.get("height"))
         const current = session.page.viewportSize()
         if (Number.isInteger(width) && width >= 320 && width <= 1600 && Number.isInteger(height) && height >= 200 && height <= 1200
@@ -340,7 +396,15 @@ export class PreviewBrowser {
         if (request.method === "POST") {
           const action = await request.json() as Record<string, unknown>
           const number = (value: unknown, max: number) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max
-          if (action.type === "click" && number(action.x, 1600) && number(action.y, 1200)) await session.page.mouse.click(action.x as number, action.y as number)
+          // Native key presses can be discarded by a background Chromium tab
+          // even while insertText still works. Activate only an interacting
+          // page; passive frames/hover must not steal focus from another view.
+          if (["click", "text", "key", "scroll"].includes(String(action.type)) || (action.type === "pointer" && action.phase === "down")) await session.page.bringToFront()
+          if (action.type === "pointer") {
+            if (!await this.pointerInput(session, viewer, action)) return Response.json({ error: "Invalid preview pointer input" }, { status: 400 })
+            return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } })
+          }
+          else if (action.type === "click" && number(action.x, 1600) && number(action.y, 1200)) { await this.releasePointer(session); await session.page.mouse.click(action.x as number, action.y as number) }
           else if (action.type === "move" && number(action.x, 1600) && number(action.y, 1200)) { await session.page.mouse.move(action.x as number, action.y as number); return Response.json({ ok: true }) }
           else if (action.type === "resize" && number(action.width, 1600) && (action.width as number) >= 320 && number(action.height, 1200) && (action.height as number) >= 200) await session.page.setViewportSize({ width: Math.round(action.width as number), height: Math.round(action.height as number) })
           else if (action.type === "text" && typeof action.text === "string" && action.text.length <= 2000) await session.page.keyboard.insertText(action.text)
@@ -374,6 +438,7 @@ export class PreviewBrowser {
             session.lastAddress = action.address
             await this.load(session, destination.href).catch(() => { session.error = "The page could not be loaded. Check the service and retry." })
           } else return Response.json({ error: "Invalid preview input" }, { status: 400 })
+          if (action.inputOnly === true && ["text", "key", "scroll"].includes(String(action.type))) return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } })
         } else if (request.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET, POST, DELETE" } })
         const image = await this.capture(session)
         const result = { address: this.address(session), title: await this.title(session), image, ...session.page.viewportSize(), error: session.error, navigationType: session.navigationType }
