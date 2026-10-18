@@ -159,7 +159,7 @@ try {
       if (url.pathname === "/input") return new Response(previewInputHtml, { headers: { "Content-Type": "text/html;charset=utf-8", "X-Frame-Options": "DENY" } })
       if (url.pathname === "/socket" && appServer.upgrade(request)) return
       if (url.pathname === "/api/counter") {
-        if (request.method === "POST") count++
+        if (request.method === "POST") { await request.arrayBuffer(); count++ }
         return Response.json({ count, cookie: request.headers.get("cookie") ?? "", authorization: request.headers.get("authorization") ?? "",
           control: [...request.headers.keys()].filter(name => name.startsWith("x-stillon-")) })
       }
@@ -236,7 +236,7 @@ try {
       if (name === "dynamic") {
         const value = await (await fetch(appOrigin + "/api/counter")).json()
         assert.equal(value.count, count); assert.equal(value.cookie, ""); assert.equal(value.authorization, ""); assert.deepEqual(value.control, [])
-        await fetch(appOrigin + "/api/counter", { method: "POST" })
+        await (await fetch(appOrigin + "/api/counter", { method: "POST", signal: AbortSignal.timeout(2_000) })).json()
         await json(entry, "/api/preview-browser/" + session.id, { type: "reload" })
         stage = entry.name + ":dynamic:backend-update"
         frame = await eventually(() => json(entry, "/api/preview-browser/" + session.id), value => new RegExp("Application " + count + " ").test(value.title))
@@ -341,7 +341,15 @@ try {
     }), new URL("http://stillon.invalid/api/preview-browser"), options())
     assert.equal(opened?.status, 200)
     const session = await opened!.json() as { id: string }
-    const pointerState = async () => await (await fetch(appOrigin + "/input-state?case=pointer-lifecycle")).json() as any
+    // A stalled oracle request must not defeat eventually()'s 20s readiness
+    // deadline. Use an independent connection and consume its complete body.
+    const pointerState = async () => {
+      const response = await fetch(appOrigin + "/input-state?case=pointer-lifecycle", {
+        signal: AbortSignal.timeout(2_000), keepalive: false, headers: { Connection: "close" },
+      })
+      assert.equal(response.status, 200)
+      return await response.json() as any
+    }
     stage = "browser-lifecycle:input-ready"
     await eventually(pointerState, value => value.revision > 0)
     const pointerRoute = (viewer: string) => new URL("http://stillon.invalid/api/preview-browser/" + session.id + "?viewer=" + viewer)
