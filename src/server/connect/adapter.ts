@@ -10,6 +10,7 @@ interface ActiveLease { token: string; lease: AccessLease; deadline: number }
 export const REMOTE_HEADER = "x-stillon-local-remote"
 export const REMOTE_OWNER_HEADER = "x-stillon-local-owner"
 export const REMOTE_SESSION_HEADER = "x-stillon-local-session"
+export const REMOTE_EXPIRY_HEADER = "x-stillon-local-expiry"
 
 /** Dedicated fail-closed target for frpc. It never treats a loopback peer as local UI. */
 export function startRemoteAdapter(options: {
@@ -64,6 +65,7 @@ export function startRemoteAdapter(options: {
       headers.set(REMOTE_HEADER, options.localSecret)
       headers.set(REMOTE_OWNER_HEADER, lease.ownerId)
       headers.set(REMOTE_SESSION_HEADER, lease.parentId)
+      headers.set(REMOTE_EXPIRY_HEADER, String(lease.expiresAt))
       headers.set("origin", targetOrigin)
       headers.delete("sec-fetch-site")
       // Assign path fields: resolving a leading // path would change authority.

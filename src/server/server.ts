@@ -42,7 +42,7 @@ import { migrateLegacyBrandDataRoot } from "./brand-migration"
 import { createLocalHtmlPreviewManager, isLoopbackBindHost } from "./local-html-preview"
 import { PreviewTargets } from "./preview-targets"
 import { PreviewBrowser, isWithinPreviewDirectory } from "./preview-browser"
-import { REMOTE_SESSION_HEADER } from "./connect/adapter"
+import { REMOTE_SESSION_HEADER, REMOTE_EXPIRY_HEADER } from "./connect/adapter"
 import { protectPreviewPort, protectedPreviewPorts, releasePreviewPort } from "./preview-ports"
 import { generateTitleForChatDetailed } from "./generate-title"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
@@ -559,13 +559,16 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           if ((url.pathname.startsWith("/api/preview-targets") || url.pathname.startsWith("/api/preview-browser")) && ingress.kind === "external" && !auth) {
             return Response.json({ error: "Preview access requires local access, Connect or application authentication." }, { status: 403 })
           }
-          if (url.pathname.startsWith("/api/preview-browser") && ingress.kind === "remote" && !req.headers.get(REMOTE_SESSION_HEADER)) {
+          if (url.pathname.startsWith("/api/preview-browser") && ingress.kind === "remote"
+            && (!req.headers.get(REMOTE_SESSION_HEADER) || !req.headers.get(REMOTE_EXPIRY_HEADER))) {
             return Response.json({ error: "Update the StillOn remote adapter before using isolated previews." }, { status: 409 })
           }
           const previewScope = ingress.kind === "remote" ? previewOwner + ":" + req.headers.get(REMOTE_SESSION_HEADER) : "local"
           const targetResponse = await previewTargets.handle(req, url, previewOwner, id => Boolean(store.getProject(id)))
           if (targetResponse) return targetResponse
-          const previewBrowserResponse = await previewBrowser.handle(req, url, { owner: previewOwner, scope: previewScope, target: id => previewTargets.get(id, previewOwner) })
+          const previewBrowserResponse = await previewBrowser.handle(req, url, { owner: previewOwner, scope: previewScope,
+            expiresAt: ingress.kind === "remote" ? Number(req.headers.get(REMOTE_EXPIRY_HEADER)) : undefined,
+            target: id => previewTargets.get(id, previewOwner) })
           if (previewBrowserResponse) return previewBrowserResponse
 
           const browserPreviewProxyResponse = await handleBrowserPreviewProxy(req, url, {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { startRemoteAdapter, REMOTE_HEADER, REMOTE_OWNER_HEADER } from "./adapter"
+import { startRemoteAdapter, REMOTE_HEADER, REMOTE_OWNER_HEADER, REMOTE_SESSION_HEADER, REMOTE_EXPIRY_HEADER } from "./adapter"
 import { newDeviceKeys, randomId, randomToken, signLease } from "./crypto"
 import { upstreamWebSocket } from "./relay"
 import type { AccessLease } from "../../shared/connect"
@@ -9,6 +9,9 @@ test("adapter requires a signed lease and streams multipart uploads without expo
   const target = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(request) {
     expect(request.headers.get(REMOTE_HEADER)).toBe(secret)
     expect(request.headers.get(REMOTE_OWNER_HEADER)).toBe("owner")
+    expect(request.headers.get(REMOTE_SESSION_HEADER)).toBe("parent")
+    expect(Number(request.headers.get(REMOTE_EXPIRY_HEADER))).toBeGreaterThan(Date.now())
+    expect(Number(request.headers.get(REMOTE_EXPIRY_HEADER))).toBeLessThanOrEqual(Date.now() + 10_000)
     expect(request.headers.get("cookie")).toBeNull()
     const form = await request.formData(), file = form.get("files") as File
     return Response.json({ size: file?.size, name: file?.name })

@@ -22,7 +22,9 @@ The browser denies downloads, popups, device permissions, service workers and
 clipboard access. Inputs, viewport, file sizes, session counts and idle lifetime
 are bounded. Closing a view releases its browser session after the idle grace
 period; logout and server shutdown close local sessions. Connect revocation
-stops image/input delivery at the gateway; abandoned contexts expire locally.
+stops image/input delivery at the gateway. Each browser also inherits the signed
+parent lease expiry forwarded by the adapter; without authorized renewal, its
+context and live network connections close within the 45-second lease limit.
 Browser contexts and their storage are ephemeral and never reuse a personal
 profile. URL navigation does not migrate arbitrary unsaved application state.
 

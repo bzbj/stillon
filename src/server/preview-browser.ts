@@ -9,6 +9,7 @@ import { isPreviewResourcePath } from "../shared/preview-navigation"
 import { createPreviewNetworkProxy, resolvePreviewNetworkTarget } from "./preview-network"
 import { inferPreviewContentType } from "./local-html-preview"
 import { protectPreviewPort, releasePreviewPort } from "./preview-ports"
+import { CONNECT_LEASE_MS } from "../shared/connect"
 
 export function isWithinPreviewDirectory(root: string, file: string) {
   const relative = path.relative(root, file)
@@ -21,6 +22,7 @@ interface Session {
   lastAddress: string
   navigationType?: "push" | "replace" | "pop"
   viewers: Map<string, number>
+  deadline?: number
 }
 class PreviewFramePendingError extends Error {}
 
@@ -33,8 +35,10 @@ export class PreviewBrowser {
   private profile?: string
   private debugPort?: number
   private readonly timer = setInterval(() => {
-    for (const session of this.sessions.values()) if (Date.now() - session.touched > 180_000) void this.closeSession(session)
-  }, 30_000)
+    for (const session of this.sessions.values()) {
+      if (Date.now() - session.touched > 180_000 || (session.deadline !== undefined && performance.now() >= session.deadline)) void this.closeSession(session)
+    }
+  }, 1_000)
   constructor(private readonly options: {
     blockedPorts: () => Iterable<number>
     resolveFile: (target: PreviewTarget, owner: string) => Promise<string>
@@ -257,20 +261,28 @@ export class PreviewBrowser {
     finally { this.opening-- }
   }
 
-  async handle(request: Request, url: URL, options: { owner: string; scope: string; target: (id: string) => { target: PreviewTarget; projectId?: string } | null }) {
+  async handle(request: Request, url: URL, options: { owner: string; scope: string; expiresAt?: number; target: (id: string) => { target: PreviewTarget; projectId?: string } | null }) {
     if (!url.pathname.startsWith("/api/preview-browser")) return null
     try {
+      const renew = (session: Session) => {
+        if (options.expiresAt === undefined) return
+        const remaining = options.expiresAt - Date.now()
+        if (!Number.isFinite(remaining) || remaining <= 0 || remaining > CONNECT_LEASE_MS + 5_000) throw new Error("Preview authorization expired. Sign in again to reopen it.")
+        session.deadline = performance.now() + Math.min(remaining, CONNECT_LEASE_MS)
+      }
       if (url.pathname === "/api/preview-browser" && request.method === "POST") {
         const body = await request.json() as { targetId?: unknown; viewerId?: unknown; reload?: unknown }
         const entry = typeof body?.targetId === "string" ? options.target(body.targetId) : null
         if (!entry || entry.target.kind === "host-file" || (entry.target.kind === "project-file" && entry.target.markdown)) return Response.json({ error: "Preview target unavailable" }, { status: 404 })
         const viewer = typeof body.viewerId === "string" && /^[\w-]{1,128}$/u.test(body.viewerId) ? body.viewerId : undefined
         const session = await this.open(body.targetId as string, entry.target, options.owner, options.scope, entry.projectId, viewer, body.reload === true)
+        try { renew(session) } catch (error) { await this.closeSession(session); throw error }
         return Response.json({ id: session.id }, { headers: { "Cache-Control": "no-store" } })
       }
       const match = /^\/api\/preview-browser\/([\w-]+)$/u.exec(url.pathname)
       const session = match ? this.sessions.get(match[1]!) : null
       if (!session || session.scope !== options.scope) return Response.json({ error: "Preview session expired. Retry to reopen the current page." }, { status: 410 })
+      renew(session)
       session.touched = Date.now()
       const viewer = url.searchParams.get("viewer")
       if (request.method === "DELETE") {

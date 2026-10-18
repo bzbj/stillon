@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { createConnectFixture, eventually } from "./connect-fixture"
 import { startStillOnServer } from "../src/server/server"
+import { PreviewBrowser } from "../src/server/preview-browser"
 
 // Synthetic accounts/files only. Never enrolls a production computer, sends
 // mail, starts an Agent, or changes the installed application's environment.
@@ -88,6 +89,7 @@ try {
   const project = await server.store.openProject(projectPath, "Preview workspace")
   const chat = await server.store.createChat(project.id)
   let count = 0
+  let activeSockets = 0
   const app = Bun.serve({ hostname: "127.0.0.1", port: 0,
     async fetch(request, appServer) {
       const url = new URL(request.url)
@@ -101,7 +103,7 @@ try {
       return new Response(`<!doctype html><title>Application loading</title><style>body{font:18px system-ui;margin:24px}button{position:absolute;left:24px;top:100px;width:160px;height:44px;font:inherit}a{position:absolute;left:24px;top:170px}</style><h1>Dynamic application</h1><button id="add">Add one</button><a href="/nested?tab=one#section">Nested route</a><form action="/api/counter" method="post" style="position:absolute;left:24px;top:240px"><input name="sample" value="example" style="width:160px"><input type="submit" value="Save form" style="width:140px;height:44px"></form><script>
       let wsReady=false;const ws=new WebSocket('ws://'+location.host+'/socket');ws.onopen=()=>ws.send('echo');ws.onmessage=()=>{wsReady=true;render()};
       async function render(){const value=await(await fetch('/api/counter')).json();document.title='Application '+value.count+' '+wsReady;document.querySelector('#add').textContent='Add one: '+value.count}document.querySelector('#add').onclick=async()=>{await fetch('/api/counter',{method:'POST'});localStorage.saved='yes';await render()};render();</script>`, { headers: { "Content-Type": "text/html", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" } })
-    }, websocket: { message(ws, message) { ws.send(message) } },
+    }, websocket: { open() { activeSockets++ }, close() { activeSockets-- }, message(ws, message) { ws.send(message) } },
   })
   servers.push(app)
   const appOrigin = `http://127.0.0.1:${app.port}`
@@ -225,6 +227,24 @@ try {
     assert.equal(stolen.status, 410)
     checks.push({ entry: "cross-entry", check: "Opaque target ID does not grant another owner access", result: "Pass" })
   }
+  stage = "browser-authorization-expiry"
+  const leasedBrowser = new PreviewBrowser({ blockedPorts: () => [], resolveFile: async () => { throw new Error("No file grant") } })
+  try {
+    const options = { owner: "fixture-owner", scope: "fixture-owner:parent-session",
+      target: () => ({ target: { kind: "host-http" as const, address: appOrigin + "/app" } }) }
+    const opened = await leasedBrowser.handle(new Request("http://stillon.invalid/api/preview-browser", {
+      method: "POST", body: JSON.stringify({ targetId: "fixture" }), headers: { "Content-Type": "application/json" },
+    }), new URL("http://stillon.invalid/api/preview-browser"), { ...options, expiresAt: Date.now() + 30_000 })
+    assert.equal(opened?.status, 200)
+    const session = await opened!.json() as { id: string }
+    await eventually(async () => activeSockets, value => value === 1)
+    const route = new URL("http://stillon.invalid/api/preview-browser/" + session.id + "?ping=1")
+    const ping = await leasedBrowser.handle(new Request(route), route, { ...options, expiresAt: Date.now() + 200 })
+    assert.equal(ping?.status, 200)
+    await eventually(async () => activeSockets, value => value === 0)
+    assert.equal((await leasedBrowser.handle(new Request(route), route, { ...options, expiresAt: Date.now() + 10_000 }))?.status, 410)
+    checks.push({ entry: "scope-expiry", check: "Expired parent authorization closes the isolated browser and its live application WebSocket", result: "Pass" })
+  } finally { await leasedBrowser.close() }
   await writeFile(path.join(output, "api-results.json"), JSON.stringify({ localOnly, checks }, null, 2))
   console.log(JSON.stringify({ localOnly, checks }, null, 2))
   if (browserOutput) {

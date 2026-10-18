@@ -102,7 +102,7 @@ second-device portions remain blocked pending authorized test access.
 | S01–S02 | Owner-bound IDs and account/host gateway regressions; production multi-device check pending |
 | S03 | Directory/hidden-file/escaping-link checks; Windows link privilege limits the local suite |
 | S04–S05 | Unsafe protocols, credentials, private/mapped IPs, control ports, header stripping, legacy-link origin isolation and host clipboard denial |
-| S06 | Gateway resource revocation and transport logout/pause CI; production browser-session check pending |
+| S06 | Gateway resource revocation and transport logout/pause CI; isolated browsers inherit the signed parent lease expiry, with a real live-WebSocket closure assertion; production browser-session check pending |
 | S07 | Connection origin/address/blocked-port checks; arbitrary process-identity pinning is not implemented |
 | C01 | Existing store migration retained, targets persist, expired IDs show recovery guidance; saved localhost file links migrate only from the current local StillOn port or reserved 3210, and custom remote ports require reopening the file |
 | C02 | Generic HTTP forwarding retained; old adapter session headers fail closed; deployed version combinations pending |
