@@ -36,6 +36,8 @@ test("native relay survives client cancellations, streams incrementally and revo
     const response = await fetch(origin, { signal: AbortSignal.timeout(5000) })
     expect(response.status).toBe(200)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(4096).fill(71))
+    const large = await fetch(origin + "/large", { signal: AbortSignal.timeout(5000) })
+    expect(new Uint8Array(await large.arrayBuffer())).toEqual(new Uint8Array(256 * 4096).fill(71))
     expect(await (await fetch(origin + "/state")).json()).toEqual({ active: 0 })
     const streaming = await fetch(origin + "/long", { signal: AbortSignal.timeout(5000) })
     const body = streaming.body!.getReader(), first = await body.read()

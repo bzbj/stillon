@@ -13,10 +13,22 @@ await mkdir(output, { recursive: true })
 const privateFixture = path.join(output, "private-browser-fixture-" + Date.now() + ".json")
 const stopFile = path.join(output, "fixture.stop-" + Date.now())
 const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
-const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true })
+const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true, detached: process.platform !== "win32" })
+let fixtureExited = false
+const fixtureExit = new Promise<void>(resolve => child.once("exit", () => { fixtureExited = true; resolve() }))
+async function waitForFixtureExit(milliseconds: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const exited = await Promise.race([fixtureExit.then(() => true), new Promise<boolean>(resolve => {
+    timer = setTimeout(() => resolve(false), milliseconds); timer.unref()
+  })])
+  if (timer) clearTimeout(timer)
+  return exited
+}
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
 const networkFailures: { path: string; status: number }[] = []
+const browserErrors: string[] = []
+const safeError = (value: string) => value.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gu, raw => { try { return new URL(raw).pathname } catch { return "[URL]" } }).slice(0, 600)
 let currentPage: Page | undefined
 let stage = "startup"
 const progress = setInterval(() => console.log("Browser validation stage: " + stage), 10_000)
@@ -39,6 +51,8 @@ try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
     context.setDefaultTimeout(15_000)
     context.setDefaultNavigationTimeout(45_000)
+    context.on("page", page => page.on("pageerror", error => browserErrors.push(safeError(error.message))))
+    context.on("requestfailed", request => browserErrors.push("Request " + new URL(request.url()).pathname + ": " + request.failure()?.errorText))
     if (entry.cookie) await context.addCookies(entry.cookie.split("; ").map((part: string) => {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
@@ -54,10 +68,13 @@ try {
     context.on("response", response => { if (response.status() === 429 || response.status() >= 500) networkFailures.push({ path: new URL(response.url()).pathname, status: response.status() }) })
     const paceConnect = async () => {
       if (!entry.gateway) return
+      const waitingSince = Date.now(), previousStage = stage
       while (true) {
         const now = Date.now()
         while (requestTimes.length && requestTimes[0]! < now - 60_000) requestTimes.shift()
-        if (requestTimes.length < 700) return
+        if (requestTimes.length < 700) { stage = previousStage; return }
+        stage = entry.name + ":traffic-budget"
+        assert(now - waitingSince < 90_000, "Background workspace traffic prevented safe progress within a full gateway budget window")
         // The real gateway serves authenticated data without cache and limits
         // traffic to 1,200/minute. Leave room for bootstrap within one cell;
         // do not relax production authorization or abuse limits for this test.
@@ -433,7 +450,9 @@ try {
 } catch (error) {
   console.error("Browser validation failed at " + stage)
   console.error("Recent network failures:", networkFailures.slice(-20))
+  console.error("Recent browser errors:", browserErrors.slice(-20))
   if (currentPage && !currentPage.isClosed()) {
+    console.error("Parent page text:", safeError(await currentPage.locator("body").innerText()).slice(0, 600))
     console.error("Preview status:", await currentPage.getByRole("status").allTextContents())
     console.error("Preview alerts:", await currentPage.getByRole("alert").allTextContents())
     console.error("Validation path:", new URL(currentPage.url()).pathname, "frames:", currentPage.frames().map(frame => { try { return new URL(frame.url()).pathname } catch { return frame.url() } }))
@@ -445,6 +464,14 @@ try {
   clearInterval(progress)
   await browser?.close()
   await writeFile(stopFile, "stop")
-  await Promise.race([new Promise<void>(resolve => { if (child.exitCode !== null) resolve(); else child.once("exit", () => resolve()) }), new Promise<void>(resolve => setTimeout(resolve, 15_000))])
-  if (child.exitCode === null) child.kill()
+  if (!await waitForFixtureExit(15_000) && !fixtureExited && child.pid) {
+    console.warn("Preview fixture cleanup exceeded its deadline; terminating only its owned process tree.")
+    if (process.platform === "win32") {
+      const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+      await new Promise<void>((resolve, reject) => { killer.once("exit", () => resolve()); killer.once("error", reject) })
+    } else {
+      try { process.kill(-child.pid, "SIGKILL") } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error }
+    }
+    assert(await waitForFixtureExit(5_000), "The owned preview fixture could not be stopped")
+  }
 }

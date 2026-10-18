@@ -4,10 +4,15 @@ const relay = new ConnectRelay()
 const bytes = new Uint8Array(4096).fill(71)
 let valid = true
 const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
-  const long = new URL(request.url).pathname === "/long"
+  const pathname = new URL(request.url).pathname, long = pathname === "/long"
   const source: Bun.DirectUnderlyingSource = {
     type: "direct",
     async pull(output) {
+      if (pathname === "/large") {
+        for (let i = 0; i < 256; i++) { await output.write(bytes); await output.flush() }
+        output.close()
+        return
+      }
       if (long) {
         for (let i = 0; i < 100; i++) {
           if (!await output.write(bytes)) break
