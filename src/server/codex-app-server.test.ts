@@ -1913,3 +1913,25 @@ test("app-server applies HTTPS only on a safe next-session boundary", async () =
     expect(spawned[2]?.args).toEqual(["app-server"])
   } finally { manager.stopAll() }
 })
+
+test("stopAll confirms the npm launcher and native server are gone without stopping background tools", async () => {
+  const child = new FakeCodexProcess((message, process) => {
+    if (message.id !== undefined) process.writeServerMessage({ id: message.id, result: message.method === "initialize" ? { userAgent: "test" } : { thread: { id: "thread" } } })
+  })
+  Object.assign(child, { pid: 123 })
+  let processes = [
+    { pid: 123, ppid: 1, startedAt: "1", command: "/usr/bin/node launcher.js", stat: "S" },
+    { pid: 124, ppid: 123, startedAt: "2", command: "/example path/bin/codex app-server", stat: "S" },
+    { pid: 125, ppid: 124, startedAt: "3", command: "/usr/bin/node preview.js", stat: "S" },
+  ]
+  const signaled: number[] = []
+  const manager = new CodexAppServerManager({ spawnProcess: () => child as never, processControl: {
+    listProcesses: async () => processes,
+    isPidPresent: pid => processes.some(item => item.pid === pid),
+    signal: pid => { signaled.push(pid); processes = processes.filter(item => item.pid !== pid); if (pid === 123) child.emit("close", 0) },
+  } })
+  await manager.startSession({ chatId: "example", cwd: "/example", model: "fixture", sessionToken: null })
+  await manager.stopAll()
+  expect(signaled).toEqual([123, 124])
+  expect(processes.map(item => item.pid)).toEqual([125])
+})

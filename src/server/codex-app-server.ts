@@ -62,12 +62,16 @@ import {
   isServerRequest,
 } from "./codex-app-server-protocol"
 import { asyncQuestionContextFromItem } from "./async-question"
+import { ProcessOwnership, type ProcessControl } from "./process-tree"
 
 interface CodexAppServerProcess {
+  pid?: number
   stdin: Writable
   stdout: Readable
   stderr: Readable
   killed?: boolean
+  exitCode?: number | null
+  signalCode?: NodeJS.Signals | null
   kill(signal?: NodeJS.Signals | number): void
   on(event: "close", listener: (code: number | null) => void): this
   on(event: "error", listener: (error: Error) => void): this
@@ -762,10 +766,12 @@ export class CodexAppServerManager {
   private readonly spawnProcess: SpawnCodexAppServer
   private readonly getEnvironment: () => NodeJS.ProcessEnv
   private readonly getApiTransport: () => CodexApiTransport
+  private readonly processControl?: ProcessControl
 
-  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv; getApiTransport?: () => CodexApiTransport } = {}) {
+  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv; getApiTransport?: () => CodexApiTransport; processControl?: ProcessControl } = {}) {
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.getApiTransport = args.getApiTransport ?? (() => "auto")
+    this.processControl = args.processControl
     this.spawnProcess = args.spawnProcess ?? ((cwd, environment, commandArgs) =>
       spawn(getCodexCliCommand(process.platform, environment), commandArgs, {
         cwd,
@@ -1055,10 +1061,34 @@ export class CodexAppServerManager {
     }
   }
 
-  stopAll() {
-    for (const chatId of this.sessions.keys()) {
-      this.stopSession(chatId)
+  async stopAll() {
+    // Detach this exact generation synchronously; a later session must never
+    // be stopped by an older asynchronous cleanup using the same chat id.
+    const contexts = [...this.sessions.values()]
+    this.sessions.clear()
+    for (const context of contexts) {
+      context.closed = true
+      context.pendingTurn?.queue.finish()
     }
+    await Promise.all(contexts.map(async context => {
+      if (context.child.exitCode != null || context.child.signalCode != null) return Promise.resolve()
+      if (typeof context.child.pid === "number") {
+        // npm shims can own a separate native Codex process. Reuse the exec
+        // transport's identity-checked shutdown instead of killing only its
+        // launcher. Background tools are outside the writer scope.
+        await new ProcessOwnership(context.child.pid, this.processControl).terminate({
+          scope: "writer", rootAlive: () => context.child.exitCode == null && context.child.signalCode == null,
+          graceMs: 2000, killTimeoutMs: 3000,
+        })
+        return
+      }
+      const exit = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Codex App Server did not exit.")), 10_000)
+        context.child.once("close", () => { clearTimeout(timeout); resolve() })
+      })
+      context.child.kill("SIGKILL")
+      await exit
+    }))
   }
 
   private requireSession(chatId: string) {

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { startConnectServer } from "../src/connect/server"
-import { startStillOnServer } from "../src/server/server"
+import { startStillOnServer, type StartStillOnServerOptions } from "../src/server/server"
 import { randomToken } from "../src/server/connect/crypto"
 import type { LoginEmail } from "../src/connect/mail"
 
@@ -12,7 +12,7 @@ export async function eventually<T>(read: () => Promise<T>, accept: (value: T) =
   while (Date.now() < until) { try { result = await read(); if (accept(result)) return result } catch { /* retry startup */ } await Bun.sleep(200) }
   throw new Error("Timed out waiting for isolated Connect fixture")
 }
-export async function createConnectFixture(count = 2, startCloud: typeof startConnectServer = startConnectServer) {
+export async function createConnectFixture(count = 2, startCloud: typeof startConnectServer = startConnectServer, hostOptions?: (index: number, root: string) => Promise<Pick<StartStillOnServerOptions, "providerCliUpdates">>) {
   await mkdir("test-artifacts/connect", { recursive: true })
   const root = await mkdtemp(path.resolve("test-artifacts/connect/transport-"))
   const binaries = path.resolve("runtime/frp")
@@ -41,6 +41,7 @@ export async function createConnectFixture(count = 2, startCloud: typeof startCo
       await mkdir(dataDir, { recursive: true })
       await writeFile(path.join(dataDir, "settings.json"), JSON.stringify({ machineName: `Test computer ${i + 1}` }))
       const server = await startStillOnServer({ dataDir, port: 0, strictPort: true, discoveryHome: root,
+        ...await hostOptions?.(i, root),
         connect: { origin, frpcPath: executable("frpc") }, codexModelDiscovery: { discover: async () => { throw new Error("Disabled in isolated fixture") } } })
       hosts.push(server)
       const project = path.join(root, `workspace-${i + 1}`)

@@ -192,7 +192,9 @@ export class ProcessStopError extends Error {
 }
 
 function isCodexExecutable(command: string) {
-  return basename(command.split(/\s+/)[0] ?? "").toLowerCase().startsWith("codex")
+  // ps comm may contain spaces in parent directories. Extract the executable
+  // basename before considering any optional arguments used by test controls.
+  return (basename(command).split(/\s+/)[0] ?? "").toLowerCase().startsWith("codex")
 }
 
 function sameProcess(info: ProcessInfo | undefined, owned: OwnedProcess) {

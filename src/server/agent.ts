@@ -991,6 +991,19 @@ export class AgentCoordinator {
     return this.activeTurns.size > 0 || this.drainingStreams.size > 0 || runWindingDown
   }
 
+  private cliMaintenance = false
+
+  async reserveCliUpdate() {
+    if (this.cliMaintenance || this.hasActiveWork()) throw new Error("Wait for active agent work to finish before updating the CLI.")
+    this.cliMaintenance = true
+    try {
+      for (const session of this.claudeSessions.values()) session.session.close()
+      this.claudeSessions.clear()
+      await this.codexManager.stopAll()
+    } catch (error) { this.cliMaintenance = false; throw error }
+    return () => { this.cliMaintenance = false; this.emitStateChange() }
+  }
+
   restartSessions() {
     if (this.hasActiveWork()) {
       throw new Error("Wait for active agent turns to finish or stop them before restarting agent sessions.")
@@ -1332,6 +1345,8 @@ export class AgentCoordinator {
     // The previous run may still own the provider's thread-writer lock. Wait
     // until its exit is confirmed; a failed or unconfirmed stop throws here.
     await this.awaitRunStopped(args.chatId)
+
+    if (this.cliMaintenance) throw new Error("A CLI update is in progress. Wait for verification before starting agent work.")
 
     // Decide synchronously from here: a stop that arrived during the wait
     // wins, and so does another start that got here first.

@@ -4,6 +4,7 @@ import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { downloadText } from "../lib/download"
 import { AgentSetupPanel } from "./AgentSetupPanel"
 import { CodexModelPolicyPanel } from "./CodexModelPolicyPanel"
+import { ProviderCliUpdatesPanel } from "./ProviderCliUpdatesPanel"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
@@ -2829,6 +2830,14 @@ export function SettingsPage() {
                           </SelectGroup>
                         </SelectContent>
                       </Select>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="CLI updates"
+                      description="Choose when to update your installed providers."
+                      alignStart
+                    >
+                      <ProviderCliUpdatesPanel />
                     </SettingsRow>
 
                     <SettingsRow
