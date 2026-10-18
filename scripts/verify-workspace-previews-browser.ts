@@ -90,7 +90,7 @@ try {
     await address.waitFor()
     stage = entry.name + ":service-list"
     await page.getByRole("button", { name: "Home", exact: true }).click()
-    const service = page.getByRole("button", { name: "Service restored Server actions http://localhost:" + config.serviceListPort, exact: true })
+    const service = page.getByRole("button").filter({ has: page.getByText("http://localhost:" + config.serviceListPort, { exact: true }) }).filter({ hasText: "Service restored" })
     await service.click()
     await page.getByAltText("Interactive browser preview").waitFor()
     assert.equal(new URL(await address.inputValue()).port, String(config.serviceListPort))

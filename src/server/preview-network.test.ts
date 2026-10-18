@@ -68,6 +68,17 @@ test("file previews deny network egress even through transports outside HTTP rou
   } finally { await proxy.close() }
 })
 
+test("IPv6 loopback forwarding uses the pinned socket and preserves the original authority", async () => {
+  const app = Bun.serve({ hostname: "::1", port: 0, fetch: request => new Response(request.headers.get("host")) })
+  const origin = "http://[::1]:" + app.port
+  const proxy = await createPreviewNetworkProxy(() => [], origin)
+  try {
+    const response = await readProxy(proxy, origin)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("[::1]:" + app.port)
+  } finally { await proxy.close(); await app.stop(true) }
+})
+
 test("a replacement process cannot inherit an existing service grant without explicit reauthorization", async () => {
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
   const port = reservation.port!

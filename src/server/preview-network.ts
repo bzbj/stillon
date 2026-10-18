@@ -125,7 +125,8 @@ export async function createPreviewNetworkProxy(blocked: () => Iterable<number>,
       const destination = await resolveTarget(url)
       const headers: http.OutgoingHttpHeaders = { ...request.headers, host: url.host }
       delete headers["proxy-authorization"]; delete headers["proxy-connection"]
-      const upstream = http.request({ hostname: destination.address, port: destination.port, path: url.pathname + url.search, method: request.method, headers,
+      const upstream = http.request({ hostname: net.isIPv6(destination.address) ? "localhost" : destination.address,
+        port: destination.port, path: url.pathname + url.search, method: request.method, headers, agent: false,
         createConnection: (_options, callback) => { void connect(destination, url.protocol).then(socket => callback(null, socket), error => callback(error, undefined as any)); return undefined as any },
       }, result => {
         response.writeHead(result.statusCode ?? 502, result.headers); result.pipe(response)

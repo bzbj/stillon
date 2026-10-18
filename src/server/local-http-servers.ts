@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process"
 import path from "node:path"
 import { readFile } from "node:fs/promises"
+import http from "node:http"
+import net from "node:net"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -258,10 +260,53 @@ async function readParentProcessMap() {
   return parentByPid
 }
 
+function probeLocalHttp(url: URL, host: string, signal: AbortSignal, redirects = 3): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    let settled = false, connection: net.Socket | undefined
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true; signal.removeEventListener("abort", abort)
+      request.destroy(); connection?.destroy(); reject(error)
+    }
+    const abort = () => fail(new Error("Local service discovery timed out"))
+    // Dial the selected loopback family directly. Bun's fetch proxy handling
+    // can otherwise send literal IPv6 through the process's egress proxy.
+    const request = http.request({ hostname: "localhost", port: Number(url.port || 80), path: url.pathname + url.search,
+      agent: false, headers: { Host: url.host, "Accept-Encoding": "identity" },
+      createConnection: () => connection = net.connect({ host, port: Number(url.port || 80) }),
+    }, response => {
+      const chunks: Buffer[] = []
+      let bytes = 0
+      const finish = () => {
+        if (settled) return
+        settled = true; signal.removeEventListener("abort", abort)
+        const location = response.headers.location
+        const status = response.statusCode ?? 502
+        if (redirects > 0 && status >= 300 && status < 400 && location) {
+          let next: URL | undefined
+          try { next = new URL(location, url) } catch { /* Ignore malformed redirect hints. */ }
+          if (next && next.protocol === "http:" && next.port === url.port && !next.username && !next.password
+            && ["localhost", "127.0.0.1", "[::1]"].includes(next.hostname)) {
+            resolve(probeLocalHttp(next, host, signal, redirects - 1)); request.destroy(); connection?.destroy(); return
+          }
+        }
+        try { resolve(new Response(Buffer.concat(chunks).subarray(0, 64 * 1024), { status,
+          headers: { "Content-Type": String(response.headers["content-type"] ?? "") } })) } catch (error) { reject(error) }
+        request.destroy(); connection?.destroy()
+      }
+      response.on("data", chunk => { const data = Buffer.from(chunk); chunks.push(data); bytes += data.length; if (bytes >= 64 * 1024) finish() })
+      response.on("end", finish); response.on("error", fail)
+    })
+    signal.addEventListener("abort", abort, { once: true })
+    request.on("error", fail)
+    if (signal.aborted) abort(); else request.end()
+  })
+}
+
 async function readHttpServer(
   entry: ListeningPortEntry,
   args: {
-    fetchImpl: typeof fetch
+    fetchImpl?: typeof fetch
     ownerPath?: string
     processName?: string
     projectPath?: string
@@ -274,10 +319,12 @@ async function readHttpServer(
   const timeout = setTimeout(() => controller.abort(), LOCAL_HTTP_SCAN_TIMEOUT_MS)
 
   try {
-    const response = await args.fetchImpl(address, {
-      signal: controller.signal,
-      redirect: "follow",
-    })
+    // Some runtimes resolve localhost to only one family. Probe both actual
+    // loopback listeners while retaining the application's localhost Host.
+    const response = await Promise.any(["127.0.0.1", "::1"].map(host => args.fetchImpl
+      ? args.fetchImpl(`http://${host.includes(":") ? "[" + host + "]" : host}:${entry.port}`, {
+        signal: controller.signal, redirect: "follow", headers: { Host: `localhost:${entry.port}` },
+      }) : probeLocalHttp(new URL(address), host, controller.signal)))
     const contentType = response.headers.get("content-type") ?? ""
     const text = await response.text().catch(() => "")
     const title = contentType.toLowerCase().includes("text/html")
@@ -298,6 +345,7 @@ async function readHttpServer(
   } catch {
     return null
   } finally {
+    controller.abort()
     clearTimeout(timeout)
   }
 }
@@ -307,7 +355,7 @@ export async function listLocalHttpServers(options: {
   projectPath?: string
   projectTerminalRootPids?: number[]
 } = {}) {
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl
   const entries = await listListeningTcpEntries()
   const projectTerminalRootPids = new Set(options.projectTerminalRootPids ?? [])
   const cacheKey = `${options.projectPath ?? ""}\u0000${[...projectTerminalRootPids].sort((a, b) => a - b).join(",")}`
@@ -319,10 +367,11 @@ export async function listLocalHttpServers(options: {
 
   const parentByPid = await readParentProcessMap()
   const ownerCwds = new Map<number, string | undefined>()
+  const ownerCwdReads = new Map<number, Promise<string | undefined>>()
 
   await Promise.all(entries.flatMap((entry) => entry.owners.map(async (owner) => {
-    if (ownerCwds.has(owner.pid)) return
-    ownerCwds.set(owner.pid, await readProcessCwd(owner.pid))
+    if (!ownerCwdReads.has(owner.pid)) ownerCwdReads.set(owner.pid, readProcessCwd(owner.pid))
+    ownerCwds.set(owner.pid, await ownerCwdReads.get(owner.pid))
   })))
 
   const results = await Promise.all(entries.map((entry) => {

@@ -5,6 +5,7 @@ import path from "node:path"
 import { createConnectFixture, eventually } from "./connect-fixture"
 import { startStillOnServer } from "../src/server/server"
 import { PreviewBrowser } from "../src/server/preview-browser"
+import { listLocalHttpServers } from "../src/server/local-http-servers"
 
 // Synthetic accounts/files only. Never enrolls a production computer, sends
 // mail, starts an Agent, or changes the installed application's environment.
@@ -187,16 +188,16 @@ try {
     const protectedResponse = await request(entry, "/api/preview-browser", { targetId: protectedTarget.id })
     assert.equal(protectedResponse.status, 503, "Control application cannot be reached by the preview browser")
     checks.push({ entry: entry.name, check: "StillOn control port denied", result: "Pass" })
-    for (const variant of ["no-title", "root-404", "slow-root", "application-401", "application-403", "application-500"]) {
+    for (const variant of ["no-title", "root-404", "slow-root", "application-401", "application-403", "application-500", "ipv6-listener"]) {
       stage = entry.name + ":" + variant
-      const variantServer = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      const variantServer = Bun.serve({ hostname: variant === "ipv6-listener" ? "::1" : "127.0.0.1", port: 0, async fetch(request) {
         const url = new URL(request.url)
         if (url.pathname === "/" && variant === "slow-root") await Bun.sleep(900)
         if (url.pathname === "/" && variant === "root-404") return new Response("Not found", { status: 404 })
         return new Response("<!doctype html><h1>Explicit application path</h1><script>document.title='Variant ready'</script>", { status: variant.startsWith("application-") ? Number(variant.slice(12)) : 200, headers: { "Content-Type": "text/html" } })
       } })
       servers.push(variantServer)
-      const address = `http://localhost:${variantServer.port}/app?variant=${variant}#section`
+      const address = `http://${variant === "ipv6-listener" ? "[::1]" : "localhost"}:${variantServer.port}/app?variant=${variant}#section`
       const target = await json(entry, "/api/preview-targets", { projectId: project.id, address })
       const session = await json(entry, "/api/preview-browser", { targetId: target.id })
       const frame = await json(entry, "/api/preview-browser/" + session.id)
@@ -247,6 +248,8 @@ try {
     assert.equal(stolen.status, 410)
     checks.push({ entry: "cross-entry", check: "Opaque target ID does not grant another owner access", result: "Pass" })
   }
+  stage = "service-list-discovery"
+  assert((await listLocalHttpServers({ projectPath })).some(service => service.port === serviceListPort && service.title === "Service restored"), "The restored fixture must appear in real service discovery")
   stage = "browser-authorization-expiry"
   const leasedBrowser = new PreviewBrowser({ blockedPorts: () => [], resolveFile: async () => { throw new Error("No file grant") } })
   try {

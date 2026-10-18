@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { extractHtmlTitle, filterLocalHttpServers, isDescendantPid, isPathWithin, parseLsofListeningEntries, parseLsofListeningPorts, parseWindowsListeningEntries } from "./local-http-servers"
+import { extractHtmlTitle, filterLocalHttpServers, isDescendantPid, isPathWithin, listLocalHttpServers, parseLsofListeningEntries, parseLsofListeningPorts, parseWindowsListeningEntries } from "./local-http-servers"
 
 describe("local http servers", () => {
+  test("discovers single-family IPv4 and IPv6 listeners with localhost Host semantics", async () => {
+    const apps = ["127.0.0.1", "::1"].map(hostname => Bun.serve({ hostname, port: 0, fetch(request) {
+      const port = new URL(request.url).port
+      return new Response("<!doctype html><title>Loopback fixture " + port + "</title>", { status: request.headers.get("host") === "localhost:" + port ? 200 : 400, headers: { "Content-Type": "text/html" } })
+    } }))
+    try {
+      const servers = await listLocalHttpServers({ projectPath: "preview-discovery-" + apps.map(app => app.port).join("-") })
+      for (const app of apps) expect(servers.find(server => server.port === app.port)?.title).toBe("Loopback fixture " + app.port)
+    } finally { for (const app of apps) await app.stop(true) }
+  }, 10_000)
+
   test("extracts html titles", () => {
     expect(extractHtmlTitle("<html><head><title> Vite App </title></head></html>")).toBe("Vite App")
     expect(extractHtmlTitle("<html></html>")).toBe("")
