@@ -34,6 +34,12 @@ context and live network connections close within the 45-second lease limit.
 Browser contexts and their storage are ephemeral and never reuse a personal
 profile. URL navigation does not migrate arbitrary unsaved application state.
 
+Clipboard permissions are denied for each secure navigation origin, and every
+frame disables the async clipboard object and legacy copy/cut/paste commands.
+Host clipboard shortcuts, including Shift+Delete, are rejected before input.
+Acceptance checks permissions and guarded interfaces without reading or writing
+the operating system clipboard.
+
 Playwright drives an installed Chromium browser (Edge/Chrome or Playwright's
 Chromium); no browser is silently downloaded at runtime. Missing browser support
 is a recoverable capability error with retry guidance.

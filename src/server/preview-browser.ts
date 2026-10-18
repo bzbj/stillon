@@ -196,8 +196,34 @@ export class PreviewBrowser {
       await context.addInitScript(() => {
         // Device and direct peer transports are outside the HTTP preview grant.
         for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection"]) Object.defineProperty(globalThis, name, { value: undefined, configurable: false })
+        Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: false })
+        const execCommand = Document.prototype.execCommand
+        Object.defineProperty(Document.prototype, "execCommand", { configurable: false,
+          value: function(this: Document, command: string, showUI?: boolean, value?: string) {
+            const name = String(command)
+            return /^(?:copy|cut|paste)$/iu.test(name.trim()) ? false : execCommand.call(this, name, showUI, value)
+          } })
       })
       const page = await context.newPage()
+      const permissions = await context.newCDPSession(page)
+      const { targetInfo } = await permissions.send("Target.getTargetInfo")
+      if (!targetInfo.browserContextId) throw new Error("The preview browser could not isolate device permissions")
+      const deniedOrigins = new Set<string>()
+      const denyClipboard = async (origin: string) => {
+        if (deniedOrigins.has(origin)) return
+        if (deniedOrigins.size >= 64) throw new Error("The preview reached its navigation origin limit. Reopen it to continue.")
+        const url = new URL(origin)
+        // Insecure file/public HTTP origins cannot use the async clipboard.
+        // Chromium rejects permission overrides there; script/legacy guards
+        // still apply in every frame.
+        if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) { deniedOrigins.add(origin); return }
+        for (const name of ["clipboard-read", "clipboard-write"]) await permissions.send("Browser.setPermission", {
+          browserContextId: targetInfo.browserContextId, origin,
+          permission: { name, allowWithoutSanitization: false, allowWithoutGesture: false }, setting: "denied",
+        })
+        deniedOrigins.add(origin)
+      }
+      await denyClipboard(virtualOrigin ?? new URL(target.address).origin)
       const id = randomBytes(24).toString("base64url")
       const session: Session = { id, scope, group, targetId, target, context, page, proxy, virtualOrigin,
         touched: Date.now(), pending: 0, tail: Promise.resolve(), lastAddress: target.address, viewers: new Map(viewer ? [[viewer, Date.now()]] : []) }
@@ -252,7 +278,13 @@ export class PreviewBrowser {
       } else {
         // Chromium proxying handles HTTP(S) and WebSocket connections. Block
         // alternate schemes, local file navigation and browser internals too.
-        await context.route("**/*", route => ["http:", "https:"].includes(new URL(route.request().url()).protocol) ? route.continue() : route.abort())
+        await context.route("**/*", async route => {
+          const request = route.request(), url = new URL(request.url())
+          if (!["http:", "https:"].includes(url.protocol)) { await route.abort(); return }
+          try { if (request.isNavigationRequest()) await denyClipboard(url.origin) }
+          catch { await route.abort(); return }
+          await route.continue()
+        })
       }
       context.on("page", popup => { if (popup !== page) void popup.close() })
       page.on("dialog", dialog => void dialog.dismiss())
@@ -313,7 +345,7 @@ export class PreviewBrowser {
           else if (action.type === "resize" && number(action.width, 1600) && (action.width as number) >= 320 && number(action.height, 1200) && (action.height as number) >= 200) await session.page.setViewportSize({ width: Math.round(action.width as number), height: Math.round(action.height as number) })
           else if (action.type === "text" && typeof action.text === "string" && action.text.length <= 2000) await session.page.keyboard.insertText(action.text)
           else if (action.type === "key" && typeof action.key === "string" && /^(?:(?:Control|Meta|Alt|Shift)\+)*(?:[a-zA-Z0-9]|Enter|Tab|Backspace|Delete|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown|Space)$/u.test(action.key)) {
-            if (/(?:Control|Meta)\+.*[cvx]$/iu.test(action.key)) return Response.json({ error: "Host clipboard shortcuts are unavailable in previews." }, { status: 400 })
+            if (/(?:Control|Meta)\+.*[cvx]$/iu.test(action.key) || (action.key.includes("Shift+") && action.key.endsWith("Delete"))) return Response.json({ error: "Host clipboard shortcuts are unavailable in previews." }, { status: 400 })
             await session.page.keyboard.press(action.key)
           }
           else if (action.type === "scroll" && typeof action.dy === "number" && Number.isFinite(action.dy) && Math.abs(action.dy) <= 2000) {

@@ -27,6 +27,7 @@ try {
   for (const entry of config.entries) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
     context.setDefaultTimeout(15_000)
+    context.setDefaultNavigationTimeout(45_000)
     if (entry.cookie) await context.addCookies(entry.cookie.split("; ").map((part: string) => {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
@@ -37,23 +38,23 @@ try {
     for (const name of ["project-markdown", "outside-markdown"]) {
       stage = entry.name + ":" + name + ":document-navigation"
       const url = entry.origin + "/preview/" + config.targetIds[entry.name][name]
-      await page.goto(url)
+      await page.goto(url, { waitUntil: "domcontentloaded" })
       await page.getByRole("heading", { name: "Preview guide" }).waitFor()
       await images(page)
       assert.equal(await page.getByRole("table").count(), 1)
       const next = page.getByRole("link", { name: "Next document" })
       await next.click()
       await page.getByRole("heading", { name: "Next section" }).waitFor()
-      await page.reload()
+      await page.reload({ waitUntil: "domcontentloaded" })
       await page.getByRole("heading", { name: "Next section" }).waitFor()
-      await page.goBack()
+      await page.goBack({ waitUntil: "domcontentloaded" })
       await page.getByRole("heading", { name: "Preview guide" }).waitFor()
       await page.getByRole("link", { name: "Section", exact: true }).click()
       await page.getByRole("heading", { name: "Details" }).waitFor()
       checks.push({ entry: entry.name, check: name + " standalone rendering, relative image, links, reload, back, fragment", result: "Pass" })
     }
     stage = entry.name + ":chat:link-resolution"
-    await page.goto(entry.origin + "/chat/" + config.chatId)
+    await page.goto(entry.origin + "/chat/" + config.chatId, { waitUntil: "domcontentloaded" })
     const guide = page.getByRole("link", { name: "Read guide", exact: true })
     await guide.waitFor()
     await guide.click()
@@ -131,11 +132,11 @@ try {
       const popup = await popupPromise
       currentPage = popup
       stage = entry.name + ":" + name + ":standalone"
-      await popup.waitForURL(/\/preview\/[\w-]+$/u)
+      await popup.waitForURL(/\/preview\/[\w-]+$/u, { waitUntil: "domcontentloaded" })
       if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
       else await popup.getByAltText("Interactive browser preview").waitFor()
       assert.equal(await popup.getByLabel("Preview address").textContent(), currentAddress)
-      await popup.reload()
+      await popup.reload({ waitUntil: "domcontentloaded" })
       stage = entry.name + ":" + name + ":standalone-reload"
       if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
       else await popup.getByAltText("Interactive browser preview").waitFor()

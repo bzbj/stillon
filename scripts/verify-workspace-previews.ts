@@ -51,7 +51,7 @@ async function fixtureFiles(directory: string) {
   await mkdir(directory, { recursive: true })
   await writeFile(path.join(directory, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Loading fixture</title><link rel="stylesheet" href="./style.css"><h1>Workspace preview</h1><p id="module">Loading module</p><button id="add">Add one</button><a id="next" href="./next.html?tab=one#section">Next page</a><img src="./中文 image.png" alt="Fixture pixel"><script src="./classic.js"></script><script type="module" src="./中文 module.js"></script></html>`)
   await writeFile(path.join(directory, "classic.js"), "window.classicReady=true")
-  await writeFile(path.join(directory, "中文 module.js"), `const data=await(await fetch('./data.json')).json();let count=Number(localStorage.count||0);function render(){document.title='Fixture '+count+' '+data.label+' '+window.classicReady;document.querySelector('#module').textContent='ES module ready';document.querySelector('#add').textContent='Add one: '+count}render();document.querySelector('#add').onclick=()=>{localStorage.count=++count;render()};`)
+  await writeFile(path.join(directory, "中文 module.js"), `if(navigator.clipboard||Object.getOwnPropertyDescriptor(Document.prototype,'execCommand')?.configurable!==false)throw new Error('Host clipboard access must be blocked');const data=await(await fetch('./data.json')).json();let count=Number(localStorage.count||0);function render(){document.title='Fixture '+count+' '+data.label+' '+window.classicReady;document.querySelector('#module').textContent='ES module ready';document.querySelector('#add').textContent='Add one: '+count}render();document.querySelector('#add').onclick=()=>{localStorage.count=++count;render()};`)
   await writeFile(path.join(directory, "next.html"), '<!doctype html><title>Nested fixture</title><h1 id="section">Next page</h1><a href="./index.html">Return</a>')
   await writeFile(path.join(directory, "data.json"), '{"label":"static-fetch"}')
   await writeFile(path.join(directory, "style.css"), '@font-face{font-family:Fixture;src:url("./fixture.woff2")}body{font:18px Fixture,system-ui;margin:24px;background:#f1f8f5;color:#173b32}button{position:absolute;top:120px;left:24px;width:160px;height:44px;font:inherit}#next{position:absolute;top:180px;left:24px}img{width:20px;height:20px}')
@@ -119,7 +119,7 @@ try {
       if (url.pathname === "/") return new Response("Root intentionally unavailable", { status: 404 })
       return new Response(`<!doctype html><title>Application loading</title><style>body{font:18px system-ui;margin:24px}button{position:absolute;left:24px;top:100px;width:160px;height:44px;font:inherit}a{position:absolute;left:24px;top:170px}</style><h1>Dynamic application</h1><button id="add">Add one</button><a href="/nested?tab=one#section">Nested route</a><form action="/api/counter" method="post" style="position:absolute;left:24px;top:240px"><input name="sample" value="example" style="width:160px"><input type="submit" value="Save form" style="width:140px;height:44px"></form><script>
       let wsReady=false;const ws=new WebSocket('ws://'+location.host+'/socket');ws.onopen=()=>ws.send('echo');ws.onmessage=()=>{wsReady=true;render()};
-      async function render(){const value=await(await fetch('/api/counter')).json();document.title='Application '+value.count+' '+wsReady;document.querySelector('#add').textContent='Add one: '+value.count}document.querySelector('#add').onclick=async()=>{await fetch('/api/counter',{method:'POST'});localStorage.saved='yes';await render()};render();</script>`, { headers: { "Content-Type": "text/html", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" } })
+      async function render(){const policy=await navigator.permissions.query({name:'clipboard-write'});const configurable=Object.getOwnPropertyDescriptor(Document.prototype,'execCommand')?.configurable;if(navigator.clipboard||configurable!==false||policy.state!=='denied'){document.title='Clipboard guard '+Boolean(navigator.clipboard)+' '+configurable+' '+policy.state;return}const value=await(await fetch('/api/counter')).json();document.title='Application '+value.count+' '+wsReady;document.querySelector('#add').textContent='Add one: '+value.count}document.querySelector('#add').onclick=async()=>{await fetch('/api/counter',{method:'POST'});localStorage.saved='yes';await render()};render();</script>`, { headers: { "Content-Type": "text/html", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" } })
     }, websocket: { open() { activeSockets++ }, close() { activeSockets-- }, message(ws, message) { ws.send(message) } },
   })
   servers.push(app)
@@ -147,7 +147,9 @@ try {
         checks.push({ entry: entry.name, check: name + " authenticated target and content", result: "Pass" }); continue
       }
       const session = await json(entry, "/api/preview-browser", { targetId: target.id })
-      assert.equal((await request(entry, "/api/preview-browser/" + session.id, { type: "key", key: "Control+V" })).status, 400)
+      for (const key of ["Control+C", "Control+V", "Meta+X", "Shift+Delete"]) {
+        assert.equal((await request(entry, "/api/preview-browser/" + session.id, { type: "key", key })).status, 400)
+      }
       stage = entry.name + ":" + name + ":initial-readiness"
       let frame = await eventually(() => json(entry, "/api/preview-browser/" + session.id), value => { if (name === "dynamic") console.log("Dynamic readiness", value.title, value.error ?? ""); return name === "dynamic" ? /Application \d+ true/u.test(value.title) : value.title === "Fixture 0 static-fetch true" })
       assert.ok(frame.image.length > 1000)
@@ -181,7 +183,7 @@ try {
         await json(entry, "/api/preview-browser/" + session.id, { type: "reload" })
         assert.equal(count, beforeForm + 1, "Refresh must not replay a POST form")
       }
-      checks.push({ entry: entry.name, check: name + " resources, input, storage, reload" + (name === "dynamic" ? ", API, WebSocket, bidirectional writes, deep navigation" : ""), result: "Pass" })
+      checks.push({ entry: entry.name, check: name + " resources, input, storage, reload, clipboard guards" + (name === "dynamic" ? ", API, WebSocket, bidirectional writes, deep navigation" : ""), result: "Pass" })
       await request(entry, "/api/preview-browser/" + session.id, undefined, "DELETE")
     }
     const protectedTarget = await json(entry, "/api/preview-targets", { address: localOrigin, projectId: project.id })
