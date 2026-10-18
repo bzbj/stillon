@@ -28,6 +28,7 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
 const networkFailures: { path: string; status: number }[] = []
 const browserErrors: string[] = []
+const assetFailures: Record<string, unknown>[] = []
 const safeError = (value: string) => value.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gu, raw => { try { return new URL(raw).pathname } catch { return "[URL]" } }).slice(0, 600)
 let currentPage: Page | undefined
 let stage = "startup"
@@ -52,7 +53,21 @@ try {
     context.setDefaultTimeout(15_000)
     context.setDefaultNavigationTimeout(45_000)
     context.on("page", page => page.on("pageerror", error => browserErrors.push(safeError(error.message))))
-    context.on("requestfailed", request => browserErrors.push("Request " + new URL(request.url()).pathname + ": " + request.failure()?.errorText))
+    const assetResponses = new Map<import("playwright").Request, Record<string, unknown>>()
+    context.on("response", response => {
+      const pathname = new URL(response.url()).pathname
+      if (!pathname.startsWith("/assets/")) return
+      const headers = response.headers()
+      assetResponses.set(response.request(), { path: pathname, status: response.status(), type: headers["content-type"],
+        length: headers["content-length"], encoding: headers["content-encoding"], transfer: headers["transfer-encoding"],
+        redirect: headers.location ? new URL(headers.location, response.url()).pathname : undefined })
+      if (assetResponses.size > 200) assetResponses.delete(assetResponses.keys().next().value!)
+    })
+    context.on("requestfailed", request => {
+      const pathname = new URL(request.url()).pathname
+      browserErrors.push("Request " + pathname + ": " + request.failure()?.errorText)
+      if (pathname.startsWith("/assets/")) assetFailures.push(assetResponses.get(request) ?? { path: pathname, response: "Unavailable" })
+    })
     if (entry.cookie) await context.addCookies(entry.cookie.split("; ").map((part: string) => {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
@@ -451,6 +466,7 @@ try {
   console.error("Browser validation failed at " + stage)
   console.error("Recent network failures:", networkFailures.slice(-20))
   console.error("Recent browser errors:", browserErrors.slice(-20))
+  console.error("Failed asset response metadata:", assetFailures.slice(-10))
   if (currentPage && !currentPage.isClosed()) {
     console.error("Parent page text:", safeError(await currentPage.locator("body").innerText()).slice(0, 600))
     console.error("Preview status:", await currentPage.getByRole("status").allTextContents())

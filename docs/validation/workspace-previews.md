@@ -76,6 +76,16 @@ upgrade or a claim that Bun itself is fixed. Final platform and authenticated
 browser CI must pass on this relay revision before merge; the first crash log
 remains part of the evidence.
 
+Firefox also exposed an intermittent corrupt static-module response after a
+navigation cancelled multiple requests. Private relay hops now use a separate
+HTTP connection per exchange and reframe streamed bodies without carrying an
+upstream Content-Length. Content-Encoding remains paired with the unchanged
+compressed bytes; HEAD retains its representation length. The native regression
+checks distinct upstream connections, gzip/Brotli byte integrity and HEAD
+metadata alongside cancellation and a complete 1 MiB response. This trades
+private-hop pooling for isolation under the pinned runtime; tunnel and visiting
+browser connections keep their existing behavior.
+
 One fresh Windows runner also exceeded the old ten-second PowerShell/.NET helper
 watchdog on its first discovery scan; the next 29 scans passed. The helper now
 has a twenty-second initialization allowance while each actual HTTP request

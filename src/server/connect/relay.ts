@@ -87,7 +87,11 @@ export class ConnectRelay {
     try { id = this.reserve(scope, close) } catch (error) { finish(); throw error }
     request.signal.addEventListener("abort", cancel, { once: true })
     try {
-      const upstream = await fetch(target, { method: request.method, headers,
+      // An aborted browser request must not leave a partially consumed HTTP
+      // exchange in Bun 1.3's private-hop pool for the next static module.
+      const upstreamHeaders = new Headers(headers)
+      upstreamHeaders.set("connection", "close")
+      const upstream = await fetch(target, { method: request.method, headers: upstreamHeaders, keepalive: false,
         body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
         signal: AbortSignal.any([request.signal, controller.signal]), redirect: "manual", decompress: false,
       })
@@ -98,6 +102,10 @@ export class ConnectRelay {
       outgoing.set("Cache-Control", "no-store")
       outgoing.set("Referrer-Policy", "no-referrer")
       if (!upstream.body || request.method === "HEAD") { finish(); return new Response(null, { status: upstream.status, headers: outgoing }) }
+      // This hop writes a new stream. Let Bun frame it rather than retaining
+      // another hop's message length; compressed bytes/Content-Encoding stay
+      // paired because fetch above explicitly disables decompression.
+      outgoing.delete("content-length")
       reader = upstream.body.getReader()
       // Bun 1.3.14 can crash when a client aborts a default async-pull HTTP
       // body (oven-sh/bun#32111). Its direct sink avoids that controller path

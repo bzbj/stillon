@@ -1,10 +1,18 @@
-import { ConnectRelay } from "../src/server/connect/relay"
+import { ConnectRelay, forwardingHeaders } from "../src/server/connect/relay"
+import { brotliCompressSync, gzipSync } from "node:zlib"
 
 const relay = new ConnectRelay()
 const bytes = new Uint8Array(4096).fill(71)
 let valid = true
+const connectionProbe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request, server) {
+  return Response.json({ port: server.requestIP(request)?.port })
+} })
 const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
   const pathname = new URL(request.url).pathname, long = pathname === "/long"
+  if (pathname === "/gzip" || pathname === "/br") {
+    const body = (pathname === "/gzip" ? gzipSync : brotliCompressSync)(Buffer.from("export const value = 'fixture';\n".repeat(128)))
+    return new Response(body, { headers: { "Content-Type": "text/javascript; charset=utf-8", "Content-Encoding": pathname.slice(1), "Content-Length": String(body.byteLength) } })
+  }
   const source: Bun.DirectUnderlyingSource = {
     type: "direct",
     async pull(output) {
@@ -36,7 +44,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (pathname === "/state") return Response.json({ active: relay.activeCount })
   if (pathname === "/revoke") { valid = false; relay.invalidate({ parentId: "fixture-parent" }); return Response.json({ ok: true }) }
   try {
-    return await relay.http(request, `http://127.0.0.1:${upstream.port}${pathname}`, new Headers(), {
+    return await relay.http(request, `http://127.0.0.1:${pathname === "/connection" ? connectionProbe.port : upstream.port}${pathname}`, forwardingHeaders(request), {
       ownerId: "fixture-owner", hostId: "fixture-host", parentId: "fixture-parent", valid: () => valid,
     })
   } catch (error) {
@@ -51,3 +59,4 @@ await Bun.stdin.text()
 relay.stop()
 await server.stop(true)
 await upstream.stop(true)
+await connectionProbe.stop(true)

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import path from "node:path"
+import { brotliCompressSync, gzipSync } from "node:zlib"
 
 test("native relay survives client cancellations, streams incrementally and revokes active bodies", async () => {
   // Isolate native runtime failures: a Bun socket abort must fail this test,
@@ -38,6 +39,19 @@ test("native relay survives client cancellations, streams incrementally and revo
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(4096).fill(71))
     const large = await fetch(origin + "/large", { signal: AbortSignal.timeout(5000) })
     expect(new Uint8Array(await large.arrayBuffer())).toEqual(new Uint8Array(256 * 4096).fill(71))
+    for (const [encoding, compress] of [["gzip", gzipSync], ["br", brotliCompressSync]] as const) {
+      const expected = compress(Buffer.from("export const value = 'fixture';\n".repeat(128)))
+      const encoded = await fetch(origin + "/" + encoding, { decompress: false, signal: AbortSignal.timeout(5000) })
+      expect(encoded.headers.get("content-encoding")).toBe(encoding)
+      expect(encoded.headers.has("content-length") && encoded.headers.has("transfer-encoding")).toBe(false)
+      expect(new Uint8Array(await encoded.arrayBuffer())).toEqual(new Uint8Array(expected))
+      const head = await fetch(origin + "/" + encoding, { method: "HEAD", decompress: false, signal: AbortSignal.timeout(5000) })
+      expect(head.headers.get("content-length")).toBe(String(expected.byteLength))
+    }
+    const firstConnection = await (await fetch(origin + "/connection")).json() as { port: number }
+    const nextConnection = await (await fetch(origin + "/connection")).json() as { port: number }
+    expect(firstConnection.port).toBeGreaterThan(0)
+    expect(nextConnection.port).not.toBe(firstConnection.port)
     expect(await (await fetch(origin + "/state")).json()).toEqual({ active: 0 })
     const streaming = await fetch(origin + "/long", { signal: AbortSignal.timeout(5000) })
     const body = streaming.body!.getReader(), first = await body.read()
