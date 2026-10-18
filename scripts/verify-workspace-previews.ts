@@ -30,6 +30,8 @@ const dirty = new TextDecoder().decode(Bun.spawnSync(["git", "status", "--porcel
 const downloads: { entry: string; scope: string; name: string; size: number; sha256: string; contentType: string | null }[] = []
 const checks: { entry: string; check: string; result: string }[] = []
 let stage = "setup"
+const progress = setInterval(() => console.log("Preview fixture stage: " + stage), 10_000)
+progress.unref()
 const localOrigin = `http://127.0.0.1:${server.port}`
 interface Entry { name: string; origin: string; cookie?: string; gateway?: string }
 const entries: Entry[] = [{ name: "loopback", origin: localOrigin }]
@@ -374,6 +376,7 @@ try {
   await writeFile(path.join(output, filesOnly ? "api-results-files-only.json" : "api-results.json"), JSON.stringify({ localOnly, filesOnly, commit: sourceCommit, dirty, downloads, checks }, null, 2))
   console.log(JSON.stringify({ localOnly, checks }, null, 2))
   if (browserOutput) {
+    clearInterval(progress)
     await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, outsidePath, projectPath, fixtureRoot: root, output, gatewayVersion: sourceCommit, sourceVersion: sourceCommit, dirty, hostOS: os.platform(), hostRelease: os.release(), adapterVersion: sourceCommit, clientVersion: sourceCommit }))
     console.log("Workspace browser fixture ready")
     if (stopFile) { while (true) { try { await readFile(stopFile); break } catch { await Bun.sleep(200) } } }
@@ -383,6 +386,7 @@ try {
   console.error("Preview fixture failed at " + stage)
   throw error
 } finally {
+  clearInterval(progress)
   for (const app of servers) await app.stop(true)
   if (connect) await connect.stop(); else await server.stop()
   // Only the explicitly generated temporary fixture root is removed.

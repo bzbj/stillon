@@ -23,9 +23,13 @@ const progress = setInterval(() => console.log("Browser validation stage: " + st
 progress.unref()
 try {
   let config: any
-  for (let attempt = 0; ; attempt++) {
+  // Preparation runs the API, discovery and browser-lease regression matrix.
+  // Native Windows runners can need more than two minutes for these checks.
+  const fixtureDeadline = Date.now() + 5 * 60_000
+  for (;;) {
     try { config = JSON.parse(await readFile(privateFixture, "utf8")); break } catch { /* Starting synthetic fixture. */ }
-    assert(child.exitCode === null && attempt < 600, "Preview fixture could not start")
+    assert(child.exitCode === null && child.signalCode === null, "Preview fixture exited before becoming ready")
+    assert(Date.now() < fixtureDeadline, "Preview fixture preparation exceeded five minutes")
     await new Promise(resolve => setTimeout(resolve, 200))
   }
   const type = process.argv.includes("--firefox") ? firefox : chromium
