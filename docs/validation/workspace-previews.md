@@ -77,6 +77,11 @@ bun run test:previews:browser --local-only --firefox
 The discovery script records each fresh scan and both families. CI includes an
 additional Windows Edge/discovery job and retains separate Chromium/Firefox
 browser summaries so one engine cannot overwrite the other's IME evidence.
+One Windows x64 stress run, alongside the repository suite and browser checks,
+found both listeners in all 30 fresh scans. Cold scans took 3.85–7.14 seconds in
+that busy sample, including process/compiler startup; these are observations,
+not a latency guarantee. The focused preview run recorded 46 passes and three
+Unix-only skips, with the Windows native batch exercised instead.
 These are source-fixture checks. Deployment, a real second device, production
 Connect and physical input methods remain outstanding acceptance gates below.
 
