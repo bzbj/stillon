@@ -117,6 +117,24 @@ try {
       await page.getByRole("heading", { name: "Details" }).waitFor()
       checks.push({ entry: entry.name, check: name + " standalone rendering, relative image, links, reload, back, fragment", result: "Pass" })
     }
+    await paceConnect()
+    stage = entry.name + ":static-module-integrity"
+    const imported = await page.evaluate(async ({ asset, metadata }) => {
+      for (let index = 0; index < 20; index++) {
+        const controller = new AbortController()
+        const request = fetch(metadata, { signal: controller.signal, cache: "no-store" }).catch(() => undefined)
+        const cancel = setTimeout(() => controller.abort(), 1)
+        let timeout: number | undefined
+        try {
+          await Promise.race([import(asset + "?preview-integrity=" + Date.now() + "-" + index), new Promise<never>((_, reject) => {
+            timeout = window.setTimeout(() => reject(new Error("A native static-module import timed out")), 10_000)
+          })])
+        } finally { clearTimeout(cancel); if (timeout) clearTimeout(timeout); controller.abort(); await request }
+      }
+      return 20
+    }, { asset: config.moduleProbeAsset, metadata: "/api/preview-targets/" + config.targetIds[entry.name]["project-markdown"] })
+    assert.equal(imported, 20)
+    checks.push({ entry: entry.name, check: "Twenty native cache-busted module imports remain valid across cancelled metadata requests", result: "Pass" })
     stage = entry.name + ":chat:link-resolution"
     await page.goto(entry.origin + "/chat/" + config.chatId, { waitUntil: "domcontentloaded" })
     const guide = page.getByRole("link", { name: "Read guide", exact: true })

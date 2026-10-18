@@ -26,7 +26,7 @@ methods, mobile and macOS Finder still have required work below.
 | --- | --- | --- |
 | `bun install --frozen-lockfile` | Pass, exit 0 | Unchanged lockfile/dependencies |
 | `bun run check` | Pass, exit 0 | Type check; client, export viewer and Connect builds |
-| Focused changed-file, relay and sidebar-store tests | Pass, 110 tests | Canonical files/junctions, restart persistence, owner isolation, ingress, protocol, paths, policy, existing images and native stream cancellation |
+| Focused changed-file, relay and sidebar-store tests | Pass, 117 tests | Canonical files/junctions, restart persistence, owner isolation, ingress, protocol, paths, policy, existing images and native stream cancellation |
 | `bun run audit` | Pass, exit 0 | Repository audit command with its existing advisory exception |
 | `bun run test` | Fail, exit 1 | 1,452 pass, 14 skip, 12 permission failures before the final navigation follow-ups |
 | Unchanged-baseline permission subset | Fail, exit 1 | Same 12 failures: 11 symlink `EPERM`, one long PowerShell spawn `EPERM` |
@@ -58,6 +58,8 @@ Results live in `test-artifacts/workspace-previews/{chromium,firefox}/`, includi
 `api-results*.json`, `browser-results*.json`, original download sizes/MIME/SHA-256,
 and generic screenshots. Engine results do not overwrite each other. Private
 fixture JSON contains generated credentials and is excluded from artifact uploads.
+Each browser also performs twenty cache-busted native module imports while cancelling
+metadata requests, covering static asset integrity after navigation.
 CI uses real frps/frpc, but its synthetic account and same-machine browser are not
 a real second device or the deployed managed workspace.
 Repeated standalone reloads are paced below the gateway's unchanged 1,200/minute
