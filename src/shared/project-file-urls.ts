@@ -21,9 +21,18 @@ export function buildProjectRenderablePreviewUrl(projectId: string, filePath: st
 export function normalizeProjectPreviewAddress(address: string, projectId: string, currentOrigin: string) {
   let url: URL
   try { url = new URL(address) } catch { return address }
-  if (!["http:", "https:"].includes(url.protocol)) return address
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-  if (!loopback && url.origin !== currentOrigin) return address
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return address
+  let current: URL
+  try { current = new URL(currentOrigin) } catch { return address }
+  if (url.origin !== current.origin) {
+    const loopbackHosts = ["localhost", "127.0.0.1", "[::1]"]
+    const port = url.port || (url.protocol === "https:" ? "443" : "80")
+    const currentPort = current.port || (current.protocol === "https:" ? "443" : "80")
+    // Only migrate known StillOn origins. An app can pushState to a path that
+    // looks like a file preview; its origin must never become a file grant.
+    if (!loopbackHosts.includes(url.hostname)
+      || (port !== "3210" && !(loopbackHosts.includes(current.hostname) && port === currentPort))) return address
+  }
   const match = /^\/api\/projects\/([^/]+)\/(?:preview|markdown-preview)\//u.exec(url.pathname)
   try { if (!match || decodeURIComponent(match[1]!) !== projectId) return address } catch { return address }
   return url.pathname + url.search + url.hash

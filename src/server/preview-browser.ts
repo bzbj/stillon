@@ -22,6 +22,7 @@ interface Session {
   navigationType?: "push" | "replace" | "pop"
   viewers: Map<string, number>
 }
+class PreviewFramePendingError extends Error {}
 
 export class PreviewBrowser {
   private engine?: Promise<Browser>
@@ -136,7 +137,7 @@ export class PreviewBrowser {
     try {
       const result = await Promise.race([
         cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 70, captureBeyondViewport: false, fromSurface: true }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The preview is still rendering. Retry shortly.")), 5_000) }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new PreviewFramePendingError("The preview is still rendering. Retry shortly.")), 5_000) }),
       ])
       return result.data
     } finally { clearTimeout(timer); await cdp.detach().catch(() => undefined) }
@@ -332,6 +333,7 @@ export class PreviewBrowser {
       }).finally(() => { session.pending-- })
       session.tail = operation
       return await operation
-    } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Preview browser unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }) }
+    } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Preview browser unavailable",
+      ...(error instanceof PreviewFramePendingError ? { retryableFrame: true } : {}) }, { status: 503, headers: { "Cache-Control": "no-store" } }) }
   }
 }

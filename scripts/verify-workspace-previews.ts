@@ -33,10 +33,17 @@ async function request(entry: Entry, route: string, body?: object, method = body
   return response
 }
 async function json(entry: Entry, route: string, body?: object) {
-  const response = await request(entry, route, body)
-  const value = await response.json()
-  assert.ok(response.ok, `${entry.name} ${route}: ${JSON.stringify(value)}`)
-  return value as any
+  for (let attempt = 0; ; attempt++) {
+    // Like the UI's polling, retry only a transient frame read. The input may
+    // already have been applied; never replay a click, form or other POST.
+    const response = await request(entry, route, attempt === 0 ? body : undefined)
+    const value = await response.json() as any
+    if (response.status === 503 && value.retryableFrame === true && /^\/api\/preview-browser\/[\w-]+$/u.test(route) && attempt < 3) {
+      await Bun.sleep(200); continue
+    }
+    assert.ok(response.ok, `${entry.name} ${route}: ${JSON.stringify(value)}`)
+    return value
+  }
 }
 async function fixtureFiles(directory: string) {
   await mkdir(directory, { recursive: true })

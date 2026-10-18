@@ -31,15 +31,18 @@ record modules, resources, actual input, storage, exactly-once form submission,
 WebSocket echo, deep routes, bidirectional backend writes and blocked control ports.
 Browser assertions record sidebar/standalone rendering, relative images, real
 button writes, modifier/middle clicks, native context menus and refresh.
+Transient frame timeouts are retried with GET only; already-applied input is
+never replayed by the acceptance fixture.
 
 Only result summaries and generic screenshots may be uploaded. Private fixture
 JSON includes generated test credentials and must remain private.
 
 The Windows type/build checks, audit and focused preview regressions pass.
-The full local suite encountered existing `EPERM` failures creating symlinks and
-spawning a long encoded PowerShell test. These unchanged tests also fail in a
-clean baseline worktree. This is **not** a passing full-suite result. The PR's
-full supported-platform CI matrix must pass before merge.
+The latest full local run recorded 1,438 passes, 11 skips and 11 existing `EPERM`
+symlink failures. An earlier run also encountered `EPERM` spawning an unchanged
+long encoded PowerShell test. Both kinds of failure reproduce in the clean
+baseline worktree. This is **not** a passing full-suite result. The PR's full
+supported-platform CI matrix must pass before merge.
 
 Windows Defender blocks extraction of the checksum-verified official frp test
 package here. No security exclusions or policy changes were made. CI runs real
@@ -98,10 +101,10 @@ second-device portions remain blocked pending authorized test access.
 | A27 | Session reuse, viewer release, quotas and cleanup; prolonged lifecycle review remains separate |
 | S01–S02 | Owner-bound IDs and account/host gateway regressions; production multi-device check pending |
 | S03 | Directory/hidden-file/escaping-link checks; Windows link privilege limits the local suite |
-| S04–S05 | Unsafe protocols, credentials, private/mapped IPs, control ports, header stripping and host clipboard denial |
+| S04–S05 | Unsafe protocols, credentials, private/mapped IPs, control ports, header stripping, legacy-link origin isolation and host clipboard denial |
 | S06 | Gateway resource revocation and transport logout/pause CI; production browser-session check pending |
 | S07 | Connection origin/address/blocked-port checks; arbitrary process-identity pinning is not implemented |
-| C01 | Existing store migration retained, targets persist, expired IDs show recovery guidance |
+| C01 | Existing store migration retained, targets persist, expired IDs show recovery guidance; saved localhost file links migrate only from the current local StillOn port or reserved 3210, and custom remote ports require reopening the file |
 | C02 | Generic HTTP forwarding retained; old adapter session headers fail closed; deployed version combinations pending |
 
 ## Deployment and outstanding acceptance
