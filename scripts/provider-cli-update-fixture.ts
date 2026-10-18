@@ -1,7 +1,7 @@
-import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { AgentProvider } from "../src/shared/types"
-import { cliPackages, inspectCliInstallation } from "../src/server/provider-cli-installation"
+import { cliPackages, inspectCliInstallation, npmUpdateCommand } from "../src/server/provider-cli-installation"
 import { installCli, verifyCli, type ProviderCliUpdatesOptions } from "../src/server/provider-cli-updates"
 
 /** Synthetic npm prefix. Its installer only edits files under the fixture root. */
@@ -55,7 +55,14 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
   const options: Pick<ProviderCliUpdatesOptions, "inspect" | "release" | "install" | "verify"> = {
     inspect: requested => requested === provider ? inspectCliInstallation(provider, environment) : Promise.resolve({ identity: "missing", label: "Not installed", automaticUpdates: "Managed outside StillOn.", reason: "Synthetic fixture has no installation for this provider." }),
     release: async provider => ({ version: "1.2.4", publishedAt: "2026-01-01T00:00:00.000Z", url: provider === "codex" ? "https://github.com/openai/codex/releases/tag/rust-v1.2.4" : "https://github.com/anthropics/claude-code/releases/tag/v1.2.4" }),
-    install: (provider, installation, target) => installCli(provider, installation, target, environment),
+    install: async (provider, installation, target) => {
+      if (installation.method?.kind !== "npm") throw new Error("The fixture only permits its synthetic npm installer.")
+      const plan = await npmUpdateCommand(environment, installation.method.prefix, provider, target)
+      if (await realpath(plan.args[0]!) !== await realpath(npmScript) || await realpath(installation.method.prefix) !== await realpath(root)) {
+        throw new Error("Refusing to run an installer outside the synthetic prefix.")
+      }
+      await installCli(provider, installation, target, environment)
+    },
     verify: (provider, installation) => verifyCli(provider, installation, environment),
   }
   return { options, environment, executable, version, serverVersion, failure, calls, installed: () => readFile(version, "utf8") }
