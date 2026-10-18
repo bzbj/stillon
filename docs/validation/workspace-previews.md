@@ -48,6 +48,8 @@ delivery preserves text/key/pointer order over Connect; long pastes preserve emo
 across request boundaries. Native Chromium IME dispatch checks Chinese and Japanese
 in the direct application, sidebar and independent page. Firefox checks its
 composition event lifecycle explicitly; that is not native IME evidence.
+Native keys activate the target's private tab before dispatch; a cross-tab
+Space assertion covers background key loss.
 Paste-event tests leave both operating system clipboards untouched. Real OS input
 methods and physical touch keyboards still require device acceptance.
 
@@ -80,7 +82,7 @@ browser summaries so one engine cannot overwrite the other's IME evidence.
 One Windows x64 stress run, alongside the repository suite and browser checks,
 found both listeners in all 30 fresh scans. Cold scans took 3.85–7.14 seconds in
 that busy sample, including process/compiler startup; these are observations,
-not a latency guarantee. The focused preview run recorded 46 passes and three
+not a latency guarantee. The focused preview run recorded 47 passes and three
 Unix-only skips, with the Windows native batch exercised instead.
 These are source-fixture checks. Deployment, a real second device, production
 Connect and physical input methods remain outstanding acceptance gates below.
@@ -140,7 +142,7 @@ second-device portions remain blocked pending authorized test access.
 | A09 | Blocked: external HTML through the deployed production Connect version |
 | A10 | Bounded file-app storage/fetch and real HTTP backend writes; no implicit backend execution |
 | A11–A12 | Titleless, root 404 and 900 ms root variants admit the actual application path |
-| A13–A14 | IPv4/IPv6/encoding/query/fragment regressions and localhost listener fallback |
+| A13–A14 | Loopback IPv4/IPv6/encoding/query/fragment regressions; public IPv6-only plain HTTP is explicitly unsupported and cannot substitute a local destination |
 | A15 | Actual API, native form, WebSocket echo; refresh does not replay POST |
 | A16 | Resource/redirect policy regressions and transport integration; production check pending |
 | A17 | Gap: arbitrary absolute localhost URLs and multi-port backends are not automatically remapped |

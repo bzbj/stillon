@@ -290,7 +290,9 @@ export class PreviewBrowser {
       page.on("response", response => {
         if (!response.request().isNavigationRequest() || response.frame() !== page.mainFrame()) return
         const transport = response.headers()["x-stillon-preview-transport"]
-        if (transport) session.error = transport === "unavailable" ? "The web server is unavailable. Start it on the computer and retry." : "This destination is outside the preview's authorized service. Open its own preview to continue."
+        if (transport) session.error = transport === "unavailable" ? "The web server is unavailable. Start it on the computer and retry."
+          : transport === "unsupported" ? "Public IPv6-only HTTP previews are unavailable. Use HTTPS or IPv4."
+            : "This destination is outside the preview's authorized service. Open its own preview to continue."
       })
       const binding = "__stillonNavigation_" + randomBytes(8).toString("hex")
       await page.exposeBinding(binding, ({ frame }, kind: unknown) => {

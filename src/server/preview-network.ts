@@ -123,6 +123,14 @@ export async function createPreviewNetworkProxy(blocked: () => Iterable<number>,
       const url = new URL(request.url!)
       if (url.protocol !== "http:") throw new Error("Use CONNECT for HTTPS")
       const destination = await resolveTarget(url)
+      // Bun ignores ClientRequest.createConnection. The localhost workaround
+      // below is confined to an explicitly granted loopback port; never apply
+      // it to a public IPv6 destination.
+      if (net.isIPv6(destination.address) && destination.address !== "::1") {
+        response.writeHead(501, { "X-StillOn-Preview-Transport": "unsupported" })
+        response.end("Public IPv6-only HTTP previews are unavailable. Use HTTPS or IPv4.")
+        return
+      }
       const headers: http.OutgoingHttpHeaders = { ...request.headers, host: url.host }
       delete headers["proxy-authorization"]; delete headers["proxy-connection"]
       const upstream = http.request({ hostname: net.isIPv6(destination.address) ? "localhost" : destination.address,

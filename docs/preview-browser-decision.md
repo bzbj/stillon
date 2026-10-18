@@ -58,6 +58,10 @@ Chromium); no browser is silently downloaded at runtime. Missing browser support
 is a recoverable capability error with retry guidance.
 StillOn host, adapter and all other StillOn listeners must remain blocked.
 
+Public IPv6-only plain HTTP is explicitly unsupported and fails closed with
+guidance to use HTTPS or IPv4. It must never be forwarded through a localhost
+substitution. Authorized loopback IPv6 and HTTPS CONNECT retain their own paths.
+
 Target-resolution and browser endpoints travel through existing generic Connect
 HTTP forwarding, so they do not require a new gateway protocol. Older servers
 return an explicit unsupported response. The static project-external HTML
