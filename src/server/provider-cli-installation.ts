@@ -21,8 +21,9 @@ export function newerCliVersion(candidate: string, installed: string) {
 
 export type CliRunner = (command: string, args: string[], environment: NodeJS.ProcessEnv, timeoutMs?: number) => Promise<string>
 export const runCli: CliRunner = async (command, args, env, timeout = 10_000) => {
-  // .cmd/.bat cannot be passed directly to CreateProcess. PowerShell quotes
-  // literal arguments; never feed installation paths to cmd.exe or a shell string.
+  // Windows npm shims need literal PowerShell quoting for executable paths
+  // containing spaces and metacharacters. Only fixed CLI arguments and an
+  // already-validated numeric version are ever passed here.
   if (process.platform === "win32" && /\.(cmd|bat)$/iu.test(command)) {
     const quote = (s: string) => `'${s.replaceAll("'", "''")}'`
     const script = `& ${[command, ...args].map(quote).join(" ")}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }`

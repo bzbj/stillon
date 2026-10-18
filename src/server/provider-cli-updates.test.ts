@@ -3,7 +3,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { inspectCliInstallation, newerCliVersion, npmUpdateCommand, runCli, type CliInstallation } from "./provider-cli-installation"
-import { ProviderCliUpdates, type ProviderCliUpdatesOptions } from "./provider-cli-updates"
+import { installCli, ProviderCliUpdates, verifyCli, type ProviderCliUpdatesOptions } from "./provider-cli-updates"
+import { createCliUpdateFixture } from "../../scripts/provider-cli-update-fixture"
 import { handleProviderCliUpdates } from "./provider-cli-updates-http"
 import { AgentCoordinator } from "./agent"
 
@@ -156,5 +157,32 @@ test("inaccessible App components never authorize a separate CLI install", async
     await mkdir(bin, { recursive: true }); await writeFile(cli, "fixture", { mode: 0o700 }); await chmod(cli, 0o700)
     const found = await inspectCliInstallation("codex", { HOME: root, USERPROFILE: root, PATH: bin, CODEX_EXECUTABLE: cli }, process.platform, async () => { throw new Error("EPERM") })
     expect(found.label).toBe("App-managed component"); expect(found.method).toBeUndefined(); expect(found.reason).toContain("desktop app")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("a real fresh App Server with mismatched version is rejected", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-mismatch-cli-"))
+  try {
+    const engine = await createCliUpdateFixture(root)
+    const installation = await inspectCliInstallation("codex", engine.environment)
+    await writeFile(engine.serverVersion, "0.9.0")
+    await expect(verifyCli("codex", installation, engine.environment)).rejects.toThrow("different version")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("Claude npm and native updates request the exact target using the existing executable", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-claude-cli-"))
+  try {
+    const engine = await createCliUpdateFixture(root, "claude")
+    const manager = new ProviderCliUpdates({ ...engine.options, getEnvironment: async () => engine.environment, reserve: async () => () => {} })
+    const before = await manager.status("claude")
+    expect(before.installation).toBe("npm"); expect(before.currentVersion).toBe("1.2.3")
+    await manager.start("claude", before.updateToken!); await manager.close()
+    expect((await manager.status("claude")).operation?.state).toBe("succeeded")
+    expect(await engine.installed()).toBe("1.2.4")
+    const current = await inspectCliInstallation("claude", engine.environment)
+    await installCli("claude", { ...current, method: { kind: "native", binDir: path.dirname(engine.executable) } }, "1.2.5", engine.environment)
+    expect(await engine.installed()).toBe("1.2.5")
+    expect((await inspectCliInstallation("claude", engine.environment)).executable).toBe(before.executable)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
