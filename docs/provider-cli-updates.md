@@ -16,11 +16,14 @@ guide instead of attempting a replacement. App-managed components must be
 updated through their app. This does not change executable discovery or prefer
 an App-bundled CLI.
 
-The CLI's own update behavior is reported separately. npm has no background
-CLI updater. Native Claude enables background updates by default; StillOn
+The CLI's own update behavior is reported separately. npm itself does not
+schedule CLI updates, but Claude's own updater also supports npm installations.
+The effective Claude npm policy is reported as undetected, with that distinction
+made explicit. Native Claude enables background updates by default; StillOn
 reports the visible channel or `DISABLE_AUTOUPDATER`, with a policy caveat.
 Native Codex's auto-update selection is managed by its installer. Unknown state
 is displayed as unknown. StillOn does not change these preferences.
+See [Claude's updater documentation](https://code.claude.com/docs/en/setup#auto-updates).
 
 Updates require idle agents, closed terminals and no running model discovery.
 StillOn reserves the coordinator, blocks new agent launches and waits for old

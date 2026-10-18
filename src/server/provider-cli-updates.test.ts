@@ -177,6 +177,7 @@ test("Claude npm and native updates request the exact target using the existing 
     const manager = new ProviderCliUpdates({ ...engine.options, getEnvironment: async () => engine.environment, reserve: async () => () => {} })
     const before = await manager.status("claude")
     expect(before.installation).toBe("npm"); expect(before.currentVersion).toBe("1.2.3")
+    expect(before.automaticUpdates).toContain("background updates with npm")
     await manager.start("claude", before.updateToken!); await manager.close()
     expect((await manager.status("claude")).operation?.state).toBe("succeeded")
     expect(await engine.installed()).toBe("1.2.4")

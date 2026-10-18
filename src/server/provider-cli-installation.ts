@@ -82,7 +82,9 @@ export async function inspectCliInstallation(provider: AgentProvider, env: NodeJ
     const binPath = await realpath(p.resolve(directory, bin)).catch(() => "")
     const shim = /\.(cmd|ps1|bat)$/iu.test(executable) ? await readFile(executable, "utf8").catch(() => "") : ""
     if (actual !== binPath && !shim.replaceAll("\\", "/").includes(`node_modules/${cliPackages[provider]}/`)) continue
-    return { ...base, label: "npm", method: { kind: "npm", prefix }, automaticUpdates: "npm does not update this CLI automatically." }
+    return { ...base, label: "npm", method: { kind: "npm", prefix }, automaticUpdates: provider === "claude"
+      ? "Claude supports its own background updates with npm too. Effective auto-update policy is not detected here. StillOn only updates on request."
+      : "npm does not update this CLI automatically." }
   }
   const nativeBin = provider === "codex" && platform === "win32"
     ? p.join(env.LOCALAPPDATA || p.join(home, "AppData/Local"), "Programs/OpenAI/Codex/bin") : p.join(home, ".local/bin")
