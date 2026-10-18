@@ -54,7 +54,7 @@ async function fixtureFiles(directory: string) {
   await writeFile(path.join(directory, "next.html"), '<!doctype html><title>Nested fixture</title><h1 id="section">Next page</h1><a href="./index.html">Return</a>')
   await writeFile(path.join(directory, "data.json"), '{"label":"static-fetch"}')
   await writeFile(path.join(directory, "style.css"), '@font-face{font-family:Fixture;src:url("./fixture.woff2")}body{font:18px Fixture,system-ui;margin:24px;background:#f1f8f5;color:#173b32}button{position:absolute;top:120px;left:24px;width:160px;height:44px;font:inherit}#next{position:absolute;top:180px;left:24px}img{width:20px;height:20px}')
-  await writeFile(path.join(directory, "中文 image.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwH0AAAAASUVORK5CYII=", "base64"))
+  await writeFile(path.join(directory, "中文 image.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64"))
   const fonts = path.resolve("node_modules/@fontsource-variable/bricolage-grotesque/files")
   const font = (await readdir(fonts)).find(name => name.endsWith(".woff2"))!
   await copyFile(path.join(fonts, font), path.join(directory, "fixture.woff2"))
