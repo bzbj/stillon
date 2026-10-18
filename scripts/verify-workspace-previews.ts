@@ -20,7 +20,7 @@ const browserOutput = process.argv.find(value => value.startsWith("--browser-out
 const stopFile = process.argv.find(value => value.startsWith("--stop-file="))?.slice(12)
 const root = await mkdtemp(path.join(os.tmpdir(), "stillon-workspace-previews-"))
 if (filesOnly) process.env.STILLON_PREVIEW_BROWSER = path.join(root, "browser-intentionally-unavailable")
-const output = path.resolve("test-artifacts/workspace-previews")
+const output = browserOutput ? path.dirname(path.resolve(browserOutput)) : path.resolve("test-artifacts/workspace-previews")
 await mkdir(output, { recursive: true })
 const connect = localOnly ? undefined : await createConnectFixture(2)
 const server = connect?.hosts[0] ?? await startStillOnServer({ port: 0, dataDir: path.join(root, "data"), discoveryHome: root, codexModelDiscovery: { discover: async () => { throw new Error("Disabled in preview fixture") } } })

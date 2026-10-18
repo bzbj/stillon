@@ -93,7 +93,7 @@ jobs:
         with:
           name: workspace-preview-evidence
           path: |
-            test-artifacts/workspace-previews/api-results*.json
+            test-artifacts/workspace-previews/**/api-results*.json
             test-artifacts/workspace-previews/**/browser-results.json
             test-artifacts/workspace-previews/**/browser-results-*.json
             test-artifacts/workspace-previews/**/*-sidebar.png
@@ -121,7 +121,7 @@ jobs:
           name: workspace-preview-windows-evidence
           path: |
             test-artifacts/preview-discovery-results.json
-            test-artifacts/workspace-previews/api-results*.json
+            test-artifacts/workspace-previews/**/api-results*.json
             test-artifacts/workspace-previews/**/browser-results*.json
             test-artifacts/workspace-previews/**/*-input-sidebar.png
             test-artifacts/workspace-previews/**/*-input-standalone.png
