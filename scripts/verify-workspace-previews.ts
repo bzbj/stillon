@@ -236,6 +236,7 @@ try {
       checks.push({ entry: entry.name, check: name + " resources, input, storage, reload, clipboard guards" + (name === "dynamic" ? ", API, WebSocket, bidirectional writes, deep navigation" : ""), result: "Pass" })
       await request(entry, "/api/preview-browser/" + session.id, undefined, "DELETE")
     }
+    stage = entry.name + ":original-downloads-and-host-action-denial"
     for (const directory of [projectPath, outsidePath]) for (const fileName of ["README.md", "index.html", "中文 text.txt", "中文 image.png", "sample.docx", "sample.pptx"]) {
       const address = directory === projectPath ? `/api/projects/${project.id}/preview/${encodeURIComponent(fileName)}` : `/api/local-files/preview/${encodeURIComponent(path.join(directory, fileName))}`
       const target = await json(entry, "/api/preview-targets", { projectId: project.id, address })
@@ -245,7 +246,10 @@ try {
       const actual = createHash("sha256").update(originalBytes).digest("hex")
       downloads.push({ entry: entry.name, scope: directory === projectPath ? "workspace" : "authorized-host-file", name: fileName, size: originalBytes.length, sha256: actual, contentType: response.headers.get("content-type") })
       assert.equal(actual, createHash("sha256").update(await readFile(path.join(directory, fileName))).digest("hex"))
-      if (entry.name !== "loopback") for (const action of ["open_default", "open_finder"]) assert.equal((await request(entry, `/api/preview-targets/${target.id}/action`, { action, local: true })).status, 403)
+      if (entry.name !== "loopback") for (const action of ["open_default", "open_finder"]) {
+        const denied = await request(entry, `/api/preview-targets/${target.id}/action`, { action, local: true })
+        assert.equal(denied.status, 403, `${entry.name} ${action} ${fileName}: ${await denied.text()}`)
+      }
     }
     checks.push({ entry: entry.name, check: "Project and authorized host-file original MD/HTML/TXT/image/Office hashes and UTF-8 filenames", result: "Pass" })
     if (!filesOnly) {

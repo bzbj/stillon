@@ -574,12 +574,15 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           }, { headers: { "Cache-Control": "no-store" } })
           const fileRequest = /^\/api\/(?:preview-targets|file-previews)\/([\w-]{32})\/(content|action|entry|resource|link)(\/.*)?$/u.exec(url.pathname)
           if (fileRequest) {
+            // A rejected POST must not leave unread bytes on a reused frp stream.
+            // Read once even when authorization prevents parsing or execution.
+            const payload = req.method === "POST" ? await req.text().catch(() => undefined) : undefined
             const entry = previewTargets.get(fileRequest[1]!, previewOwner)
             if (!entry) return Response.json({ error: "File authorization expired. Reopen the original link." }, { status: 410 })
             const operation = fileRequest[2]
             if (operation === "link" && req.method === "POST") {
               try {
-                const body = await req.json()
+                const body = JSON.parse(payload ?? "")
                 if (typeof body?.address !== "string") return Response.json({ error: "Invalid file link." }, { status: 400 })
                 return Response.json({ address: await previewFiles.linkedAddress(entry.target, body.address, entry.projectId) })
               } catch (error) { return Response.json({ error: (error as Error).message }, { status: error instanceof FileAccessError ? error.status : 403 }) }
@@ -587,7 +590,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             if (operation === "content" && ["GET", "HEAD"].includes(req.method)) return previewFiles.content(req, entry.target, url.searchParams.get("download") === "1")
             if (operation === "action" && req.method === "POST") {
               if (ingress.kind !== "local") return Response.json({ error: "Host actions are available only on this computer." }, { status: 403 })
-              try { await previewFiles.action(entry.target, (await req.json()).action); return Response.json({ ok: true }) }
+              try { await previewFiles.action(entry.target, JSON.parse(payload ?? "").action); return Response.json({ ok: true }) }
               catch (error) { return Response.json({ error: (error as Error).message }, { status: 400 }) }
             }
             if (operation === "entry" && req.method === "POST") {
