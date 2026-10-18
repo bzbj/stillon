@@ -99,17 +99,30 @@ export class ConnectRelay {
       outgoing.set("Referrer-Policy", "no-referrer")
       if (!upstream.body || request.method === "HEAD") { finish(); return new Response(null, { status: upstream.status, headers: outgoing }) }
       reader = upstream.body.getReader()
-      const stream = new ReadableStream<Uint8Array>({
+      // Bun 1.3.14 can crash when a client aborts a default async-pull HTTP
+      // body (oven-sh/bun#32111). Its direct sink avoids that controller path
+      // while still flushing incrementally and waiting for backpressure.
+      const source: Bun.DirectUnderlyingSource<Uint8Array> = {
+        type: "direct",
         pull: async (output) => {
           try {
-            if (!this.valid(scope) || controller.signal.aborted) throw new Error("ACCESS_REVOKED")
-            const chunk = await reader!.read()
-            if (!this.valid(scope) || controller.signal.aborted) throw new Error("ACCESS_REVOKED")
-            if (chunk.done) { finish(); output.close() } else output.enqueue(chunk.value)
-          } catch { close(); finish(); output.error(new Error("Connection interrupted")) }
+            while (true) {
+              if (!this.valid(scope) || controller.signal.aborted) throw new Error("ACCESS_REVOKED")
+              const chunk = await reader!.read()
+              if (!this.valid(scope) || controller.signal.aborted) throw new Error("ACCESS_REVOKED")
+              if (chunk.done) { finish(); output.close(); return }
+              await output.write(chunk.value)
+              await output.flush()
+            }
+          } catch {
+            close()
+            try { output.close(new Error("Connection interrupted")) } catch { /* Destination already closed. */ }
+          }
         },
-        cancel: async () => { close(); finish() },
-      }, { highWaterMark: 1 })
+        cancel: close,
+      }
+      // lib.dom's constructor does not declare Bun's native direct source.
+      const stream = new ReadableStream<Uint8Array>(source as unknown as UnderlyingSource<Uint8Array>, { highWaterMark: 64 * 1024 })
       const response = new Response(stream, { status: upstream.status, headers: outgoing })
       return transform ? transform(response) : response
     } catch { close(); finish(); return Response.json({ error: "CONNECTION_UNAVAILABLE" }, { status: 503, headers: { "Cache-Control": "no-store" } }) }

@@ -48,6 +48,10 @@ validity is checked on every request against the account parent,
 selected host, pause/unbind state and one-hour expiry. The gateway signs the exact
 resource path; tunnel -> adapter -> host checks the owner and file target again.
 Active Connect streams are revoked by the existing one-second relay validity check.
+The relay uses Bun's direct stream sink with incremental flush and backpressure,
+avoiding the default async-pull abort path implicated in Bun 1.3.14 native crashes.
+It retains authorization checks before and after each upstream read and cancels
+the upstream on revocation or visiting-client disconnect.
 The live file hostname is a short-lived folder capability tied to that parent,
 not a permanent public URL. It must not be logged, shared or persisted as a bookmark.
 

@@ -2,7 +2,8 @@
 
 ## V2 candidate (2026-10-19)
 
-Implementation starts at `64de04c`; final navigation implementation is `6f57ddb`.
+Implementation starts at `64de04c`; the UI/file-navigation implementation is
+`6f57ddb`, followed by the native relay compatibility change described below.
 The image-path handoff SHA-256 is
 `65acb8991372d5f73076f34d9f58fffc734a6053c0dd5f6f0c4b554c9ad90820`.
 The exact tested client/server/adapter/gateway source revision, dirty flag,
@@ -25,12 +26,13 @@ methods, mobile and macOS Finder still have required work below.
 | --- | --- | --- |
 | `bun install --frozen-lockfile` | Pass, exit 0 | Unchanged lockfile/dependencies |
 | `bun run check` | Pass, exit 0 | Type check; client, export viewer and Connect builds |
-| Focused changed-file and sidebar-store tests | Pass, 109 tests | Canonical files/junctions, restart persistence, owner isolation, ingress, protocol, paths, policy and existing images |
+| Focused changed-file, relay and sidebar-store tests | Pass, 110 tests | Canonical files/junctions, restart persistence, owner isolation, ingress, protocol, paths, policy, existing images and native stream cancellation |
 | `bun run audit` | Pass, exit 0 | Repository audit command with its existing advisory exception |
 | `bun run test` | Fail, exit 1 | 1,452 pass, 14 skip, 12 permission failures before the final navigation follow-ups |
 | Unchanged-baseline permission subset | Fail, exit 1 | Same 12 failures: 11 symlink `EPERM`, one long PowerShell spawn `EPERM` |
 | Edge file-only browser fixture | Pass, exit 0 | Unavailable host browser, zero browser-engine requests, eight file cells in both views |
-| Full local Edge/Firefox browser fixtures | Pass, exit 0 each | Edge 155.0.4283.62 and Firefox 153.0; implementation `6f57ddb`, clean checkout |
+| Full local Edge/Firefox browser fixtures | Pass, exit 0 each | Edge 155.0.4283.62 and Firefox 153.0; implementation `6f57ddb`, clean checkout, before the relay-only follow-up |
+| Native relay cancellation/streaming/revocation | Pass, five consecutive Windows runs | 600 requests from 20 concurrent clients per run; exact bytes, incremental output, active-body revocation and stream cleanup |
 | `bun scripts/verify-preview-discovery.ts --scans=30` | Pass, exit 0 | All 30 fresh Windows scans find the IPv4 and IPv6 fixtures |
 | `bun run prepare:connect-runtime --server` | Blocked, exit 1 | Windows security software removes the checksum-verified official frp archive before extraction; no exclusions were added |
 | `bun scripts/test-connect-dynamic-preview.ts` on this Windows host | Blocked, exit 1 | Required native frp binaries are unavailable |
@@ -61,6 +63,18 @@ a real second device or the deployed managed workspace.
 Repeated standalone reloads are paced below the gateway's unchanged 1,200/minute
 workspace limit; browser routing is removed after the controlled external tests.
 This avoids turning the expanded matrix into an artificial uncached traffic burst.
+
+A Linux Firefox CI attempt crashed its Bun 1.3.14 fixture in native uWS socket
+close code during HTML recovery. A separate default async-stream abort probe also
+crashes Bun 1.3.14 on Windows; Bun's [upstream report](https://github.com/oven-sh/bun/issues/32111)
+documents a similar defect. The relay now uses Bun's native direct sink instead
+of a default async-pull controller. It writes and flushes incrementally, awaits
+backpressure and retains per-chunk authorization plus the one-second validity
+timer. A child-process regression exercises cancellation, exact bytes, early
+stream delivery and revocation. This is a compatibility workaround, not a Bun
+upgrade or a claim that Bun itself is fixed. Final platform and authenticated
+browser CI must pass on this relay revision before merge; the first crash log
+remains part of the evidence.
 
 ### V2 preview matrix (36 cells)
 
