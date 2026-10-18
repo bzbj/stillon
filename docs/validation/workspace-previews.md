@@ -1,5 +1,31 @@
 # Workspace preview validation
 
+## V2 candidate (2026-10-19)
+
+The v2 implementation starts at `64de04c`. The updated image-path handoff has
+SHA-256 `65acb8991372d5f73076f34d9f58fffc734a6053c0dd5f6f0c4b554c9ad90820`.
+Final candidate evidence is being collected separately for file-native rendering,
+the retained service browser, gateway/adapter transport, and physical devices.
+The current implementation is not a declaration that final product acceptance has
+passed. Real second-device Connect, physical OS IME, mobile and Finder acceptance
+remain unexecuted. No installed runtime or gateway has been upgraded.
+
+The source-fixture Edge file-only run passes with the host browser deliberately
+unavailable: project/authorized-host Markdown, HTML, text and image paths in the
+sidebar and standalone, refresh/deletion/recovery, nine image formats, damaged and
+oversized images, zoom and long-image scrolling. It asserts zero browser-engine
+requests. Final full Edge/Firefox and supported-platform CI records will follow.
+
+Windows Explorer selection was observed for an original synthetic TXT file after
+the real Show action. Default Open returned from the shell but no fixture document
+window was observable; the configured TXT ProgID has no Application registration.
+That Open result is Blocked, not Pass. No file associations were changed.
+
+## Historical PR #223/#224 evidence
+
+Everything below records the old implementation. Its external-website preview
+matrix is obsolete under v2 and must not be used as current acceptance evidence.
+
 Baseline: server/adapter/application 0.6.2, source `0b695e9`. The installed managed
 application remains on this baseline. No release, deployment or local upgrade is
 part of this PR. The public gateway health endpoint responds but does not report
