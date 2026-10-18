@@ -11,8 +11,8 @@ describe("transcript local link policy", () => {
         expect(resolveTranscriptLocalFileDisposition({hostname,filePath,isProjectFile:true})).toBe("preview")
       }
     }
-    expect(resolveTranscriptLocalFileDisposition({hostname:"localhost",filePath:"/outside/status.json",isProjectFile:false})).toBe("open_host")
-    expect(resolveTranscriptLocalFileDisposition({hostname:"stillon.example.com",filePath:"/outside/status.json",isProjectFile:false})).toBe("blocked")
+    expect(resolveTranscriptLocalFileDisposition({hostname:"localhost",filePath:"/outside/status.json",isProjectFile:false})).toBe("preview")
+    expect(resolveTranscriptLocalFileDisposition({hostname:"stillon.example.com",filePath:"/outside/status.json",isProjectFile:false})).toBe("preview")
   })
   test("detects loopback access on macOS and Windows clients", () => {
     expect(canOpenTranscriptFilesOnHost("127.0.0.1")).toBe(true)
@@ -38,8 +38,8 @@ describe("transcript local link policy", () => {
     expect(resolveTranscriptLocalFileDisposition({ hostname: "127.0.0.1", filePath: "C:/project/report.xlsx", isProjectFile: true })).toBe("open_host")
   })
 
-  test("downloads project files and blocks project-external files during remote access", () => {
+  test("routes project and authorized host-file downloads through the server during remote access", () => {
     expect(resolveTranscriptLocalFileDisposition({ hostname: "stillon.example.com", filePath: "/project/report.pdf", isProjectFile: true })).toBe("download")
-    expect(resolveTranscriptLocalFileDisposition({ hostname: "stillon.example.com", filePath: "C:/temp/report.xlsx", isProjectFile: false })).toBe("blocked")
+    expect(resolveTranscriptLocalFileDisposition({ hostname: "stillon.example.com", filePath: "C:/temp/report.xlsx", isProjectFile: false })).toBe("download")
   })
 })

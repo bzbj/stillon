@@ -1,5 +1,9 @@
+import { fileRenderer } from "../../../shared/file-renderers"
+import { ResourceLink, executeResourceAction } from "../ResourceLink"
+import { getLinkActions } from "../../../shared/link-actions"
+import { useLinkCapabilities } from "../../lib/linkCapabilities"
 import { PatchDiff } from "@pierre/diffs/react"
-import { AlertTriangle, ArrowUp, Ban, Building2, Check, ChevronDown, ChevronUp, Code, Columns2, Copy, Download, Ellipsis, FileText, FolderOpen, GitBranch, GitBranchPlus, GitMerge, GitPullRequest, Globe, LoaderCircle, Lock, Minus, PencilLine, PenLine, RefreshCw, Rows3, Search, Sparkles, Trash2, Upload, UserRound, WrapText } from "lucide-react"
+import { AlertTriangle, ArrowUp, Ban, Building2, Check, ChevronDown, ChevronUp, Columns2, Copy, Download, Ellipsis, FileText, GitBranch, GitBranchPlus, GitMerge, GitPullRequest, Globe, LoaderCircle, Lock, Minus, PencilLine, PenLine, RefreshCw, Rows3, Search, Sparkles, Trash2, Upload, UserRound, WrapText } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react"
 import type {
   ChatAttachment,
@@ -17,7 +21,6 @@ import type {
 import { buildProjectFileContentUrl, buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
 import { useStickyState } from "../../hooks/useStickyState"
 import { downloadUrl } from "../../lib/download"
-import { canOpenTranscriptFilesOnHost } from "../../lib/transcriptLocalLinkPolicy"
 import { cn } from "../../lib/utils"
 import { isDiffPathChecked, useDiffCommitStore } from "../../stores/diffCommitStore"
 import { useRightSidebarStore } from "../../stores/rightSidebarStore"
@@ -74,9 +77,6 @@ function getDiffPreviewAttachment(projectId: string | null, file: DiffFile): Cha
   }
 }
 
-function getProjectFileName(filePath: string) {
-  return filePath.split("/").pop() || filePath || "download"
-}
 
 export interface DiffFileActions {
   onOpenFile: (path: string) => void
@@ -1184,6 +1184,7 @@ function DiffFileCard({
   const canIgnore = canIgnoreDiffFile(file)
   const canIgnoreFolder = canIgnoreDiffFolder(file)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
+  const [fileActionError, setFileActionError] = useState<string>()
   const cardRef = useRef<HTMLDivElement | null>(null)
   const autoLoadPatchKeyRef = useRef<string | null>(null)
   const { sentinelRef, isStuck } = useStickyState<HTMLDivElement>({
@@ -1193,8 +1194,9 @@ function DiffFileCard({
   const previewAttachment = useMemo(() => getDiffPreviewAttachment(projectId, file), [file, projectId])
   const hasPreviewAttachment = previewAttachment !== null
   const canReadProjectFile = Boolean(projectId) && file.changeType !== "deleted"
-  const canOpenHostFiles = typeof window !== "undefined" && canOpenTranscriptFilesOnHost(window.location.hostname)
-  const projectFilePreviewUrl = canReadProjectFile && projectId ? buildProjectRenderablePreviewUrl(projectId, file.path) : ""
+  const linkCapabilities = useLinkCapabilities()
+  const canOpenHostFiles = linkCapabilities?.local ?? false
+  const projectFilePreviewUrl = canReadProjectFile && fileRenderer(file.path) && projectId ? buildProjectRenderablePreviewUrl(projectId, file.path) : ""
   const projectFileContentUrl = canReadProjectFile && projectId ? buildProjectFileContentUrl(projectId, file.path) : ""
   const shouldLoadPatchWhenVisible = shouldLoadDiffPatchNow({
     isCollapsed,
@@ -1234,7 +1236,8 @@ function DiffFileCard({
 
   function handleDownloadProjectFile() {
     if (!projectFileContentUrl) return
-    downloadUrl(projectFileContentUrl, getProjectFileName(file.path))
+    setFileActionError(undefined)
+    void executeResourceAction(buildProjectRenderablePreviewUrl(projectId!, file.path), "download", projectId!).catch(error => setFileActionError(error.message))
   }
 
   function openContextMenuFromButton(event: ReactMouseEvent<HTMLButtonElement>) {
@@ -1308,7 +1311,10 @@ function DiffFileCard({
                 checked={isChecked}
                 onClick={onToggleChecked}
               />
-              <div className="min-w-0 truncate select-none ml-2 mr-1">{file.path}</div>
+              <div className="min-w-0 truncate select-none ml-2 mr-1" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+                {projectId && canReadProjectFile ? <ResourceLink href={buildProjectRenderablePreviewUrl(projectId, file.path)} projectId={projectId}
+                  onPreview={() => fileActions.onOpenPreview(file.path)}>{file.path}</ResourceLink> : file.path}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 select-none">
               <span className="whitespace-nowrap text-xs font-mono">
@@ -1336,6 +1342,7 @@ function DiffFileCard({
               )}
             </div>
           </div>
+          {fileActionError ? <p role="alert" className="p-3 text-sm text-destructive">{fileActionError}</p> : null}
           {!isCollapsed ? (
             <div className="stillon-diff-patch overflow-hidden rounded-b-[calc(theme(borderRadius.lg)-1px)] pb-[1px]">
               {previewAttachment ? (
@@ -1385,45 +1392,15 @@ function DiffFileCard({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {canOpenHostFiles && <ContextMenuItem
-          disabled={!canReadProjectFile}
-          onSelect={(event) => {
+        {getLinkActions({ kind: "file", local: canOpenHostFiles, isMac: linkCapabilities?.isMac,
+          renderer: fileRenderer(file.path), readable: canReadProjectFile }).actions.map(item => <ContextMenuItem key={item.action}
+          disabled={item.disabled || !linkCapabilities} onSelect={event => {
             event.stopPropagation()
-            fileActions.onOpenFile(file.path)
-          }}
-        >
-          <Code className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Open on this computer</span>
-        </ContextMenuItem>}
-        <ContextMenuItem
-          disabled={!projectFilePreviewUrl}
-          onSelect={(event) => {
-            event.stopPropagation()
-            handleOpenProjectFilePreview()
-          }}
-        >
-          <Globe className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Preview in sidebar</span>
-        </ContextMenuItem>
-        <ContextMenuItem
-          disabled={!projectFileContentUrl}
-          onSelect={(event) => {
-            event.stopPropagation()
-            handleDownloadProjectFile()
-          }}
-        >
-          <Download className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Download File</span>
-        </ContextMenuItem>
-        {canOpenHostFiles && <ContextMenuItem
-          onSelect={(event) => {
-            event.stopPropagation()
-            fileActions.onOpenInFinder(file.path)
-          }}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Show in folder</span>
-        </ContextMenuItem>}
+            if (item.action === "preview") handleOpenProjectFilePreview()
+            else if (item.action === "download") handleDownloadProjectFile()
+            else if (item.action === "open_finder") fileActions.onOpenInFinder(file.path)
+            else fileActions.onOpenFile(file.path)
+          }}><span className="text-xs font-medium">{item.label}</span></ContextMenuItem>)}
         <ContextMenuItem
           onSelect={(event) => {
             event.stopPropagation()

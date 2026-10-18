@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { fileActionItems } from "./open-external-menu"
 
 describe("file actions", () => {
-  test("offers in-app preview and system opening on this computer", () => {
+  test("offers local preview/open/show while hiding download", () => {
     expect(fileActionItems({local:true,isMac:true,preview:true,download:true}).map(item=>item.action))
-      .toEqual(["preview","open_default","download","open_finder"])
+      .toEqual(["preview","open_default","open_finder"])
   })
   test("offers only preview and download for a remote file", () => {
     expect(fileActionItems({local:false,isMac:false,preview:true,download:true}).map(item=>item.action))

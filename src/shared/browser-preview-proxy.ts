@@ -14,6 +14,7 @@ export function parseLoopbackPreviewUrl(address: string | null | undefined): URL
     const parsed = new URL(address.replace(/^(https?:\/\/)%5b::1%5d(?=[:/?#]|$)/iu, "$1[::1]"))
     return (parsed.protocol === "http:" || parsed.protocol === "https:")
       && isLoopbackPreviewHost(parsed.hostname) && !parsed.username && !parsed.password
+      && parsed.port !== "0"
       ? parsed : null
   } catch {
     return null

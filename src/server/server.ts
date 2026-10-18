@@ -41,6 +41,7 @@ import { resolveProjectUploadFilePath } from "./paths"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
 import { createLocalHtmlPreviewManager, isLoopbackBindHost } from "./local-html-preview"
 import { PreviewTargets } from "./preview-targets"
+import { PreviewFiles, FileAccessError, FILE_PREVIEW_PROTOCOL } from "./preview-files"
 import { PreviewBrowser, isWithinPreviewDirectory } from "./preview-browser"
 import { REMOTE_SESSION_HEADER, REMOTE_EXPIRY_HEADER } from "./connect/adapter"
 import { protectPreviewPort, protectedPreviewPorts, releasePreviewPort } from "./preview-ports"
@@ -285,7 +286,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
-  const previewTargets = new PreviewTargets(path.join(store.dataDir, "preview-targets.json"), (address, owner) => localHtmlPreviews.resolveFile(address, owner))
+  const previewFiles = new PreviewFiles(id => store.getProject(id)?.localPath)
+  const previewTargets = new PreviewTargets(path.join(store.dataDir, "preview-targets.json"), (address, owner) => localHtmlPreviews.resolveFile(address, owner), target => previewFiles.authorize(target))
   const previewBrowser = new PreviewBrowser({
     blockedPorts: protectedPreviewPorts,
     resolveFile: async (target, owner) => {
@@ -446,6 +448,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
 
             previewResources.clear()
+            previewFiles.clear()
             await previewBrowser.closeScope("local")
             return auth
               ? auth.handleLogout(req)
@@ -556,7 +559,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           if (appearanceResponse) return appearanceResponse
 
           const previewOwner = ingress.kind === "remote" ? ingress.ownerId : "local"
-          if ((url.pathname.startsWith("/api/preview-targets") || url.pathname.startsWith("/api/preview-browser")) && ingress.kind === "external" && !auth) {
+          if ((url.pathname.startsWith("/api/preview-targets") || url.pathname.startsWith("/api/preview-browser") || url.pathname.startsWith("/api/file-previews")) && ingress.kind === "external" && !auth) {
             return Response.json({ error: "Preview access requires local access, Connect or application authentication." }, { status: 403 })
           }
           if (url.pathname.startsWith("/api/preview-browser") && ingress.kind === "remote"
@@ -564,8 +567,45 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({ error: "Update the StillOn remote adapter before using isolated previews." }, { status: 409 })
           }
           const previewScope = ingress.kind === "remote" ? previewOwner + ":" + req.headers.get(REMOTE_SESSION_HEADER) : "local"
-          const targetResponse = await previewTargets.handle(req, url, previewOwner, id => Boolean(store.getProject(id)))
+          const targetResponse = await previewTargets.handle(req, url, previewOwner, id => Boolean(store.getProject(id)), id => store.getProject(id)?.localPath)
           if (targetResponse) return targetResponse
+          if (url.pathname === "/api/link-capabilities" && req.method === "GET") return Response.json({
+            local: ingress.kind === "local", isMac: process.platform === "darwin", filePreviewProtocol: FILE_PREVIEW_PROTOCOL,
+          }, { headers: { "Cache-Control": "no-store" } })
+          const fileRequest = /^\/api\/(?:preview-targets|file-previews)\/([\w-]{32})\/(content|action|entry|resource|link)(\/.*)?$/u.exec(url.pathname)
+          if (fileRequest) {
+            const entry = previewTargets.get(fileRequest[1]!, previewOwner)
+            if (!entry) return Response.json({ error: "File authorization expired. Reopen the original link." }, { status: 410 })
+            const operation = fileRequest[2]
+            if (operation === "link" && req.method === "POST") {
+              try {
+                const body = await req.json()
+                if (typeof body?.address !== "string") return Response.json({ error: "Invalid file link." }, { status: 400 })
+                return Response.json({ address: await previewFiles.linkedAddress(entry.target, body.address, entry.projectId) })
+              } catch (error) { return Response.json({ error: (error as Error).message }, { status: error instanceof FileAccessError ? error.status : 403 }) }
+            }
+            if (operation === "content" && ["GET", "HEAD"].includes(req.method)) return previewFiles.content(req, entry.target, url.searchParams.get("download") === "1")
+            if (operation === "action" && req.method === "POST") {
+              if (ingress.kind !== "local") return Response.json({ error: "Host actions are available only on this computer." }, { status: 403 })
+              try { await previewFiles.action(entry.target, (await req.json()).action); return Response.json({ ok: true }) }
+              catch (error) { return Response.json({ error: (error as Error).message }, { status: 400 }) }
+            }
+            if (operation === "entry" && req.method === "POST") {
+              if (ingress.kind === "external") return Response.json({ error: "Direct HTML file previews require loopback access or an updated Connect gateway with an isolated file origin." }, { status: 409 })
+              try {
+                const file = await previewFiles.resolve(entry.target)
+                if (!/\.html?$/iu.test(file)) return Response.json({ error: "An HTML document is required." }, { status: 415 })
+                if (ingress.kind === "remote") return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, path: "/" + encodeURIComponent(path.basename(file)), scopeKey: previewFiles.scopeKey(file) })
+                const previewUrl = await previewFiles.localEntry(entry.target, previewOwner, url.origin, () => !shuttingDown && (!auth || auth.isAuthenticated(req)))
+                return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, url: previewUrl })
+              } catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
+            }
+            if (operation === "resource" && ingress.kind === "remote") {
+              try { const file = await previewFiles.resolve(entry.target); if (!/\.html?$/iu.test(file)) return new Response("Only HTML documents authorize a resource directory.", { status: 403 }); return previewFiles.resource(req, path.dirname(file), fileRequest[3] ?? "/", url.origin) }
+              catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
+            }
+            return new Response("Method not allowed", { status: 405 })
+          }
           const previewBrowserResponse = await previewBrowser.handle(req, url, { owner: previewOwner, scope: previewScope,
             expiresAt: ingress.kind === "remote" ? Number(req.headers.get(REMOTE_EXPIRY_HEADER)) : undefined,
             target: id => previewTargets.get(id, previewOwner) })
@@ -683,6 +723,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       forceDiscoveryRefreshPending = false
       await connector?.stop()
       await previewBrowser.close()
+      await previewFiles.close()
 
       // Stop new network work first, then let handlers that already entered
       // the server unwind before compacting EventStore or returning to callers

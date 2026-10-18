@@ -13,6 +13,8 @@ import { ConnectPreviews } from "./previews"
 import { CONNECT_PREVIEW_PROXY_PREFIX, CONNECT_PREVIEW_START_PREFIX, CONNECT_PREVIEW_UNSUPPORTED_PATH, parseConnectPreviewPath } from "../shared/connect-preview"
 import { BROWSER_PREVIEW_PROXY_PREFIX } from "../shared/browser-preview-proxy"
 import { browserCommandActivity } from "./browser-sessions"
+import { ConnectFilePreviews } from "./file-previews"
+import { filePreviewCsp } from "../shared/file-preview-security"
 
 const id = z.string().regex(/^[a-f0-9]{32}$/)
 const name = z.string().trim().min(1).max(80).refine(v => !/[\u0000-\u001f]/.test(v))
@@ -74,6 +76,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
   }
   const centralOrigin = new URL(options.origin).origin
   const previews = new ConnectPreviews({ origin: options.origin, registry, readIdentity: auth.identityById, relay, transport, privateKey: keys.privateKey })
+  const filePreviews = new ConnectFilePreviews(options.origin, session => registry.validSession(session, auth.identityById) && !registry.requireHost(session.hostId).paused)
   function offlinePage(hostId: string, head: boolean) {
     const host = registry.publicHost(registry.requireHost(hostId))
     const escaped = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!)
@@ -158,7 +161,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
 
   return {
     auth, registry, relay,
-    hostId: (request: Request) => registry.hostIdForAuthority(new URL(request.url).host) ?? previews.target(new URL(request.url).host)?.hostId ?? null,
+    hostId: (request: Request) => registry.hostIdForAuthority(new URL(request.url).host) ?? previews.target(new URL(request.url).host)?.hostId ?? filePreviews.target(new URL(request.url).host)?.hostId ?? null,
     async central(request: Request, peer: string): Promise<Response | null> {
       const route = new URL(request.url).pathname
       try {
@@ -193,6 +196,36 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
     },
     async host(request: Request, server: Server<RelaySocket>): Promise<Response | undefined> {
       const url = new URL(request.url)
+      if (filePreviews.target(url.host)) {
+        try {
+          const grant = filePreviews.resolve(url.host)
+          if (!grant || request.headers.get("host") && request.headers.get("host") !== url.host) throw new ConnectFault("FILE_PREVIEW_EXPIRED", 410)
+          if (!["GET", "HEAD"].includes(request.method) || request.headers.get("upgrade") || request.headers.get("service-worker") || request.headers.get("sec-fetch-dest") === "serviceworker") throw new ConnectFault("FILE_PREVIEW_READ_ONLY", 403)
+          const from = request.headers.get("origin")
+          if (from && from !== url.origin) throw new ConnectFault("INVALID_ORIGIN", 403)
+          const { session, targetId } = grant
+          registry.limited(`file-preview:${session.ownerId}`, 1200, 60)
+          const target = new URL(transport)
+          target.pathname = `/api/file-previews/${targetId}/resource${url.pathname}`; target.search = url.search
+          const headers = forwardingHeaders(request)
+          headers.set("host", new URL(registry.hostOrigin(session.hostId)).host)
+          headers.set("accept-encoding", "identity")
+          headers.set("x-stillon-connect-lease", signLease(registry.makeLease(session, request.method, target.pathname + target.search), keys.privateKey))
+          const response = await relay.http(request, target.href, headers, { hostId: session.hostId, ownerId: session.ownerId, parentId: session.parentId,
+            valid: () => filePreviews.resolve(url.host) === grant })
+          const csp = filePreviewCsp(registry.hostOrigin(session.hostId))
+          response.headers.set("Content-Security-Policy", csp)
+          response.headers.delete("set-cookie")
+          // The signed adapter supplies the application's local origin. The bridge
+          // must address the authenticated workspace parent at the gateway instead.
+          if (response.ok && request.method !== "HEAD" && response.headers.get("content-type")?.includes("text/html")) {
+            const text = (await response.text()).replace(/const parentOrigin="[^"<>]*";/u, `const parentOrigin=${JSON.stringify(registry.hostOrigin(session.hostId))};`)
+            response.headers.delete("content-length")
+            return new Response(text, { status: response.status, headers: response.headers })
+          }
+          return response
+        } catch (error) { return faultResponse(error) }
+      }
       if (previews.target(url.host)) {
         try { return await previews.handle(request, server) } catch (error) { return faultResponse(error) }
       }
@@ -276,6 +309,13 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         target.pathname = previewUrl.pathname; target.search = previewUrl.search
         if (url.pathname === "/ws") { target.protocol = "ws:"; return await relay.upgrade(request, server, target.href, headers, scope) }
         const response = await relay.http(request, target.href, headers, scope)
+        const fileEntry = /^\/api\/file-previews\/([\w-]{32})\/entry$/u.exec(url.pathname)
+        if (fileEntry && request.method === "POST" && response.ok) {
+          if (response.headers.get("x-stillon-file-preview-transport") !== "1") { await response.body?.cancel(); return json({ error: "Update the StillOn adapter for direct HTML file previews." }, 409) }
+          const value = await response.json()
+          if (value.protocol !== 1 || typeof value.path !== "string" || !/^\/[^/]+$/u.test(value.path) || typeof value.scopeKey !== "string" || !/^[a-f0-9]{64}$/u.test(value.scopeKey)) return json({ error: "Update the StillOn host and adapter for direct file previews." }, 409)
+          return json({ protocol: 1, url: filePreviews.start(session, fileEntry[1]!, value.path, value.scopeKey) })
+        }
         if (resource) return await previewResources.wrap(response, request, resource.context, resource.filePath)
         const preview = projectPreviewTarget(url.pathname)
         const localPreview = localHtmlPreviewTarget(url.pathname)
@@ -310,6 +350,6 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         return json({ reject: false, unchange: true })
       } catch { return json({ reject: true, reject_reason: "Access denied", unchange: true }) }
     },
-    close() { previews.close(); previewResources.clear(); relay.stop(); auth.close(); registry.close() },
+    close() { previews.close(); filePreviews.clear(); previewResources.clear(); relay.stop(); auth.close(); registry.close() },
   }
 }

@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react"
-import { registerPreviewTarget } from "./previewTarget"
+import { registerResourceTarget } from "./previewTarget"
+import { parsePreviewTarget } from "../../shared/preview-target"
+import type { FileRenderer } from "../../shared/file-renderers"
 
-export function usePreviewHref(address: string | null, projectId?: string) {
-  const [resolved, setResolved] = useState<{ address: string; url: string }>()
+export function usePreviewResolution(address: string | null, projectId?: string) {
+  const [resolved, setResolved] = useState<{ address: string; url?: string; error?: string; directory?: boolean; renderer?: FileRenderer }>()
   useEffect(() => {
-    if (!address) return
+    if (!address || parsePreviewTarget(address, projectId)?.kind === "external-http") return
     let cancelled = false
-    void registerPreviewTarget(address, projectId).then(url => { if (!cancelled) setResolved({ address, url }) }).catch(() => undefined)
+    void registerResourceTarget(address, projectId).then(value => { if (!cancelled) setResolved({ address, ...value }) }).catch(error => { if (!cancelled) setResolved({ address, error: error.message }) })
     return () => { cancelled = true }
   }, [address, projectId])
-  return resolved?.address === address ? resolved.url : null
+  return resolved?.address === address ? resolved : undefined
 }
+
+export function usePreviewHref(address: string | null, projectId?: string) { return usePreviewResolution(address, projectId)?.url ?? null }

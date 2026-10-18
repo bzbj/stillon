@@ -270,8 +270,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
 
   const handleOpenLocalLinkClick = useCallback((target: OpenLocalLinkTarget) => {
     if (target.trigger !== "contextmenu") {
-      const action = "open_default"
-      void onOpenLocalLink(target, action)
+      void onOpenLocalLink(target)
       return
     }
 
@@ -428,8 +427,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
             target={localLinkMenuTarget}
             localPath={localPath}
             onActivate={() => {
-              const action = "open_default"
-              void onOpenLocalLink({ ...localLinkMenuTarget, trigger: "click" }, action)
+              void onOpenLocalLink({ ...localLinkMenuTarget, trigger: "click" })
             }}
             onDownload={() => { void onOpenLocalLink(localLinkMenuTarget, "download") }}
           />
@@ -522,7 +520,7 @@ function RemoteFileContextMenuContent({
   onActivate: () => void
   onDownload: () => void
 }) {
-  const canDownload = Boolean(getProjectRelativeFilePath(target.path, localPath))
+  const canDownload = true
   const canPreview = resolveTranscriptLocalFileDisposition({hostname: "remote.invalid", filePath: target.path, isProjectFile: canDownload}) === "preview"
   const items = fileActionItems({local:false,isMac:false,preview:canPreview,download:canDownload})
 

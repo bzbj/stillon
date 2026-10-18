@@ -92,6 +92,53 @@ test.each(["/api/projects/workspace/preview/output/", "/api/local-html-previews/
   expect((await request(prefix + "app.js"))!.status).toBe(403)
 })
 
+test("direct file origins bind resources to a live host parent and require the adapter capability", async () => {
+  let supported = true
+  const seen: Request[] = []
+  const targetId = "f".repeat(32)
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    seen.push(request.clone())
+    const headers: Record<string, string> = supported ? { "X-StillOn-File-Preview-Transport": "1" } : {}
+    return request.method === "POST" ? Response.json({ protocol: 1, path: "/index.html", scopeKey: "a".repeat(64) }, { headers })
+      : new Response('<head><script>const parentOrigin="http://localhost:3210";</script></head><input>', { headers: { ...headers, "content-type": "text/html" } })
+  } })
+  cleanup.push(async () => { await upstream.stop(true) })
+  const f = await fixture(`http://127.0.0.1:${upstream.port}`), account = await f.login("file-preview@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "File test computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(host.id, randomId())
+  f.service.registry.frpCredential(host.id, connection.token, "file-test", "Login")
+  f.service.registry.frpCredential(host.id, connection.token, "file-test", "NewProxy")
+  const flow = f.service.registry.newFlow(host.id, "/"), callback = new URL(f.service.registry.authorizeFlow(flow.id, account.identity))
+  const session = f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier, callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+  const hostOrigin = f.service.registry.hostOrigin(host.id), { cookieName } = await import("./http")
+  const start = () => f.service.host(new Request(`${hostOrigin}/api/file-previews/${targetId}/entry`, { method: "POST", headers: {
+    origin: hostOrigin, cookie: cookieName(hostOrigin, "host-session") + "=" + session.token,
+  } }), null as never)
+  const opened = (await start())!, value = await opened.json(), url = new URL(value.url)
+  expect(opened.status).toBe(200)
+  expect(url.hostname.split(".")[0]!.length).toBeLessThanOrEqual(63)
+  expect(url.origin).not.toBe(hostOrigin)
+  expect(f.service.hostId(new Request(url))).toBe(host.id)
+  const resource = () => f.service.host(new Request(url, { headers: { cookie: "stillon_session=must-not-forward", authorization: "Bearer must-not-forward" } }), null as never)
+  const response = (await resource())!
+  expect(response.status).toBe(200)
+  expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'")
+  expect(response.headers.get("content-security-policy")).toContain(hostOrigin)
+  expect(await response.text()).toContain(`const parentOrigin="${hostOrigin}";`)
+  expect(new URL(seen.at(-1)!.url).pathname).toBe(`/api/file-previews/${targetId}/resource/index.html`)
+  expect(seen.at(-1)!.headers.has("cookie")).toBe(false)
+  expect(seen.at(-1)!.headers.has("authorization")).toBe(false)
+  supported = false
+  expect((await start())!.status).toBe(409)
+  f.service.registry.setPaused(host.id, true)
+  expect((await resource())!.status).toBe(410)
+  f.service.registry.setPaused(host.id, false)
+  f.service.registry.revokeParent(account.identity.id)
+  expect((await resource())!.status).toBe(410)
+})
+
 test("fresh OTP is bound to one enrollment and only the device key can claim it", async () => {
   const f = await fixture()
   const enrollment = await (await f.device("enroll", { name: "Office computer", protocol: 1 })).json()

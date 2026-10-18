@@ -1,3 +1,5 @@
+import { previewImageBytes, longImagePng } from "./preview-image-fixtures"
+import { createHash } from "node:crypto"
 import assert from "node:assert/strict"
 import { previewInputHtml } from "./preview-input-fixture"
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
@@ -13,14 +15,19 @@ import { listLocalHttpServers } from "../src/server/local-http-servers"
 for (const key of Object.keys(process.env)) if (key.startsWith("STILLON_UPDATE_") || key.startsWith("STILLON_CONNECT_") || key === "STILLON_RUNTIME_PROFILE") delete process.env[key]
 process.env.STILLON_MACHINE_NAME = "Preview test computer"
 const localOnly = process.argv.includes("--local-only")
+const filesOnly = process.argv.includes("--files-only")
 const browserOutput = process.argv.find(value => value.startsWith("--browser-output="))?.slice(17)
 const stopFile = process.argv.find(value => value.startsWith("--stop-file="))?.slice(12)
 const root = await mkdtemp(path.join(os.tmpdir(), "stillon-workspace-previews-"))
+if (filesOnly) process.env.STILLON_PREVIEW_BROWSER = path.join(root, "browser-intentionally-unavailable")
 const output = path.resolve("test-artifacts/workspace-previews")
 await mkdir(output, { recursive: true })
 const connect = localOnly ? undefined : await createConnectFixture(2)
-const server = connect?.hosts[0] ?? await startStillOnServer({ port: 0, dataDir: path.join(root, "data"), discoveryHome: root })
+const server = connect?.hosts[0] ?? await startStillOnServer({ port: 0, dataDir: path.join(root, "data"), discoveryHome: root, codexModelDiscovery: { discover: async () => { throw new Error("Disabled in preview fixture") } } })
 const servers: ReturnType<typeof Bun.serve>[] = []
+const sourceCommit = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { stderr: "ignore" }).stdout).trim()
+const dirty = new TextDecoder().decode(Bun.spawnSync(["git", "status", "--porcelain"], { stderr: "ignore" }).stdout).trim().length > 0
+const downloads: { entry: string; scope: string; name: string; size: number; sha256: string; contentType: string | null }[] = []
 const checks: { entry: string; check: string; result: string }[] = []
 let stage = "setup"
 const localOrigin = `http://127.0.0.1:${server.port}`
@@ -50,17 +57,25 @@ async function json(entry: Entry, route: string, body?: object) {
 }
 async function fixtureFiles(directory: string) {
   await mkdir(directory, { recursive: true })
-  await writeFile(path.join(directory, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Loading fixture</title><link rel="stylesheet" href="./style.css"><h1>Workspace preview</h1><p id="module">Loading module</p><button id="add">Add one</button><a id="next" href="./next.html?tab=one#section">Next page</a><img src="./中文 image.png" alt="Fixture pixel"><script src="./classic.js"></script><script type="module" src="./中文 module.js"></script></html>`)
+  await writeFile(path.join(directory, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Loading fixture</title><link rel="stylesheet" href="./style.css"><h1>Workspace preview</h1><p id="module">Loading module</p><button id="add">Add one</button><a id="next" href="./next.html?tab=one#section">Next page</a><img src="./中文 image.png" alt="Fixture pixel"><input id="native-input" aria-label="File input" style="position:absolute;top:220px;left:24px;width:320px;height:40px"><div id="native-drag" style="position:absolute;top:300px;left:50px;width:100px;height:70px;background:teal;touch-action:none">Drag 0</div><script>const drag=document.querySelector("#native-drag");let start=0;drag.onpointerdown=e=>{start=e.clientX;drag.setPointerCapture(e.pointerId)};drag.onpointermove=e=>{if(drag.hasPointerCapture(e.pointerId)){drag.dataset.x=String(e.clientX-start);drag.textContent="Drag "+drag.dataset.x}};</script><canvas id="native-canvas" width="20" height="20"></canvas><script>const ctx=document.querySelector("#native-canvas").getContext("2d");ctx.fillStyle="#2896b4";ctx.fillRect(0,0,20,20);</script><script src="./classic.js"></script><script type="module" src="./中文 module.js"></script></html>`)
   await writeFile(path.join(directory, "classic.js"), "window.classicReady=true")
-  await writeFile(path.join(directory, "中文 module.js"), `if(navigator.clipboard||Object.getOwnPropertyDescriptor(Document.prototype,'execCommand')?.configurable!==false)throw new Error('Host clipboard access must be blocked');const data=await(await fetch('./data.json')).json();let count=Number(localStorage.count||0);function render(){document.title='Fixture '+count+' '+data.label+' '+window.classicReady;document.querySelector('#module').textContent='ES module ready';document.querySelector('#add').textContent='Add one: '+count}render();document.querySelector('#add').onclick=()=>{localStorage.count=++count;render()};`)
+  await writeFile(path.join(directory, "中文 module.js"), `const data=await(await fetch('./data.json')).json();let count=Number(localStorage.count||0);function render(){document.title='Fixture '+count+' '+data.label+' '+window.classicReady;document.querySelector('#module').textContent='ES module ready';document.querySelector('#add').textContent='Add one: '+count}render();document.querySelector('#add').onclick=()=>{localStorage.count=++count;render()};`)
   await writeFile(path.join(directory, "next.html"), '<!doctype html><title>Nested fixture</title><h1 id="section">Next page</h1><a href="./index.html">Return</a>')
   await writeFile(path.join(directory, "data.json"), '{"label":"static-fetch"}')
   await writeFile(path.join(directory, "style.css"), '@font-face{font-family:Fixture;src:url("./fixture.woff2")}body{font:18px Fixture,system-ui;margin:24px;background:#f1f8f5;color:#173b32}button{position:absolute;top:120px;left:24px;width:160px;height:44px;font:inherit}#next{position:absolute;top:180px;left:24px}img{width:20px;height:20px}')
   await writeFile(path.join(directory, "中文 image.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64"))
+  for (const [extension, bytes] of Object.entries(previewImageBytes)) await writeFile(path.join(directory, "图 image." + extension), Buffer.from(bytes, "base64"))
+  await writeFile(path.join(directory, "图 image.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="16"><rect width="32" height="16" fill="teal"/><script>parent.svgExecuted=true</script></svg>')
+  await writeFile(path.join(directory, "long.png"), Buffer.from(longImagePng, "base64"))
+  await writeFile(path.join(directory, "large-dimensions.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="8000" height="8000"><rect width="8000" height="8000" fill="teal"/></svg>')
+  await writeFile(path.join(directory, "broken.png"), "not an image")
+  await writeFile(path.join(directory, "oversized.png"), Buffer.alloc(25 * 1024 * 1024 + 1))
   const fonts = path.resolve("node_modules/@fontsource-variable/bricolage-grotesque/files")
   const font = (await readdir(fonts)).find(name => name.endsWith(".woff2"))!
   await copyFile(path.join(fonts, font), path.join(directory, "fixture.woff2"))
-  await writeFile(path.join(directory, "README.md"), '# Preview guide\n\n![Fixture image](中文%20image.png)\n\n| Item | Status |\n|---|---|\n| Markdown | Ready |\n\n```js\nconst preview = true\n```\n\n[Next document](next.md?tab=one#next-section) · [HTML application](index.html) · [Section](#details)\n\n## Details\n\nA complete rendered document.\n')
+  await writeFile(path.join(directory, "README.md"), '# Preview guide\n\n![Fixture image](中文%20image.png)\n\n| Item | Status |\n|---|---|\n| Markdown | Ready |\n\n```js\nconst preview = true\n```\n\n[Next document](next.md?tab=one#next-section) · [HTML application](index.html) · [Text](中文%20text.txt) · [Image](中文%20image.png) · [Office](sample.docx) · [External](https://example.com/report.html) · [Section](#details)\n\n## Details\n\nA complete rendered document.\n')
+  await writeFile(path.join(directory, "中文 text.txt"), '中文 text <script>throw new Error("must not execute")</script>\n  spaces\n')
+  for (const name of ["sample.docx", "sample.pptx"]) await copyFile(path.resolve("test-fixtures/preview-files", name), path.join(directory, name))
   await writeFile(path.join(directory, "next.md"), '# Next section\n\n[Return](README.md)\n')
 }
 try {
@@ -105,6 +120,8 @@ try {
   const project = await server.store.openProject(projectPath, "Preview workspace")
   const chat = await server.store.createChat(project.id)
   await writeFile(path.join(projectPath, "TREE-ENTRY.md"), await readFile(path.join(projectPath, "README.md")))
+  await copyFile(path.join(projectPath, "中文 image.png"), path.join(projectPath, "TREE-IMAGE.png"))
+  await copyFile(path.join(projectPath, "sample.docx"), path.join(projectPath, "TREE-OFFICE.docx"))
   const inputStates = new Map<string, { revision: number }>()
   let count = 0
   let activeSockets = 0
@@ -138,7 +155,7 @@ try {
   for (const directory of [projectPath, outsidePath]) await writeFile(path.join(directory, "README.md"),
     await readFile(path.join(directory, "README.md"), "utf8") + `\n[Host HTTP application](${appOrigin}/app?tab=one#section)\n`)
   await server.store.appendMessage(chat.id, { kind: "assistant_text", _id: "preview-fixture-links", createdAt: Date.now(),
-    text: `[Read guide](<${path.join(projectPath, "README.md").replaceAll("\\", "/")}>) · [HTML sample](<${path.join(projectPath, "index.html").replaceAll("\\", "/")}>) · [HTTP application](${appOrigin}/app?tab=one#section)` })
+    text: `[Read guide](<${path.join(projectPath, "README.md").replaceAll("\\", "/")}>) · [HTML sample](<${path.join(projectPath, "index.html").replaceAll("\\", "/")}>) · [HTTP application](${appOrigin}/app?tab=one#section) · [Image sample](<${path.join(projectPath, "中文 image.png").replaceAll("\\", "/")}>) · [Text sample](<${path.join(projectPath, "中文 text.txt").replaceAll("\\", "/")}>) · [Office sample](<${path.join(projectPath, "sample.docx").replaceAll("\\", "/")}>) · [External website](https://example.com/report.html) · [External HTTP](http://example.com/report.md)` })
   const addresses: Record<string, Record<string, string>> = {}
   const targetIds: Record<string, Record<string, string>> = {}
   for (const entry of entries) {
@@ -146,6 +163,10 @@ try {
     addresses[entry.name] = { "project-markdown": `/api/projects/${project.id}/markdown-preview/README.md`,
       "outside-markdown": `/api/local-files/markdown-preview/${encodeURIComponent(path.join(outsidePath, "README.md"))}`,
       "project-html": `/api/projects/${project.id}/preview/index.html`, "outside-html": outside.url,
+      "project-text": `/api/projects/${project.id}/preview/${encodeURIComponent("中文 text.txt")}`,
+      "outside-text": `/api/local-files/preview/${encodeURIComponent(path.join(outsidePath, "中文 text.txt"))}`,
+      "project-image": `/api/projects/${project.id}/preview/${encodeURIComponent("中文 image.png")}`,
+      "outside-image": `/api/local-files/preview/${encodeURIComponent(path.join(outsidePath, "中文 image.png"))}`,
       dynamic: appOrigin + "/app?tab=one#section" }
     targetIds[entry.name] = {}
     for (const [name, address] of Object.entries(addresses[entry.name]!)) {
@@ -157,6 +178,24 @@ try {
         const response = await request(entry, content); assert.equal(response.status, 200); assert.match(await response.text(), /Preview guide/)
         checks.push({ entry: entry.name, check: name + " authenticated target and content", result: "Pass" }); continue
       }
+      if (name !== "dynamic") {
+        const response = await request(entry, `/api/preview-targets/${target.id}/content?download=1`)
+        assert.equal(response.status, 200)
+        const fileName = name.endsWith("html") ? "index.html" : name.endsWith("text") ? "中文 text.txt" : "中文 image.png"
+        const bytes = await readFile(path.join(name.startsWith("outside") ? outsidePath : projectPath, fileName))
+        assert.equal(createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex"), createHash("sha256").update(bytes).digest("hex"))
+        if (name.endsWith("html")) {
+          const value = await json(entry, `/api/file-previews/${target.id}/entry`, {})
+          assert.equal(value.protocol, 1); assert.equal(typeof value.url, "string")
+          const destination = new URL(value.url)
+          const response = await fetch((entry.gateway ?? `http://127.0.0.1:${destination.port}`) + destination.pathname, { headers: { Host: destination.host } })
+          assert.equal(response.status, 200)
+          assert((await response.text()).includes("ES module") || response.headers.get("content-type")?.includes("text/html"))
+        }
+        checks.push({ entry: entry.name, check: name + " authenticated original bytes and direct renderer contract", result: "Pass" })
+        continue
+      }
+      if (filesOnly) continue
       const session = await json(entry, "/api/preview-browser", { targetId: target.id })
       for (const key of ["Control+C", "Control+V", "Meta+X", "Shift+Delete"]) {
         assert.equal((await request(entry, "/api/preview-browser/" + session.id, { type: "key", key })).status, 400)
@@ -197,9 +236,21 @@ try {
       checks.push({ entry: entry.name, check: name + " resources, input, storage, reload, clipboard guards" + (name === "dynamic" ? ", API, WebSocket, bidirectional writes, deep navigation" : ""), result: "Pass" })
       await request(entry, "/api/preview-browser/" + session.id, undefined, "DELETE")
     }
-    const protectedTarget = await json(entry, "/api/preview-targets", { address: localOrigin, projectId: project.id })
-    const protectedResponse = await request(entry, "/api/preview-browser", { targetId: protectedTarget.id })
-    assert.equal(protectedResponse.status, 503, "Control application cannot be reached by the preview browser")
+    for (const directory of [projectPath, outsidePath]) for (const fileName of ["README.md", "index.html", "中文 text.txt", "中文 image.png", "sample.docx", "sample.pptx"]) {
+      const address = directory === projectPath ? `/api/projects/${project.id}/preview/${encodeURIComponent(fileName)}` : `/api/local-files/preview/${encodeURIComponent(path.join(directory, fileName))}`
+      const target = await json(entry, "/api/preview-targets", { projectId: project.id, address })
+      const response = await request(entry, `/api/preview-targets/${target.id}/content?download=1`)
+      assert.equal(response.status, 200); assert(response.headers.get("content-disposition")?.includes(encodeURIComponent(fileName)))
+      const originalBytes = Buffer.from(await response.arrayBuffer())
+      const actual = createHash("sha256").update(originalBytes).digest("hex")
+      downloads.push({ entry: entry.name, scope: directory === projectPath ? "workspace" : "authorized-host-file", name: fileName, size: originalBytes.length, sha256: actual, contentType: response.headers.get("content-type") })
+      assert.equal(actual, createHash("sha256").update(await readFile(path.join(directory, fileName))).digest("hex"))
+      if (entry.name !== "loopback") for (const action of ["open_default", "open_finder"]) assert.equal((await request(entry, `/api/preview-targets/${target.id}/action`, { action, local: true })).status, 403)
+    }
+    checks.push({ entry: entry.name, check: "Project and authorized host-file original MD/HTML/TXT/image/Office hashes and UTF-8 filenames", result: "Pass" })
+    if (!filesOnly) {
+    const protectedResponse = await request(entry, "/api/preview-targets", { address: localOrigin, projectId: project.id })
+    assert.equal(protectedResponse.status, 403, "Control application cannot become a preview target")
     checks.push({ entry: entry.name, check: "StillOn control port denied", result: "Pass" })
     for (const variant of ["no-title", "root-404", "slow-root", "application-401", "application-403", "application-500", "ipv6-listener"]) {
       stage = entry.name + ":" + variant
@@ -218,23 +269,10 @@ try {
       await request(entry, "/api/preview-browser/" + session.id, undefined, "DELETE")
       checks.push({ entry: entry.name, check: "Explicit path admission: " + variant, result: "Pass" })
     }
-    if (process.argv.includes("--external-sites")) {
-      for (const [name, address] of Object.entries({ "external-https": "https://example.com/", "external-frame-policy": "https://github.com/", "external-http": "http://example.com/" })) {
-        stage = entry.name + ":" + name
-        addresses[entry.name]![name] = address
-        const target = await json(entry, "/api/preview-targets", { projectId: project.id, address })
-        targetIds[entry.name]![name] = target.id
-        const session = await json(entry, "/api/preview-browser", { targetId: target.id })
-        try {
-          const frame = await eventually(() => json(entry, "/api/preview-browser/" + session.id), value => Boolean(value.title) && !value.error)
-          assert.ok(frame.image.length > 1000)
-          checks.push({ entry: entry.name, check: name + " public website rendered by the isolated browser", result: "Pass" })
-        } catch {
-          delete addresses[entry.name]![name]
-          checks.push({ entry: entry.name, check: name + " public website network smoke", result: "Blocked: website or network unavailable" })
-        } finally { await request(entry, "/api/preview-browser/" + session.id, undefined, "DELETE") }
-      }
+    for (const address of ["https://example.com/report.html", "http://example.com/report.md", "https://localhost.example.com/"]) {
+      assert.equal((await request(entry, "/api/preview-targets", { projectId: project.id, address })).status, 400)
     }
+    checks.push({ entry: entry.name, check: "External websites never create preview targets", result: "Pass" })
     stage = entry.name + ":service-recovery"
     const stopped = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("unused") })
     const restartPort = stopped.port!
@@ -255,12 +293,14 @@ try {
     await writeFile(path.join(output, entry.name + "-recovery-restored.jpg"), Buffer.from(recovered.image, "base64"))
     await request(entry, "/api/preview-browser/" + recoverySession.id, undefined, "DELETE")
     checks.push({ entry: entry.name, check: "Stopped service recovers immediately at the same deep target without a negative cache", result: "Pass" })
+    }
   }
   if (entries[1]) {
     const stolen = await request(entries[0]!, "/api/preview-targets/" + targetIds[entries[1].name]!["project-html"])
     assert.equal(stolen.status, 410)
     checks.push({ entry: "cross-entry", check: "Opaque target ID does not grant another owner access", result: "Pass" })
   }
+  if (!filesOnly) {
   stage = "service-list-discovery"
   assert((await listLocalHttpServers({ projectPath })).some(service => service.port === serviceListPort && service.title === "Service restored"), "The restored fixture must appear in real service discovery")
   stage = "browser-authorization-expiry"
@@ -325,10 +365,11 @@ try {
     assert.equal((await leasedBrowser.handle(new Request(route), route, { ...options, expiresAt: Date.now() + 10_000 }))?.status, 410)
     checks.push({ entry: "scope-expiry", check: "Expired parent authorization closes the isolated browser and its live application WebSocket", result: "Pass" })
   } finally { await leasedBrowser.close() }
-  await writeFile(path.join(output, "api-results.json"), JSON.stringify({ localOnly, checks }, null, 2))
+  }
+  await writeFile(path.join(output, filesOnly ? "api-results-files-only.json" : "api-results.json"), JSON.stringify({ localOnly, filesOnly, commit: sourceCommit, dirty, downloads, checks }, null, 2))
   console.log(JSON.stringify({ localOnly, checks }, null, 2))
   if (browserOutput) {
-    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, output, gatewayVersion: "source fixture", sourceVersion: "0.6.2" }))
+    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, outsidePath, projectPath, fixtureRoot: root, output, gatewayVersion: sourceCommit, sourceVersion: sourceCommit, dirty, hostOS: os.platform(), hostRelease: os.release(), adapterVersion: sourceCommit, clientVersion: sourceCommit }))
     console.log("Workspace browser fixture ready")
     if (stopFile) { while (true) { try { await readFile(stopFile); break } catch { await Bun.sleep(200) } } }
     else await new Promise<void>(resolve => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve) })

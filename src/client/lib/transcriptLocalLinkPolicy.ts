@@ -1,6 +1,5 @@
+import { fileRenderer } from "../../shared/file-renderers"
 import { isLoopbackPreviewHost } from "../../shared/browser-preview-proxy"
-import { isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../shared/local-file-urls"
-import { isProjectTextPreviewPath } from "../../shared/project-file-urls"
 import type { OpenExternalAction } from "../../shared/protocol"
 
 export type LocalFileLinkAction = OpenExternalAction | "download"
@@ -16,12 +15,11 @@ export function resolveTranscriptLocalFileDisposition(args: {
   filePath: string
   isProjectFile: boolean
 }): TranscriptLocalFileDisposition {
-  if (isLocalHtmlPreviewPath(args.filePath) || isLocalMarkdownPreviewPath(args.filePath)
-    || args.isProjectFile && isProjectTextPreviewPath(args.filePath)) {
+  if (fileRenderer(args.filePath)) {
     return "preview"
   }
   if (canOpenTranscriptFilesOnHost(args.hostname)) {
     return "open_host"
   }
-  return args.isProjectFile ? "download" : "blocked"
+  return "download"
 }

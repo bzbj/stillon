@@ -1,27 +1,21 @@
+import { ResourceLink } from "../ResourceLink"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { FileText, LoaderCircle } from "lucide-react"
-import { useEffect, useMemo, useState, type ComponentPropsWithoutRef, type MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react"
 import {
   buildLocalFileContentUrl,
   buildLocalMarkdownPreviewUrl,
-  isLocalMarkdownPreviewPath,
   normalizeLocalFilePath,
 } from "../../../shared/local-file-urls"
 import {
   buildProjectFileContentUrl,
-  buildProjectFilePreviewUrl,
   buildProjectMarkdownPreviewUrl,
-  isProjectMarkdownPreviewPath,
-  isProjectTextPreviewPath,
 } from "../../../shared/project-file-urls"
 import { cn } from "../../lib/utils"
-import { appendLocalFileLinkLocation } from "../../lib/pathUtils"
-import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
+import { parseLocalFileLink } from "../../lib/pathUtils"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "../messages/shared"
 import { TEXT_PREVIEW_LIMIT_BYTES, fetchTextPreview } from "../messages/attachmentPreview"
-import { parsePreviewTarget, isPlainPreviewClick } from "../../../shared/preview-target"
-import { usePreviewHref } from "../../lib/usePreviewHref"
 
 type MarkdownPreviewState =
   | { status: "loading" }
@@ -35,6 +29,7 @@ export type MarkdownPreviewSource =
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[a-z]:[\\/]/i
 
 interface MarkdownPreviewPanelProps {
+  contentUrl?: string
   address?: string
   workspaceId?: string
   source: MarkdownPreviewSource
@@ -48,6 +43,7 @@ interface MarkdownPreviewPanelProps {
 
 export function MarkdownPreviewPanel({
   address,
+  contentUrl: authorizedContentUrl,
   workspaceId,
   source,
   refreshVersion,
@@ -60,7 +56,7 @@ export function MarkdownPreviewPanel({
   const [previewState, setPreviewState] = useState<MarkdownPreviewState>({ status: "loading" })
   const [navigationError, setNavigationError] = useState<string | null>(null)
   const { filePath } = source
-  const contentUrl = buildMarkdownContentUrl(source)
+  const contentUrl = authorizedContentUrl ?? buildMarkdownContentUrl(source)
   useEffect(() => {
     if (previewState.status !== "ready" || !address) return
     const hash = new URL(address, window.location.origin).hash.slice(1)
@@ -94,106 +90,23 @@ export function MarkdownPreviewPanel({
     const baseComponents = createMarkdownComponents()
     return {
       ...baseComponents,
-      a: ({ children, href, onClick, ...props }: ComponentPropsWithoutRef<"a">) => {
-        const linkedPath = resolveMarkdownResourcePath(source, href)
-        const webTarget = href && /^https?:\/\//iu.test(href) ? parsePreviewTarget(href) : null
-        const location = getMarkdownTargetLocation(href)
-        const previewUrl = linkedPath ? buildPreviewUrlForLinkedPath(source, linkedPath) : null
-        const [localHtmlAddress, setLocalHtmlAddress] = useState<string>()
-        useEffect(() => {
-          let cancelled = false
-          if (source.kind === "local" && linkedPath && isHtmlPreviewPath(linkedPath)) {
-            void requestLocalHtmlPreviewUrl(linkedPath).then(url => { if (!cancelled) setLocalHtmlAddress(url) }).catch(() => undefined)
-          }
-          return () => { cancelled = true }
-        }, [source.kind, linkedPath])
-        const locatedPreviewUrl = previewUrl ? appendLocalFileLinkLocation(previewUrl, location) : localHtmlAddress ? appendLocalFileLinkLocation(localHtmlAddress, location) : null
-        const standaloneHref = usePreviewHref(locatedPreviewUrl ?? webTarget?.address ?? null, source.kind === "project" ? source.projectId : workspaceId)
-        if (!linkedPath) {
-          const isDocumentFragment = href?.startsWith("#") ?? false
-          return (
-            <a
-              className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
-              href={standaloneHref ?? (webTarget && typeof window !== "undefined" ? undefined : href)}
-              role={webTarget ? "link" : undefined}
-              tabIndex={webTarget ? 0 : undefined}
-              onKeyDown={event => { if (webTarget && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !standaloneHref) { event.preventDefault(); onNavigate(webTarget.address) } }}
-              target={isDocumentFragment || webTarget ? undefined : "_blank"}
-              rel={isDocumentFragment || webTarget ? undefined : "noopener noreferrer"}
-              onClick={event => {
-                onClick?.(event)
-                if (event.defaultPrevented || !isPlainPreviewClick(event)) return
-                if (webTarget) { event.preventDefault(); onNavigate(webTarget.address) }
-                if (isDocumentFragment && href) {
-                  event.preventDefault()
-                  const current = address ?? (source.kind === "project" ? buildProjectMarkdownPreviewUrl(source.projectId, source.filePath) : buildLocalMarkdownPreviewUrl(source.filePath))
-                  onNavigate(current.split("#")[0] + href)
-                }
-              }}
-              {...props}
-            >
-              {children}
-            </a>
-          )
-        }
-
-        const isLocalHtmlLink = source.kind === "local" && isHtmlPreviewPath(linkedPath)
-        const hostFilePath = getHostFilePath(source, linkedPath, projectLocalPath)
-        const shouldOpenOnHost = canOpenHostFiles && Boolean(hostFilePath && onOpenHostFile)
-        const shouldDownload = !canOpenHostFiles && source.kind === "project"
-        const contentUrl = buildContentUrlForLinkedPath(source, linkedPath, { download: shouldDownload })
-        const isUnavailable = !locatedPreviewUrl && !isLocalHtmlLink && !shouldOpenOnHost && !shouldDownload
-        const linkUrl = previewUrl ?? contentUrl
-
-        if (isUnavailable) {
-          return (
-            <span
-              className="text-muted-foreground underline decoration-dotted"
-              title="This workspace-external file cannot be downloaded remotely."
-            >
-              {children}
-            </span>
-          )
-        }
-
-        return (
-          <a
-            className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40"
-            href={standaloneHref ?? locatedPreviewUrl ?? (isLocalHtmlLink || shouldOpenOnHost ? undefined : linkUrl)}
-            target={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "_blank"}
-            rel={locatedPreviewUrl || isLocalHtmlLink || shouldOpenOnHost || shouldDownload ? undefined : "noopener noreferrer"}
-            download={shouldDownload && !locatedPreviewUrl ? getFileName(linkedPath) : undefined}
-            onClick={(event: ReactMouseEvent<HTMLAnchorElement>) => {
-              onClick?.(event)
-              if (event.defaultPrevented || !isPlainPreviewClick(event)) return
-              if (locatedPreviewUrl) {
-                event.preventDefault()
-                onNavigate(locatedPreviewUrl)
-                return
-              }
-              if (isLocalHtmlLink) {
-                event.preventDefault()
-                setNavigationError(null)
-                void requestLocalHtmlPreviewUrl(linkedPath)
-                  .then((url) => onNavigate(appendLocalFileLinkLocation(url, location)))
-                  .catch((error: unknown) => {
-                    setNavigationError(error instanceof Error ? error.message : "Unable to open HTML preview.")
-                  })
-                return
-              }
-              if (shouldOpenOnHost && hostFilePath && onOpenHostFile) {
-                event.preventDefault()
-                onOpenHostFile(
-                  hostFilePath,
-                  "open_default",
-                )
-              }
-            }}
-            {...props}
-          >
-            {children}
-          </a>
-        )
+      a: ({ children, href, ...props }: ComponentPropsWithoutRef<"a">) => {
+        if (href?.startsWith("#")) return <a {...props} href={href} onClick={event => {
+          event.preventDefault()
+          const current = address ?? (source.kind === "project" ? buildProjectMarkdownPreviewUrl(source.projectId, source.filePath) : buildLocalMarkdownPreviewUrl(source.filePath))
+          onNavigate(current.split("#")[0] + href)
+        }}>{children}</a>
+        return <ResourceLink {...props} href={href} projectId={source.kind === "project" ? source.projectId : workspaceId}
+          localPath={projectLocalPath} onPreview={onNavigate} className="underline text-logo"
+          resolveFile={value => {
+            // Absolute/file/home paths name the host; relative paths use this document's directory.
+            const absolute = parseLocalFileLink(value)
+            if (absolute) return absolute
+            const linked = resolveMarkdownResourcePath(source, value)
+            if (!linked) return null
+            const host = getHostFilePath(source, linked, projectLocalPath)
+            return host ? { path: host, ...getMarkdownTargetLocation(value) } : null
+          }}>{children}</ResourceLink>
       },
       img: ({ src, alt, className, ...props }: ComponentPropsWithoutRef<"img">) => {
         const linkedPath = resolveMarkdownResourcePath(source, src)
@@ -236,7 +149,7 @@ export function MarkdownPreviewPanel({
               Loading Markdown preview...
             </div>
           ) : previewState.status === "error" ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {previewState.message}
             </div>
           ) : (
@@ -285,20 +198,6 @@ function buildMarkdownContentUrl(source: MarkdownPreviewSource) {
     : buildLocalFileContentUrl(source.filePath)
 }
 
-function buildPreviewUrlForLinkedPath(source: MarkdownPreviewSource, filePath: string) {
-  if (source.kind === "local") {
-    return isLocalMarkdownPreviewPath(filePath) ? buildLocalMarkdownPreviewUrl(filePath) : null
-  }
-
-  if (isProjectMarkdownPreviewPath(filePath)) {
-    return buildProjectMarkdownPreviewUrl(source.projectId, filePath)
-  }
-  if (isHtmlPreviewPath(filePath) || isProjectTextPreviewPath(filePath)) {
-    return buildProjectFilePreviewUrl(source.projectId, filePath)
-  }
-  return null
-}
-
 function buildContentUrlForLinkedPath(
   source: MarkdownPreviewSource,
   filePath: string,
@@ -307,21 +206,6 @@ function buildContentUrlForLinkedPath(
   return source.kind === "project"
     ? buildProjectFileContentUrl(source.projectId, filePath, options)
     : buildLocalFileContentUrl(filePath, options)
-}
-
-function isHtmlPreviewPath(filePath: string) {
-  const extension = getFileExtension(filePath)
-  return extension === ".html" || extension === ".htm"
-}
-
-function getFileExtension(filePath: string) {
-  const fileName = filePath.split(/[\\/]/).pop() ?? filePath
-  const extensionIndex = fileName.lastIndexOf(".")
-  return extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : ""
-}
-
-function getFileName(filePath: string) {
-  return filePath.split(/[\\/]/).pop() || "download"
 }
 
 function getMarkdownTargetLocation(target: string | undefined | null) {

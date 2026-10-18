@@ -1,16 +1,19 @@
+import { verifyDirectFileInput } from "./verify-direct-file-input"
 import assert from "node:assert/strict"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { mkdir, readFile, writeFile, rename, stat } from "node:fs/promises"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { chromium, firefox, type Page } from "playwright"
 import { verifyPreviewInput } from "./verify-preview-input"
 
-const output = path.resolve("test-artifacts/workspace-previews")
+const filesOnly = process.argv.includes("--files-only")
+const output = path.resolve("test-artifacts/workspace-previews", process.argv.includes("--firefox") ? "firefox" : "chromium")
 await mkdir(output, { recursive: true })
 const privateFixture = path.join(output, "private-browser-fixture-" + Date.now() + ".json")
 const stopFile = path.join(output, "fixture.stop-" + Date.now())
 const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
-const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true })
+const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true })
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const checks: { entry: string; check: string; result: string }[] = []
 let currentPage: Page | undefined
@@ -34,6 +37,9 @@ try {
     if (entry.cookie) await context.addCookies(entry.cookie.split("; ").map((part: string) => {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
+    await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
+    let browserRequests = 0
+    context.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/preview-browser")) browserRequests++ })
     const page = await context.newPage()
     currentPage = page
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
@@ -59,6 +65,7 @@ try {
     await page.goto(entry.origin + "/chat/" + config.chatId, { waitUntil: "domcontentloaded" })
     const guide = page.getByRole("link", { name: "Read guide", exact: true })
     await guide.waitFor()
+    await page.evaluate(() => localStorage.setItem("stillon-main-secret", "fixture-secret"))
     await guide.click()
     await page.getByRole("heading", { name: "Preview guide" }).waitFor()
     assert.equal(new URL(page.url()).pathname, "/chat/" + config.chatId)
@@ -69,12 +76,77 @@ try {
       const [popup] = await Promise.all([context.waitForEvent("page"), guide.click(options)])
       await popup.getByRole("heading", { name: "Preview guide" }).waitFor(); await popup.close(); await page.bringToFront()
     }
-    assert.equal(await guide.evaluate(link => { const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); link.dispatchEvent(event); return event.defaultPrevented }), false)
-    checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, native context menu", result: "Pass" })
+    await guide.click({ button: "right" })
+    const labels = await page.getByRole("menuitem").allTextContents()
+    assert.deepEqual(labels, entry.name === "loopback" ? ["Preview in sidebar", "Open on this computer", "Show in folder"] : ["Preview in sidebar", "Download"])
+    await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
+    await page.keyboard.press("Escape")
+    await page.getByRole("menu").waitFor({ state: "hidden" })
+    checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, stable custom file menu", result: "Pass" })
+    const menuLabels = (previewable: boolean) => entry.name === "loopback"
+      ? [...(previewable ? ["Preview in sidebar"] : []), "Open on this computer", "Show in folder"]
+      : [...(previewable ? ["Preview in sidebar"] : []), "Download"]
+    const verifyDownload = async (activate: () => Promise<unknown>, fileName: string) => {
+      const pending = page.waitForEvent("download")
+      await activate()
+      const download = await pending, stream = await download.createReadStream()
+      assert.equal(download.suggestedFilename(), fileName); assert(stream)
+      const chunks: Buffer[] = []
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+      assert.equal(await download.failure(), null)
+      const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
+      assert.equal(hash(Buffer.concat(chunks)), hash(await readFile(path.join(config.projectPath, fileName))))
+    }
+    for (const [label, fileName, previewable] of [["Text sample", "中文 text.txt", true], ["Image sample", "中文 image.png", true], ["Office sample", "sample.docx", false]] as const) {
+      const link = page.getByRole("link", { name: label, exact: true })
+      await link.click({ button: "right" })
+      assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(previewable))
+      if (entry.name !== "loopback") await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), fileName)
+      else await page.keyboard.press("Escape")
+      if (previewable) {
+        await link.click()
+        if (label === "Image sample") await page.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
+        else await page.getByText("中文 text <script>", { exact: false }).waitFor()
+        await page.getByRole("button", { name: "Back", exact: true }).click()
+        await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+      } else if (entry.name !== "loopback") await verifyDownload(() => link.click(), fileName)
+    }
+    const markdownImage = page.getByRole("link", { name: "Image", exact: true })
+    await markdownImage.click({ button: "right" })
+    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(true))
+    await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
+    await page.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
+    await page.getByRole("button", { name: "Back", exact: true }).click()
+    await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+    const markdownOffice = page.getByRole("link", { name: "Office", exact: true })
+    await markdownOffice.click({ button: "right" })
+    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(false))
+    if (entry.name !== "loopback") {
+      await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), "sample.docx")
+      await verifyDownload(() => markdownOffice.click(), "sample.docx")
+    } else await page.keyboard.press("Escape")
+    checks.push({ entry: entry.name, check: "Chat/Markdown text, image and Office menu policies; native image sidebar; remote menu/default downloads preserve original bytes", result: "Pass" })
+    stage = entry.name + ":external-links"
+    await context.route(/^https?:\/\/example\.com\/report\.(?:html|md)$/u, route => route.fulfill({ status: 200, contentType: "text/html", headers: { "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" }, body: '<h1>Controlled external website</h1>' }))
+    for (const label of ["External website", "External HTTP", "External"]) {
+      const link = page.getByRole("link", { name: label, exact: true })
+      const destination = await link.getAttribute("href"), before = browserRequests
+      assert.equal(await link.evaluate(element => { const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); element.dispatchEvent(event); return event.defaultPrevented }), false)
+      const opened = context.waitForEvent("page")
+      await link.click()
+      const external = await opened
+      await external.getByRole("heading", { name: "Controlled external website" }).waitFor()
+      assert.equal(external.url(), destination)
+      assert.equal(browserRequests, before)
+      await external.close(); await page.bringToFront()
+      await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+    }
+    checks.push({ entry: entry.name, check: "Chat/Markdown external HTTP(S) .html/.md links open original visiting-device tabs with native menus and no browser sessions", result: "Pass" })
     stage = entry.name + ":markdown-body-links"
-    for (const label of ["HTML application", "Host HTTP application"]) {
+    for (const label of filesOnly ? ["HTML application"] : ["HTML application", "Host HTTP application"]) {
       await page.getByRole("link", { name: label, exact: true }).click()
-      await page.getByAltText("Interactive browser preview").waitFor()
+      if (label === "HTML application") await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready").waitFor()
+      else await page.getByAltText("Interactive browser preview").waitFor()
       await page.getByRole("button", { name: "Back", exact: true }).click()
       await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     }
@@ -86,11 +158,21 @@ try {
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     assert((await page.getByPlaceholder("Enter a URL").inputValue()).endsWith("/markdown-preview/TREE-ENTRY.md"))
+    await page.getByText("TREE-IMAGE.png", { exact: true }).click()
+    await page.waitForFunction(() => [...document.images].some(image => image.alt.endsWith("TREE-IMAGE.png") && image.naturalWidth > 0))
+    const officeItem = page.getByText("TREE-OFFICE.docx", { exact: true })
+    await officeItem.click({ button: "right" })
+    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(false))
+    if (entry.name !== "loopback") {
+      await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), "TREE-OFFICE.docx")
+      await verifyDownload(() => officeItem.click(), "TREE-OFFICE.docx")
+    } else await page.keyboard.press("Escape")
     checks.push({ entry: entry.name, check: "File-list context action opens rendered Markdown in the sidebar", result: "Pass" })
     const browserButton = page.getByRole("button", { name: "Browser", exact: true })
     if (await browserButton.getAttribute("aria-pressed") !== "true") await browserButton.click()
     const address = page.getByPlaceholder("Enter a URL")
     await address.waitFor()
+    if (!filesOnly) {
     stage = entry.name + ":service-list"
     await page.getByRole("button", { name: "Home", exact: true }).click()
     const service = page.getByRole("button").filter({ has: page.getByText("http://localhost:" + config.serviceListPort, { exact: true }) }).filter({ hasText: "Service restored" })
@@ -106,12 +188,37 @@ try {
     assert.equal(new URL(await independentService.getByLabel("Preview address").textContent() ?? "").port, String(config.serviceListPort))
     await independentService.close(); await page.bringToFront()
     checks.push({ entry: entry.name, check: "Service-list ordinary click and native menu open the authorized service in sidebar and standalone", result: "Pass" })
-    for (const name of Object.keys(config.addresses[entry.name])) {
+    }
+    for (const name of Object.keys(config.addresses[entry.name]).filter(name => !filesOnly || name !== "dynamic")) {
       stage = entry.name + ":" + name + ":sidebar"
       await address.fill(config.addresses[entry.name][name]); await address.press("Enter")
       await page.waitForFunction(value => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value === value, config.addresses[entry.name][name])
       if (name.endsWith("markdown")) { await page.getByRole("heading", { name: "Preview guide" }).waitFor(); await images(page) }
-      else {
+      else if (name.endsWith("html")) {
+        await verifyDirectFileInput(page, type === chromium)
+        if (name === "project-html") {
+          const next = page.frameLocator('iframe[title="HTML file preview"]').getByRole("link", { name: "Next page", exact: true })
+          for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
+            const opened = context.waitForEvent("page")
+            await next.click(options)
+            const independent = await opened
+            await independent.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
+            assert.match(independent.url(), /\/preview\/[\w-]+$/u)
+            assert((await independent.getByLabel("Preview address").textContent())?.endsWith("next.html?tab=one#section"))
+            await independent.close(); await page.bringToFront()
+          }
+          await next.click()
+          await page.frameLocator('iframe[title="HTML file preview"]').getByRole("heading", { name: "Next page", exact: true }).waitFor()
+          assert((await address.inputValue()).endsWith("next.html?tab=one#section"))
+          await page.getByRole("button", { name: "Back", exact: true }).click()
+          await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
+          checks.push({ entry: entry.name, check: "HTML ordinary/modifier/middle document navigation preserves logical independent URLs and history", result: "Pass" })
+        }
+      } else if (name.endsWith("text")) {
+        await page.getByText('中文 text <script>throw new Error("must not execute")</script>', { exact: false }).waitFor()
+      } else if (name.endsWith("image")) {
+        await page.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
+      } else {
         const preview = page.getByAltText("Interactive browser preview")
         await preview.waitFor()
         await page.waitForFunction(() => { const image = document.querySelector('img[alt="Interactive browser preview"]') as HTMLImageElement; return image?.naturalWidth === Math.round(image.getBoundingClientRect().width) })
@@ -136,21 +243,109 @@ try {
       stage = entry.name + ":" + name + ":standalone"
       await popup.waitForURL(/\/preview\/[\w-]+$/u, { waitUntil: "domcontentloaded" })
       if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
+      else if (name.endsWith("html")) await verifyDirectFileInput(popup, type === chromium)
+      else if (name.endsWith("text")) await popup.getByText('中文 text <script>', { exact: false }).waitFor()
+      else if (name.endsWith("image")) await popup.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
       else await popup.getByAltText("Interactive browser preview").waitFor()
       assert.equal(await popup.getByLabel("Preview address").textContent(), currentAddress)
       await popup.reload({ waitUntil: "domcontentloaded" })
       stage = entry.name + ":" + name + ":standalone-reload"
       if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
+      else if (name.endsWith("html")) await verifyDirectFileInput(popup, type === chromium)
+      else if (name.endsWith("text")) await popup.getByText('中文 text <script>', { exact: false }).waitFor()
+      else if (name.endsWith("image")) await popup.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
       else await popup.getByAltText("Interactive browser preview").waitFor()
       if (name === "project-markdown") await popup.screenshot({ path: path.join(output, entry.name + "-markdown-standalone.png") })
+      if (name !== "dynamic") {
+        stage = entry.name + ":" + name + ":deleted-file-retry"
+        const directory = name.startsWith("outside") ? config.outsidePath : config.projectPath
+        const root = path.resolve(config.fixtureRoot), relative = path.relative(root, path.resolve(directory))
+        assert(path.basename(root).startsWith("stillon-workspace-previews-") && ["workspace", "outside"].includes(relative))
+        const fileName = name.endsWith("markdown") ? "README.md" : name.endsWith("html") ? "index.html" : name.endsWith("text") ? "中文 text.txt" : "中文 image.png"
+        const source = path.join(directory, fileName), held = source + ".qa-hold-" + Date.now()
+        assert((await stat(source)).isFile()); assert.equal(await stat(held).then(() => true, () => false), false)
+        await rename(source, held)
+        try {
+          for (const view of [page, popup]) {
+            currentPage = view
+            const missing = view.waitForResponse(response => response.status() === 404 && response.url().includes("/api/preview-targets"))
+            await view.getByRole("button", { name: "Refresh", exact: true }).click()
+            await missing
+            await view.getByRole("alert").filter({ hasText: /not found|404/iu }).first().waitFor()
+          }
+        } finally {
+          assert.equal(await stat(source).then(() => true, () => false), false)
+          await rename(held, source)
+        }
+        for (const view of [page, popup]) {
+          await view.getByRole("button", { name: "Refresh", exact: true }).click()
+          if (name.endsWith("markdown")) await view.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
+          else if (name.endsWith("html")) await view.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
+          else if (name.endsWith("text")) await view.getByText('中文 text <script>', { exact: false }).waitFor()
+          else await view.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
+        }
+      }
       await popup.close()
       currentPage = page
       await page.bringToFront()
-      if (!name.endsWith("markdown")) await page.waitForFunction(() => { const image = document.querySelector('img[alt="Interactive browser preview"]') as HTMLImageElement; return image?.naturalWidth === Math.round(image.getBoundingClientRect().width) })
-      checks.push({ entry: entry.name, check: name + " sidebar, independent window, direct refresh", result: "Pass" })
+      if (name === "dynamic") await page.waitForFunction(() => { const image = document.querySelector('img[alt="Interactive browser preview"]') as HTMLImageElement; return image?.naturalWidth === Math.round(image.getBoundingClientRect().width) })
+      checks.push({ entry: entry.name, check: name + " sidebar, independent window, refresh, deleted-file error and recovery", result: "Pass" })
       if (name === "project-markdown" || name === "dynamic") await page.screenshot({ path: path.join(output, entry.name + "-" + name + "-sidebar.png") })
     }
-    for (const view of ["direct", "sidebar", "standalone"] as const) {
+    stage = entry.name + ":image-formats"
+    for (const outside of [false, true]) for (const extension of ["png", "jpg", "webp", "gif", "svg", "avif", "apng", "bmp", "ico"]) {
+      stage = entry.name + ":image:" + (outside ? "host:" : "project:") + extension
+      const fileName = "图 image." + extension
+      const base = outside ? config.addresses[entry.name]["outside-image"].replace(/[^/]+$/u, encodeURIComponent(config.outsidePath + "/" + fileName))
+        : `/api/projects/${config.projectId}/preview/${encodeURIComponent(fileName)}`
+      await address.fill(base); await address.press("Enter")
+      await page.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
+      const image = page.locator('img[alt*="图 image."]')
+      assert(await image.evaluate(image => (image as HTMLImageElement).naturalWidth / (image as HTMLImageElement).naturalHeight > 0))
+      if (["gif", "apng"].includes(extension)) {
+        const colors = await image.evaluate(async element => {
+          const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1
+          const context = canvas.getContext("2d")!, colors = new Set<string>()
+          for (let i = 0; i < 32; i++) {
+            context.clearRect(0, 0, 1, 1); context.drawImage(element as HTMLImageElement, 0, 0)
+            colors.add([...context.getImageData(0, 0, 1, 1).data].join(","))
+            await new Promise(resolve => setTimeout(resolve, 25))
+          }
+          return colors.size
+        })
+        assert(colors > 1, "The native animated image must keep changing frames")
+      }
+      if (extension === "svg") assert.equal(await page.evaluate(() => (window as Window & { svgExecuted?: boolean }).svgExecuted), undefined)
+      const popupPromise = context.waitForEvent("page")
+      await page.getByRole("button", { name: "Open standalone", exact: true }).click()
+      const popup = await popupPromise
+      await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
+      await popup.reload({ waitUntil: "domcontentloaded" })
+      await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
+      await popup.close(); await page.bringToFront()
+      checks.push({ entry: entry.name, check: (outside ? "Authorized host" : "Project") + " " + extension + " native image sidebar/standalone/reload", result: "Pass" })
+    }
+    for (const [fileName, message] of [["broken.png", "Image unavailable"], ["oversized.png", "25 MB"], ["large-dimensions.svg", "40 megapixel"]]) {
+      await address.fill(`/api/projects/${config.projectId}/preview/${fileName}`); await address.press("Enter")
+      await page.getByText(message, { exact: false }).waitFor()
+      assert.equal(await page.getByRole("button", { name: "Retry image" }).count(), 1)
+    }
+    checks.push({ entry: entry.name, check: "Damaged/oversized images report failures and offer retry", result: "Pass" })
+    await address.fill(`/api/projects/${config.projectId}/preview/long.png`); await address.press("Enter")
+    const longImage = page.locator('img[alt="long.png"]')
+    await longImage.waitFor()
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+    assert(await longImage.evaluate(image => {
+      let element: HTMLElement | null = image as HTMLElement
+      while (element && element.scrollHeight <= element.clientHeight) element = element.parentElement
+      if (!element) return false
+      element.scrollTop = 1000
+      return element.scrollTop > 0
+    }))
+    await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+    checks.push({ entry: entry.name, check: "Long image preserves aspect, zoom and scrolling", result: "Pass" })
+    if (filesOnly) assert.equal(browserRequests, 0, "Files must not start browser sessions or screenshot polling")
+    for (const view of filesOnly ? [] : ["direct", "sidebar", "standalone"] as const) {
       const inputPage = view === "sidebar" ? page : await context.newPage()
       currentPage = inputPage
       const evidence = await verifyPreviewInput({ page: inputPage, appOrigin: config.appOrigin,
@@ -171,9 +366,9 @@ try {
     }
     await context.close()
   }
-  const report = JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2)
-  await writeFile(path.join(output, "browser-results.json"), report)
-  await writeFile(path.join(output, "browser-results-" + type.name() + ".json"), report)
+  const report = JSON.stringify({ browser: browser.version(), secondDevice: false, filesOnly, hostOS: process.platform, commit: config.sourceVersion, dirty: config.dirty, clientBuild: config.clientVersion, serverBuild: config.sourceVersion, adapterBuild: config.adapterVersion, gatewayBuild: config.gatewayVersion, checks }, null, 2)
+  await writeFile(path.join(output, (filesOnly ? "browser-results-files-only.json" : "browser-results.json")), report)
+  await writeFile(path.join(output, "browser-results-" + type.name() + (filesOnly ? "-files-only" : "") + ".json"), report)
   console.log(JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
 } catch (error) {
   console.error("Browser validation failed at " + stage)

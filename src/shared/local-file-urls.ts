@@ -20,6 +20,19 @@ export function buildLocalMarkdownPreviewUrl(filePath: string) {
   return `/api/local-files/markdown-preview/${encodeURIComponent(normalizeLocalFilePath(filePath))}`
 }
 
+export function buildLocalFilePreviewUrl(filePath: string) {
+  return `/api/local-files/preview/${encodeURIComponent(normalizeLocalFilePath(filePath))}`
+}
+
+export function parseLocalFilePreviewUrl(address: string): { filePath: string } | null {
+  try {
+    const match = new URL(address, "http://stillon.invalid").pathname.match(/^\/api\/local-files\/preview\/(.+)$/u)
+    if (!match) return null
+    const filePath = normalizeLocalFilePath(decodeURIComponent(match[1]!))
+    return (isAbsoluteLocalPath(filePath) || filePath.startsWith("~/")) && !/[\u0000-\u001f]/u.test(filePath) ? { filePath } : null
+  } catch { return null }
+}
+
 export interface LocalMarkdownPreviewTarget {
   filePath: string
 }
