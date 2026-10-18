@@ -31,7 +31,15 @@ export class PreviewTargets {
     const contents = JSON.stringify([...this.entries])
     this.writes = this.writes.catch(() => undefined).then(async () => {
       await writeFile(this.storagePath! + ".tmp", contents, { mode: 0o600 })
-      await rename(this.storagePath! + ".tmp", this.storagePath!)
+      // Windows scanners can briefly hold the destination during frequent link
+      // resolution. Preserve atomic replacement and surface persistent failures.
+      for (let attempt = 0; ; attempt++) {
+        try { await rename(this.storagePath! + ".tmp", this.storagePath!); break }
+        catch (error) {
+          if (process.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+          await Bun.sleep(50)
+        }
+      }
     })
     return this.writes
   }

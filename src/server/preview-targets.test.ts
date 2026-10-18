@@ -21,3 +21,22 @@ test("opaque targets require the same authenticated owner and survive a server r
     expect((await restarted.handle(read, new URL(read.url), "account-one", () => true))?.status).toBe(200)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test("concurrent link resolution persists every owner-bound target", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-preview-targets-"))
+  try {
+    const file = path.join(root, "targets.json"), registry = new PreviewTargets(file)
+    const targets = await Promise.all(Array.from({ length: 25 }, async (_, index) => {
+      const request = new Request("http://localhost/api/preview-targets", { method: "POST", body: JSON.stringify({ address: `/api/local-files/markdown-preview/%2Ftmp%2Fguide-${index}.md` }) })
+      const response = await registry.handle(request, new URL(request.url), "account-one", () => true)
+      expect(response?.status).toBe(201)
+      return response!.json()
+    }))
+    const restarted = new PreviewTargets(file)
+    for (const target of targets) {
+      const request = new Request("http://localhost/api/preview-targets/" + target.id)
+      expect((await restarted.handle(request, new URL(request.url), "account-one", () => true))?.status).toBe(200)
+      expect((await restarted.handle(request, new URL(request.url), "account-two", () => true))?.status).toBe(410)
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
