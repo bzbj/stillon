@@ -28,3 +28,5 @@ jobs:
         run: bun scripts/test-connect-transport.ts --cloud-package=dist/connect-service
       - name: Verify dynamic previews with a real development server
         run: bun scripts/test-connect-dynamic-preview.ts --cloud-package=dist/connect-service
+      - name: Verify provider discovery and local-only setup through Connect
+        run: bun scripts/test-connect-provider-setup.ts --cloud-package=dist/connect-service

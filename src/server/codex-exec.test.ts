@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
 import { spawn } from "node:child_process"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CodexExecManager, CodexStopError, CodexThreadBusyError, codexSpawnOptions } from "./codex-exec"
@@ -53,6 +53,25 @@ async function collectStream(stream: AsyncIterable<any>) {
   }
   return items
 }
+
+test.skipIf(process.platform !== "darwin")("a Codex conversation launches the bundled CLI without starting the desktop app", async () => {
+  const root = await mkdtemp(join(tmpdir(), "stillon app exec "))
+  const manager = new CodexExecManager({ getEnvironment: () => ({ HOME: root, PATH: "/usr/bin:/bin", CODEX_HOME: root }) })
+  try {
+    const resources = join(root, "Applications", "Codex.app", "Contents", "Resources")
+    await mkdir(resources, { recursive: true })
+    await writeFile(join(resources, "codex"), `#!/bin/sh
+printf '%s\\n' "$1" "$CODEX_HOME" > "$CODEX_HOME/called.txt"
+read -r prompt
+printf '%s\\n' '{"type":"thread.started","thread_id":"app-fixture"}' '{"type":"turn.started"}' '{"type":"item.completed","item":{"id":"reply","type":"agent_message","text":"Bundled CLI reply"}}' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`, { mode: 0o700 })
+    await manager.startSession({ chatId: "app-chat", cwd: root, model: "gpt-5.5", sessionToken: null })
+    const turn = await manager.startTurn({ chatId: "app-chat", model: "gpt-5.5", content: "Fixture only", planMode: false, onToolRequest: async () => ({}) })
+    const events = await collectStream(turn.stream)
+    expect(events.some(event => event.type === "transcript" && event.entry.kind === "assistant_text" && event.entry.text === "Bundled CLI reply")).toBe(true)
+    expect((await readFile(join(root, "called.txt"), "utf8")).trim().split("\n")).toEqual(["exec", root])
+  } finally { await manager.stopAll(); await rm(root, { recursive: true, force: true }) }
+})
 
 describe("CodexExecManager", () => {
   test("starts a fresh codex exec turn and maps JSONL events", async () => {

@@ -3,8 +3,9 @@ import { spawn } from "node:child_process"
 import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { cliFallbackPath, environmentPath, findCliExecutable, mergeSearchPaths, refreshCliEnvironment } from "./cli-environment"
+import { cliFallbackPath, createCliEnvironment, environmentPath, findCliExecutable, mergeSearchPaths, refreshCliEnvironment } from "./cli-environment"
 import { getCodexCliCommand } from "./codex-cli-command"
+import { CODEX_APP_EXECUTABLE } from "./codex-app-cli"
 
 test("fresh Windows user PATH replaces a stale snapshot while keeping inherited fallbacks", async () => {
   const environment = await refreshCliEnvironment({ platform: "win32", environment: { Path: "C:\\old;C:\\Windows", HOME: "C:\\Users\\example", CODEX_HOME: "C:\\accounts\\codex" }, readPath: async (command, args) => {
@@ -39,6 +40,46 @@ test("explicit agent PATH wins and failed discovery keeps existing directories",
 test("Windows PATH comparison deduplicates without changing directory precedence", () => {
   expect(environmentPath({ Path: "stale", PATH: "explicit" })).toBe("explicit")
   expect(mergeSearchPaths("win32", "C:\\Custom;C:\\WINDOWS", "c:\\custom\\;C:\\New")).toBe("C:\\Custom;C:\\WINDOWS;C:\\New")
+})
+
+test("Windows recheck clears an obsolete app snapshot if registration cannot be read", async () => {
+  let queries = 0
+  const environment = { PATH: "C:\\Tools", STILLON_AGENT_PATH: "C:\\Tools", [CODEX_APP_EXECUTABLE]: "C:\\obsolete\\resources\\codex.exe" }
+  const cli = createCliEnvironment(() => environment, { platform: "win32", readPath: async () => { queries++; throw new Error("query timed out") } })
+  await Promise.all([cli.refresh(), cli.refresh()])
+  expect(queries).toBe(1)
+  expect(cli.get()[CODEX_APP_EXECUTABLE]).toBeUndefined()
+  expect(cli.get().PATH).toContain("C:\\Tools")
+  await cli.refresh()
+  expect(queries).toBe(2)
+})
+
+test.skipIf(process.platform !== "win32")("Windows caches a registered CLI, refreshes after app updates and falls back after removal", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon app 工作 "))
+  try {
+    const standalone = path.join(root, "bin"), first = path.join(root, "package-v1"), second = path.join(root, "package-v2")
+    for (const directory of [standalone, path.join(first, "app", "resources"), path.join(second, "resources")]) await mkdir(directory, { recursive: true })
+    const firstCli = path.join(first, "app", "resources", "codex.exe"), secondCli = path.join(second, "resources", "codex.exe")
+    const fallback = path.join(standalone, "codex.exe")
+    for (const file of [firstCli, secondCli, fallback]) await copyFile(process.execPath, file)
+    let location = first, queries = 0
+    const environment = { ...process.env, STILLON_AGENT_PATH: standalone, CODEX_EXECUTABLE: undefined, CODEX_HOME: path.join(root, "account") }
+    const cli = createCliEnvironment(() => environment, { platform: "win32", readPath: async () => { queries++; return JSON.stringify(location) } })
+    await cli.refresh()
+    expect(getCodexCliCommand("win32", cli.get())).toBe(firstCli)
+    expect(cli.get().CODEX_HOME).toBe(environment.CODEX_HOME)
+    expect(queries).toBe(1)
+    location = second
+    await rm(first, { recursive: true })
+    await cli.refresh()
+    expect(getCodexCliCommand("win32", cli.get())).toBe(secondCli)
+    const child = Bun.spawn([getCodexCliCommand("win32", cli.get()), "--version"], { env: cli.get(), stdout: "pipe" })
+    expect((await new Response(child.stdout).text()).trim()).toBe(Bun.version)
+    expect(await child.exited).toBe(0)
+    await rm(second, { recursive: true })
+    await cli.refresh()
+    expect(getCodexCliCommand("win32", cli.get())).toBe(fallback)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test("Codex detection and launch use the same executable in a path with spaces", async () => {

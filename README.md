@@ -54,9 +54,11 @@ operating system user that will run StillOn.
 
 Before installing StillOn:
 
-- install [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) and/or
-  [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
-  and make the commands available on `PATH`;
+- use the Codex CLI bundled with the ChatGPT/Codex desktop app, or install
+  [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) and/or
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started)
+  on `PATH`. StillOn automatically prefers the bundled Codex CLI; the desktop
+  app does not need to be open. See [Agent setup](docs/agent-onboarding.md);
 - launch every CLI you intend to use directly from a terminal and finish its
   authentication flow;
 - verify that the required subscription, workspace entitlement, API billing,

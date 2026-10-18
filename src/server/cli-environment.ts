@@ -3,6 +3,7 @@ import { accessSync, constants, statSync } from "node:fs"
 import { homedir, userInfo } from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
+import { CODEX_APP_EXECUTABLE, windowsCodexAppCliCandidates, windowsPowerShell, type EnvironmentReader } from "./codex-app-cli"
 
 export function environmentPath(environment: NodeJS.ProcessEnv) {
   return environment.PATH ?? Object.entries(environment).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? ""
@@ -53,7 +54,7 @@ export function findCliExecutable(command: string, environment: NodeJS.ProcessEn
 }
 
 const exec = promisify(execFile)
-type PathReader = (command: string, args: string[], environment: NodeJS.ProcessEnv) => Promise<string>
+type PathReader = EnvironmentReader
 const runPathReader: PathReader = async (command, args, environment) => (await exec(command, args, {
   env: environment, timeout: 3000, maxBuffer: 128 * 1024, windowsHide: true,
 })).stdout
@@ -68,7 +69,7 @@ export async function refreshCliEnvironment(options: {
     try {
       const read = options.readPath ?? runPathReader
       if (platform === "win32") {
-        const shell = path.win32.join(environment.SystemRoot ?? environment.SYSTEMROOT ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+        const shell = windowsPowerShell(environment)
         currentPath = (await read(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'))"], environment)).trim()
       } else if (platform === "darwin") {
         const shell = environment.SHELL || userInfo().shell || "/bin/zsh"
@@ -78,17 +79,32 @@ export async function refreshCliEnvironment(options: {
       }
     } catch { /* Keep inherited locations and known directories when the shell is unavailable. */ }
   }
-  return withEnvironmentPath(environment, mergeSearchPaths(platform,
+  const result = withEnvironmentPath(environment, mergeSearchPaths(platform,
     environment.STILLON_AGENT_PATH || currentPath, environmentPath(environment), environment.STILLON_FALLBACK_PATH ?? "", cliFallbackPath(home, platform)))
+  if (platform === "win32") {
+    // Recheck package registration after app updates, even with an explicit PATH.
+    delete result[CODEX_APP_EXECUTABLE]
+    const candidates = await windowsCodexAppCliCandidates(environment, options.readPath ?? runPathReader)
+    result[CODEX_APP_EXECUTABLE] = candidates.find(file => findCliExecutable(file, environment, platform))
+  }
+  return result
 }
 
-export function createCliEnvironment(environment: () => NodeJS.ProcessEnv = () => process.env) {
-  let resolvedPath: string | undefined
+export function createCliEnvironment(environment: () => NodeJS.ProcessEnv = () => process.env, options: {
+  platform?: NodeJS.Platform; readPath?: PathReader
+} = {}) {
+  const platform = options.platform ?? process.platform
+  let resolved: NodeJS.ProcessEnv | undefined
   let pending: Promise<NodeJS.ProcessEnv> | undefined
   return {
-    get() { const env = environment(); return withEnvironmentPath(env, resolvedPath ?? mergeSearchPaths(process.platform, environmentPath(env), cliFallbackPath(env.HOME ?? env.USERPROFILE ?? homedir(), process.platform))) },
+    get() {
+      const env = environment()
+      const result = withEnvironmentPath(env, resolved?.PATH ?? mergeSearchPaths(platform, environmentPath(env), cliFallbackPath(env.HOME ?? env.USERPROFILE ?? homedir(), platform)))
+      if (platform === "win32") result[CODEX_APP_EXECUTABLE] = resolved?.[CODEX_APP_EXECUTABLE]
+      return result
+    },
     refresh() {
-      pending ??= refreshCliEnvironment({ environment: environment() }).then(env => { resolvedPath = env.PATH; return env }).finally(() => { pending = undefined })
+      pending ??= refreshCliEnvironment({ ...options, platform, environment: environment() }).then(env => { resolved = env; return env }).finally(() => { pending = undefined })
       return pending
     },
   }

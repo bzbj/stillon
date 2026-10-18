@@ -5,6 +5,7 @@ import path from "node:path"
 import { createProviderSetup, providerTerminalScript } from "./provider-setup"
 import { ProviderCliSettings } from "./provider-cli-settings"
 import { handleProviderSetupRequest } from "./provider-setup-http"
+import { getCodexCliCommand } from "./codex-cli-command"
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "stillon signin ' "))
@@ -12,6 +13,46 @@ async function fixture() {
   await writeFile(cli, "fixture", { mode: 0o700 }); await chmod(cli, 0o700)
   return { root, cli, environment: { HOME: root, PATH: root, CODEX_EXECUTABLE: cli, CODEX_HOME: path.join(root, "account"), HTTPS_PROXY: "http://private-proxy:7890" } }
 }
+
+test.skipIf(process.platform === "win32")("macOS bundled CLI is used for readiness, login and execution, with fallback after removal", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon app ' 工作 "))
+  try {
+    const resources = path.join(root, "Applications", "ChatGPT.app", "Contents", "Resources")
+    const bin = path.join(root, "bin"), app = path.join(resources, "codex"), standalone = path.join(bin, "codex")
+    await mkdir(resources, { recursive: true }); await mkdir(bin)
+    const script = (version: string) => `#!/bin/sh\ncase "$1" in\n--version) printf '%s\\n' '${version}' ;;\nlogin) exit 0 ;;\n*) exit 99 ;;\nesac\n`
+    await writeFile(app, script("codex-app"), { mode: 0o700 })
+    await writeFile(standalone, script("codex-standalone"), { mode: 0o700 })
+    const environment = { HOME: root, PATH: bin, CODEX_HOME: path.join(root, "account") }
+    const setup = createProviderSetup({ dataDir: root, platform: "darwin", getEnvironment: async () => environment,
+      launch: async (command, args) => {
+        expect(command).toBe("/usr/bin/open")
+        const content = await readFile(args[2]!, "utf8")
+        expect(content).toContain("ChatGPT.app/Contents/Resources/codex' 'login'")
+        expect(content).toContain("export CODEX_HOME=")
+      },
+    })
+    expect(await setup.status("codex", true)).toMatchObject({ state: "ready", executable: app, version: "codex-app" })
+    await expect(setup.openTerminal("codex", "install")).rejects.toThrow("existing CLI")
+    await setup.openTerminal("codex", "login")
+    const executable = getCodexCliCommand("darwin", environment)
+    const child = Bun.spawn([executable, "--version"], { env: environment, stdout: "pipe" })
+    expect((await new Response(child.stdout).text()).trim()).toBe("codex-app")
+    expect(await child.exited).toBe(0)
+    // A present but non-executable resource must not hide a working standalone CLI.
+    await chmod(app, 0o600)
+    expect(await setup.status("codex", false)).toMatchObject({ state: "ready", executable: standalone })
+    await rm(app)
+    expect(await setup.status("codex", false)).toMatchObject({ state: "ready", executable: standalone })
+    await writeFile(app, script("codex-app-updated"), { mode: 0o700 })
+    expect(await setup.status("codex", true)).toMatchObject({ state: "ready", executable: app, version: "codex-app-updated" })
+    const settings = new ProviderCliSettings(root)
+    await settings.set("codex", standalone)
+    expect(getCodexCliCommand("darwin", settings.environment(environment))).toBe(standalone)
+    await settings.set("codex", null)
+    expect(getCodexCliCommand("darwin", settings.environment(environment))).toBe(app)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
 
 test("readiness checks only the selected CLI and its login status without inference", async () => {
   const f = await fixture(), calls: string[][] = []

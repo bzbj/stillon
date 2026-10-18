@@ -136,6 +136,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
   }
   const cliEnvironment = createCliEnvironment()
+  // Windows package registration must be available before any Codex consumer starts.
+  if (process.platform === "win32") await cliEnvironment.refresh()
   const store = new EventStore(options.dataDir)
   const providerCliSettings = new ProviderCliSettings(store.dataDir)
   const remoteOperations = new RemoteOperations(store.dataDir)
