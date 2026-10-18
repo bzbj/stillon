@@ -1,4 +1,4 @@
-import { listLocalHttpServers } from "./local-http-servers"
+import { protectedPreviewPorts } from "./preview-ports"
 import { BROWSER_PREVIEW_PROXY_PREFIX, isLoopbackPreviewHost } from "../shared/browser-preview-proxy"
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -99,9 +99,10 @@ export function rewritePreviewLocationHeader(location: string, port: number) {
 }
 
 export async function isAllowedBrowserPreviewPort(port: number, blockedPorts: Iterable<number> = []) {
-  if ([...blockedPorts].includes(port)) return false
-  const servers = await listLocalHttpServers()
-  return servers.some((server) => server.port === port && server.status >= 200 && server.status < 400)
+  // Authorization comes from authenticated ingress and the signed preview
+  // session, never from the title or HTTP status of a discovery probe.
+  return Number.isInteger(port) && port > 0 && port <= 65535
+    && ![...blockedPorts, ...protectedPreviewPorts()].includes(port)
 }
 
 function shouldRewriteResponse(headers: Headers) {
@@ -185,8 +186,8 @@ export async function handleBrowserPreviewProxy(
   const fetchImpl = options.fetchImpl ?? fetch
   const upstreamUrl = `http://127.0.0.1:${target.port}${target.path}${url.search}`
   const upstreamSignal = options.signal
-    ? AbortSignal.any([req.signal, options.signal])
-    : req.signal
+    ? AbortSignal.any([req.signal, options.signal, AbortSignal.timeout(5_000)])
+    : AbortSignal.any([req.signal, AbortSignal.timeout(5_000)])
   const upstreamResponse = await fetchImpl(upstreamUrl, {
     method: req.method,
     headers: buildForwardHeaders(req, target.port),

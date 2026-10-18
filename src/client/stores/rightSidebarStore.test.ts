@@ -19,6 +19,15 @@ describe("rightSidebarStore", () => {
     expect(visibility.rightPanel).toBe("hidden")
     expect(useRightSidebarStore.getState().size).toBe(DEFAULT_RIGHT_SIDEBAR_SIZE)
   })
+  test("SPA replace and pop navigation update the current history without appending duplicates", () => {
+    const store = useRightSidebarStore.getState()
+    store.navigateBrowser(PROJECT_ID, "http://localhost:5173/one")
+    store.navigateBrowser(PROJECT_ID, "http://localhost:5173/two")
+    store.syncBrowserAddress(PROJECT_ID, "http://localhost:5173/two?tab=active", "replace")
+    expect(useRightSidebarStore.getState().projectBrowser[PROJECT_ID]?.history).toEqual(["http://localhost:5173/one", "http://localhost:5173/two?tab=active"])
+    store.syncBrowserAddress(PROJECT_ID, "http://localhost:5173/one", "pop")
+    expect(useRightSidebarStore.getState().projectBrowser[PROJECT_ID]?.historyIndex).toBe(0)
+  })
 
   test("exports the expected pixel min width", () => {
     expect(RIGHT_SIDEBAR_MIN_WIDTH_PX).toBe(370)

@@ -1,0 +1,136 @@
+import assert from "node:assert/strict"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import path from "node:path"
+import { spawn } from "node:child_process"
+import { chromium, firefox, type Page } from "playwright"
+
+const output = path.resolve("test-artifacts/workspace-previews")
+await mkdir(output, { recursive: true })
+const privateFixture = path.join(output, "private-browser-fixture-" + Date.now() + ".json")
+const stopFile = path.join(output, "fixture.stop-" + Date.now())
+const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
+const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true })
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
+const checks: { entry: string; check: string; result: string }[] = []
+let currentPage: Page | undefined
+let stage = "startup"
+try {
+  let config: any
+  for (let attempt = 0; ; attempt++) {
+    try { config = JSON.parse(await readFile(privateFixture, "utf8")); break } catch { /* Starting synthetic fixture. */ }
+    assert(child.exitCode === null && attempt < 600, "Preview fixture could not start")
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  const type = process.argv.includes("--firefox") ? firefox : chromium
+  browser = await type.launch({ ...(type === chromium && process.platform === "win32" ? { channel: "msedge" } : {}), headless: true })
+  for (const entry of config.entries) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    context.setDefaultTimeout(15_000)
+    if (entry.cookie) await context.addCookies(entry.cookie.split("; ").map((part: string) => {
+      const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
+    }))
+    const page = await context.newPage()
+    currentPage = page
+    page.setDefaultTimeout(15_000)
+    const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
+    for (const name of ["project-markdown", "outside-markdown"]) {
+      const url = entry.origin + "/preview/" + config.targetIds[entry.name][name]
+      await page.goto(url)
+      await page.getByRole("heading", { name: "Preview guide" }).waitFor()
+      await images(page)
+      assert.equal(await page.getByRole("table").count(), 1)
+      const next = page.getByRole("link", { name: "Next document" })
+      await next.click()
+      await page.getByRole("heading", { name: "Next section" }).waitFor()
+      await page.reload()
+      await page.getByRole("heading", { name: "Next section" }).waitFor()
+      await page.goBack()
+      await page.getByRole("heading", { name: "Preview guide" }).waitFor()
+      await page.getByRole("link", { name: "Section", exact: true }).click()
+      await page.getByRole("heading", { name: "Details" }).waitFor()
+      checks.push({ entry: entry.name, check: name + " standalone rendering, relative image, links, reload, back, fragment", result: "Pass" })
+    }
+    await page.goto(entry.origin + "/chat/" + config.chatId)
+    const guide = page.getByRole("link", { name: "Read guide", exact: true })
+    await guide.waitFor()
+    await guide.click()
+    await page.getByRole("heading", { name: "Preview guide" }).waitFor()
+    assert.equal(new URL(page.url()).pathname, "/chat/" + config.chatId)
+    await guide.evaluate(async link => {
+      const until = Date.now() + 10_000
+      while (!link.getAttribute("href")?.startsWith("/preview/") && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 50))
+    })
+    for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
+      const opened = context.waitForEvent("page")
+      await guide.click(options)
+      const popup = await opened
+      await popup.getByRole("heading", { name: "Preview guide" }).waitFor(); await popup.close(); await page.bringToFront()
+    }
+    assert.equal(await guide.evaluate(link => { const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); link.dispatchEvent(event); return event.defaultPrevented }), false)
+    checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, native context menu", result: "Pass" })
+    const browserButton = page.getByRole("button", { name: "Browser", exact: true })
+    if (await browserButton.getAttribute("aria-pressed") !== "true") await browserButton.click()
+    const address = page.getByPlaceholder("Enter a URL")
+    await address.waitFor()
+    for (const name of Object.keys(config.addresses[entry.name])) {
+      stage = entry.name + ":" + name + ":sidebar"
+      await address.fill(config.addresses[entry.name][name]); await address.press("Enter")
+      await page.waitForFunction(value => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value === value, config.addresses[entry.name][name])
+      if (name.endsWith("markdown")) { await page.getByRole("heading", { name: "Preview guide" }).waitFor(); await images(page) }
+      else {
+        const preview = page.getByAltText("Interactive browser preview")
+        await preview.waitFor()
+        await page.waitForFunction(() => { const image = document.querySelector('img[alt="Interactive browser preview"]') as HTMLImageElement; return image?.naturalWidth === Math.round(image.getBoundingClientRect().width) })
+        if (name === "dynamic") {
+          const before = (await (await fetch(config.appOrigin + "/api/counter")).json()).count
+          await preview.click({ position: { x: 60, y: 120 } })
+          for (let attempt = 0; ; attempt++) {
+            const after = (await (await fetch(config.appOrigin + "/api/counter")).json()).count
+            if (after === before + 1) break
+            assert(attempt < 50, "The actual sidebar button must write through the application API")
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          await preview.click({ position: { x: 60, y: 180 } })
+          await page.waitForFunction(() => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value.endsWith("/nested?tab=one#section"))
+        }
+      }
+      const currentAddress = await address.inputValue()
+      const popupPromise = context.waitForEvent("page")
+      await page.getByRole("button", { name: "Open standalone", exact: true }).click()
+      const popup = await popupPromise
+      currentPage = popup
+      stage = entry.name + ":" + name + ":standalone"
+      await popup.waitForURL(/\/preview\/[\w-]+$/u)
+      if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
+      else await popup.getByAltText("Interactive browser preview").waitFor()
+      assert.equal(await popup.getByLabel("Preview address").textContent(), currentAddress)
+      await popup.reload()
+      stage = entry.name + ":" + name + ":standalone-reload"
+      if (name.endsWith("markdown")) await popup.getByRole("heading", { name: "Preview guide" }).waitFor()
+      else await popup.getByAltText("Interactive browser preview").waitFor()
+      if (name === "project-markdown") await popup.screenshot({ path: path.join(output, entry.name + "-markdown-standalone.png") })
+      await popup.close()
+      currentPage = page
+      await page.bringToFront()
+      if (!name.endsWith("markdown")) await page.waitForFunction(() => { const image = document.querySelector('img[alt="Interactive browser preview"]') as HTMLImageElement; return image?.naturalWidth === Math.round(image.getBoundingClientRect().width) })
+      checks.push({ entry: entry.name, check: name + " sidebar, independent window, direct refresh", result: "Pass" })
+      if (name === "project-markdown" || name === "dynamic") await page.screenshot({ path: path.join(output, entry.name + "-" + name + "-sidebar.png") })
+    }
+    await context.close()
+  }
+  await writeFile(path.join(output, "browser-results.json"), JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
+  console.log(JSON.stringify({ browser: browser.version(), secondDevice: false, checks }, null, 2))
+} catch (error) {
+  console.error("Browser validation failed at " + stage)
+  if (currentPage && !currentPage.isClosed()) {
+    console.error("Preview status:", await currentPage.getByRole("status").allTextContents())
+    await currentPage.screenshot({ path: path.join(output, "failure.png") }).catch(() => undefined)
+    await writeFile(path.join(output, "failure.txt"), await currentPage.locator("body").innerText()).catch(() => undefined)
+  }
+  throw error
+} finally {
+  await browser?.close()
+  await writeFile(stopFile, "stop")
+  await Promise.race([new Promise<void>(resolve => { if (child.exitCode !== null) resolve(); else child.once("exit", () => resolve()) }), new Promise<void>(resolve => setTimeout(resolve, 15_000))])
+  if (child.exitCode === null) child.kill()
+}

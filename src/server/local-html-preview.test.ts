@@ -73,12 +73,15 @@ describe("local HTML previews", () => {
       expect(csp).not.toContain("allow-same-origin")
       const previewHtml = await htmlResponse.text()
       expect(previewHtml).toContain("Outside project")
-      expect(previewHtml).toContain(`${sessionRootUrl}assets/chart.png`)
+      const assetPrefix = /<base href="([^"]+)"/u.exec(previewHtml)?.[1]
+      expect(assetPrefix).toStartWith("/_stillon/preview-assets/")
+      expect(previewHtml).toContain(`${assetPrefix}assets/chart.png`)
 
-      const scriptUrl = new URL("./assets/app.js", `${origin}${payload.url}`)
+      const scriptUrl = new URL("assets/app.js", origin + assetPrefix)
       const scriptResponse = await fetch(scriptUrl)
       expect(scriptResponse.status).toBe(200)
       expect(scriptResponse.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
+      expect(scriptResponse.headers.get("access-control-allow-origin")).toBe("null")
       expect(await scriptResponse.text()).toContain("dataset.ready")
 
       const secretResponse = await fetch(`${origin}${sessionRootUrl}.env`)

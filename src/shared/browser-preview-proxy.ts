@@ -7,6 +7,19 @@ export function isLoopbackPreviewHost(hostname: string) {
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]"
 }
 
+export function parseLoopbackPreviewUrl(address: string | null | undefined): URL | null {
+  if (!address) return null
+  try {
+    // Markdown serializers percent-encode the brackets around IPv6 literals.
+    const parsed = new URL(address.replace(/^(https?:\/\/)%5b::1%5d(?=[:/?#]|$)/iu, "$1[::1]"))
+    return (parsed.protocol === "http:" || parsed.protocol === "https:")
+      && isLoopbackPreviewHost(parsed.hostname) && !parsed.username && !parsed.password
+      ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function buildBrowserPreviewProxyUrl(address: string, currentLocation: Location | URL = window.location) {
   let parsed: URL
   try {

@@ -2,9 +2,11 @@
 
 Start an HTTP development server on the computer, then select it in the Browser
 panel. The same saved loopback address works locally and through Connect.
-**Open external** opens the interactive preview in its own tab.
+**Open standalone** opens the current target in an independent preview page,
+using the [isolated browser](workspace-previews.md).
 
-Local access keeps the direct loopback URL. Managed Connect opens a separate
+The legacy direct preview transport keeps local loopback URLs. Managed Connect
+direct previews open a separate
 origin for each computer and port:
 
     https://p-<computer-id>-<port>.connect.stillon.example

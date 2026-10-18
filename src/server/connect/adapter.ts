@@ -4,10 +4,12 @@ import { ConnectRelay, forwardingHeaders, type RelaySocket } from "./relay"
 import { stopConnectListener } from "./stop-server"
 import { parseConnectPreviewPath } from "../../shared/connect-preview"
 import { isAllowedBrowserPreviewPort } from "../browser-preview-proxy"
+import { protectPreviewPort, releasePreviewPort } from "../preview-ports"
 
 interface ActiveLease { token: string; lease: AccessLease; deadline: number }
 export const REMOTE_HEADER = "x-stillon-local-remote"
 export const REMOTE_OWNER_HEADER = "x-stillon-local-owner"
+export const REMOTE_SESSION_HEADER = "x-stillon-local-session"
 
 /** Dedicated fail-closed target for frpc. It never treats a loopback peer as local UI. */
 export function startRemoteAdapter(options: {
@@ -61,6 +63,7 @@ export function startRemoteAdapter(options: {
       }
       headers.set(REMOTE_HEADER, options.localSecret)
       headers.set(REMOTE_OWNER_HEADER, lease.ownerId)
+      headers.set(REMOTE_SESSION_HEADER, lease.parentId)
       headers.set("origin", targetOrigin)
       headers.delete("sec-fetch-site")
       // Assign path fields: resolving a leading // path would change authority.
@@ -80,13 +83,15 @@ export function startRemoteAdapter(options: {
     error: () => new Response("Connection unavailable", { status: 503 }),
   })
   // Drop finished/expired entries. Active streams cannot renew an already
+  const adapterPort = server.port!
+  protectPreviewPort(adapterPort)
   // expired lease; each renewal is signed by the account service.
   const cleanup = setInterval(() => {
     for (const [id, entry] of leases) if (!valid(entry)) leases.delete(id)
   }, 1_000)
   cleanup.unref()
   return {
-    port: server.port!,
+    port: adapterPort,
     activeLeases: () => [...leases.values()].filter(valid).map(entry => entry.token),
     renew(values: { id: string; token: string }[], requested: string[]) {
       const allowed = new Set(values.map(v => v.id))
@@ -106,6 +111,6 @@ export function startRemoteAdapter(options: {
         entry.deadline = performance.now() + Math.min(CONNECT_LEASE_MS, next.expiresAt - Date.now())
       }
     },
-    async stop() { stopped = true; clearInterval(cleanup); leases.clear(); relay.stop(); await stopConnectListener(server) },
+    async stop() { stopped = true; clearInterval(cleanup); leases.clear(); relay.stop(); await stopConnectListener(server); releasePreviewPort(adapterPort) },
   }
 }

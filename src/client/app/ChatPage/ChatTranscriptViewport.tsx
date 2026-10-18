@@ -45,6 +45,7 @@ interface ChatTranscriptViewportProps {
   onSteerQueuedMessage: (queuedMessageId: string) => Promise<void>
   onRemoveQueuedMessage: (queuedMessageId: string) => Promise<void>
   onOpenLocalLink: (target: OpenLocalLinkTarget, action?: LocalFileLinkAction) => Promise<void>
+  onOpenBrowserLink?: (address: string) => void
   canOpenHostFiles?: boolean
   asyncQuestionResponses: StillOnState["asyncQuestionResponses"]
   asyncQuestionsReadOnly?: boolean
@@ -119,6 +120,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   onSteerQueuedMessage,
   onRemoveQueuedMessage,
   onOpenLocalLink,
+  onOpenBrowserLink,
   canOpenHostFiles = false,
   asyncQuestionResponses,
   asyncQuestionsReadOnly = false,
@@ -368,6 +370,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     <>
       <OpenLocalLinkProvider
         onOpenLocalLink={handleOpenLocalLinkClick}
+        onOpenBrowserLink={onOpenBrowserLink}
         resolveLocalLink={resolveProjectFileLink}
         projectId={projectId}
         localPath={localPath}
