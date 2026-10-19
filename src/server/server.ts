@@ -607,7 +607,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
                 if (ingress.kind === "remote") return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, path: previewFiles.entryPath(entry.target, file), scopeKey: previewFiles.scopeKey(file, previewFiles.directory(entry.target, file)) })
                 const previewUrl = await previewFiles.localEntry(entry.target, previewOwner, url.origin, () => !shuttingDown && (!auth || auth.isAuthenticated(req)))
                 return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, url: previewUrl })
-              } catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
+              } catch (error) { return Response.json({ error: (error as Error).message }, { status: error instanceof FileAccessError ? error.status : 403 }) }
             }
             if (operation === "resource" && ingress.kind === "remote") {
               try { const file = await previewFiles.resolve(entry.target); if (!/\.html?$/iu.test(file)) return new Response("Only HTML documents authorize a resource directory.", { status: 403 }); return previewFiles.resource(req, previewFiles.directory(entry.target, file), fileRequest[3] ?? "/", url.origin) }

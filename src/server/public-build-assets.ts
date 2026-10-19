@@ -28,19 +28,21 @@ export async function writePublicBuildManifest(directory: string, generatedPaths
   return manifest
 }
 
-const manifests = new Map<string, { stamp: string; manifest: Manifest; verified: Map<string, string> }>()
+const manifests = new Map<string, { stamp: string; manifest: Manifest }>()
 export async function publicBuildAssetProof(directory: string, relativePath: string, encoding: "br" | "gzip" | "identity") {
   if (!isGeneratedBuildAssetPath(relativePath)) return null
   try {
     const file = path.join(directory, MANIFEST), stat = await lstat(file)
     if (!stat.isFile()) return null
-    const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
+    // Windows can report identical inode/size/timestamps for rapid same-length
+    // replacements. Content, rather than metadata, identifies each allowlist.
+    const contents = await readFile(file, "utf8"), stamp = digest(contents)
     let cached = manifests.get(directory)
     if (cached?.stamp !== stamp) {
-      const manifest = JSON.parse(await readFile(file, "utf8")) as Manifest
+      const manifest = JSON.parse(contents) as Manifest
       if (manifest.version !== 1 || !manifest.assets || manifest.build !== digest(JSON.stringify(manifest.assets))) return null
       if (manifests.size >= 8) manifests.delete(manifests.keys().next().value!)
-      cached = { stamp, manifest, verified: new Map() }
+      cached = { stamp, manifest }
       manifests.set(directory, cached)
     }
     const name = relativePath + (encoding === "br" ? ".br" : encoding === "gzip" ? ".gz" : "")
@@ -48,11 +50,8 @@ export async function publicBuildAssetProof(directory: string, relativePath: str
     if (!expected || !/^[a-f0-9]{64}$/u.test(expected.sha256)) return null
     const assetPath = path.join(directory, name), metadata = await lstat(assetPath)
     if (!metadata.isFile() || metadata.size !== expected.bytes) return null
-    const verificationStamp = `${metadata.ino}:${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}`
-    if (cached!.verified.get(name) !== verificationStamp) {
-      if (digest(await readFile(assetPath)) !== expected.sha256) return null
-      cached!.verified.set(name, verificationStamp)
-    }
+    // The same coarse-metadata issue applies to the served representation.
+    if (digest(await readFile(assetPath)) !== expected.sha256) return null
     return cached!.manifest.build + ":" + expected.sha256
   } catch { return null } // Old hosts and missing/invalid manifests retain no-store.
 }

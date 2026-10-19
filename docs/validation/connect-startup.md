@@ -73,7 +73,8 @@ Baseline and candidate HTTP/WebSocket checks established:
 - Candidate settings saved remotely are read locally; local writes are read
   remotely; an invalid write preserves the saved value.
 - Compressed application asset hashes/encoding match the host's bytes.
-- HTML and relative ES modules work through the real tunnel; Markdown, text,
+- Reusing an HTML target preserves a missing-file 404 and recovers without
+  registration. HTML and relative ES modules work through the real tunnel; Markdown, text,
   image and non-preview video downloads preserve exact bytes.
 - Remote OS actions are denied. Logout invalidates resource grants and new
   authenticated fetches.
@@ -89,6 +90,9 @@ immutable caching only for proven application build assets; APIs, HTML, private
 files, grants, cookies, partial responses and unlisted files remain `no-store`.
 Old hosts without proofs retain `no-store`. Existing `Connection: close`,
 `keepalive: false`, cancellation and streaming/backpressure safeguards remain.
+Allowlist identity and representation verification use content, so rapid
+same-length replacements on filesystems with coarse timestamps cannot reuse an
+older proof.
 
 Regression tests cover scoped request sharing/session fencing/retry, metadata
 handoff and action cancellation, registry concurrency/restart/write failures,

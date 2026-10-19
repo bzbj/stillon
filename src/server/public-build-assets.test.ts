@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { brotliCompressSync } from "node:zlib"
@@ -41,6 +41,22 @@ test("a build switch invalidates the old allowlist; missing manifests fail close
     expect(await publicBuildAssetProof(root, second, "identity")).toStartWith(current.build)
     await rm(path.join(root, "public-build-assets.json"))
     expect(await publicBuildAssetProof(root, second, "identity")).toBeNull()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("same-length asset replacement never reuses a proof based only on file metadata", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-public-build-mutation-"))
+  try {
+    await mkdir(path.join(root, "assets"))
+    const name = "assets/index-aaaaaaaaaaaa.js", file = path.join(root, name)
+    await writeFile(file, "export const ready=true")
+    await writePublicBuildManifest(root, [name])
+    expect(await publicBuildAssetProof(root, name, "identity")).not.toBeNull()
+    const before = await stat(file)
+    await writeFile(file, "export const ready=null")
+    await utimes(file, before.atime, before.mtime)
+    expect((await stat(file)).size).toBe(before.size)
+    expect(await publicBuildAssetProof(root, name, "identity")).toBeNull()
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
