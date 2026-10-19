@@ -406,7 +406,9 @@ try {
         try {
           for (const view of [page, popup]) {
             currentPage = view
-            const missing = view.waitForResponse(response => response.status() === 404 && response.url().includes("/api/preview-targets"))
+            // A prepared HTML target revalidates directly at file entry rather
+            // than registering the same address again before every refresh.
+            const missing = view.waitForResponse(response => response.status() === 404 && /^\/api\/(?:preview-targets(?:\/|$)|file-previews\/[\w-]+\/entry$)/u.test(new URL(response.url()).pathname))
             await view.getByRole("button", { name: "Refresh", exact: true }).click()
             await missing
             await view.getByRole("alert").filter({ hasText: /not found|404/iu }).first().waitFor()
