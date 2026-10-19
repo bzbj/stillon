@@ -24,6 +24,7 @@ try {
   assert.equal(await page.locator("#draft").count(), 0, "Authentication must finish before mounting private content")
   assert.equal(await page.locator("dialog[open]").count(), 1)
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = false; fixture.release() })
+  await page.evaluate(() => history.replaceState(null, "", location.pathname))
   await page.waitForFunction(() => (window as any).remoteAuthFixture?.mounts > 0 && !document.querySelector("dialog")?.open, undefined, { timeout: 60_000 })
   const state = () => page.evaluate(() => (window as any).remoteAuthFixture.state())
   async function focus(mode = "valid", event = "focus") {
