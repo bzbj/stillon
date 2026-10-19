@@ -8,6 +8,7 @@ import { CONNECT_MAX_HTTP_BYTES } from "../shared/connect"
 import type { RelaySocket } from "../server/connect/relay"
 import { stopConnectListener } from "../server/connect/stop-server"
 import { createReadinessProbe } from "./readiness"
+import { serveStaticAsset } from "../server/static-assets"
 
 /** Collapse IPv6 privacy addresses into a /64 budget; ignore spoofed headers. */
 export function connectPeerKey(address: string) {
@@ -88,6 +89,11 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
         ? Bun.file(fileURLToPath(new URL("../../public/stillon-mark.svg", import.meta.url)))
         : isAsset ? Bun.file(path.join(assetsDir, "assets", assetName)) : null
       if (!file || !await file.exists()) return secure(new Response("Not found", { status: 404 }))
+      if (isAsset) {
+        const response = await serveStaticAsset(assetsDir, request, url.pathname)
+        if (response.status < 400) response.headers.set("Cache-Control", "public, max-age=3600")
+        return secure(response)
+      }
       return secure(new Response(request.method === "HEAD" ? null : file, { headers: { "Content-Type": file.type, "Cache-Control": "public, max-age=3600" } }))
     },
     websocket: remote?.relay.websocket ?? { message() {} },
