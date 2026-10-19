@@ -1,4 +1,5 @@
 import { executeResourceAction } from "../../components/ResourceLink"
+import { StartupPart } from "../StartupReadiness"
 import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
 import { fileRenderer } from "../../../shared/file-renderers"
 import { getLinkCapabilities } from "../../lib/linkCapabilities"
@@ -1036,6 +1037,7 @@ export function ChatPage() {
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
         />
         {!state.runtime ? <p role="status" className="px-5 py-3 text-sm text-muted-foreground">{state.connectionStatus === "connected" ? "Loading conversation history…" : "Connecting to your computer…"}</p> : null}
+        <StartupPart name="route" ready={state.composerPreferencesReady} />
         <Suspense fallback={<ChatTranscriptLoadingFallback />}>
           <AsyncQuestionDeliveryContext.Provider value={{ chatId: state.activeChatId ?? "", delivery: state.asyncQuestionDelivery }}>
             <ChatTranscriptViewport
@@ -1074,6 +1076,7 @@ export function ChatPage() {
               isPageFileDragActive={isPageFileDragActive}
               showEmptyState={showEmptyState}
             />
+            <StartupPart name="transcript" />
           </AsyncQuestionDeliveryContext.Provider>
         </Suspense>
       </CardContent>
@@ -1097,6 +1100,7 @@ export function ChatPage() {
           onSubmit={handleChatSubmit}
           onCancel={handleCancel}
         />
+        <StartupPart name="composer" ready={state.composerPreferencesReady} />
       </Suspense>
     </Card>
   )

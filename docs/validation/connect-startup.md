@@ -1,11 +1,34 @@
 # Connect workspace startup (issue #227)
 
-This change removes a non-security startup barrier and defers file preparation
-and renderers until intent. Browser performance and interaction acceptance is
-still pending; this document does not establish that the issue is ready to close.
+Connect can show an empty document before its first session indicator, then
+replace several loading screens before the composer arrives. This change starts
+auth from a small entry, overlaps the remaining code/data work, and keeps one
+independent HTML startup surface visible until the route is usable. Preview/file
+preparation stays deferred until intent. Browser performance and interaction
+acceptance is still pending.
 
 ## Startup and resource behavior
 
+- The host and portal HTML contain the same critical CSS and avatar SVG outside
+  React. Main styles download as nonblocking print-media links and are activated
+  by an independent content-hashed script under the existing `script-src 'self'`
+  policy. The document has useful content before the app entry executes.
+- A small React/auth entry downloads the workspace module concurrently with
+  authentication. HTML preloads discover that required workspace code early;
+  it is not a static dependency that auth must await. Static-only chunk groups
+  keep auth, workspace and composer code together without pulling in previews.
+- After auth, home composer code loads alongside the initial socket snapshots.
+  The startup dialog waits for authoritative sidebar/project/settings data and
+  committed route/composer components; chat additionally waits for its transcript.
+  Saved theme/appearance are applied before reveal. Valid empty workspaces are
+  ready states. Optional previews, attachments, discovery and terminals do not
+  gate reveal. There is no minimum dwell beyond a 180 ms exit transition.
+- Native modal isolation and an inert/hidden root protect startup. Existing auth
+  revalidation retains its own native shield after boot. Cancelled navigation or
+  session checks fence delayed reveals, including browser page restoration.
+  Load failures and prolonged waits retain ordinary reload/navigation links even
+  when the app entry fails. No new startup contract is injected into legacy host
+  documents; each host continues to serve its own matched HTML and code.
 - Authentication mounts the workspace immediately. Project, chat and settings
   subscriptions start together. Only the sidebar waits for authoritative settings,
   so saved collapse/order choices do not flash defaults or get overwritten.
@@ -26,9 +49,10 @@ still pending; this document does not establish that the issue is ready to close
   atomic flush; failures remain visible and retryable.
 
 `stillon:startup:*` UserTiming marks distinguish authentication, socket opening,
-initial subscriptions and preference/data readiness. They describe data readiness,
-not proof of painted content or an enabled composer. Browser acceptance must
-observe the actual DOM. `Server-Timing` adds monotonic host, adapter and gateway
+initial subscriptions, preference/data readiness and startup reveal. The reveal
+mark records the controller's release, not browser performance acceptance or
+successful message submission. Browser acceptance must observe the actual DOM.
+`Server-Timing` adds monotonic host, adapter and gateway
 durations; these are nested durations and must not be added together as separate
 wall-clock stages. No account IDs, paths, URLs or message contents are recorded.
 
@@ -41,12 +65,19 @@ and identity for tiny uncompressed files.
 
 | JS closure | Baseline bytes | Candidate bytes |
 | --- | ---: | ---: |
-| Application entry and its static imports | 257,758 | 204,783 |
-| Interactive home, including the initially mounted lazy composer | 273,670 | 222,543 |
+| React/auth entry and its static imports | 257,758 | 58,976 |
+| Interactive home, including workspace code and composer | 273,670 | 213,858 |
+| Chat, transcript and composer | 348,751 | 339,172 |
 
-The interactive-home reduction is about 18.7%. File/attachment preview renderers
-are absent from that closure. The complete interactive-home budget of 200,000
-bytes is **not yet met**. An earlier 209,406-byte browser counter omitted
+The independent startup controller adds **1,450 Brotli bytes** (4,268 raw bytes).
+Critical HTML/SVG and CSS add 4,446 raw bytes inside HTML. Including the controller,
+complete-home JS is 215,308 bytes, about 21.3% below main. Its module closure has
+five files, plus that independent controller; this counts build modules, not a
+measured browser request waterfall. Workspace code is preloaded concurrently, so
+the small auth closure is not a claim that only 58,976 bytes reach the browser
+before authentication completes. Preview renderers are absent from the home
+closure. The complete-home budget of 200,000 bytes is **not yet met**.
+An earlier 209,406-byte browser counter omitted
 modulepreload initiators; counting only script initiators or only the entry's
 static closure undercounts the interactive home.
 
@@ -97,6 +128,12 @@ older proof.
 Regression tests cover scoped request sharing/session fencing/retry, metadata
 handoff and action cancellation, registry concurrency/restart/write failures,
 build proof mutation/build switching/cache exclusions, and gateway compatibility.
+Startup regressions additionally check nonblocking critical HTML, native modal
+and inert isolation through the exit transition, stale reveal cancellation,
+script/style failure recovery, OTP loading, reduced motion, static-only chunk
+reachability, fixture document isolation and built host/Connect controller serving
+under the unchanged CSP. The earlier real WAN checks above precede the new
+shell/entry revision; managed Connect visual acceptance has not been rerun.
 Run `bun run check`, then `bun run test`, then `bun run audit`. Avoid rebuilding
 the shared `dist` directory while tests serve it.
 

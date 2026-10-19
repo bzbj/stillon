@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
 import { useAppSettingsStore } from "../stores/appSettingsStore"
 
 export type ThemePreference = "light" | "dark" | "system"
@@ -68,12 +68,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const effectiveTheme = previewTheme ?? theme
   const resolvedTheme = effectiveTheme === "system" ? systemTheme : effectiveTheme
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!settingsTheme || settingsTheme === theme) return
     setTheme(settingsTheme)
   }, [settingsTheme, theme])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyThemeClass(resolvedTheme)
     syncThemeMetadata(resolvedTheme)
   }, [resolvedTheme])

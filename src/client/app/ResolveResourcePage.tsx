@@ -5,12 +5,14 @@ import { registerResourceTarget } from "../lib/previewTarget"
 import { executeResourceAction } from "../components/ResourceLink"
 import { getLinkActions, type LinkAction } from "../../shared/link-actions"
 import { parsePreviewTarget } from "../../shared/preview-target"
+import { useStartupReveal } from "../lib/startup"
 
 /** Native new-tab navigation resolves here; navigation can never launch an OS app. */
 export function ResolveResourcePage() {
   const location = useLocation(), navigate = useNavigate()
   const [attempt, setAttempt] = useState(0), [error, setError] = useState<string>()
   const [actions, setActions] = useState<ReturnType<typeof getLinkActions>["actions"]>()
+  useStartupReveal(Boolean(actions || error))
   const actionController = useRef<AbortController | undefined>(undefined)
   const query = new URLSearchParams(location.search)
   const address = query.get("address") ?? "", projectId = query.get("projectId") ?? undefined

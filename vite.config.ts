@@ -4,6 +4,8 @@ import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
 import { precompressStaticAssets } from "./scripts/precompress-static-assets"
 import { writePublicBuildManifest } from "./src/server/public-build-assets"
+import { startupShellPlugin } from "./scripts/startup-shell"
+import { startupChunkGroups } from "./scripts/startup-chunks"
 
 const CLIENT_OUT_DIR = "dist/client"
 
@@ -56,7 +58,7 @@ const backendTargetHost = getBackendTargetHost()
 const backendPort = getBackendPort()
 
 export default defineConfig({
-  plugins: [react(), precompressStaticAssetsPlugin()],
+  plugins: [react(), startupShellPlugin("host"), precompressStaticAssetsPlugin()],
   server: {
     host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
@@ -84,6 +86,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       output: {
+        codeSplitting: { groups: startupChunkGroups },
         // A fixed hexadecimal hash shape lets the server distinguish
         // immutable build artifacts from mutable files without I/O or a
         // runtime manifest lookup.

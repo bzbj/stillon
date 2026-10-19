@@ -19,13 +19,15 @@ import type { CodexTransport, SidebarProjectGroup } from "../../shared/types"
 import type { SocketStatus } from "../app/socket"
 import type { StillOnState } from "../app/useStillOnState"
 import { PageHeader } from "../app/PageHeader"
+import { StartupPart } from "../app/StartupReadiness"
+import { loadHomeComposer } from "../lib/homeComposer"
 import { resolveHomeProject } from "../lib/defaultProject"
 import { WorkspaceAvatar } from "./WorkspaceAvatar"
 import { Button } from "./ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
 const NewProjectModal = lazy(() => import("./NewProjectModal").then(({ NewProjectModal }) => ({ default: NewProjectModal })))
-const ChatInput = lazy(() => import("./chat-ui/ChatInput").then(({ ChatInput }) => ({ default: ChatInput })))
+const ChatInput = lazy(loadHomeComposer)
 
 interface LocalDevProps {
   machineName?: string
@@ -321,6 +323,7 @@ export function LocalDev({
                 preferencesReady={preferencesReady}
                 availableProviders={availableProviders}
               />
+              <StartupPart name="composer" ready={preferencesReady} />
             </Suspense>
             {commandError ? (
               <div role="alert" className="text-sm text-destructive border border-destructive/20 bg-destructive/5 rounded-xl px-4 py-3 mt-4">

@@ -1,0 +1,42 @@
+/* Critical first paint: independent of app styles, fonts, images and React. */
+#stillon-startup {
+  --startup-bg: #fafafa;
+  --startup-fg: #25272b;
+  --startup-muted: #7c7e86;
+  position: fixed; inset: 0; z-index: 2147483000; box-sizing: border-box;
+  display: grid; place-items: center; width: 100%; max-width: none;
+  height: 100vh; height: 100dvh; max-height: none; margin: 0; padding: 24px;
+  border: 0; background: var(--startup-bg); color: var(--startup-fg);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  opacity: 1; transition: opacity 180ms ease;
+}
+#stillon-startup::backdrop { background: var(--startup-bg, #fafafa); opacity: 1; transition: opacity 180ms ease; }
+#stillon-startup[hidden] { display: none; }
+#stillon-startup[data-leaving] { opacity: 0; }
+#stillon-startup[data-leaving]::backdrop { opacity: 0; }
+html:has(#stillon-startup:not([hidden]):not([data-leaving])) #root { visibility: hidden; }
+.stillon-startup-wordmark { position: absolute; top: max(28px, env(safe-area-inset-top)); left: max(28px, env(safe-area-inset-left)); font-weight: 650; letter-spacing: -.5px; }
+.stillon-startup-center { width: min(360px, 100%); text-align: center; transform: translateY(-14px); }
+.stillon-startup-avatar { display: block; width: 112px; height: 112px; margin: 0 auto 30px; overflow: visible; animation: stillon-startup-float 5.4s ease-in-out infinite; }
+.stillon-startup-gaze { animation: stillon-startup-gaze 7.2s ease-in-out infinite; }
+.stillon-startup-eyes { transform-origin: 37px 22px; animation: stillon-startup-blink 4.8s ease-in-out infinite; }
+.stillon-startup-center h1 { margin: 0; font: 630 29px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -1.4px; }
+#stillon-startup-status { margin: 15px 0 0; color: var(--startup-muted); }
+#stillon-startup-detail { min-height: 20px; margin: 9px 0 0; font-size: 12px; color: var(--startup-muted); }
+#stillon-startup-recovery { margin: 20px 0 0; font-size: 12px; color: var(--startup-muted); }
+#stillon-startup-recovery summary { cursor: pointer; }
+#stillon-startup-recovery a { display: inline-block; margin-top: 12px; color: inherit; }
+#stillon-startup a:focus-visible, #stillon-startup summary:focus-visible { outline: 2px solid #685cf1; outline-offset: 4px; }
+.stillon-startup-footer { position: absolute; bottom: max(28px, env(safe-area-inset-bottom)); left: 24px; right: 24px; text-align: center; font-size: 10px; color: var(--startup-muted); }
+@keyframes stillon-startup-float { 0%,100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
+@keyframes stillon-startup-gaze { 0%,24%,100% { transform: translate(0,0); } 36%,56% { transform: translate(-3px,1px); } 70%,85% { transform: translate(2px,0); } }
+@keyframes stillon-startup-blink { 0%,46%,50%,78%,82%,100% { transform: scaleY(1); } 48%,80% { transform: scaleY(.12); } }
+@media (prefers-color-scheme: dark) {
+  #stillon-startup { --startup-bg: #212223; --startup-fg: #f0f0f1; --startup-muted: #929398; color-scheme: dark; }
+  #stillon-startup::backdrop { background: #212223; }
+}
+@media (max-width: 600px) { .stillon-startup-avatar { width: 104px; height: 104px; } }
+@media (prefers-reduced-motion: reduce) {
+  #stillon-startup, #stillon-startup::backdrop { transition: none; }
+  .stillon-startup-avatar, .stillon-startup-gaze, .stillon-startup-eyes { animation: none; }
+}

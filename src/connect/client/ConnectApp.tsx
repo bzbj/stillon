@@ -6,6 +6,7 @@ import { Input } from "../../client/components/ui/input"
 import { cn } from "../../client/lib/utils"
 import { CONNECT_OTP_SECONDS, CONNECT_RESEND_SECONDS, type ConnectError, type ConnectSession } from "../shared"
 import type { ConnectHost, ConnectIntent } from "../../shared/connect"
+import { getStartupController, useStartupReveal } from "../../client/lib/startup"
 
 class LoginError extends Error {
   constructor(public code: string, public retryAfterSeconds = 0) { super(code) }
@@ -84,6 +85,8 @@ export function ConnectApp() {
   const initialHosts = useRef<ConnectHost[] | null>(null)
   const cooldown = email.trim().toLowerCase() === retryEmail ? Math.max(0, Math.ceil((retryAt - now) / 1_000)) : 0
   const needsCode = Boolean(intent && !intentDone)
+  const automaticNavigation = Boolean(session && !intent && !["/computers", "/logout/complete"].includes(route.pathname))
+  useStartupReveal(!loading && !(busy && step === "code") && (!automaticNavigation || hosts?.length === 0 || Boolean(error)))
 
   const refreshSession = useCallback((withHosts = false): Promise<ConnectSession | null> => {
     if (sessionRequest.current) return sessionRequest.current
@@ -214,6 +217,7 @@ export function ConnectApp() {
   async function signIn(event: FormEvent) {
     event.preventDefault()
     if (busy || code.length !== 6) return
+    getStartupController()?.show()
     setBusy(true); setError("")
     try {
       await api("verify-code", { email, code, remember, ...(intent ? { intent } : {}) })

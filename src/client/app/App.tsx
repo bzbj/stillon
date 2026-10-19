@@ -16,8 +16,11 @@ import { LocalProjectsPage } from "./LocalProjectsPage"
 import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 import { AuthenticatedSessionBoundary } from "./AuthenticatedSessionBoundary"
-import { useAppAuthState } from "./useAppAuthState"
+import type { useAppAuthState } from "./useAppAuthState"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { StartupPart, StartupReadiness } from "./StartupReadiness"
+import { useStartupReveal } from "../lib/startup"
+import { loadHomeComposer } from "../lib/homeComposer"
 
 const StandaloneShareDialog = lazy(() => import("../components/chat-ui/StandaloneShareDialog").then(({ StandaloneShareDialog }) => ({ default: StandaloneShareDialog })))
 const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
@@ -162,10 +165,13 @@ export function shouldPlayChatNotificationSound(
   return Boolean(appSettings) && shouldPlayChatSound(preference, doc)
 }
 
-function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
+function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot; startupCheckId: number }) {
   const location = useLocation()
   const params = useParams()
   const state = useStillOnState(params.chatId ?? null, cacheScope, sidebarView)
+  useEffect(() => {
+    if (location.pathname === "/") void loadHomeComposer().catch(() => { /* React lazy reports a failed load. */ })
+  }, [location.pathname])
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
@@ -328,7 +334,13 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
     void playChatNotificationSound(chatSoundId, burstCount).catch(() => undefined)
   }, [chatSoundId, chatSoundPreference, state.appSettings, state.sidebarData, state.sidebarSnapshotStatus])
 
+  const startupReady = state.connectionStatus === "connected"
+    && state.sidebarSnapshotStatus === "authoritative" && state.localProjectsReady && Boolean(state.appSettings)
+  const required = location.pathname === "/" ? ["route", "composer"] as const
+    : location.pathname.startsWith("/chat/") ? ["route", "composer", "transcript"] as const : ["route"] as const
+
   return (
+    <StartupReadiness scope={`${location.key}:${startupCheckId}`} ready={startupReady} required={required}>
     <div data-stillon-part="workspace" className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
       {sidebarElement}
       <Outlet context={state} />
@@ -344,11 +356,12 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
         onCopyLink={state.handleCopyStandaloneShareLink}
       /></Suspense> : null}
     </div>
+    </StartupReadiness>
   )
 }
 
-export function App() {
-  const auth = useAppAuthState()
+export function App({ auth }: { auth: ReturnType<typeof useAppAuthState> }) {
+  useStartupReveal(auth.state.status === "locked" || auth.state.status === "connect-unavailable")
   let fallback = null
   if (auth.state.status === "locked") {
     fallback = <PasswordScreen error={auth.state.error} onSubmit={auth.submitPassword} />
@@ -366,19 +379,19 @@ export function App() {
 
   return (
     <AuthenticatedSessionBoundary authenticated={auth.state.status === "ready"} checking={auth.state.status === "checking"} fallback={fallback}>
-      {auth.state.status === "ready" ? <AuthenticatedAppRoutes key={auth.state.cacheScope ?? "local"} cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} /> : null}
+      {auth.state.status === "ready" ? <AuthenticatedAppRoutes key={auth.state.cacheScope ?? "local"} cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} startupCheckId={auth.state.checkId ?? 0} /> : null}
     </AuthenticatedSessionBoundary>
   )
 }
 
-function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
+function AuthenticatedAppRoutes({ cacheScope, sidebarView, startupCheckId }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot; startupCheckId: number }) {
   return (
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
           <Route path="/preview/:targetId" element={<Suspense fallback={<p role="status" className="p-6">Loading preview…</p>}><PreviewPage /></Suspense>} />
           <Route path="/resolve-resource" element={<Suspense fallback={<p role="status" className="p-6">Resolving file actions…</p>}><ResolveResourcePage /></Suspense>} />
-          <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} />}>
+          <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} startupCheckId={startupCheckId} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route
@@ -386,6 +399,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: strin
               element={(
                 <Suspense fallback={<RouteLoadingFallback page="settings" />}>
                   <SettingsPage />
+                  <StartupPart name="route" />
                 </Suspense>
               )}
             />
@@ -398,6 +412,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: strin
               )}
             />
           </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppDialogProvider>
     </TooltipProvider>

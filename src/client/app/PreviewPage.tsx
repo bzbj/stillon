@@ -4,6 +4,7 @@ import { PreviewSurface, type ResolvedPreviewEntry } from "../components/chat-ui
 import { registerPreviewTarget, readPreviewEntry } from "../lib/previewTarget"
 import { parsePreviewTarget } from "../../shared/preview-target"
 import { Button } from "../components/ui/button"
+import { useStartupReveal } from "../lib/startup"
 
 export function PreviewPage() {
   const { targetId } = useParams()
@@ -14,6 +15,7 @@ export function PreviewPage() {
   const [zoom, setZoom] = useState(1)
   const resolvedId = useRef<string | undefined>(undefined)
   const navigationSequence = useRef(0)
+  useStartupReveal(Boolean(entry || error))
   useEffect(() => {
     if (resolvedId.current === targetId) return
     const sequence = ++navigationSequence.current

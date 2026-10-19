@@ -5,6 +5,7 @@ import { isConnectBrowser } from "../lib/remoteSession"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
 import { markStartupPhase } from "../lib/startupMetrics"
 import { setResourceSessionScope } from "../lib/resourceRequests"
+import { getStartupController } from "../lib/startup"
 
 const AUTH_STATUS_RETRY_DELAY_MS = 500
 
@@ -20,7 +21,7 @@ interface AuthStatusResponse {
 
 type AppAuthState =
   | { status: "checking" }
-  | { status: "ready"; cacheScope: string | null; sidebarView?: SidebarViewSnapshot }
+  | { status: "ready"; cacheScope: string | null; sidebarView?: SidebarViewSnapshot; checkId?: number }
   | { status: "locked"; error: string | null }
   | { status: "connect-unavailable"; loginUrl: string; portalUrl: string; host?: ConnectHost }
 
@@ -77,7 +78,7 @@ export function useAppAuthState() {
           // Only the sidebar waits for them; project/chat subscriptions start now.
           markStartupPhase("authenticated")
           setResourceSessionScope(next.cacheScope ?? window.location.origin)
-          setState(next)
+          setState({ ...next, checkId: generation })
         } else {
           setResourceSessionScope(null)
           setState(next)
@@ -102,6 +103,7 @@ export function useAppAuthState() {
     void refresh()
     const hidePrivatePage = () => {
       if (isConnectBrowser()) {
+        getStartupController()?.hold()
         setResourceSessionScope(null)
         requestGeneration.current++
         inFlightRef.current = null
