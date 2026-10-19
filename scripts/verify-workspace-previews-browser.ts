@@ -72,12 +72,13 @@ try {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
     await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
-    let browserRequests = 0, externalRegistrations = 0
+    let browserRequests = 0, externalRegistrations = 0, imageHeadRequests = 0
     const requestTimes: number[] = []
     context.on("request", request => {
       if (new URL(request.url()).origin === entry.origin) requestTimes.push(Date.now())
       const path = new URL(request.url()).pathname
       if (path.startsWith("/api/preview-browser")) browserRequests++
+      if (request.method() === "HEAD" && /^\/api\/preview-targets\/[\w-]+\/content$/u.test(path)) imageHeadRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
     context.on("response", response => {
@@ -436,6 +437,7 @@ try {
     for (const outside of [false, true]) for (const extension of ["png", "jpg", "webp", "gif", "svg", "avif", "apng", "bmp", "ico"]) {
       await paceConnect()
       stage = entry.name + ":image:" + (outside ? "host:" : "project:") + extension
+      const headsBefore = imageHeadRequests
       const fileName = "图 image." + extension
       const base = outside ? config.addresses[entry.name]["outside-image"].replace(/[^/]+$/u, encodeURIComponent(config.outsidePath + "/" + fileName))
         : `/api/projects/${config.projectId}/preview/${encodeURIComponent(fileName)}`
@@ -460,12 +462,13 @@ try {
       await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
       await popup.reload({ waitUntil: "domcontentloaded" })
       await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
+      assert.equal(imageHeadRequests, headsBefore, "Successful native images must load directly without HEAD probes")
       await popup.close(); await page.bringToFront()
       checks.push({ entry: entry.name, check: (outside ? "Authorized host" : "Project") + " " + extension + " native image sidebar/standalone/reload", result: "Pass" })
     }
-    for (const [fileName, message] of [["broken.png", "Image unavailable"], ["oversized.png", "25 MB"], ["large-dimensions.svg", "40 megapixel"]]) {
+    for (const [fileName, message] of [["broken.png", "Image cannot be read"], ["oversized.png", "25 MB"], ["large-dimensions.svg", "40 megapixel"]]) {
       await address.fill(`/api/projects/${config.projectId}/preview/${fileName}`); await address.press("Enter")
-      await page.getByText(message, { exact: false }).waitFor()
+      await page.getByRole("alert").filter({ hasText: message }).waitFor()
       assert.equal(await page.getByRole("button", { name: "Retry image" }).count(), 1)
     }
     checks.push({ entry: entry.name, check: "Damaged/oversized images report failures and offer retry", result: "Pass" })
