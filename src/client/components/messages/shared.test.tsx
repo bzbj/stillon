@@ -55,13 +55,14 @@ describe("markdownComponents", () => {
           </Markdown>
         </OpenLocalLinkProvider>
       )
-      expect(html).toContain(`href="http://${host}:5173/demo?mode=interactive#screen"`)
+      expect(html).toContain('role="link"')
+      expect(html).not.toContain(`href="http://${host}:5173`)
       expect(html).not.toContain('target="_blank"')
     }
   })
 
-  test("keeps links without a browser handler as new tabs and routes external websites to the pane", () => {
-    for (const address of ["https://example.com/", "http://127.0.0.1:5173/"]) {
+  test("keeps external websites as native visiting-device links with or without a pane handler", () => {
+    for (const address of ["https://example.com/", "https://example.com/report.md", "http://localhost.example.com/"]) {
       const html = renderToStaticMarkup(<Markdown components={createMarkdownComponents()}>{`[Open](${address})`}</Markdown>)
       expect(html).toContain('target="_blank"')
     }
@@ -70,7 +71,7 @@ describe("markdownComponents", () => {
         <Markdown components={createMarkdownComponents()}>{"[Website](https://example.com/)"}</Markdown>
       </OpenLocalLinkProvider>
     )
-    expect(html).not.toContain('target="_blank"')
+    expect(html).toContain('target="_blank"')
   })
 
   test("exports loopback previews as text when local links are disabled", () => {
@@ -135,7 +136,7 @@ describe("markdownComponents", () => {
       </Markdown>
     )
 
-    expect(html).toContain("/Users/example/Projects/stillon/src/client/app/App.tsx#L1")
+    expect(html).toContain('role="link"')
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -151,7 +152,7 @@ describe("markdownComponents", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain("/Users/example/Projects/stillon/src/client/app/App.tsx#L1")
+    expect(html).toContain('role="link"')
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -172,7 +173,7 @@ describe("markdownComponents", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain("output/index.html")
+    expect(html).toContain('role="link"')
     expect(html).not.toContain('target="_blank"')
   })
 })

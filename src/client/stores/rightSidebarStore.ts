@@ -32,7 +32,7 @@ interface RightSidebarState {
   navigateBrowser: (projectId: string, address: string) => void
   goBrowserBack: (projectId: string) => void
   goBrowserForward: (projectId: string) => void
-  setBrowserZoom: (projectId: string, zoom: number) => void
+  setBrowserZoom: (projectId: string, zoom: number | ((current: number) => number)) => void
   reconcileCollapsedPaths: (projectId: string, paths: string[]) => void
   toggleCollapsedPath: (projectId: string, path: string) => void
   setViewMode: (projectId: string, viewMode: ProjectRightSidebarUiState["viewMode"]) => void
@@ -245,7 +245,7 @@ export const useRightSidebarStore = create<RightSidebarState>()(
       }),
       setBrowserZoom: (projectId, zoom) => set((state) => {
         const current = getProjectBrowserState(state.projectBrowser, projectId)
-        const nextZoom = clampZoom(zoom)
+        const nextZoom = clampZoom(typeof zoom === "function" ? zoom(current.zoom) : zoom)
         if (current.zoom === nextZoom) return state
         return {
           projectBrowser: {

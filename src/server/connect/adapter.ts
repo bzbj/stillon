@@ -78,6 +78,7 @@ export function startRemoteAdapter(options: {
             response.headers.set("Content-Security-Policy", "sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'")
           }
           response.headers.set("X-Content-Type-Options", "nosniff")
+          if (url.pathname.startsWith("/api/file-previews/")) response.headers.set("X-StillOn-File-Preview-Transport", "1")
           return response
         })
       } catch { leases.delete(lease.id); return new Response("Connection unavailable", { status: 503 }) }

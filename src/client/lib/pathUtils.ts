@@ -4,6 +4,7 @@
  */
 
 import { normalizeLocalFilePath } from "../../shared/local-file-urls"
+import { isProjectTextPreviewPath } from "../../shared/project-file-urls"
 
 export interface ParsedLocalFileLink {
   path: string
@@ -126,7 +127,7 @@ function parseAbsoluteFileTarget(target: string): ParsedFileTarget | null {
   if (!location.path.startsWith("/")) return null
 
   const lineFragmentMatch = /^L(?<line>\d+)(?:C(?<column>\d+))?$/.exec(location.fragment ?? "")
-  if (lineFragmentMatch?.groups?.line) {
+  if (lineFragmentMatch?.groups?.line && isProjectTextPreviewPath(location.path)) {
     return withTargetLocation({
       path: safeDecodePath(location.path),
       line: toPositiveInteger(lineFragmentMatch.groups.line),
@@ -152,7 +153,7 @@ function parseWindowsAbsoluteFileTarget(target: string): ParsedFileTarget | null
   const location = splitTargetLocation(target)
   const normalizedPath = location.path.replace(/\\/g, "/")
   const lineFragmentMatch = /^L(?<line>\d+)(?:C(?<column>\d+))?$/.exec(location.fragment ?? "")
-  if (lineFragmentMatch?.groups?.line) {
+  if (lineFragmentMatch?.groups?.line && isProjectTextPreviewPath(location.path)) {
     return withTargetLocation({
       path: safeDecodePath(normalizedPath),
       line: toPositiveInteger(lineFragmentMatch.groups.line),
@@ -188,7 +189,7 @@ function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
   if (!location.path) return null
 
   const lineFragmentMatch = /^L(?<line>\d+)(?:C(?<column>\d+))?$/.exec(location.fragment ?? "")
-  if (lineFragmentMatch?.groups?.line) {
+  if (lineFragmentMatch?.groups?.line && isProjectTextPreviewPath(location.path)) {
     return withTargetLocation({
       path: safeDecodePath(location.path),
       line: toPositiveInteger(lineFragmentMatch.groups.line),
@@ -210,6 +211,17 @@ function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
 
 export function parseLocalFileLink(target: string | undefined | null): ParsedLocalFileLink | null {
   if (!target) return null
+  if (/[\u0000-\u001f\u007f]/u.test(target)) return null
+  if (target.startsWith("~/")) return parseRelativeFileTarget(target)
+  if (/^file:/iu.test(target)) {
+    try {
+      const url = new URL(target)
+      if (url.username || url.password || url.port) return null
+      if (url.hostname && url.hostname !== "localhost") return parseWindowsAbsoluteFileTarget(`\\\\${url.hostname}${url.pathname.replaceAll("/", "\\")}` + url.search + url.hash)
+      return parseWindowsAbsoluteFileTarget(normalizeLocalFilePath(url.pathname.replace(/%5c/gi, "/")) + url.search + url.hash)
+        ?? parseAbsoluteFileTarget(url.pathname + url.search + url.hash)
+    } catch { return null }
+  }
   const normalizedTarget = normalizeLocalFilePath(normalizeWindowsLocalFileTarget(target.trim()))
   if (!normalizedTarget || /^(mailto:|ftp:|file:)/i.test(normalizedTarget)) return null
   if (/^[a-z][a-z\d+.-]*:/i.test(normalizedTarget) && !WINDOWS_ABSOLUTE_PATH_PATTERN.test(normalizedTarget)) return null
@@ -219,8 +231,8 @@ export function parseLocalFileLink(target: string | undefined | null): ParsedLoc
 
 export function getProjectRelativeFilePath(filePath: string | undefined | null, localPath: string | undefined | null) {
   if (!filePath || !localPath) return null
-  const decodedFilePath = normalizeLocalFilePath(safeDecodePath(filePath)).replace(/\\/g, "/")
-  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(safeDecodePath(localPath)).replace(/\\/g, "/"))
+  const decodedFilePath = normalizeLocalFilePath(filePath).replace(/\\/g, "/")
+  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(localPath).replace(/\\/g, "/"))
   const projectPrefix = `${projectPath}/`
   const caseInsensitive = WINDOWS_ABSOLUTE_PATH_PATTERN.test(decodedFilePath)
     || WINDOWS_ABSOLUTE_PATH_PATTERN.test(projectPath)
@@ -257,10 +269,10 @@ export function parseProjectRelativeFileLink(target: string | undefined | null, 
   const parsedTarget = parseRelativeFileTarget(target.trim())
   if (!parsedTarget) return null
 
-  const relativePath = normalizeProjectRelativePath(safeDecodePath(parsedTarget.path))
+  const relativePath = normalizeProjectRelativePath(parsedTarget.path)
   if (!relativePath) return null
 
-  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(safeDecodePath(localPath)).replace(/\\/g, "/"))
+  const projectPath = stripTrailingSlashes(normalizeLocalFilePath(localPath).replace(/\\/g, "/"))
   return {
     ...parsedTarget,
     path: `${projectPath}/${relativePath}`,
@@ -273,9 +285,10 @@ export function parseProjectRelativeHtmlFileLink(target: string | undefined | nu
   return isHtmlFilePath(parsed.path) ? parsed : null
 }
 
-export function appendLocalFileLinkLocation(url: string, target: Pick<ParsedLocalFileLink, "query" | "fragment">) {
+export function appendLocalFileLinkLocation(url: string, target: Pick<ParsedLocalFileLink, "query" | "fragment" | "line" | "column">) {
   const withQuery = target.query ? `${url}?${target.query}` : url
-  return target.fragment ? `${withQuery}#${target.fragment}` : withQuery
+  const fragment = target.fragment ?? (target.line ? `L${target.line}${target.column ? `C${target.column}` : ""}` : undefined)
+  return fragment ? `${withQuery}#${fragment}` : withQuery
 }
 
 

@@ -1,12 +1,13 @@
 import { parseLoopbackPreviewUrl } from "./browser-preview-proxy"
 import { isLoopbackPreviewHost } from "./browser-preview-proxy"
-import { parseLocalMarkdownPreviewUrl } from "./local-file-urls"
+import { parseLocalMarkdownPreviewUrl, parseLocalFilePreviewUrl } from "./local-file-urls"
+import { fileRenderer } from "./file-renderers"
 import { parseProjectFilePreviewUrl, parseProjectMarkdownPreviewUrl } from "./project-file-urls"
 
 export type PreviewTarget =
-  | { kind: "project-file"; address: string; projectId: string; filePath: string; markdown: boolean }
-  | { kind: "host-file"; address: string; filePath: string; markdown: true }
-  | { kind: "host-html"; address: string; filePath?: string }
+  | { kind: "project-file"; address: string; projectId: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean; resourceRoot?: string }
+  | { kind: "host-file"; address: string; filePath: string; markdown: boolean; canonicalPath?: string; directory?: boolean; resourceRoot?: string }
+  | { kind: "host-html"; address: string; filePath?: string; canonicalPath?: string; resourceRoot?: string }
   | { kind: "host-http" | "external-http"; address: string }
 
 export function parsePreviewTarget(address: string, projectId?: string): PreviewTarget | null {
@@ -21,6 +22,8 @@ export function parsePreviewTarget(address: string, projectId?: string): Preview
     }
     const local = parseLocalMarkdownPreviewUrl(address)
     if (local) return { kind: "host-file", address, ...local, markdown: true }
+    const host = parseLocalFilePreviewUrl(address)
+    if (host) return { kind: "host-file", address, ...host, markdown: fileRenderer(host.filePath) === "markdown" }
     if (/^\/api\/local-html-previews\/[A-Za-z0-9_-]+\/[^?#]+(?:[?#].*)?$/u.test(address)) return { kind: "host-html", address }
     return null
   }

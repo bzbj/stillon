@@ -18,6 +18,12 @@ import { Input } from "../ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { PreviewSurface } from "./PreviewSurface"
 import { openStandalonePreview } from "../../lib/previewTarget"
+import { resolveLinkTarget } from "../../lib/linkTarget"
+import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
+import { getLinkActions } from "../../../shared/link-actions"
+import { executeResourceAction } from "../ResourceLink"
+import { useLinkCapabilities } from "../../lib/linkCapabilities"
+import { parsePreviewTarget } from "../../../shared/preview-target"
 
 function formatOwnerPath(ownerPath: string) {
   const homeMatch = ownerPath.match(/^\/(?:Users|home)\/[^/]+(?=\/|$)/)
@@ -86,6 +92,7 @@ function BrowserPanelImpl({
   onRunQuickAction,
 }: BrowserPanelProps) {
   const browserState = useRightSidebarStore((store) => store.projectBrowser[projectId])
+  const linkCapabilities = useLinkCapabilities()
   const navigateBrowser = useRightSidebarStore((store) => store.navigateBrowser)
   const syncBrowserAddress = useRightSidebarStore(store => store.syncBrowserAddress)
   const goBrowserBack = useRightSidebarStore((store) => store.goBrowserBack)
@@ -96,11 +103,13 @@ function BrowserPanelImpl({
   const canGoBack = Boolean(address) && historyIndex > 0
   const canGoForward = Boolean(address) && historyIndex >= 0 && historyIndex < (browserState?.history.length ?? 0) - 1
   const scopedAddress = normalizeProjectPreviewAddress(address, projectId, window.location.origin)
-  const externalActionLabel = "Open standalone"
+  const externalSite = parsePreviewTarget(scopedAddress, projectId)?.kind === "external-http"
+  const externalActionLabel = externalSite ? "Open in browser" : "Open standalone"
   const zoom = browserState?.zoom ?? 1
   const [openError, setOpenError] = useState<string | null>(null)
   function openPreviewExternally() {
     setOpenError(null)
+    if (externalSite) { window.open(scopedAddress, "_blank", "noopener,noreferrer"); return }
     void openStandalonePreview(scopedAddress, projectId).catch(error => setOpenError(error.message))
   }
   const [addressDraft, setAddressDraft] = useState(address)
@@ -337,7 +346,11 @@ function BrowserPanelImpl({
 
   function handleAddressSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    navigateBrowser(projectId, addressDraft)
+    const target = resolveLinkTarget(addressDraft, { localPath, currentOrigin: window.location.origin })
+    if (target?.kind === "external") { window.open(target.address, "_blank", "noopener,noreferrer"); return }
+    if (target?.kind === "file") navigateBrowser(projectId, target.address ?? buildLocalFilePreviewUrl(target.file.path))
+    else if (target?.kind === "service" || target?.kind === "internal") navigateBrowser(projectId, target.address)
+    else setOpenError("Enter a host service URL or an authorized file path.")
   }
 
   function handleRefresh() {
@@ -397,10 +410,10 @@ function BrowserPanelImpl({
                   setIsZoomTooltipOpen(false)
                 }}
               >
-                <BrowserToolbarButton label="Zoom out" onClick={() => setBrowserZoom(projectId, zoom - 0.1)}>
+                <BrowserToolbarButton label="Zoom out" onClick={() => setBrowserZoom(projectId, value => value - 0.1)}>
                   <Minus className="h-4 w-4" />
                 </BrowserToolbarButton>
-                <BrowserToolbarButton label="Zoom in" onClick={() => setBrowserZoom(projectId, zoom + 0.1)}>
+                <BrowserToolbarButton label="Zoom in" onClick={() => setBrowserZoom(projectId, value => value + 0.1)}>
                   <Plus className="h-4 w-4" />
                 </BrowserToolbarButton>
               </div>
@@ -485,6 +498,11 @@ function BrowserPanelImpl({
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
+                          {getLinkActions({ kind: "service", local: linkCapabilities?.local ?? false }).actions.map(item => <ContextMenuItem key={item.action}
+                            disabled={!linkCapabilities} onSelect={() => {
+                              if (item.action === "preview") navigateBrowser(projectId, server.address)
+                              else void executeResourceAction(server.address, item.action, projectId).catch(error => setOpenError(error.message))
+                            }}>{item.label}</ContextMenuItem>)}
                           <ContextMenuItem
                             onSelect={(event) => {
                               event.preventDefault()
@@ -494,8 +512,7 @@ function BrowserPanelImpl({
                             <SquareArrowOutUpRight className="h-3.5 w-3.5" />
                             <span>Open in New Tab</span>
                           </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={!canOpenHostFiles}
+                          {linkCapabilities?.local && <ContextMenuItem
                             onSelect={(event) => {
                               event.preventDefault()
                               killServer(server)
@@ -504,7 +521,7 @@ function BrowserPanelImpl({
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             <span>Kill Process</span>
-                          </ContextMenuItem>
+                          </ContextMenuItem>}
                         </ContextMenuContent>
                       </ContextMenu>
                     ))}

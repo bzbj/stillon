@@ -68,7 +68,7 @@ jobs:
 
   workspace-preview-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       STILLON_PREVIEW_BROWSER: /usr/bin/google-chrome
     steps:
@@ -84,6 +84,8 @@ jobs:
         run: bun scripts/test-connect-dynamic-preview.ts
       - name: Exercise local and authenticated Connect preview interfaces
         run: bun run test:previews:browser
+      - name: Verify native files with an unavailable host browser
+        run: bun run test:previews:browser --local-only --files-only
       - name: Recheck document navigation with Firefox
         run: bun run test:previews:browser --firefox
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -91,13 +93,13 @@ jobs:
         with:
           name: workspace-preview-evidence
           path: |
-            test-artifacts/workspace-previews/api-results.json
-            test-artifacts/workspace-previews/browser-results.json
-            test-artifacts/workspace-previews/browser-results-*.json
-            test-artifacts/workspace-previews/*-sidebar.png
-            test-artifacts/workspace-previews/*-standalone.png
-            test-artifacts/workspace-previews/*-outside-html.jpg
-            test-artifacts/workspace-previews/*-recovery-*.jpg
+            test-artifacts/workspace-previews/**/api-results*.json
+            test-artifacts/workspace-previews/**/browser-results.json
+            test-artifacts/workspace-previews/**/browser-results-*.json
+            test-artifacts/workspace-previews/**/*-sidebar.png
+            test-artifacts/workspace-previews/**/*-standalone.png
+            test-artifacts/workspace-previews/**/*-outside-html.jpg
+            test-artifacts/workspace-previews/**/*-recovery-*.jpg
 
   workspace-preview-windows:
     runs-on: windows-latest
@@ -110,7 +112,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - name: Recheck fresh native service discovery
-        run: bun scripts/verify-preview-discovery.ts --scans=10
+        run: bun scripts/verify-preview-discovery.ts --scans=30
       - name: Exercise Edge input, drag and service-list interfaces
         run: bun run test:previews:browser --local-only
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -119,7 +121,7 @@ jobs:
           name: workspace-preview-windows-evidence
           path: |
             test-artifacts/preview-discovery-results.json
-            test-artifacts/workspace-previews/api-results.json
-            test-artifacts/workspace-previews/browser-results*.json
-            test-artifacts/workspace-previews/*-input-sidebar.png
-            test-artifacts/workspace-previews/*-input-standalone.png
+            test-artifacts/workspace-previews/**/api-results*.json
+            test-artifacts/workspace-previews/**/browser-results*.json
+            test-artifacts/workspace-previews/**/*-input-sidebar.png
+            test-artifacts/workspace-previews/**/*-input-standalone.png

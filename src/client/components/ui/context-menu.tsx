@@ -2,6 +2,7 @@ import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { cn } from "../../lib/utils"
 
+const ContextMenuTriggerRefContext = React.createContext<React.RefObject<HTMLElement | null> | null>(null)
 const ContextMenuCloseContext = React.createContext<(() => void) | null>(null)
 
 function ContextMenu({
@@ -9,24 +10,52 @@ function ContextMenu({
   ...props
 }: React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Root>) {
   const [resetKey, setResetKey] = React.useState(0)
+  const [open, setOpen] = React.useState(false)
+  const triggerRef = React.useRef<HTMLElement | null>(null)
 
   const close = React.useCallback(() => {
+    setOpen(false)
     setResetKey((current) => current + 1)
     onOpenChange?.(false)
+    window.requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }))
   }, [onOpenChange])
+
+  React.useEffect(() => {
+    if (!open) return
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !(event.target instanceof Element) || !event.target.closest('[role="menu"]')) return
+      // Submenus retain their own Escape handling; this reset is for a flat root.
+      if (document.querySelectorAll('[data-radix-menu-content][data-state="open"]').length > 1) return
+      event.preventDefault()
+      event.stopPropagation()
+      close()
+    }
+    window.addEventListener("keydown", escape, true)
+    return () => window.removeEventListener("keydown", escape, true)
+  }, [open, close])
 
   return (
     <ContextMenuCloseContext.Provider value={close}>
+    <ContextMenuTriggerRefContext.Provider value={triggerRef}>
       <ContextMenuPrimitive.Root
         key={resetKey}
-        onOpenChange={onOpenChange}
+        onOpenChange={value => { setOpen(value); onOpenChange?.(value) }}
         {...props}
       />
+    </ContextMenuTriggerRefContext.Provider>
     </ContextMenuCloseContext.Provider>
   )
 }
 
-const ContextMenuTrigger = ContextMenuPrimitive.Trigger
+const ContextMenuTrigger = React.forwardRef<React.ComponentRef<typeof ContextMenuPrimitive.Trigger>, React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Trigger>>((props, forwardedRef) => {
+  const triggerRef = React.useContext(ContextMenuTriggerRefContext)
+  return <ContextMenuPrimitive.Trigger {...props} ref={node => {
+    if (triggerRef) triggerRef.current = node
+    if (typeof forwardedRef === "function") forwardedRef(node)
+    else if (forwardedRef) forwardedRef.current = node
+  }} />
+})
+ContextMenuTrigger.displayName = ContextMenuPrimitive.Trigger.displayName
 const ContextMenuSub = ContextMenuPrimitive.Sub
 const ContextMenuSubTrigger = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.SubTrigger>,

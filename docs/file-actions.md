@@ -1,16 +1,31 @@
-# Opening files
+# File and service actions
 
-Click HTML, Markdown, JSON or text links inside a workspace to preview them in the right sidebar. The same preview works locally and remotely.
+Normal external HTTP(S) links open on the visiting device, including links ending
+in `.html`, `.md` or an image extension. They retain the browser context menu and
+never register a StillOn preview target.
 
-File menus offer:
+| Resource | Loopback entry | Authenticated Connect workspace |
+| --- | --- | --- |
+| Previewable file, including images | Click: sidebar; menu: Preview, Open, Show | Click: sidebar; menu: Preview, Download |
+| Other file, including DOCX/PPTX | Click: default application; menu: Open, Show | Click and menu: Download |
+| Host loopback HTTP(S) service | Click: sidebar; menu: Preview, Open | Click and menu: Preview |
 
-- **Preview in sidebar**, for supported files.
-- **Open on this computer**, during local access, using the operating system's default application.
-- **Download**, through the currently connected computer.
-- **Show in Finder / Show in folder**, during local access.
+The menu order is Preview in sidebar, Open on this computer, Download, Show in
+Finder/folder. Hidden items leave no space. Local file controls hide Download.
+Explicit Open always opens the original file or service URL; Show reveals the
+original file. The server rejects host actions from Connect and other remote
+ingress, including forged local flags. The host platform determines Finder/folder.
 
-Files such as office documents that cannot be previewed open with the system application locally and download remotely. The preview toolbar follows the same rule for files; web pages keep their external/fullscreen action.
+Chat, Markdown body links, Git filenames and service controls use shared target
+classification and action policy. Registering a standalone href never removes a
+file/service menu. Shift+F10 and the menu key open it; Escape closes it.
 
-Settings no longer asks users to select an editor or enter an executable template. The keybindings file opens locally and downloads remotely. Saved editor choices are retired without changing other preferences. Older clients' editor actions resolve to system opening; external clients cannot launch applications on the Agent computer.
+Modifier/middle clicks on previewable resources open an authenticated standalone
+page. They never dispatch a local application action for unsupported files.
+Remote downloads return original bytes and a UTF-8 filename after checking the
+response; an authentication/error page is not saved as the document.
 
-![Transcript file menu and status JSON preview](images/file-actions.png)
+Existing attachment cards and Markdown inline images keep their existing display.
+Image path links additionally support sidebar/standalone preview. File URL and
+home paths name the StillOn host, never the visiting device. Text not converted
+into a link is outside this link-handling change.

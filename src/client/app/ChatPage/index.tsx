@@ -1,3 +1,7 @@
+import { executeResourceAction } from "../../components/ResourceLink"
+import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
+import { fileRenderer } from "../../../shared/file-renderers"
+import { useLinkCapabilities } from "../../lib/linkCapabilities"
 import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
@@ -10,14 +14,11 @@ import { useAppDialog } from "../../components/ui/app-dialog"
 import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
-import { downloadUrl } from "../../lib/download"
-import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath } from "../../lib/pathUtils"
-import { canOpenTranscriptFilesOnHost, resolveTranscriptLocalFileDisposition, type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
+import { type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
 import type { OpenLocalLinkTarget } from "../../components/messages/shared"
 import { cn } from "../../lib/utils"
-import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
-import { buildProjectFileContentUrl, buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
+import { buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
 import {
   DEFAULT_RIGHT_SIDEBAR_SIZE,
   DEFAULT_RIGHT_SIDEBAR_VISIBILITY_STATE,
@@ -46,9 +47,6 @@ const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").the
 const GitPanel = lazy(() => import("../../components/chat-ui/GitPanel").then(({ GitPanel }) => ({ default: GitPanel })))
 const TerminalWorkspaceShell = lazy(() => import("./TerminalWorkspaceShell").then(({ TerminalWorkspaceShell }) => ({ default: TerminalWorkspaceShell })))
 
-function getLocalFileName(filePath: string) {
-  return filePath.split(/[\\/]/).pop() || "download"
-}
 
 export {
   getIgnoreFolderEntryFromDiffPath,
@@ -543,7 +541,8 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
-  const canOpenHostFiles = canOpenTranscriptFilesOnHost(window.location.hostname)
+  const linkCapabilities = useLinkCapabilities()
+  const canOpenHostFiles = linkCapabilities?.local ?? false
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
   const terminalLayout = projectTerminalLayout ?? DEFAULT_PROJECT_TERMINAL_LAYOUT
   const projectRightSidebarVisibility = useRightSidebarStore((store) => (projectId ? store.projects[projectId] : undefined))
@@ -789,79 +788,18 @@ export function ChatPage() {
   const handleOpenTranscriptLocalLink = useCallback(async (target: OpenLocalLinkTarget, action?: LocalFileLinkAction) => {
     const projectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath
     const projectFilePath = getProjectRelativeFilePath(target.path, projectLocalPath)
-    if (action === "download") {
-      if (projectId && projectFilePath) downloadUrl(buildProjectFileContentUrl(projectId, projectFilePath), getLocalFileName(projectFilePath))
+    const address = appendLocalFileLinkLocation(projectId && projectFilePath ? buildProjectRenderablePreviewUrl(projectId, projectFilePath) : buildLocalFilePreviewUrl(target.path), target)
+    if (action) {
+      if (["open_default", "open_finder", "download"].includes(action)) await executeResourceAction(address, action as "open_default" | "open_finder" | "download", projectId ?? undefined)
+      else await state.handleOpenLocalLink(target, action as Exclude<LocalFileLinkAction, "download">)
       return
     }
-    if (target.trigger === "contextmenu" && canOpenHostFiles) {
-      await state.handleOpenLocalLink(target, action)
-      return
-    }
+    if (fileRenderer(target.path)) {
+      if (!projectId) throw new Error("Open this file from a workspace chat.")
+      navigateBrowser(projectId, address)
+      if (activeRightPanel !== "browser") toggleRightPanel(projectId, "browser")
+    } else await executeResourceAction(address, canOpenHostFiles ? "open_default" : "download", projectId ?? undefined)
 
-    const disposition = resolveTranscriptLocalFileDisposition({
-      hostname: window.location.hostname,
-      filePath: target.path,
-      isProjectFile: Boolean(projectFilePath),
-    })
-
-    if (disposition === "preview") {
-      if (!projectId) {
-        await dialog.alert({
-          title: "Preview unavailable",
-          description: "Open this link from a workspace chat to preview it.",
-          closeLabel: "OK",
-        })
-        return
-      }
-
-      if (projectFilePath) {
-        navigateBrowser(
-          projectId,
-          appendLocalFileLinkLocation(buildProjectRenderablePreviewUrl(projectId, projectFilePath), target),
-        )
-      } else if (isLocalMarkdownPreviewPath(target.path)) {
-        navigateBrowser(
-          projectId,
-          appendLocalFileLinkLocation(buildLocalMarkdownPreviewUrl(target.path), target),
-        )
-      } else if (isLocalHtmlPreviewPath(target.path)) {
-        try {
-          const previewAddress = await requestLocalHtmlPreviewUrl(target.path)
-          navigateBrowser(projectId, appendLocalFileLinkLocation(previewAddress, target))
-        } catch (error) {
-          await dialog.alert({
-            title: "Preview unavailable",
-            description: error instanceof Error ? error.message : String(error),
-            closeLabel: "OK",
-          })
-          return
-        }
-      }
-
-      if (activeRightPanel !== "browser") {
-        toggleRightPanel(projectId, "browser")
-      }
-      return
-    }
-
-    if (disposition === "open_host") {
-      await state.handleOpenLocalLink(target, action)
-      return
-    }
-
-    if (disposition === "download" && projectId && projectFilePath) {
-      downloadUrl(
-        buildProjectFileContentUrl(projectId, projectFilePath),
-        getLocalFileName(projectFilePath),
-      )
-      return
-    }
-
-    await dialog.alert({
-      title: "Download unavailable",
-      description: "For remote access, only files inside the current workspace can be downloaded.",
-      closeLabel: "OK",
-    })
   }, [
     activeRightPanel,
     canOpenHostFiles,

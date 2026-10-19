@@ -1,7 +1,7 @@
 # Dynamic web previews
 
-Start an HTTP development server on the computer, then select it in the Browser
-panel. The same saved loopback address works locally and through Connect.
+Start an HTTP development server on the computer, then select it or enter its
+explicit URL in the Browser panel. The same saved loopback address works locally and through Connect.
 **Open standalone** opens the current target in an independent preview page,
 using the [isolated browser](workspace-previews.md).
 
@@ -31,8 +31,11 @@ are outside this HTTP preview contract.
 
 macOS/Linux listener discovery uses lsof; Windows uses netstat.exe. Windows
 shows available page titles without Unix process-directory attribution.
-Only discovered, responding HTTP services can be previewed; StillOn's own
-listener and the remote adapter are blocked. Process termination remains a
+Discovery is a launcher hint, not admission for the current service renderer.
+An explicit /app URL works when the root is 404, has no title or is slow. The
+current client uses the #224 isolated-browser service compatibility renderer;
+file and external links do not enter it. StillOn's own listener, remote adapter
+and debugging/control ports remain blocked. Process termination remains a
 local action.
 
 ## Request flow and isolation
@@ -75,3 +78,25 @@ It never starts an Agent or sends email.
 For browser QA, add --browser-output=<private-json-path>. The fixture stays
 running until SIGINT/SIGTERM. That file contains only generated test-session
 credentials and test addresses; keep it outside published artifacts.
+
+## Current UI versus direct forwarding
+
+The ticket/port forwarding described above remains a legacy HTTP transport and
+is exercised by `test-connect-dynamic-preview.ts`. The current Browser panel and
+standalone service page use `/api/preview-browser` over generic authenticated
+Connect forwarding. These are distinct paths; passing the legacy HTTP/HMR fixture
+does not establish the whole UI acceptance matrix.
+
+| Capability | Current service renderer | Legacy port forwarding |
+| --- | --- | --- |
+| Explicit deep URL without root discovery | Supported with service process authorization | Existing discovery-based admission |
+| Same-origin HTTP/API/form/WS | Supported | Supported |
+| Current navigation and explicit retry without POST replay | Supported | Browser/application behavior |
+| HTTPS localhost | Normal certificate validation; self-signed not bypassed | Not in HTTP-only transport contract |
+| Hard-coded additional localhost ports | Separate grants/configuration required | Not automatically rewritten |
+| Service Worker/offline persistence | Denied | Denied |
+
+Direct HTML/MD/TXT/image files do not use either service engine. Their isolated
+file origins and protocol 1 host/adapter/gateway capability are documented in
+[the file design](preview-files-v2-design.md). No global certificate, origin or
+antivirus bypass is part of these implementations.

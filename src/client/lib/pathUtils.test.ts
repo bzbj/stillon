@@ -43,21 +43,21 @@ describe("parseLocalFileLink", () => {
   })
 
   test("parses Windows file paths with line and column suffixes", () => {
-    expect(parseLocalFileLink("C:\\Users\\iamppr\\stillon\\src\\app.ts:12:3")).toEqual({
-      path: "C:/Users/iamppr/stillon/src/app.ts",
+    expect(parseLocalFileLink("C:\\Users\\example\\stillon\\src\\app.ts:12:3")).toEqual({
+      path: "C:/Users/example/stillon/src/app.ts",
       line: 12,
       column: 3,
     })
   })
 
   test("parses Windows paths with encoded backslashes", () => {
-    expect(parseLocalFileLink("C:%5CUsers%5Ciamppr%5Cstillon%5Csrc%5Capp.ts:12:3")).toEqual({
-      path: "C:/Users/iamppr/stillon/src/app.ts",
+    expect(parseLocalFileLink("C:%5CUsers%5Cexample%5Cstillon%5Csrc%5Capp.ts:12:3")).toEqual({
+      path: "C:/Users/example/stillon/src/app.ts",
       line: 12,
       column: 3,
     })
-    expect(parseLocalFileLink("C:%5cUsers%5ciamppr%5cstillon%5csrc%5capp.ts#L12C3")).toEqual({
-      path: "C:/Users/iamppr/stillon/src/app.ts",
+    expect(parseLocalFileLink("C:%5cUsers%5cexample%5cstillon%5csrc%5capp.ts#L12C3")).toEqual({
+      path: "C:/Users/example/stillon/src/app.ts",
       line: 12,
       column: 3,
     })
@@ -72,8 +72,8 @@ describe("parseLocalFileLink", () => {
   })
 
   test("normalizes URI-style Windows drive paths", () => {
-    expect(parseLocalFileLink("/C:/Users/iamppr/stillon/src/app.ts#L12C3")).toEqual({
-      path: "C:/Users/iamppr/stillon/src/app.ts",
+    expect(parseLocalFileLink("/C:/Users/example/stillon/src/app.ts#L12C3")).toEqual({
+      path: "C:/Users/example/stillon/src/app.ts",
       line: 12,
       column: 3,
     })
@@ -137,7 +137,7 @@ describe("getProjectHtmlPreviewPath", () => {
   test("returns the relative html path for project-local files", () => {
     expect(getProjectHtmlPreviewPath("/Users/example/Projects/stillon/output/index.html", "/Users/example/Projects/stillon")).toBe("output/index.html")
     expect(getProjectHtmlPreviewPath("/Users/example/Projects/stillon/output/preview.HTM", "/Users/example/Projects/stillon/")).toBe("output/preview.HTM")
-    expect(getProjectHtmlPreviewPath("C:\\Users\\iamppr\\stillon\\output\\index.html", "C:\\Users\\iamppr\\stillon")).toBe("output/index.html")
+    expect(getProjectHtmlPreviewPath("C:\\Users\\example\\stillon\\output\\index.html", "C:\\Users\\example\\stillon")).toBe("output/index.html")
   })
 
   test("rejects non-html and out-of-project files", () => {
@@ -195,8 +195,7 @@ describe("parseProjectRelativeHtmlFileLink", () => {
   test("resolves relative html links against the project path", () => {
     expect(parseProjectRelativeHtmlFileLink("./output/index.html#L12C3", "/Users/example/Projects/stillon")).toEqual({
       path: "/Users/example/Projects/stillon/output/index.html",
-      line: 12,
-      column: 3,
+      fragment: "L12C3",
     })
   })
 
@@ -211,8 +210,7 @@ describe("parseProjectRelativeRenderableFileLink", () => {
   test("resolves relative html and markdown links against the project path", () => {
     expect(parseProjectRelativeRenderableFileLink("./output/index.html#L12C3", "/Users/example/Projects/stillon")).toEqual({
       path: "/Users/example/Projects/stillon/output/index.html",
-      line: 12,
-      column: 3,
+      fragment: "L12C3",
     })
     expect(parseProjectRelativeRenderableFileLink("docs/README.md", "/Users/example/Projects/stillon")).toEqual({
       path: "/Users/example/Projects/stillon/docs/README.md",
@@ -256,4 +254,11 @@ describe("appendLocalFileLinkLocation", () => {
     expect(appendLocalFileLinkLocation("/preview/index.html", { query: "theme=dark", fragment: "summary" }))
       .toBe("/preview/index.html?theme=dark#summary")
   })
+})
+
+test("preserves document anchors and code positions without decoding a path twice", () => {
+  expect(parseLocalFileLink("/workspace/report.md#L12")).toEqual({ path: "/workspace/report.md", fragment: "L12" })
+  expect(parseLocalFileLink("file:///Users/example/a%2520b.txt")).toEqual({ path: "/Users/example/a%20b.txt" })
+  expect(appendLocalFileLinkLocation("/api/file", { line: 12, column: 3 })).toBe("/api/file#L12C3")
+  expect(getProjectRelativeFilePath("/workspace/a%20b.txt", "/workspace")).toBe("a%20b.txt")
 })

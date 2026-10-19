@@ -1,3 +1,4 @@
+import { getLinkActions } from "../../shared/link-actions"
 import { Download, Eye, FolderOpen, SquareArrowOutUpRight } from "lucide-react"
 import type { OpenExternalAction } from "../../shared/protocol"
 import { ContextMenuContent, ContextMenuItem } from "./ui/context-menu"
@@ -6,12 +7,8 @@ type FileAction = "preview" | "open_default" | "download" | "open_finder"
 export function fileActionItems({ local, isMac, preview, download }: {
   local: boolean; isMac: boolean; preview: boolean; download: boolean
 }): Array<{action: FileAction; label: string}> {
-  return [
-    ...(preview ? [{ action: "preview" as const, label: "Preview in sidebar" }] : []),
-    ...(local ? [{ action: "open_default" as const, label: "Open on this computer" }] : []),
-    ...(download ? [{ action: "download" as const, label: "Download" }] : []),
-    ...(local ? [{ action: "open_finder" as const, label: isMac ? "Show in Finder" : "Show in folder" }] : []),
-  ]
+  return getLinkActions({ kind: "file", local, isMac, renderer: preview ? "text" : undefined, canDownload: download }).actions
+
 }
 const icons = {preview: Eye, open_default: SquareArrowOutUpRight, download: Download, open_finder: FolderOpen}
 

@@ -80,8 +80,8 @@ describe("chat Markdown images", () => {
 })
 
 describe("TextMessage", () => {
-  test("preserves Windows absolute file links for local preview handling", () => {
-    const filePath = "C:/Users/iamppr/output/report.html"
+  test("keeps Windows file links focusable while their authorized href is pending", () => {
+    const filePath = "C:/Users/example/output/report.html"
     const html = renderToStaticMarkup(
       <OpenLocalLinkProvider onOpenLocalLink={() => {}}>
         <TextMessage
@@ -95,7 +95,9 @@ describe("TextMessage", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain(`href="${filePath}"`)
+    expect(html).toContain('role="link" tabindex="0"')
+    expect(html).toContain("report.html")
+    expect(html).not.toContain(`href="${filePath}"`)
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -116,8 +118,10 @@ describe("TextMessage", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain('href="C:/Users/demo/output/report.html"')
-    expect(html).toContain('href="C:/Users/demo/output/index.html"')
+    expect(html.match(/role="link"/gu)).toHaveLength(2)
+    expect(html).toContain("report.html")
+    expect(html).toContain("index.html")
+    expect(html).not.toContain('href="C:')
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -134,6 +138,6 @@ describe("TextMessage", () => {
     )
 
     expect(html).not.toContain("javascript:")
-    expect(html).toContain('href=""')
+    expect(html).not.toContain("href=")
   })
 })

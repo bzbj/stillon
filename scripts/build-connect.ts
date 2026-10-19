@@ -8,7 +8,7 @@ const destination = path.resolve("dist/connect-service")
 await rm(destination, { recursive: true, force: true })
 await mkdir(destination, { recursive: true })
 // Exact allowlist; no task outputs, env files, databases or desktop device keys.
-for (const name of ["src/connect", "src/shared/connect.ts", "src/shared/connect-preview.ts", "src/shared/browser-preview-proxy.ts", "src/shared/project-file-urls.ts", "src/shared/preview-navigation.ts", "src/server/preview-resources.ts", "src/server/preview-navigation.ts", "src/server/connect/crypto.ts", "src/server/connect/relay.ts", "src/server/connect/stop-server.ts", "scripts/restore-connect.ts", "dist/connect", "public/stillon-mark.svg", "LICENSE", "packaging/connect"]) {
+for (const name of ["src/connect", "src/shared/connect.ts", "src/shared/connect-preview.ts", "src/shared/browser-preview-proxy.ts", "src/shared/file-preview-security.ts", "src/shared/project-file-urls.ts", "src/shared/preview-navigation.ts", "src/server/preview-resources.ts", "src/server/preview-navigation.ts", "src/server/connect/crypto.ts", "src/server/connect/relay.ts", "src/server/connect/stop-server.ts", "scripts/restore-connect.ts", "dist/connect", "public/stillon-mark.svg", "LICENSE", "packaging/connect"]) {
   await cp(path.resolve(name), path.join(destination, name), { recursive: true, filter: source => !/\.test\.tsx?$/.test(source) && !path.basename(source).startsWith(".env") && path.basename(source) !== "client" })
 }
 await writeFile(path.join(destination, "package.json"), JSON.stringify({ name: "stillon-connect-service", private: true, type: "module", version: pkg.version,
@@ -21,11 +21,11 @@ await mkdir(path.join(destination, "docs"), { recursive: true })
 await copyFile("docs/connect-email-login.md", path.join(destination, "docs/connect-email-login.md"))
 await copyFile("docs/connect-remote-access.md", path.join(destination, "docs/connect-remote-access.md"))
 await copyFile("docs/connect-dynamic-previews.md", path.join(destination, "docs/connect-dynamic-previews.md"))
-for (const name of ["workspace-previews.md", "preview-browser-decision.md", "validation/workspace-previews.md"]) {
+for (const name of ["workspace-previews.md", "preview-browser-decision.md", "validation/workspace-previews.md", "file-preview-types.md", "preview-files-v2-design.md", "file-actions.md", "preview-navigation.md"]) {
   await mkdir(path.dirname(path.join(destination, "docs", name)), { recursive: true })
   await copyFile(path.join("docs", name), path.join(destination, "docs", name))
 }
-for (const name of ["workspace-preview-standalone.png", "workspace-preview-dynamic.png", "workspace-preview-html.jpg", "workspace-preview-input-sidebar.png", "workspace-preview-input-standalone.png"]) {
+for (const name of ["workspace-preview-standalone.png", "workspace-preview-dynamic.png", "workspace-preview-html.jpg", "workspace-preview-input-sidebar.png", "workspace-preview-input-standalone.png", "preview-v2-native-html.png"]) {
   await mkdir(path.join(destination, "docs/images"), { recursive: true })
   await copyFile(path.join("docs/images", name), path.join(destination, "docs/images", name))
 }

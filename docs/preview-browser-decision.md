@@ -4,19 +4,19 @@ Preview documents and web applications share a logical target. Sidebar and
 standalone views use the same renderer and authenticated target resolver.
 Opaque target IDs identify resources; they never grant access by themselves.
 
-Websites that deny framing are rendered by a separate, headless Chromium on
-the StillOn computer. The client receives images and sends bounded input over
-authenticated HTTP, through the existing Connect gateway, tunnel and adapter.
-Third-party CSP and frame policies remain intact. No application credentials,
-user browser profile or browser debugging port are exposed to the preview.
+The current client uses the separate headless Chromium only for host loopback
+services. The client receives images and sends bounded input over authenticated
+HTTP through Connect's gateway, tunnel and adapter. Services keep their own CSP
+and frame policies. The #224 IME and pointer protocol fixes remain in this path.
 
-Each authenticated entry session and workspace gets separate browser contexts.
-An explicit loopback target grants only its own service port. External targets
-cannot navigate or fetch loopback or private network services. HTML documents
-use a private virtual HTTP origin whose read-only files are restricted to the
-authorized document directory, including canonical symlink/junction checks.
-They can use modules, storage and same-origin static fetches without gaining
-StillOn API access or starting backend code.
+Files instead use native HTML/Markdown/text/image renderers in the visiting
+browser. See [file origins](preview-files-v2-design.md). Ordinary external websites
+open directly on that device; new external preview registrations and browser
+sessions are rejected. Legacy external records provide an explicit opening link.
+
+Each authenticated entry session/workspace has separate service browser contexts.
+An explicit service URL grants only its own origin, independently of discovery.
+No personal browser profile, StillOn credentials or debugging endpoint is exposed.
 
 Loopback connections also verify the listener's process ID and start time,
 independently of cached service discovery. A replacement process cannot inherit
@@ -62,8 +62,8 @@ Public IPv6-only plain HTTP is explicitly unsupported and fails closed with
 guidance to use HTTPS or IPv4. It must never be forwarded through a localhost
 substitution. Authorized loopback IPv6 and HTTPS CONNECT retain their own paths.
 
-Target-resolution and browser endpoints travel through existing generic Connect
-HTTP forwarding, so they do not require a new gateway protocol. Older servers
-return an explicit unsupported response. The static project-external HTML
-resource repair does require an updated gateway; isolated browser previews do
-not depend on that static resource path. Merge does not deploy these changes.
+Service target-resolution and browser endpoints use generic Connect forwarding.
+They require the #224 host/adapter lease support. Direct file rendering separately
+requires file-preview protocol 1 in the host, adapter and gateway; missing support
+has an explicit upgrade error. Package versions alone do not establish that
+capability. Source merge never deploys or upgrades a running instance.

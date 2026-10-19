@@ -1,3 +1,4 @@
+import { ResourceLink } from "../ResourceLink"
 import {
   Children,
   cloneElement,
@@ -5,7 +6,6 @@ import {
   isValidElement,
   useCallback,
   useContext,
-  useEffect,
   useState,
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -36,19 +36,12 @@ import {
 import { cn } from "../../lib/utils"
 import {
   normalizeWindowsLocalFileTarget,
-  getProjectRelativeFilePath,
-  appendLocalFileLinkLocation,
   parseLocalFileLink,
   type ParsedLocalFileLink,
 } from "../../lib/pathUtils"
 import { useTranscriptRenderOptions } from "./render-context"
 import { resolveMarkdownImageSrc } from "../../lib/markdownImageSrc"
 import { parseLoopbackPreviewUrl } from "../../../shared/browser-preview-proxy"
-import { parsePreviewTarget, isPlainPreviewClick } from "../../../shared/preview-target"
-import { usePreviewHref } from "../../lib/usePreviewHref"
-import { buildProjectRenderablePreviewUrl, isProjectTextPreviewPath } from "../../../shared/project-file-urls"
-import { buildLocalMarkdownPreviewUrl, isLocalHtmlPreviewPath, isLocalMarkdownPreviewPath } from "../../../shared/local-file-urls"
-import { requestLocalHtmlPreviewUrl } from "../../lib/localHtmlPreview"
 
 export type OpenLocalLinkTarget = {
   path: string
@@ -67,6 +60,7 @@ const WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN = /^(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/]
 
 export const localFileMarkdownUrlTransform: UrlTransform = (url, key) => {
   const normalizedUrl = key === "href" || key === "src" ? normalizeWindowsLocalFileTarget(url) : url
+  if ((key === "href" || key === "src") && /^file:/iu.test(normalizedUrl) && parseLocalFileLink(normalizedUrl)) return normalizedUrl
   return (key === "href" || key === "src") && WINDOWS_ABSOLUTE_MARKDOWN_LINK_PATTERN.test(normalizedUrl)
     ? normalizedUrl
     : defaultUrlTransform(url)
@@ -432,87 +426,14 @@ export function createMarkdownComponents(options?: {
       }
       return <img {...props} src={resolvedSrc || undefined} alt={alt ?? ""} />
     },
-    a: ({ children, href, onClick, ...props }: ComponentPropsWithoutRef<"a">) => {
-      const linkContext = useContext(OpenLocalLinkContext)
-      const onOpenLocalLink = options?.onOpenLocalLink ?? linkContext.onOpenLocalLink
-      const resolveLocalLink = options?.resolveLocalLink ?? linkContext.resolveLocalLink
-      const onOpenBrowserLink = options?.onOpenBrowserLink ?? linkContext.onOpenBrowserLink
+    a: ({ children, href, ...props }: ComponentPropsWithoutRef<"a">) => {
+      const context = useContext(OpenLocalLinkContext)
       const renderOptions = useTranscriptRenderOptions()
-      const parsedLocalLink = parseLocalFileLink(href) ?? resolveLocalLink?.(href) ?? null
-      const loopbackPreview = parseLoopbackPreviewUrl(href)
-      const webTarget = href && /^https?:\/\//iu.test(href) ? parsePreviewTarget(href) : null
-      const browserLink = webTarget && onOpenBrowserLink ? webTarget.address : null
-      const relative = parsedLocalLink ? getProjectRelativeFilePath(parsedLocalLink.path, linkContext.localPath) : null
-      const renderable = parsedLocalLink && (isLocalMarkdownPreviewPath(parsedLocalLink.path) || isLocalHtmlPreviewPath(parsedLocalLink.path) || relative && isProjectTextPreviewPath(relative))
-      const [htmlPreview, setHtmlPreview] = useState<{ path: string; url: string }>()
-      const externalHtml = parsedLocalLink && !relative && isLocalHtmlPreviewPath(parsedLocalLink.path) && onOpenLocalLink !== defaultOpenLocalLink
-      useEffect(() => {
-        if (!externalHtml || renderOptions.localLinkMode === "text") return
-        let cancelled = false
-        const filePath = parsedLocalLink.path
-        void requestLocalHtmlPreviewUrl(filePath).then(url => { if (!cancelled) setHtmlPreview({ path: filePath, url }) }).catch(() => undefined)
-        return () => { cancelled = true }
-      }, [externalHtml, parsedLocalLink?.path, renderOptions.localLinkMode])
-      const documentAddress = parsedLocalLink && renderable && onOpenLocalLink !== defaultOpenLocalLink
-        ? relative && linkContext.projectId ? buildProjectRenderablePreviewUrl(linkContext.projectId, relative)
-          : isLocalMarkdownPreviewPath(parsedLocalLink.path) ? buildLocalMarkdownPreviewUrl(parsedLocalLink.path)
-          : htmlPreview?.path === parsedLocalLink.path ? htmlPreview.url : null
-        : null
-      const locatedDocumentAddress = documentAddress && parsedLocalLink ? appendLocalFileLinkLocation(documentAddress, parsedLocalLink) : null
-      const standaloneHref = usePreviewHref(renderOptions.localLinkMode === "text" ? null : browserLink ?? locatedDocumentAddress, linkContext.projectId ?? undefined)
-
-      if ((parsedLocalLink || loopbackPreview) && renderOptions.localLinkMode === "text") {
-        return (
-          <span className="transition-all underline decoration-2 text-logo decoration-logo/50">
-            {children}
-          </span>
-        )
-      }
-
-      return (
-        <a
-          className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70 dark:text-logo dark:decoration-logo/70 dark:hover:text-logo/60 dark:hover:decoration-logo/40 "
-          href={standaloneHref ?? (typeof window === "undefined" ? browserLink ?? href : browserLink || locatedDocumentAddress || externalHtml ? undefined : href)}
-          role={browserLink || locatedDocumentAddress || externalHtml ? "link" : undefined}
-          tabIndex={browserLink || locatedDocumentAddress || externalHtml ? 0 : undefined}
-          onKeyDown={event => { if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !standaloneHref) { event.preventDefault(); event.currentTarget.click() } }}
-          target={parsedLocalLink || browserLink ? undefined : "_blank"}
-          rel={parsedLocalLink || browserLink ? undefined : "noopener noreferrer"}
-          onClick={(event) => {
-            onClick?.(event)
-            if (event.defaultPrevented) return
-            if (browserLink) {
-              if (!isPlainPreviewClick(event)) return
-              event.preventDefault()
-              onOpenBrowserLink?.(browserLink)
-              return
-            }
-            if (!parsedLocalLink || onOpenLocalLink === defaultOpenLocalLink) return
-            if (!isPlainPreviewClick(event)) return
-            event.preventDefault()
-            onOpenLocalLink({
-              ...parsedLocalLink,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              trigger: "click",
-            })
-          }}
-          onContextMenu={(event) => {
-            if (standaloneHref) return
-            if (!parsedLocalLink || onOpenLocalLink === defaultOpenLocalLink) return
-            event.preventDefault()
-            onOpenLocalLink({
-              ...parsedLocalLink,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              trigger: "contextmenu",
-            })
-          }}
-          {...props}
-        >
-          {children}
-        </a>
-      )
+      if (renderOptions.localLinkMode === "text" && (parseLocalFileLink(href) || parseLoopbackPreviewUrl(href) || context.resolveLocalLink?.(href))) return <span>{children}</span>
+      return <ResourceLink {...props} href={href} projectId={context.projectId ?? undefined} localPath={context.localPath}
+        resolveFile={options?.resolveLocalLink ?? context.resolveLocalLink}
+        onPreview={options?.onOpenBrowserLink ?? context.onOpenBrowserLink}
+        className="transition-all underline decoration-2 text-logo decoration-logo/50 hover:text-logo/70">{children}</ResourceLink>
     },
   }
 }

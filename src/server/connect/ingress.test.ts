@@ -12,6 +12,17 @@ test("fullscreen navigation and capability reads do not authorize cross-site app
   expect((validateIngress(request("/_stillon/preview-assets/token/app.js", { origin: "null" }, "POST"), options) as Response).status).toBe(403)
   expect((validateIngress(request("/_stillon/preview-assets/token/app.js", { host: "evil.example" }), options) as Response).status).toBe(403)
 })
+
+test("opaque standalone top-level navigation preserves API, origin and framing boundaries", () => {
+  const route = "/preview/" + "x".repeat(32)
+  const navigation = { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" }
+  expect(validateIngress(request(route, navigation), options)).toEqual({ kind: "local" })
+  for (const value of [request(route, { ...navigation, "sec-fetch-dest": "iframe" }), request(route, { ...navigation, "sec-fetch-mode": "cors" }),
+    request(route, { ...navigation, origin: "https://evil.example" }), request(route, navigation, "POST"),
+    request("/api/preview-targets/" + "x".repeat(32), navigation), request(route, { ...navigation, host: "evil.example" })]) {
+    expect((validateIngress(value, options) as Response).status).toBe(403)
+  }
+})
 test("local loopback UI needs no account, but Host, Origin and WebSocket are enforced", () => {
   expect(validateIngress(request("/"), options)).toEqual({ kind: "local" })
   for (const input of [request("/", { host: "evil.example" }), request("/", { origin: "https://evil.example" }),

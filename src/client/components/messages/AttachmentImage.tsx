@@ -9,6 +9,7 @@ interface Props {
   alt: string
   className?: string
   loading?: "eager" | "lazy"
+  maxPixels?: number
 }
 
 export function AttachmentImage(props: Props) {
@@ -16,8 +17,8 @@ export function AttachmentImage(props: Props) {
   return <ImageWithRetry key={props.src} {...props} />
 }
 
-function ImageWithRetry({ src, alt, className, loading }: Props) {
-  const [state, setState] = useState({ attempt: 0, retries: 0, failed: false })
+function ImageWithRetry({ src, alt, className, loading, maxPixels }: Props) {
+  const [state, setState] = useState<{ attempt: number; retries: number; failed: boolean; reason?: string }>({ attempt: 0, retries: 0, failed: false })
 
   useEffect(() => {
     if (!state.failed) return
@@ -40,7 +41,7 @@ function ImageWithRetry({ src, alt, className, loading }: Props) {
     return (
       <span role="img" aria-label={`${alt} preview unavailable`} className={cn(className, "flex flex-col items-center justify-center gap-2 text-muted-foreground")}>
         <FileImage className="size-8" />
-        <span className="text-xs">Image unavailable</span>
+        <span className="text-xs">{state.reason ?? "Image unavailable. The file may be damaged or unsupported."}</span>
       </span>
     )
   }
@@ -52,6 +53,10 @@ function ImageWithRetry({ src, alt, className, loading }: Props) {
       alt={alt}
       className={className}
       loading={loading}
+      onLoad={event => {
+        const image = event.currentTarget
+        if (maxPixels && image.naturalWidth * image.naturalHeight > maxPixels) setState(current => ({ ...current, failed: true, retries: RETRY_DELAYS_MS.length, reason: "Image exceeds the 40 megapixel display limit." }))
+      }}
       onError={() => setState(current => ({ ...current, failed: true }))}
     />
   )

@@ -359,7 +359,7 @@ export class PreviewBrowser {
       if (url.pathname === "/api/preview-browser" && request.method === "POST") {
         const body = await request.json() as { targetId?: unknown; viewerId?: unknown; reload?: unknown }
         const entry = typeof body?.targetId === "string" ? options.target(body.targetId) : null
-        if (!entry || entry.target.kind === "host-file" || (entry.target.kind === "project-file" && entry.target.markdown)) return Response.json({ error: "Preview target unavailable" }, { status: 404 })
+        if (!entry || entry.target.kind === "external-http" || entry.target.kind === "host-file" || (entry.target.kind === "project-file" && entry.target.markdown)) return Response.json({ error: "Preview target unavailable" }, { status: 404 })
         const viewer = typeof body.viewerId === "string" && /^[\w-]{1,128}$/u.test(body.viewerId) ? body.viewerId : undefined
         const session = await this.open(body.targetId as string, entry.target, options.owner, options.scope, entry.projectId, viewer, body.reload === true)
         try { renew(session) } catch (error) { await this.closeSession(session); throw error }
