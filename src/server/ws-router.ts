@@ -13,8 +13,6 @@ import type { AgentCoordinator } from "./agent"
 import type { CodexModelPolicyManager } from "./codex-model-policy-manager"
 import type { AppSettingsManager } from "./app-settings"
 import type { DiscoveredProject } from "./discovery"
-import { DiffStore } from "./diff-store"
-import { projectGitSnapshotForTransport } from "./project-git-snapshot"
 import { EventStore } from "./event-store"
 import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
@@ -82,7 +80,6 @@ function logSendToStartingProfile(
 function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
   let sidebar = 0
   let chat = 0
-  let projectGit = 0
   let localProjects = 0
   let keybindings = 0
   let appSettings = 0
@@ -95,9 +92,6 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
         break
       case "chat":
         chat += 1
-        break
-      case "project-git":
-        projectGit += 1
         break
       case "local-projects":
         localProjects += 1
@@ -118,7 +112,6 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
     total: ws.data.subscriptions.size,
     sidebar,
     chat,
-    projectGit,
     localProjects,
     keybindings,
     appSettings,
@@ -140,7 +133,6 @@ interface CreateWsRouterArgs {
   getBrowserPreviewBlockedPorts?: () => number[]
   remoteOperations?: import("./connect/operations").RemoteOperations
   store: EventStore
-  diffStore?: Pick<DiffStore, "getProjectSnapshot" | "refreshSnapshot" | "initializeGit" | "getGitHubPublishInfo" | "checkGitHubRepoAvailability" | "publishToGitHub" | "listBranches" | "previewMergeBranch" | "mergeBranch" | "syncBranch" | "checkoutBranch" | "createBranch" | "generateCommitMessage" | "commitFiles" | "discardFile" | "ignoreFile" | "readPatch">
   agent: AgentCoordinator
   terminals: TerminalManager
   keybindings: KeybindingsManager
@@ -173,7 +165,6 @@ interface SnapshotBroadcastFilter {
   includeKeybindings?: boolean
   includeAppSettings?: boolean
   chatIds?: Set<string>
-  projectIds?: Set<string>
   terminalIds?: Set<string>
 }
 
@@ -409,7 +400,6 @@ function ensureSnapshotSignatures(ws: ServerWebSocket<ClientState>) {
 
 export function createWsRouter({
   store,
-  diffStore,
   agent,
   terminals,
   keybindings,
@@ -447,25 +437,6 @@ export function createWsRouter({
   let pendingBroadcastTimer: ReturnType<typeof setTimeout> | null = null
   let pendingBroadcastAll = false
   const pendingBroadcastChatIds = new Set<string>()
-  const resolvedDiffStore = diffStore ?? {
-    getProjectSnapshot: () => ({ status: "unknown", branchName: undefined, defaultBranchName: undefined, hasOriginRemote: undefined, originRepoSlug: undefined, hasUpstream: undefined, aheadCount: undefined, behindCount: undefined, lastFetchedAt: undefined, files: [] as const, branchHistory: { entries: [] as const } }),
-    refreshSnapshot: async () => false,
-    initializeGit: async () => ({ ok: true, branchName: undefined, snapshotChanged: false }),
-    getGitHubPublishInfo: async () => ({ ghInstalled: false, authenticated: false, activeAccountLogin: undefined, owners: [], suggestedRepoName: "my-repo" }),
-    checkGitHubRepoAvailability: async () => ({ available: false, message: "Unavailable" }),
-    publishToGitHub: async () => ({ ok: false, title: "Publish failed", message: "Unavailable", snapshotChanged: false }),
-    listBranches: async () => ({ recent: [], local: [], remote: [], pullRequests: [], pullRequestsStatus: "unavailable" as const }),
-    previewMergeBranch: async () => ({ currentBranchName: undefined, targetBranchName: "", targetDisplayName: "", status: "error" as const, commitCount: 0, hasConflicts: false, message: "Merge preview unavailable." }),
-    mergeBranch: async () => ({ ok: false as const, title: "Merge failed", message: "Merge unavailable.", snapshotChanged: false }),
-    syncBranch: async () => ({ ok: true, action: "fetch" as const, branchName: undefined, snapshotChanged: false }),
-    checkoutBranch: async () => ({ ok: true, branchName: undefined, snapshotChanged: false }),
-    createBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-    generateCommitMessage: async () => ({ subject: "Update selected files", body: "", usedFallback: true, failureMessage: null }),
-    commitFiles: async () => ({ ok: true, mode: "commit_only" as const, branchName: undefined, pushed: false, snapshotChanged: false }),
-    discardFile: async () => ({ snapshotChanged: false }),
-    ignoreFile: async () => ({ snapshotChanged: false }),
-    readPatch: async () => ({ patch: "" }),
-  }
   const resolvedLlmProvider = llmProvider ?? {
     read: async () => ({
       provider: "openai" as const,
@@ -710,9 +681,6 @@ export function createWsRouter({
     if (topic.type === "chat") {
       return filter.chatIds?.has(topic.chatId) ?? false
     }
-    if (topic.type === "project-git") {
-      return filter.projectIds?.has(topic.projectId) ?? false
-    }
     if (topic.type === "terminal") {
       return filter.terminalIds?.has(topic.terminalId) ?? false
     }
@@ -831,20 +799,6 @@ export function createWsRouter({
         snapshot: {
           type: "terminal",
           data: terminals.getSnapshot(topic.terminalId),
-        },
-      }
-    }
-
-    if (topic.type === "project-git") {
-      return {
-        v: PROTOCOL_VERSION,
-        type: "snapshot",
-        id,
-        snapshot: {
-          type: "project-git",
-          data: projectGitSnapshotForTransport(store.getProject(topic.projectId)
-            ? resolvedDiffStore.getProjectSnapshot(topic.projectId)
-            : null, topic.deferLargeSnapshots),
         },
       }
     }
@@ -1027,7 +981,6 @@ export function createWsRouter({
         socketCount: audience.length,
         includeSidebar: Boolean(filter.includeSidebar),
         chatCount: filter.chatIds?.size ?? 0,
-        projectCount: filter.projectIds?.size ?? 0,
       }))
     }
   }
@@ -1406,18 +1359,6 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ includeSidebar: true })
           return
         }
-        case "project.readDiffPatch": {
-          const project = store.getProject(command.projectId)
-          if (!project) {
-            throw new Error("Workspace not found")
-          }
-          const result = await resolvedDiffStore.readPatch({
-            projectPath: project.localPath,
-            path: command.path,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
         case "system.openExternal": {
           if (ws.data.canOpenHostFiles !== true) throw new Error("Download this file or preview it in StillOn. Opening applications is available only on the computer itself.")
           await openExternal(command)
@@ -1503,181 +1444,6 @@ export function createWsRouter({
             chatId: result.chatId ?? null,
             payloadBytes,
           })
-          return
-        }
-        case "chat.refreshDiffs": {
-          const { project } = resolveChatProject(command.chatId)
-          const changed = await resolvedDiffStore.refreshSnapshot(project.id, project.localPath)
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          if (changed) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.initGit": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.initializeGit({
-            projectId: project.id,
-            projectPath: project.localPath,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.getGitHubPublishInfo": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.getGitHubPublishInfo({
-            projectPath: project.localPath,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "chat.checkGitHubRepoAvailability": {
-          const result = await resolvedDiffStore.checkGitHubRepoAvailability({
-            owner: command.owner,
-            name: command.name,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "chat.publishToGitHub": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.publishToGitHub({
-            projectId: project.id,
-            projectPath: project.localPath,
-            owner: command.owner,
-            name: command.name,
-            visibility: command.visibility,
-            description: command.description,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.listBranches": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.listBranches({
-            projectPath: project.localPath,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "chat.previewMergeBranch": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.previewMergeBranch({
-            projectPath: project.localPath,
-            branch: command.branch,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "chat.mergeBranch": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.mergeBranch({
-            projectId: project.id,
-            projectPath: project.localPath,
-            branch: command.branch,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.checkoutBranch": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.checkoutBranch({
-            projectId: project.id,
-            projectPath: project.localPath,
-            branch: command.branch,
-            bringChanges: command.bringChanges,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.syncBranch": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.syncBranch({
-            projectId: project.id,
-            projectPath: project.localPath,
-            action: command.action,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.createBranch": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.createBranch({
-            projectId: project.id,
-            projectPath: project.localPath,
-            name: command.name,
-            baseBranchName: command.baseBranchName,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.generateCommitMessage": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.generateCommitMessage({
-            projectPath: project.localPath,
-            paths: command.paths,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          return
-        }
-        case "chat.commitDiffs": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.commitFiles({
-            projectId: project.id,
-            projectPath: project.localPath,
-            paths: command.paths,
-            summary: command.summary,
-            description: command.description,
-            mode: command.mode,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.discardDiffFile": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.discardFile({
-            projectId: project.id,
-            projectPath: project.localPath,
-            path: command.path,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
-          return
-        }
-        case "chat.ignoreDiffFile": {
-          const { project } = resolveChatProject(command.chatId)
-          const result = await resolvedDiffStore.ignoreFile({
-            projectId: project.id,
-            projectPath: project.localPath,
-            path: command.path,
-          })
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
-          if (result.snapshotChanged) {
-            void broadcastSnapshots()
-          }
           return
         }
         case "chat.cancel": {
@@ -1786,6 +1552,8 @@ export function createWsRouter({
           await pushTerminalSnapshot(command.terminalId)
           return
         }
+        default:
+          throw new Error("Unknown command")
       }
 
       await broadcastSnapshots()
@@ -1831,6 +1599,10 @@ export function createWsRouter({
       }
 
       if (parsed.type === "subscribe") {
+        if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "chat", "terminal"].includes(parsed.topic.type)) {
+          send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Unknown subscription topic" })
+          return
+        }
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)

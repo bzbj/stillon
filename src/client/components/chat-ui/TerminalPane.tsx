@@ -16,7 +16,6 @@ interface Props {
   focusRequestVersion?: number
   initialCommand?: string
   onPathChange?: (path: string | null) => void
-  onCommandSent?: () => void
   onInitialCommandSent?: (terminalId: string) => void
 }
 
@@ -239,14 +238,12 @@ export function TerminalPane({
   focusRequestVersion = 0,
   initialCommand,
   onPathChange,
-  onCommandSent,
   onInitialCommandSent,
 }: Props) {
   const { resolvedTheme } = useTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const replayStateRef = useRef<string | null>(null)
-  const onCommandSentRef = useRef<Props["onCommandSent"]>(onCommandSent)
   const hasCreatedRef = useRef(false)
   const createAttemptRef = useRef(0)
   const lastAppliedSnapshotKeyRef = useRef<string | null>(null)
@@ -263,9 +260,6 @@ export function TerminalPane({
     }).catch((commandError) => {
       setError(commandError instanceof Error ? commandError.message : String(commandError))
     })
-    if (data.includes("\r") || data.includes("\n")) {
-      onCommandSentRef.current?.()
-    }
   }
   const sendResize = (cols: number, rows: number) => {
     void socket.command({
@@ -288,10 +282,6 @@ export function TerminalPane({
       setTimeout(sync, 0)
     })
   }
-
-  useEffect(() => {
-    onCommandSentRef.current = onCommandSent
-  }, [onCommandSent])
 
   useEffect(() => {
     sentInitialCommandRef.current = null

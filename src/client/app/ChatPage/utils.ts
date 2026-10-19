@@ -1,22 +1,10 @@
-import type { ChatBranchListEntry, ChatDiffSnapshot } from "../../../shared/types"
 import type { ResolvedTranscriptRow } from "../StillOnTranscript"
 
 export const EMPTY_STATE_TEXT = "What are we working on?"
 export const EMPTY_STATE_TYPING_INTERVAL_MS = 19
 export const CHAT_NAVBAR_OFFSET_PX = 72
-export const DIFF_REFRESH_INTERVAL_MS = 5_000
-export const EMPTY_DIFF_SNAPSHOT: ChatDiffSnapshot = { status: "unknown", files: [] }
 export const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 12
 export const CHAT_SELECTION_AUTOFOLLOW_WINDOW_MS = 600
-
-export function getIgnoreFolderEntryFromDiffPath(filePath: string) {
-  const normalized = filePath.replaceAll("\\", "/").replace(/\/+/g, "/").replace(/\/$/u, "")
-  const lastSlashIndex = normalized.lastIndexOf("/")
-  if (lastSlashIndex <= 0) {
-    return null
-  }
-  return `${normalized.slice(0, lastSlashIndex)}/`
-}
 
 export function shouldAutoFollowTranscriptResize(
   showScrollButton: boolean,
@@ -24,22 +12,6 @@ export function shouldAutoFollowTranscriptResize(
   now = Date.now()
 ) {
   return !showScrollButton || now < selectionAutoFollowUntil
-}
-
-export function serializeBranchSelection(branch: ChatBranchListEntry) {
-  return branch.kind === "local"
-    ? { kind: "local" as const, name: branch.name }
-    : branch.kind === "remote"
-      ? { kind: "remote" as const, name: branch.name, remoteRef: branch.remoteRef ?? branch.displayName }
-      : {
-          kind: "pull_request" as const,
-          name: branch.name,
-          prNumber: branch.prNumber ?? 0,
-          headRefName: branch.headRefName ?? branch.name,
-          headRepoCloneUrl: branch.headRepoCloneUrl,
-          isCrossRepository: branch.isCrossRepository,
-          remoteRef: branch.remoteRef,
-        }
 }
 
 export function isInteractiveTranscriptRow(row: ResolvedTranscriptRow) {
@@ -101,24 +73,4 @@ export function getPinnedTailStartIndex(rows: ResolvedTranscriptRow[], isProcess
 
 export function hasFileDragTypes(types: Iterable<string>) {
   return Array.from(types).includes("Files")
-}
-
-export function isAbsoluteLocalPath(value: string) {
-  return value.startsWith("/")
-    || value === "~"
-    || value.startsWith("~/")
-    || /^[A-Za-z]:[\\/]/u.test(value)
-}
-
-export function joinProjectRelativePath(projectPath: string, filePath: string) {
-  const separator = projectPath.includes("\\") && !projectPath.includes("/") ? "\\" : "/"
-  const normalizedProjectPath = projectPath.replace(/[\\/]+$/u, "")
-  const normalizedFilePath = filePath.replace(/^[\\/]+/u, "")
-  return `${normalizedProjectPath}${separator}${normalizedFilePath}`
-}
-
-export function resolveDiffFilePath(projectPath: string | null, filePath: string) {
-  return !projectPath || isAbsoluteLocalPath(filePath)
-    ? filePath
-    : joinProjectRelativePath(projectPath, filePath)
 }

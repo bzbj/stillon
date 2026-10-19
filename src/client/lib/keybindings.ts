@@ -2,7 +2,6 @@ import { DEFAULT_KEYBINDINGS, type KeybindingAction, type KeybindingsSnapshot } 
 
 export const KEYBINDING_ACTION_LABELS: Record<KeybindingAction, string> = {
   toggleEmbeddedTerminal: "Toggle Embedded Terminal",
-  toggleRightSidebar: "Toggle Right Sidebar",
   openInFinder: "Open In Finder",
   openInEditor: "Open workspace folder",
   addSplitTerminal: "Add Split Terminal",
@@ -82,7 +81,6 @@ export function getResolvedKeybindings(snapshot: KeybindingsSnapshot | null): Ke
   return {
     bindings: {
       toggleEmbeddedTerminal: snapshot?.bindings.toggleEmbeddedTerminal ?? DEFAULT_KEYBINDINGS.toggleEmbeddedTerminal,
-      toggleRightSidebar: snapshot?.bindings.toggleRightSidebar ?? DEFAULT_KEYBINDINGS.toggleRightSidebar,
       openInFinder: snapshot?.bindings.openInFinder ?? DEFAULT_KEYBINDINGS.openInFinder,
       openInEditor: snapshot?.bindings.openInEditor ?? DEFAULT_KEYBINDINGS.openInEditor,
       addSplitTerminal: snapshot?.bindings.addSplitTerminal ?? DEFAULT_KEYBINDINGS.addSplitTerminal,

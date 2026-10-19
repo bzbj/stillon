@@ -5,7 +5,6 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type {
   AppSettingsSnapshot,
-  ChatDiffSnapshot,
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   SubscriptionUsageSnapshot,
@@ -83,10 +82,37 @@ test("refuses every host file application action for external clients", async ()
   } finally { router.dispose() }
 })
 
+test("retired Git requests return errors without subscribing or blocking the connection", async () => {
+  const router = createWsRouter({
+    store: { state: createEmptyState(), getProject: () => { throw new Error("Retired requests must not read a workspace") } } as never,
+    agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+    terminals: { getSnapshot: () => null, onEvent: () => () => {} } as never,
+    keybindings: { getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT, onChange: () => () => {} } as never,
+    refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Computer",
+  })
+  const ws = new FakeWebSocket()
+  router.handleOpen(ws as never)
+  try {
+    await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "subscribe", id: "old-sub", topic: { type: "project-git", projectId: "project-1" } }))
+    expect(ws.sent.at(-1)).toMatchObject({ type: "error", id: "old-sub", message: "Unknown subscription topic" })
+    expect(ws.data.subscriptions.size).toBe(0)
+
+    for (const type of ["project.readDiffPatch", "chat.refreshDiffs", "chat.initGit", "chat.getGitHubPublishInfo", "chat.checkGitHubRepoAvailability", "chat.publishToGitHub", "chat.listBranches", "chat.previewMergeBranch", "chat.mergeBranch", "chat.checkoutBranch", "chat.syncBranch", "chat.createBranch", "chat.generateCommitMessage", "chat.commitDiffs", "chat.discardDiffFile", "chat.ignoreDiffFile"]) {
+      await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id: type, command: { type, projectId: "project-1", chatId: "chat-1", path: "report.md" } }))
+      expect(ws.sent.at(-1)).toMatchObject({ type: "error", id: type, message: "Unknown command" })
+    }
+    await router.broadcastSnapshots()
+    await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id: "ping", command: { type: "system.ping" } }))
+    expect(ws.sent.at(-1)).toMatchObject({ type: "ack", id: "ping" })
+  } finally {
+    router.handleClose(ws as never)
+    router.dispose()
+  }
+})
+
 const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
   bindings: {
     toggleEmbeddedTerminal: ["cmd+j", "ctrl+`"],
-    toggleRightSidebar: ["ctrl+b"],
     openInFinder: ["cmd+alt+f"],
     openInEditor: ["cmd+shift+o"],
     addSplitTerminal: ["cmd+shift+j"],
@@ -1292,272 +1318,7 @@ describe("ws-router", () => {
     expect(wsB.sent).toHaveLength(1)
   })
 
-  test("subscribes to project git snapshots independently from chat snapshots", async () => {
-    const state = createEmptyState()
-    state.projectsById.set("project-1", {
-      id: "project-1",
-      localPath: "/tmp/project",
-      title: "Project",
-      createdAt: 1,
-      updatedAt: 1,
-    })
 
-    const gitSnapshot: ChatDiffSnapshot = { status: "ready", branchName: "main", files: [], branchHistory: { entries: [] } }
-
-    const router = createWsRouter({
-      store: {
-        state,
-        getProject: () => state.projectsById.get("project-1") ?? null,
-      } as never,
-      diffStore: {
-        getProjectSnapshot: () => gitSnapshot,
-        refreshSnapshot: async () => false,
-        listBranches: async () => ({ recent: [], local: [], remote: [], pullRequests: [], pullRequestsStatus: "unavailable" }),
-        previewMergeBranch: async () => ({ currentBranchName: "main", targetBranchName: "feature/test", targetDisplayName: "feature/test", status: "mergeable", commitCount: 1, hasConflicts: false, message: "ready" }),
-        mergeBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-        syncBranch: async () => ({ ok: true, action: "fetch", snapshotChanged: false }),
-        checkoutBranch: async () => ({ ok: true, snapshotChanged: false }),
-        createBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-        generateCommitMessage: async () => ({ subject: "", body: "", usedFallback: true, failureMessage: null }),
-        commitFiles: async () => ({ ok: true, mode: "commit_only", pushed: false, snapshotChanged: false }),
-        discardFile: async () => ({ snapshotChanged: false }),
-        ignoreFile: async () => ({ snapshotChanged: false }),
-        readPatch: async () => ({ patch: "" }),
-      } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-    router.handleOpen(ws as never)
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "subscribe",
-        id: "project-git-sub-1",
-        topic: { type: "project-git", projectId: "project-1" },
-      })
-    )
-
-    expect(ws.sent[0]).toEqual({
-      v: PROTOCOL_VERSION,
-      type: "snapshot",
-      id: "project-git-sub-1",
-      snapshot: {
-        type: "project-git",
-        data: {
-          status: "ready",
-          branchName: "main",
-          files: [],
-          branchHistory: { entries: [] },
-        },
-      },
-    })
-
-    gitSnapshot.files = Array.from({ length: 9_200 }, (_, index) => ({
-      path: `${"example/".repeat(16)}file-${index}.ts`, changeType: "added", isUntracked: true,
-      additions: 1, deletions: 0, patchDigest: "a".repeat(64),
-    }))
-    await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "subscribe", id: "project-git-sub-1",
-      topic: { type: "project-git", projectId: "project-1", deferLargeSnapshots: true } }))
-    const deferred = ws.sent.at(-1) as { snapshot: { data: { deferred: boolean; revision: string } } }
-    expect(deferred.snapshot.data.deferred).toBe(true)
-    expect(deferred.snapshot.data.revision).toHaveLength(64)
-    expect(Buffer.byteLength(JSON.stringify(deferred))).toBeLessThan(1024)
-    expect(gitSnapshot.files).toHaveLength(9_200)
-  })
-
-  test("reads diff patches through the project-scoped command", async () => {
-    const state = createEmptyState()
-    state.projectsById.set("project-1", {
-      id: "project-1",
-      localPath: "/tmp/project",
-      title: "Project",
-      createdAt: 1,
-      updatedAt: 1,
-    })
-
-    const router = createWsRouter({
-      store: {
-        state,
-        getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
-      } as never,
-      diffStore: {
-        getProjectSnapshot: () => null,
-        refreshSnapshot: async () => false,
-        listBranches: async () => ({ recent: [], local: [], remote: [], pullRequests: [], pullRequestsStatus: "unavailable" }),
-        previewMergeBranch: async () => ({ currentBranchName: "main", targetBranchName: "feature/test", targetDisplayName: "feature/test", status: "mergeable", commitCount: 1, hasConflicts: false, message: "ready" }),
-        mergeBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-        syncBranch: async () => ({ ok: true, action: "fetch", snapshotChanged: false }),
-        checkoutBranch: async () => ({ ok: true, snapshotChanged: false }),
-        createBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-        generateCommitMessage: async () => ({ subject: "", body: "", usedFallback: true, failureMessage: null }),
-        commitFiles: async () => ({ ok: true, mode: "commit_only", pushed: false, snapshotChanged: false }),
-        discardFile: async () => ({ snapshotChanged: false }),
-        ignoreFile: async () => ({ snapshotChanged: false }),
-        readPatch: async () => ({ patch: "diff --git a/app.txt b/app.txt" }),
-      } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-    router.handleOpen(ws as never)
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "read-patch-1",
-        command: {
-          type: "project.readDiffPatch",
-          projectId: "project-1",
-          path: "app.txt",
-        },
-      })
-    )
-
-    expect(ws.sent[0]).toEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "read-patch-1",
-      result: { patch: "diff --git a/app.txt b/app.txt" },
-    })
-  })
-
-  test("routes merge preview and merge commands through the diff store", async () => {
-    const state = createEmptyState()
-    state.projectsById.set("project-1", {
-      id: "project-1",
-      localPath: "/tmp/project",
-      title: "Project",
-      createdAt: 1,
-      updatedAt: 1,
-    })
-    state.chatsById.set("chat-1", {
-      id: "chat-1",
-      projectId: "project-1",
-      title: "Chat",
-      createdAt: 1,
-      updatedAt: 1,
-      unread: false,
-      provider: null,
-      planMode: false,
-      sessionToken: null,
-      lastTurnOutcome: null,
-    })
-
-    const router = createWsRouter({
-      store: {
-        state,
-        getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
-        getChat: (chatId: string) => state.chatsById.get(chatId) ?? null,
-      } as never,
-      diffStore: {
-        getProjectSnapshot: () => ({ status: "ready", branchName: "main", files: [], branchHistory: { entries: [] } }),
-        refreshSnapshot: async () => false,
-        listBranches: async () => ({ recent: [], local: [], remote: [], pullRequests: [], pullRequestsStatus: "unavailable" }),
-        previewMergeBranch: async () => ({ currentBranchName: "main", targetBranchName: "feature/test", targetDisplayName: "feature/test", status: "mergeable", commitCount: 2, hasConflicts: false, message: "2 commits from feature/test will merge into main." }),
-        mergeBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: true }),
-        syncBranch: async () => ({ ok: true, action: "fetch", snapshotChanged: false }),
-        checkoutBranch: async () => ({ ok: true, snapshotChanged: false }),
-        createBranch: async () => ({ ok: true, branchName: "main", snapshotChanged: false }),
-        generateCommitMessage: async () => ({ subject: "", body: "", usedFallback: true, failureMessage: null }),
-        commitFiles: async () => ({ ok: true, mode: "commit_only", pushed: false, snapshotChanged: false }),
-        discardFile: async () => ({ snapshotChanged: false }),
-        ignoreFile: async () => ({ snapshotChanged: false }),
-        readPatch: async () => ({ patch: "" }),
-      } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-    router.handleOpen(ws as never)
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "preview-merge-1",
-        command: {
-          type: "chat.previewMergeBranch",
-          chatId: "chat-1",
-          branch: { kind: "local", name: "feature/test" },
-        },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "merge-1",
-        command: {
-          type: "chat.mergeBranch",
-          chatId: "chat-1",
-          branch: { kind: "local", name: "feature/test" },
-        },
-      })
-    )
-
-    expect(ws.sent[0]).toEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "preview-merge-1",
-      result: {
-        currentBranchName: "main",
-        targetBranchName: "feature/test",
-        targetDisplayName: "feature/test",
-        status: "mergeable",
-        commitCount: 2,
-        hasConflicts: false,
-        message: "2 commits from feature/test will merge into main.",
-      },
-    })
-    expect(ws.sent[1]).toEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "merge-1",
-      result: {
-        ok: true,
-        branchName: "main",
-        snapshotChanged: true,
-      },
-    })
-  })
 
   test("loads older chat history pages", async () => {
     const state = createEmptyState()
@@ -2271,7 +2032,6 @@ describe("ws-router", () => {
           type: "settings.writeKeybindings",
           bindings: {
             toggleEmbeddedTerminal: ["cmd+k"],
-            toggleRightSidebar: ["ctrl+shift+b"],
             openInFinder: ["cmd+shift+g"],
             openInEditor: ["cmd+shift+p"],
             addSplitTerminal: ["cmd+alt+j"],
@@ -2291,7 +2051,6 @@ describe("ws-router", () => {
       result: {
         bindings: {
           toggleEmbeddedTerminal: ["cmd+k"],
-          toggleRightSidebar: ["ctrl+shift+b"],
           openInFinder: ["cmd+shift+g"],
           openInEditor: ["cmd+shift+p"],
           addSplitTerminal: ["cmd+alt+j"],
@@ -2302,196 +2061,6 @@ describe("ws-router", () => {
         warning: null,
         filePathDisplay: "~/.kanna/keybindings.json",
       },
-    })
-  })
-
-  test("routes discard diff file commands through the diff store and rebroadcasts chat snapshots", async () => {
-    const state = createEmptyState()
-    state.projectsById.set("project-1", {
-      id: "project-1",
-      localPath: "/tmp/project",
-      title: "Project",
-      createdAt: 1,
-      updatedAt: 1,
-    })
-    state.projectIdsByPath.set("/tmp/project", "project-1")
-    state.chatsById.set("chat-1", {
-      id: "chat-1",
-      projectId: "project-1",
-      title: "Chat",
-      createdAt: 1,
-      updatedAt: 1,
-      unread: false,
-      provider: null,
-      planMode: false,
-      sessionToken: null,
-      lastTurnOutcome: null,
-    })
-
-    const discardCalls: Array<{ projectId: string; projectPath: string; path: string }> = []
-    const diffStore = {
-      getProjectSnapshot: () => ({ status: "ready" as const, files: [], defaultBranchName: "main", originRepoSlug: "acme/repo", aheadCount: 0, behindCount: 0, lastFetchedAt: undefined }),
-      refreshSnapshot: async () => false,
-      syncBranch: async () => ({ ok: true as const, action: "fetch" as const, snapshotChanged: false }),
-      generateCommitMessage: async () => ({ subject: "", body: "" }),
-      commitFiles: async () => ({ ok: true as const, mode: "commit_only" as const, pushed: false, snapshotChanged: false }),
-      discardFile: async (args: { projectId: string; projectPath: string; path: string }) => {
-        discardCalls.push(args)
-        return { snapshotChanged: true }
-      },
-      ignoreFile: async () => ({ snapshotChanged: false }),
-    }
-
-    const router = createWsRouter({
-      store: {
-        state,
-        getChat: (chatId: string) => state.chatsById.get(chatId) ?? null,
-        getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
-        getRecentChatHistory: async () => ({
-          messages: [],
-          history: {
-            hasOlder: false,
-            olderCursor: null,
-            recentLimit: 200,
-            revision: "revision-1",
-          },
-        }),
-      } as never,
-      diffStore: diffStore as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-
-    router.handleOpen(ws as never)
-    router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "subscribe",
-        id: "chat-sub",
-        topic: { type: "chat", chatId: "chat-1" },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "discard-1",
-        command: {
-          type: "chat.discardDiffFile",
-          chatId: "chat-1",
-          path: "app.txt",
-        },
-      })
-    )
-
-    expect(discardCalls).toEqual([{
-      projectId: "project-1",
-      projectPath: "/tmp/project",
-      path: "app.txt",
-    }])
-    expect(ws.sent).toContainEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "discard-1",
-      result: { snapshotChanged: true },
-    })
-  })
-
-  test("routes ignore diff file commands through the diff store", async () => {
-    const state = createEmptyState()
-    state.projectsById.set("project-1", {
-      id: "project-1",
-      localPath: "/tmp/project",
-      title: "Project",
-      createdAt: 1,
-      updatedAt: 1,
-    })
-    state.projectIdsByPath.set("/tmp/project", "project-1")
-    state.chatsById.set("chat-1", {
-      id: "chat-1",
-      projectId: "project-1",
-      title: "Chat",
-      createdAt: 1,
-      updatedAt: 1,
-      unread: false,
-      provider: null,
-      planMode: false,
-      sessionToken: null,
-      lastTurnOutcome: null,
-    })
-
-    const ignoreCalls: Array<{ projectId: string; projectPath: string; path: string }> = []
-    const router = createWsRouter({
-      store: {
-        state,
-        getChat: (chatId: string) => state.chatsById.get(chatId) ?? null,
-        getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
-      } as never,
-      diffStore: {
-        getProjectSnapshot: () => ({ status: "ready" as const, files: [], defaultBranchName: "main", originRepoSlug: "acme/repo", aheadCount: 0, behindCount: 0, lastFetchedAt: undefined }),
-        refreshSnapshot: async () => false,
-        syncBranch: async () => ({ ok: true as const, action: "fetch" as const, snapshotChanged: false }),
-        generateCommitMessage: async () => ({ subject: "", body: "" }),
-        commitFiles: async () => ({ ok: true as const, mode: "commit_only" as const, pushed: false, snapshotChanged: false }),
-        discardFile: async () => ({ snapshotChanged: false }),
-        ignoreFile: async (args: { projectId: string; projectPath: string; path: string }) => {
-          ignoreCalls.push(args)
-          return { snapshotChanged: false }
-        },
-      } as never,
-      agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
-      terminals: {
-        getSnapshot: () => null,
-        onEvent: () => () => {},
-      } as never,
-      keybindings: {
-        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
-        onChange: () => () => {},
-      } as never,
-      refreshDiscovery: async () => [],
-      getDiscoveredProjects: () => [],
-      machineDisplayName: "Local Machine",
-    })
-    const ws = new FakeWebSocket()
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "ignore-1",
-        command: {
-          type: "chat.ignoreDiffFile",
-          chatId: "chat-1",
-          path: "scratch.log",
-        },
-      })
-    )
-
-    expect(ignoreCalls).toEqual([{
-      projectId: "project-1",
-      projectPath: "/tmp/project",
-      path: "scratch.log",
-    }])
-    expect(ws.sent).toContainEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "ignore-1",
-      result: { snapshotChanged: false },
     })
   })
 })

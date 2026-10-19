@@ -3137,7 +3137,6 @@ export function SettingsPage() {
 function buildKeybindingPayload(source: Record<string, string>): Record<KeybindingAction, string[]> {
   return {
     toggleEmbeddedTerminal: parseKeybindingInput(source.toggleEmbeddedTerminal ?? ""),
-    toggleRightSidebar: parseKeybindingInput(source.toggleRightSidebar ?? ""),
     openInFinder: parseKeybindingInput(source.openInFinder ?? ""),
     openInEditor: parseKeybindingInput(source.openInEditor ?? ""),
     addSplitTerminal: parseKeybindingInput(source.addSplitTerminal ?? ""),

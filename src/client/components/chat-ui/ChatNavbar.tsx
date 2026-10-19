@@ -8,7 +8,7 @@ interface Props {
   onOpenSidebar: () => void
   onNewChat: () => void
   localPath?: string
-  rightPanel?: "hidden" | "git" | "browser"
+  rightPanel?: "hidden" | "browser"
   onToggleBrowserPanel?: () => void
 }
 

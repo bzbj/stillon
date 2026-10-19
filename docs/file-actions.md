@@ -16,7 +16,7 @@ Explicit Open always opens the original file or service URL; Show reveals the
 original file. The server rejects host actions from Connect and other remote
 ingress, including forged local flags. The host platform determines Finder/folder.
 
-Chat, Markdown body links, Git filenames and service controls use shared target
+Chat, Markdown body links and service controls use shared target
 classification and action policy. Registering a standalone href never removes a
 file/service menu. Shift+F10 and the menu key open it; Escape closes it.
 

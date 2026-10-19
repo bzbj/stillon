@@ -22,7 +22,6 @@ import { CodexModelPolicyManager, type CodexModelDiscoveryOptions } from "./code
 import { AppSettingsManager } from "./app-settings"
 import { getAgentNetworkStatus, mergeAgentNetworkEnvironment } from "./agent-environment"
 import { detectSystemProxy, testAgentNetworkConnection } from "./agent-network"
-import { DiffStore } from "./diff-store"
 import {
   DEFAULT_PROJECT_DISCOVERY_ADAPTERS,
   discoverProjectsIncrementally,
@@ -46,12 +45,10 @@ import { PreviewBrowser, isWithinPreviewDirectory } from "./preview-browser"
 import { REMOTE_SESSION_HEADER, REMOTE_EXPIRY_HEADER } from "./connect/adapter"
 import { protectPreviewPort, protectedPreviewPorts, releasePreviewPort } from "./preview-ports"
 import { generateTitleForChatDetailed } from "./generate-title"
-import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
-import { handleProjectGitSnapshotRequest } from "./project-git-snapshot"
 import { appendHttpTiming } from "../shared/http-timing"
 import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
@@ -166,14 +163,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   }
   const getCodexApiTransport = () => appSettings.getSnapshot().codexApiTransport ?? "auto"
   const providerSetup = createProviderSetup({ dataDir: store.dataDir, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
-  const diffStore = new DiffStore(store.dataDir, {
-    generateCommitMessage: (args) => generateCommitMessageDetailed(
-      args,
-      new QuickResponseAdapter({ getEnvironment: getAgentEnvironment, getCodexApiTransport }),
-    ),
-  })
   await store.initialize()
-  await diffStore.initialize()
   await store.migrateLegacyTranscripts(options.onMigrationProgress)
   const savedDiscoveryProjects = () => store.listProjects().map((project) => ({
     localPath: project.localPath,
@@ -320,7 +310,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const previewResources = new PreviewResources(LOCAL_PREVIEW_ASSET_PREFIX)
   router = createWsRouter({
     store,
-    diffStore,
     agent,
     terminals,
     keybindings,
@@ -502,10 +491,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               workspaceCollapseVersions: settings.workspaceCollapseVersions,
             }, { headers: { "Cache-Control": "no-store" } })
           }
-
-          const projectGitResponse = handleProjectGitSnapshotRequest(req, url,
-            id => store.getProject(id) ? diffStore.getProjectSnapshot(id) : null)
-          if (projectGitResponse) return projectGitResponse
 
           if (url.pathname === "/health") {
             return Response.json({ ok: true, port: actualPort,
@@ -767,7 +752,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   return {
     port: actualPort,
     store,
-    diffStore,
     stop: shutdown,
   }
 }

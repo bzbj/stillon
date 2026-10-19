@@ -1,5 +1,9 @@
 # Workspace preview validation
 
+Workspace Git management has been removed. The Git file-item entries below
+describe the earlier V2 candidate and are no longer part of current acceptance.
+Chat, Markdown links and browser previews remain supported.
+
 ## V2 candidate (2026-10-19)
 
 Implementation starts at `64de04c`; the UI/file-navigation implementation is

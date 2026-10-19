@@ -4,14 +4,12 @@ import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
 import { fileRenderer } from "../../../shared/file-renderers"
 import { getLinkCapabilities } from "../../lib/linkCapabilities"
 import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
-import type { GitPanelProps } from "../../components/chat-ui/GitPanel"
-import { useAppDialog } from "../../components/ui/app-dialog"
 import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
@@ -35,7 +33,6 @@ import { useStickyChatFocus } from "../useStickyChatFocus"
 import { useTerminalToggleAnimation } from "../useTerminalToggleAnimation"
 import type { StillOnState } from "../useStillOnState"
 import { getNextMeasuredInputHeight, getTranscriptPaddingBottom } from "../useStillOnState"
-import { useChatPageSidebarActions, EMPTY_DIFF_SNAPSHOT } from "./useChatPageSidebarActions"
 import {
   EMPTY_STATE_TEXT,
   EMPTY_STATE_TYPING_INTERVAL_MS,
@@ -45,12 +42,10 @@ import {
 const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
 const ChatInputDock = lazy(() => import("./ChatInputDock").then(({ ChatInputDock }) => ({ default: ChatInputDock })))
 const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").then(({ ChatTranscriptViewport }) => ({ default: ChatTranscriptViewport })))
-const GitPanel = lazy(() => import("../../components/chat-ui/GitPanel").then(({ GitPanel }) => ({ default: GitPanel })))
 const TerminalWorkspaceShell = lazy(() => import("./TerminalWorkspaceShell").then(({ TerminalWorkspaceShell }) => ({ default: TerminalWorkspaceShell })))
 
 
 export {
-  getIgnoreFolderEntryFromDiffPath,
   hasFileDragTypes,
   shouldAutoFollowTranscriptResize,
 } from "./utils"
@@ -279,25 +274,11 @@ interface ChatWorkspaceProps {
   minColumnWidth: number
   splitTerminalShortcut?: string[]
   pendingCommandsByTerminalId?: Record<string, string>
-  onTerminalCommandSent?: () => void
   onInitialTerminalCommandSent?: (terminalId: string) => void
   onRemoveTerminal: (projectId: string, terminalId: string) => void
   onTerminalLayout: ReturnType<typeof useTerminalLayoutStore.getState>["setTerminalSizes"]
   onLayoutChanged: (layout: Record<string, number>) => void
 }
-
-type ChatSidebarContentProps = GitPanelProps
-
-const ChatSidebarContent = memo(function ChatSidebarContent(props: ChatSidebarContentProps) {
-  return (
-    <Suspense fallback={<PanelLoadingFallback label="Loading changes…" />}>
-      <GitPanel
-        {...props}
-        diffs={props.diffs ?? EMPTY_DIFF_SNAPSHOT}
-      />
-    </Suspense>
-  )
-})
 
 function PanelLoadingFallback({ label }: { label: string }) {
   return (
@@ -454,7 +435,6 @@ function ChatWorkspace({
   minColumnWidth,
   splitTerminalShortcut,
   pendingCommandsByTerminalId,
-  onTerminalCommandSent,
   onInitialTerminalCommandSent,
   onRemoveTerminal,
   onTerminalLayout,
@@ -514,7 +494,6 @@ function ChatWorkspace({
                 splitTerminalShortcut={splitTerminalShortcut}
                 pendingCommandsByTerminalId={pendingCommandsByTerminalId}
                 focusRequestVersion={terminalFocusRequestVersion}
-                onTerminalCommandSent={onTerminalCommandSent}
                 onInitialTerminalCommandSent={onInitialTerminalCommandSent}
                 onRemoveTerminal={onRemoveTerminal}
                 onTerminalLayout={onTerminalLayout}
@@ -529,7 +508,6 @@ function ChatWorkspace({
 
 export function ChatPage() {
   const state = useOutletContext<StillOnState>()
-  const dialog = useAppDialog()
   const layoutRootRef = useRef<HTMLDivElement>(null)
   const transcriptListRef = useRef<LegendListRef | null>(null)
   const isAtEndRef = useRef(true)
@@ -569,9 +547,7 @@ export function ChatPage() {
   const shouldRenderTerminalLayout = Boolean(projectId && hasTerminals)
   const activeRightPanel = projectId ? rightSidebarVisibility.rightPanel : "hidden"
   const showRightSidebar = Boolean(projectId && activeRightPanel !== "hidden")
-  const showGitPanel = Boolean(projectId && activeRightPanel === "git")
   const [lastOpenedTerminalProjectId, setLastOpenedTerminalProjectId] = useState<string | null>(null)
-  const [lastOpenedGitPanelProjectId, setLastOpenedGitPanelProjectId] = useState<string | null>(null)
   const shouldRenderRightSidebarLayout = Boolean(projectId)
   const isMobileRightSidebarOverlay = useMobileRightSidebarOverlayEnabled()
   const shouldRenderDesktopRightSidebarLayout = shouldRenderRightSidebarLayout && !isMobileRightSidebarOverlay
@@ -591,12 +567,6 @@ export function ChatPage() {
       setLastOpenedTerminalProjectId(projectId)
     }
   }, [projectId, showTerminalPane])
-
-  useEffect(() => {
-    if (showGitPanel && projectId) {
-      setLastOpenedGitPanelProjectId(projectId)
-    }
-  }, [projectId, showGitPanel])
 
   const {
     isAnimating: isTerminalAnimating,
@@ -621,38 +591,6 @@ export function ChatPage() {
     shouldRenderRightSidebarLayout: shouldRenderDesktopRightSidebarLayout,
     showRightSidebar,
     rightSidebarSizePercent: effectiveRightSidebarSize,
-  })
-
-  const {
-    diffRenderMode,
-    wrapDiffLines,
-    setDiffRenderMode,
-    setWrapDiffLines,
-    scheduleTerminalDiffRefresh,
-    handleOpenDiffFile,
-    handleCopyDiffFilePath,
-    handleCopyDiffRelativePath,
-    handleLoadDiffPatch,
-    handleDiscardDiffFile,
-    handleIgnoreDiffFile,
-    handleIgnoreDiffFolder,
-    handleOpenDiffInFinder,
-    handleCommitDiffs,
-    handleSyncBranch,
-    handleGenerateCommitMessage,
-    handleInitializeGit,
-    handleGetGitHubPublishInfo,
-    handleCheckGitHubRepoAvailability,
-    handleSetupGitHub,
-    handleListBranches,
-    handleCheckoutBranch,
-    handlePreviewMergeBranch,
-    handleMergeBranch,
-    handleCreateBranch,
-  } = useChatPageSidebarActions({
-    state,
-    projectId,
-    showRightSidebar: showGitPanel,
   })
 
   const { typedEmptyStateText, isEmptyStateTypingComplete } = useEmptyStateTyping(showEmptyState, state.activeChatId)
@@ -718,35 +656,6 @@ export function ChatPage() {
     hideRightPanel(projectId)
   }, [hideRightPanel, projectId])
 
-  const handleToggleGitPanel = useCallback(() => {
-    if (!projectId) return
-
-    if (activeRightPanel === "git") {
-      hideRightPanel(projectId)
-      return
-    }
-
-    if (state.chatDiffSnapshot?.status === "no_repo") {
-      void (async () => {
-        const confirmed = await dialog.confirm({
-          title: "Initialize Git?",
-          description: "Initialize a local git repository in this workspace?",
-          confirmLabel: "Init Git",
-          cancelLabel: "Cancel",
-        })
-        if (!confirmed) return
-
-        const result = await handleInitializeGit()
-        if (result?.ok) {
-          toggleRightPanel(projectId, "git")
-        }
-      })()
-      return
-    }
-
-    toggleRightPanel(projectId, "git")
-  }, [activeRightPanel, dialog, handleInitializeGit, hideRightPanel, projectId, state.chatDiffSnapshot?.status, toggleRightPanel])
-
   const handleToggleBrowserPanel = useCallback(() => {
     if (!projectId) return
     toggleRightPanel(projectId, "browser")
@@ -772,14 +681,6 @@ export function ChatPage() {
   const handleCancel = useCallback(() => {
     void state.handleCancel()
   }, [state.handleCancel])
-
-  const handleOpenDiffPreview = useCallback((filePath: string) => {
-    if (!projectId) return
-    navigateBrowser(projectId, buildProjectRenderablePreviewUrl(projectId, filePath))
-    if (activeRightPanel !== "browser") {
-      toggleRightPanel(projectId, "browser")
-    }
-  }, [activeRightPanel, navigateBrowser, projectId, toggleRightPanel])
 
   const handleOpenTranscriptBrowserLink = useCallback((address: string) => {
     if (!projectId) return
@@ -808,7 +709,6 @@ export function ChatPage() {
   }, [
     activeRightPanel,
     canOpenHostFiles,
-    dialog,
     navigateBrowser,
     projectId,
     state.handleOpenLocalLink,
@@ -890,12 +790,6 @@ export function ChatPage() {
         return
       }
 
-      if (actionMatchesEvent(resolvedKeybindings, "toggleRightSidebar", event)) {
-        event.preventDefault()
-        handleToggleGitPanel()
-        return
-      }
-
       if (actionMatchesEvent(resolvedKeybindings, "openInFinder", event)) {
         event.preventDefault()
         if (canOpenHostFiles) void getLinkCapabilities().then(value => { if (value.local) return state.handleOpenExternal("open_finder") }).catch(() => {})
@@ -916,7 +810,7 @@ export function ChatPage() {
 
     window.addEventListener("keydown", handleGlobalKeydown)
     return () => window.removeEventListener("keydown", handleGlobalKeydown)
-  }, [addTerminal, canOpenHostFiles, handleToggleEmbeddedTerminal, handleToggleGitPanel, projectId, resolvedKeybindings, state.handleOpenExternal])
+  }, [addTerminal, canOpenHostFiles, handleToggleEmbeddedTerminal, projectId, resolvedKeybindings, state.handleOpenExternal])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -1129,7 +1023,6 @@ export function ChatPage() {
       minColumnWidth={minColumnWidth}
       splitTerminalShortcut={resolvedKeybindings.bindings.addSplitTerminal}
       pendingCommandsByTerminalId={pendingTerminalCommands}
-      onTerminalCommandSent={scheduleTerminalDiffRefresh}
       onInitialTerminalCommandSent={handleInitialTerminalCommandSent}
       onRemoveTerminal={handleRemoveTerminal}
       onTerminalLayout={setTerminalSizes}
@@ -1139,72 +1032,6 @@ export function ChatPage() {
     chatCard
   )
 
-  const gitPanelContentProps = useMemo<ComponentProps<typeof ChatSidebarContent> | null>(() => {
-    if (!projectId) {
-      return null
-    }
-
-    return {
-      projectId,
-      diffs: state.chatDiffSnapshot ?? EMPTY_DIFF_SNAPSHOT,
-      diffRenderMode,
-      wrapLines: wrapDiffLines,
-      onOpenFile: handleOpenDiffFile,
-      onOpenPreview: handleOpenDiffPreview,
-      onOpenInFinder: handleOpenDiffInFinder,
-      onDiscardFile: handleDiscardDiffFile,
-      onIgnoreFile: handleIgnoreDiffFile,
-      onIgnoreFolder: handleIgnoreDiffFolder,
-      onCopyFilePath: handleCopyDiffFilePath,
-      onCopyRelativePath: handleCopyDiffRelativePath,
-      onLoadPatch: handleLoadDiffPatch,
-      onListBranches: handleListBranches,
-      onPreviewMergeBranch: handlePreviewMergeBranch,
-      onMergeBranch: handleMergeBranch,
-      onCheckoutBranch: handleCheckoutBranch,
-      onCreateBranch: handleCreateBranch,
-      onGenerateCommitMessage: handleGenerateCommitMessage,
-      onInitializeGit: handleInitializeGit,
-      onGetGitHubPublishInfo: handleGetGitHubPublishInfo,
-      onCheckGitHubRepoAvailability: handleCheckGitHubRepoAvailability,
-      onSetupGitHub: handleSetupGitHub,
-      onCommit: handleCommitDiffs,
-      onSyncWithRemote: handleSyncBranch,
-      onDiffRenderModeChange: setDiffRenderMode,
-      onWrapLinesChange: setWrapDiffLines,
-      onClose: handleCloseRightSidebar,
-    }
-  }, [
-    diffRenderMode,
-    handleCheckGitHubRepoAvailability,
-    handleCheckoutBranch,
-    handleCloseRightSidebar,
-    handleCommitDiffs,
-    handleCopyDiffFilePath,
-    handleCopyDiffRelativePath,
-    handleCreateBranch,
-    handleDiscardDiffFile,
-    handleGenerateCommitMessage,
-    handleGetGitHubPublishInfo,
-    handleIgnoreDiffFile,
-    handleIgnoreDiffFolder,
-    handleInitializeGit,
-    handleListBranches,
-    handleLoadDiffPatch,
-    handleMergeBranch,
-    handleOpenDiffPreview,
-    handleOpenDiffFile,
-    handleOpenDiffInFinder,
-    handlePreviewMergeBranch,
-    handleSetupGitHub,
-    handleSyncBranch,
-    projectId,
-    setDiffRenderMode,
-    setWrapDiffLines,
-    state.chatDiffSnapshot,
-    wrapDiffLines,
-  ])
-  const shouldKeepGitPanelMounted = Boolean(projectId && (showGitPanel || lastOpenedGitPanelProjectId === projectId))
   const rightPanelContent = activeRightPanel === "browser" && projectId
     ? (
       <Suspense fallback={<PanelLoadingFallback label="Loading browser…" />}>
@@ -1219,9 +1046,7 @@ export function ChatPage() {
         />
       </Suspense>
     )
-    : shouldKeepGitPanelMounted && gitPanelContentProps
-      ? <ChatSidebarContent {...gitPanelContentProps} />
-      : null
+    : null
 
   return (
     <div ref={layoutRootRef} className="flex-1 flex flex-col min-w-0 relative">

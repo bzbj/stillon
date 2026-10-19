@@ -21,7 +21,6 @@ interface Props {
   onAddTerminal: (projectId: string, afterTerminalId?: string) => void
   onRemoveTerminal: (projectId: string, terminalId: string) => void
   onTerminalLayout: (projectId: string, sizes: number[]) => void
-  onTerminalCommandSent?: () => void
   onInitialTerminalCommandSent?: (terminalId: string) => void
 }
 
@@ -43,7 +42,6 @@ interface TerminalWorkspacePaneProps {
   onRemoveTerminal: (projectId: string, terminalId: string) => void
   onClearTerminal: (terminalId: string) => void
   onPathChange: (terminalId: string, path: string | null) => void
-  onCommandSent?: () => void
   onInitialCommandSent?: (terminalId: string) => void
   setPaneElement: (terminalId: string, element: HTMLDivElement | null) => void
 }
@@ -66,7 +64,6 @@ const TerminalWorkspacePane = memo(function TerminalWorkspacePane({
   onRemoveTerminal,
   onClearTerminal,
   onPathChange,
-  onCommandSent,
   onInitialCommandSent,
   setPaneElement,
 }: TerminalWorkspacePaneProps) {
@@ -156,7 +153,6 @@ const TerminalWorkspacePane = memo(function TerminalWorkspacePane({
             clearVersion={clearVersion}
             focusRequestVersion={focusRequestVersion}
             initialCommand={initialCommand}
-            onCommandSent={onCommandSent}
             onInitialCommandSent={onInitialCommandSent}
             onPathChange={handlePathChange}
           />
@@ -180,7 +176,6 @@ function TerminalWorkspaceImpl({
   onAddTerminal,
   onRemoveTerminal,
   onTerminalLayout,
-  onTerminalCommandSent,
   onInitialTerminalCommandSent,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -295,7 +290,6 @@ function TerminalWorkspaceImpl({
                 onRemoveTerminal={onRemoveTerminal}
                 onClearTerminal={handleClearTerminal}
                 onPathChange={handlePathChange}
-                onCommandSent={onTerminalCommandSent}
                 onInitialCommandSent={onInitialTerminalCommandSent}
                 setPaneElement={handleSetPaneElement}
               />

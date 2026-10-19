@@ -11,7 +11,7 @@ const PROJECT_ID = "project-1"
 
 describe("rightSidebarStore", () => {
   beforeEach(() => {
-    useRightSidebarStore.setState({ size: DEFAULT_RIGHT_SIDEBAR_SIZE, projects: {}, projectUi: {}, projectBrowser: {} })
+    useRightSidebarStore.setState({ size: DEFAULT_RIGHT_SIDEBAR_SIZE, projects: {}, projectBrowser: {} })
   })
 
   test("defaults to a closed drawer", () => {
@@ -34,28 +34,17 @@ describe("rightSidebarStore", () => {
   })
 
   test("keeps visibility isolated per project while sharing width", () => {
-    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "git")
+    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "browser")
     useRightSidebarStore.getState().setSize(430)
     useRightSidebarStore.getState().togglePanel("project-2", "browser")
 
     expect(useRightSidebarStore.getState().projects[PROJECT_ID]).toEqual({
-      rightPanel: "git",
+      rightPanel: "browser",
     })
     expect(useRightSidebarStore.getState().projects["project-2"]).toEqual({
       rightPanel: "browser",
     })
     expect(useRightSidebarStore.getState().size).toBe(430)
-  })
-
-  test("only one right panel is active per project", () => {
-    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "git")
-    expect(useRightSidebarStore.getState().projects[PROJECT_ID]?.rightPanel).toBe("git")
-
-    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "browser")
-    expect(useRightSidebarStore.getState().projects[PROJECT_ID]?.rightPanel).toBe("browser")
-
-    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "browser")
-    expect(useRightSidebarStore.getState().projects[PROJECT_ID]?.rightPanel).toBe("hidden")
   })
 
   test("clamps resized widths", () => {
@@ -66,21 +55,43 @@ describe("rightSidebarStore", () => {
     expect(useRightSidebarStore.getState().size).toBe(560)
   })
 
+  test("toggles the browser drawer without affecting another project", () => {
+    const store = useRightSidebarStore.getState()
+    store.togglePanel(PROJECT_ID, "browser")
+    store.togglePanel("project-2", "browser")
+    store.togglePanel(PROJECT_ID, "browser")
+    expect(useRightSidebarStore.getState().projects[PROJECT_ID]?.rightPanel).toBe("hidden")
+    expect(useRightSidebarStore.getState().projects["project-2"]?.rightPanel).toBe("browser")
+  })
+
+  test("discards retired Git state while preserving browser navigation", () => {
+    const browser = { address: "/api/projects/project-2/preview/report.html", history: ["http://localhost:3000", "/api/projects/project-2/preview/report.html"], historyIndex: 1, zoom: 1.3 }
+    const migrated = migrateRightSidebarStore({
+      size: 600,
+      projects: { [PROJECT_ID]: { rightPanel: "git" }, "project-2": { rightPanel: "browser" } },
+      projectUi: { [PROJECT_ID]: { viewMode: "changes", summary: "old draft", collapsedPaths: { "report.md": false } } },
+      projectBrowser: { "project-2": browser },
+    }, 7)
+    expect(migrated).toEqual({
+      size: 600,
+      projects: { [PROJECT_ID]: { rightPanel: "hidden" }, "project-2": { rightPanel: "browser" } },
+      projectBrowser: { "project-2": browser },
+    })
+  })
+
   test("clearing a project removes its saved drawer state without resetting global width", () => {
-    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "git")
+    useRightSidebarStore.getState().togglePanel(PROJECT_ID, "browser")
     useRightSidebarStore.getState().setSize(440)
-    useRightSidebarStore.getState().setViewMode(PROJECT_ID, "changes")
     useRightSidebarStore.getState().navigateBrowser(PROJECT_ID, "localhost:3000")
     useRightSidebarStore.getState().clearProject(PROJECT_ID)
 
     const visibility = useRightSidebarStore.getState().projects[PROJECT_ID] ?? getDefaultRightSidebarVisibilityState()
     expect(visibility.rightPanel).toBe("hidden")
     expect(useRightSidebarStore.getState().size).toBe(440)
-    expect(useRightSidebarStore.getState().projectUi[PROJECT_ID]).toBeUndefined()
     expect(useRightSidebarStore.getState().projectBrowser[PROJECT_ID]).toBeUndefined()
   })
 
-  test("migration preserves per-project visibility and resets width to the pixel default", async () => {
+  test("migration closes retired drawers and resets width to the pixel default", async () => {
     const migrated = await migrateRightSidebarStore({
         projects: {
           [PROJECT_ID]: {
@@ -98,13 +109,12 @@ describe("rightSidebarStore", () => {
       size: DEFAULT_RIGHT_SIDEBAR_SIZE,
       projects: {
         [PROJECT_ID]: {
-          rightPanel: "git",
+          rightPanel: "hidden",
         },
         "project-2": {
           rightPanel: "hidden",
         },
       },
-      projectUi: {},
       projectBrowser: {},
     })
   })
@@ -125,7 +135,6 @@ describe("rightSidebarStore", () => {
           rightPanel: "browser",
         },
       },
-      projectUi: {},
       projectBrowser: {},
     })
   })
@@ -160,67 +169,6 @@ describe("rightSidebarStore", () => {
       history: ["/api/projects/project-1/preview/output/index.html"],
       historyIndex: 0,
       zoom: 1,
-    })
-  })
-
-  test("keeps sidebar ui state isolated per project", () => {
-    useRightSidebarStore.getState().setViewMode(PROJECT_ID, "changes")
-    useRightSidebarStore.getState().setCommitDraft(PROJECT_ID, { summary: "feat: one", description: "body" })
-    useRightSidebarStore.getState().reconcileCollapsedPaths(PROJECT_ID, ["a.ts"])
-    useRightSidebarStore.getState().toggleCollapsedPath(PROJECT_ID, "a.ts")
-
-    useRightSidebarStore.getState().setViewMode("project-2", "history")
-    useRightSidebarStore.getState().setCommitDraft("project-2", { summary: "feat: two", description: "" })
-
-    expect(useRightSidebarStore.getState().projectUi[PROJECT_ID]).toEqual({
-      viewMode: "changes",
-      summary: "feat: one",
-      description: "body",
-      collapsedPaths: { "a.ts": false },
-    })
-    expect(useRightSidebarStore.getState().projectUi["project-2"]).toEqual({
-      viewMode: "history",
-      summary: "feat: two",
-      description: "",
-      collapsedPaths: {},
-    })
-  })
-
-  test("migration resets persisted global size and preserves project ui", async () => {
-    const migrated = await migrateRightSidebarStore({
-      size: 44,
-      projects: {
-        [PROJECT_ID]: {
-          isVisible: true,
-          size: 34,
-        },
-      },
-      projectUi: {
-        [PROJECT_ID]: {
-          viewMode: "changes",
-          collapsedPaths: { "a.ts": false },
-          summary: "feat: one",
-          description: "body",
-        },
-      },
-    })
-
-    expect(migrated).toEqual({
-      size: DEFAULT_RIGHT_SIDEBAR_SIZE,
-      projects: {
-        [PROJECT_ID]: {
-          rightPanel: "git",
-        },
-      },
-      projectUi: {
-        [PROJECT_ID]: {
-          viewMode: "changes",
-          collapsedPaths: { "a.ts": false },
-          summary: "feat: one",
-          description: "body",
-        },
-      },
-      projectBrowser: {},
     })
   })
 })

@@ -166,7 +166,7 @@ physically secure.
 
 Do not forward port `3210` directly from a home router or cloud firewall to the
 public Internet. Remote StillOn access effectively grants development-account
-level access to local files, Git, terminals, and agent processes.
+level access to local files, terminals, and agent processes.
 
 For personal use, the recommended path is
 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve):
@@ -320,13 +320,13 @@ and independent-machine acceptance are tracked in the
 - **Claude and Codex** — switch providers, models, reasoning effort, permissions, and plan mode per chat
 - **Usage visibility** — view Codex and Claude Code plan limits when the authenticated CLI exposes them
 - **Persistent sessions** — resume chats with event-backed history, snapshots, and hydrated tool results
-- **Workspaces** — organize conversations by folder, inspect Git state, run terminals, preview local apps, and attach files
+- **Workspaces** — organize conversations by folder, work with documents, run terminals, preview local apps, and attach files
 - **Operator-managed ingress** — keep the local origin on loopback or connect it through your own proxy, tunnel, or network listener
 
 ## Remote access
 
 StillOn gives an authenticated remote user access to local workspaces, agent
-processes, file previews, Git operations, and terminals. Treat that access as
+processes, file previews, and terminals. Treat that access as
 equivalent to granting control of your development account.
 
 StillOn starts on `127.0.0.1` by default and local use remains accountless.
@@ -364,7 +364,7 @@ Browser / iPad / phone
         ↕ HTTP + WebSocket
 StillOn Bun server on your computer
         ├── workspace and chat event store
-        ├── terminal, Git, uploads, and local previews
+        ├── terminal, uploads, and local previews
         └── Claude Agent SDK / Codex App Server
                          ↕
                 Local workspaces and tools
