@@ -8,7 +8,8 @@ interface Entry { owner: string; projectId?: string; target: PreviewTarget; expi
 export class PreviewTargets {
   private readonly entries = new Map<string, Entry>()
   private readonly ready: Promise<void>
-  private writes = Promise.resolve()
+  private writes: Promise<void> | null = null
+  private dirty = false
   constructor(private readonly storagePath?: string, private readonly resolveHtml?: (address: string, owner: string) => Promise<string>,
     private readonly validateFile?: (target: PreviewTarget) => Promise<void>) {
     this.ready = (async () => {
@@ -27,20 +28,27 @@ export class PreviewTargets {
       } catch { /* A missing or invalid registry never expands authorization. */ }
     })()
   }
-  private persist() {
+  private persist(changed = true): Promise<void> {
     if (!this.storagePath) return Promise.resolve()
-    const contents = JSON.stringify([...this.entries])
-    this.writes = this.writes.catch(() => undefined).then(async () => {
-      await writeFile(this.storagePath! + ".tmp", contents, { mode: 0o600 })
-      // Windows scanners can briefly hold the destination during frequent link
-      // resolution. Preserve atomic replacement and surface persistent failures.
-      for (let attempt = 0; ; attempt++) {
-        try { await rename(this.storagePath! + ".tmp", this.storagePath!); break }
-        catch (error) {
-          if (process.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
-          await Bun.sleep(50)
-        }
-      }
+    if (changed) this.dirty = true
+    if (!this.dirty && !this.writes) return Promise.resolve()
+    // Serialize at flush time, not once for every concurrent link operation.
+    // All callers await durable atomic replacement; failures remain visible.
+    this.writes ??= Promise.resolve().then(async () => {
+      try { while (this.dirty) {
+        this.dirty = false
+        const contents = JSON.stringify([...this.entries])
+        try {
+          await writeFile(this.storagePath! + ".tmp", contents, { mode: 0o600 })
+          for (let attempt = 0; ; attempt++) {
+            try { await rename(this.storagePath! + ".tmp", this.storagePath!); break }
+            catch (error) {
+              if (process.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+              await Bun.sleep(50)
+            }
+          }
+        } catch (error) { this.dirty = true; throw error }
+      } } finally { this.writes = null }
     })
     return this.writes
   }
@@ -52,7 +60,8 @@ export class PreviewTargets {
   async handle(request: Request, url: URL, owner: string, projectExists: (id: string) => boolean, projectPath?: (id: string) => string | undefined, authorizedHtmlDirectory?: string) {
     if (!url.pathname.startsWith("/api/preview-targets")) return null
     await this.ready
-    if (url.pathname === "/api/preview-targets" && request.method === "POST") {
+    const resolveOnly = url.pathname === "/api/preview-targets/resolve"
+    if ((url.pathname === "/api/preview-targets" || resolveOnly) && request.method === "POST") {
       let body: any
       try { body = await request.json() } catch { return Response.json({ error: "Invalid preview target" }, { status: 400 }) }
       const projectId = typeof body?.projectId === "string" ? body.projectId : undefined
@@ -82,18 +91,22 @@ export class PreviewTargets {
       const directory = "directory" in target && target.directory === true
       const renderer = !directory && "filePath" in target ? fileRenderer(target.canonicalPath ?? target.filePath ?? "") : undefined
       const capabilities = "filePath" in target ? { directory, renderer, canRead: true, canPreview: Boolean(renderer), canDownload: !directory } : {}
+      if (resolveOnly) return Response.json({ kind: directory ? "directory" : "filePath" in target ? "file" : "service", canRead: true, canPreview: target.kind === "host-http" || Boolean(renderer), canDownload: "filePath" in target && !directory, ...capabilities }, { headers: { "Cache-Control": "no-store" } })
       for (const [id, entry] of this.entries) if (entry.expiresAt <= Date.now()) this.entries.delete(id)
       for (const [id, entry] of this.entries) if (entry.owner === owner && entry.projectId === projectId && entry.target.address === target.address) {
-        entry.target = target
-        entry.expiresAt = Date.now() + 30 * 24 * 60 * 60_000
-        await this.persist()
-        return Response.json({ id, url: standalonePreviewUrl(id), ...capabilities }, { headers: { "Cache-Control": "no-store" } })
+        const changed = JSON.stringify(entry.target) !== JSON.stringify(target) || entry.expiresAt < Date.now() + 29 * 24 * 60 * 60_000
+        if (changed) {
+          entry.target = target
+          entry.expiresAt = Date.now() + 30 * 24 * 60 * 60_000
+        }
+        await this.persist(changed)
+        return Response.json({ id, url: standalonePreviewUrl(id), target, projectId, projectLocalPath: projectId ? projectPath?.(projectId) : undefined, ...capabilities }, { headers: { "Cache-Control": "no-store" } })
       }
       if (this.entries.size >= 1024) return Response.json({ error: "Preview target limit reached" }, { status: 429 })
       const id = randomBytes(24).toString("base64url")
       this.entries.set(id, { owner, target, projectId, expiresAt: Date.now() + 30 * 24 * 60 * 60_000 })
       await this.persist()
-      return Response.json({ id, url: standalonePreviewUrl(id), ...capabilities }, { status: 201, headers: { "Cache-Control": "no-store" } })
+      return Response.json({ id, url: standalonePreviewUrl(id), target, projectId, projectLocalPath: projectId ? projectPath?.(projectId) : undefined, ...capabilities }, { status: 201, headers: { "Cache-Control": "no-store" } })
     }
     const match = /^\/api\/preview-targets\/([\w-]+)$/u.exec(url.pathname)
     if (!match) return null

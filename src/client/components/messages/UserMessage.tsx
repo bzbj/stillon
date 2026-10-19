@@ -7,7 +7,7 @@ import { CornerUpLeft } from "lucide-react"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { classifyAttachmentPreview } from "./attachmentPreview"
 import { AttachmentFileCard, AttachmentImageCard } from "./AttachmentCard"
-import { AttachmentPreviewModal } from "./AttachmentPreviewModal"
+import { AttachmentPreviewModal } from "./DeferredAttachmentPreviewModal"
 import { useTranscriptRenderOptions } from "./render-context"
 
 interface Props {

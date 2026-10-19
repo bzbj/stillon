@@ -51,6 +51,7 @@ import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
+import { appendHttpTiming } from "../shared/http-timing"
 import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
 import { validateIngress } from "./connect/ingress"
@@ -390,6 +391,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
         // Keep local previews and reverse-proxy WebSocket connections alive.
         idleTimeout: 120,
         async fetch(req, serverInstance) {
+          const requestStartedAt = performance.now()
           if (shuttingDown) {
             return new Response("Server is shutting down", {
               status: 503,
@@ -676,7 +678,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           }
 
           return serveStaticAsset(distDir, req, url.pathname)
-          })())
+          })()).then(response => appendHttpTiming(response, "host", requestStartedAt))
         },
         websocket: {
           open(ws) {

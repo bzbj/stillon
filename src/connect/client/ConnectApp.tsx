@@ -77,19 +77,51 @@ export function ConnectApp() {
   const emailInput = useRef<HTMLInputElement>(null)
   const codeInput = useRef<HTMLInputElement>(null)
   const channel = useRef<BroadcastChannel | null>(null)
-  const authorization = useRef<Promise<{ redirect: string; hostId: string }> | null>(null)
+  const authorization = useRef<Promise<{ redirect: string; hostId: string; userId?: string }> | null>(null)
+  const sessionRequest = useRef<Promise<ConnectSession | null> | null>(null)
+  const sessionGeneration = useRef(0)
+  const previousUserId = useRef<string | null>(null)
+  const initialHosts = useRef<ConnectHost[] | null>(null)
   const cooldown = email.trim().toLowerCase() === retryEmail ? Math.max(0, Math.ceil((retryAt - now) / 1_000)) : 0
   const needsCode = Boolean(intent && !intentDone)
 
-  const refreshSession = useCallback(async () => {
-    const result = await api<{ session: ConnectSession | null }>("session")
-    setSession(result.session)
-    return result.session
+  const refreshSession = useCallback((withHosts = false): Promise<ConnectSession | null> => {
+    if (sessionRequest.current) return sessionRequest.current
+    const generation = sessionGeneration.current
+    const request = api<{ session: ConnectSession | null; hosts?: ConnectHost[] }>(withHosts ? "bootstrap" : "session").then(result => {
+      if (generation !== sessionGeneration.current) return null
+      if (previousUserId.current !== (result.session?.user.id ?? null)) {
+        setHosts(null); initialHosts.current = null
+      }
+      previousUserId.current = result.session?.user.id ?? null
+      if (withHosts) initialHosts.current = result.hosts ?? []
+      setSession(result.session)
+      return result.session
+    })
+    sessionRequest.current = request
+    void request.finally(() => { if (sessionRequest.current === request) sessionRequest.current = null }).catch(() => {})
+    return request
   }, [])
 
   useEffect(() => {
     let alive = true
-    void refreshSession().catch(() => { if (alive) setError("Unable to connect. Refresh the page to try again.") }).finally(() => { if (alive) setLoading(false) })
+    const begin = async () => {
+      if (route.pathname === "/authorize" && !intent) {
+        try {
+          authorization.current ??= api<{ redirect: string; hostId: string; userId?: string }>("authorize", { flow: route.searchParams.get("flow") })
+          const result = await authorization.current
+          if (!alive) return
+          if (result.userId) { try { localStorage.setItem(`stillon-connect-host:${result.userId}`, result.hostId) } catch { /* optional preference */ } }
+          window.location.replace(result.redirect)
+          return
+        } catch (error) {
+          authorization.current = null
+          if (!(error instanceof LoginError && error.code === "AUTH_REQUIRED")) { await refreshSession(); throw error }
+        }
+      }
+      await refreshSession(!intent && route.pathname !== "/authorize" && route.pathname !== "/logout/complete")
+    }
+    void begin().catch(() => { if (alive) setError("Unable to connect. Refresh the page to try again.") }).finally(() => { if (alive) setLoading(false) })
     const refresh = () => { void refreshSession().catch(() => {}) }
     window.addEventListener("focus", refresh)
     if (typeof BroadcastChannel !== "undefined") {
@@ -117,7 +149,9 @@ export function ConnectApp() {
           }
           return
         }
-        const result = await api<{ hosts: ConnectHost[] }>("hosts")
+        const bootstrapHosts = initialHosts.current
+        initialHosts.current = null
+        const result = bootstrapHosts ? { hosts: bootstrapHosts } : await api<{ hosts: ConnectHost[] }>("hosts")
         if (cancelled) return
         setHosts(result.hosts)
         if (route.pathname !== "/computers" && result.hosts.length) {
@@ -183,7 +217,8 @@ export function ConnectApp() {
     setBusy(true); setError("")
     try {
       await api("verify-code", { email, code, remember, ...(intent ? { intent } : {}) })
-      const authenticated = await refreshSession()
+      sessionGeneration.current++; sessionRequest.current = null; initialHosts.current = null
+      const authenticated = await refreshSession(!intent && route.pathname !== "/authorize")
       if (!authenticated) throw new Error("Missing account session")
       setCode("")
       if (intent) setIntentDone(true)
@@ -197,6 +232,7 @@ export function ConnectApp() {
     setBusy(true); setError("")
     try {
       await api("logout", {})
+      sessionGeneration.current++; sessionRequest.current = null; initialHosts.current = null; previousUserId.current = null
       setSession(null); setCode(""); setStep("email"); setRetryAt(0)
       setHosts(null)
       channel.current?.postMessage("signed-out")
@@ -213,7 +249,7 @@ export function ConnectApp() {
       </header>
       <main className="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-center py-12 sm:py-20">
         {loading ? (
-          <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-5 animate-spin" />Connecting…</div>
+          <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-5 animate-spin" />{route.pathname === "/authorize" ? "Opening computer workspace…" : "Checking account session…"}</div>
         ) : route.pathname === "/logout/complete" ? (
           <><Check className="mb-6 size-8 text-emerald-600" /><h1 className="text-3xl font-semibold">Logged out</h1><p className="mt-4 text-sm leading-6 text-slate-500">Computer connections in this browser have ended. Tasks on your computers keep running.</p><a className="mt-8 underline" href="/login">Sign in again</a></>
         ) : intentDone ? (

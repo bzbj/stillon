@@ -3,15 +3,19 @@ import react from "@vitejs/plugin-react"
 import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
 import { precompressStaticAssets } from "./scripts/precompress-static-assets"
+import { writePublicBuildManifest } from "./src/server/public-build-assets"
 
 const CLIENT_OUT_DIR = "dist/client"
 
 function precompressStaticAssetsPlugin(): Plugin {
+  let generatedPaths: string[] = []
   return {
     name: "stillon-precompress-static-assets",
     apply: "build",
+    generateBundle(_options, bundle) { generatedPaths = Object.keys(bundle) },
     async closeBundle() {
       const summary = await precompressStaticAssets(CLIENT_OUT_DIR)
+      await writePublicBuildManifest(CLIENT_OUT_DIR, generatedPaths)
       const originalKiB = Math.round(summary.originalBytes / 1_024)
       const brotliKiB = Math.round(summary.brotliBytes / 1_024)
       const gzipKiB = Math.round(summary.gzipBytes / 1_024)
@@ -75,6 +79,7 @@ export default defineConfig({
     allowedHosts: getAllowedHosts(),
   },
   build: {
+    manifest: true,
     outDir: CLIENT_OUT_DIR,
     emptyOutDir: true,
     rolldownOptions: {

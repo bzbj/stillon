@@ -8,8 +8,8 @@ import { executeResourceAction } from "../ResourceLink"
 import { useLinkCapabilities } from "../../lib/linkCapabilities"
 import { parseLoopbackPreviewUrl } from "../../../shared/browser-preview-proxy"
 
-export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onNavigate }: {
-  target: PreviewTarget; projectId?: string; refreshVersion: number; zoom: number
+export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion, zoom, onNavigate }: {
+  targetId?: string; target: PreviewTarget; projectId?: string; refreshVersion: number; zoom: number
   onNavigate: (address: string, mode?: "replace" | "pop") => void
 }) {
   const [url, setUrl] = useState<string>(), [error, setError] = useState<string>()
@@ -29,7 +29,8 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
     setLinkedAction(undefined)
     setDependencyError(undefined)
     frameTargetId.current = undefined
-    void registerPreviewTarget(target.address, projectId).then(async standalone => {
+    void (targetId ? Promise.resolve(`/preview/${targetId}`) : registerPreviewTarget(target.address, projectId)).then(async standalone => {
+      if (!active) return
       const id = standalone.split("/").pop()!
       const response = await fetch(`/api/file-previews/${id}/entry`, { method: "POST" })
       const value = await response.json()
@@ -46,7 +47,7 @@ export function DirectHtmlPreview({ target, projectId, refreshVersion, zoom, onN
       }
     }).catch(e => { if (active) setError(e.message) })
     return () => { active = false }
-  }, [target.address, projectId, refreshVersion])
+  }, [targetId, target.address, projectId, refreshVersion])
   useEffect(() => {
     if (!url) return
     let active = true

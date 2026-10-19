@@ -20,11 +20,11 @@ import type { SocketStatus } from "../app/socket"
 import type { StillOnState } from "../app/useStillOnState"
 import { PageHeader } from "../app/PageHeader"
 import { resolveHomeProject } from "../lib/defaultProject"
-import { NewProjectModal } from "./NewProjectModal"
 import { WorkspaceAvatar } from "./WorkspaceAvatar"
 import { Button } from "./ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
+const NewProjectModal = lazy(() => import("./NewProjectModal").then(({ NewProjectModal }) => ({ default: NewProjectModal })))
 const ChatInput = lazy(() => import("./chat-ui/ChatInput").then(({ ChatInput }) => ({ default: ChatInput })))
 
 interface LocalDevProps {
@@ -174,7 +174,7 @@ export function LocalDev({
             icon={CodeXml}
             title={isConnecting ? `Connecting ${APP_NAME}` : `Connect ${APP_NAME}`}
             subtitle={isConnecting
-              ? `${APP_NAME} is starting up and loading your local workspaces.`
+              ? `${APP_NAME} is opening your workspaces.`
               : `Run ${APP_NAME} directly on your machine with full access to your local files and agent workspace history.`}
           />
           <div className="max-w-2xl w-full mx-auto pb-12 px-6">
@@ -183,9 +183,9 @@ export function LocalDev({
               <InfoCard>
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
-                  <span className="text-sm text-muted-foreground">
+                  <span role="status" className="text-sm text-muted-foreground">
                     {isConnecting ? (
-                      `Connecting to your local ${APP_NAME} server...`
+                      connectionStatus === "connected" ? "Loading workspaces…" : "Connecting to your computer…"
                     ) : (
                       <>
                         Not connected. Run <code className="bg-background border border-border rounded-md mx-0.5 p-1 font-mono text-xs text-foreground">{getCliInvocation()}</code> from any terminal on this machine.
@@ -331,14 +331,14 @@ export function LocalDev({
         </div>
       )}
 
-      <NewProjectModal
+      {newProjectOpen ? <Suspense fallback={<p role="status">Loading workspace picker… <button type="button" onClick={() => onNewProjectOpenChange(false)}>Cancel</button></p>}><NewProjectModal
         machineName={machineName}
         open={newProjectOpen}
         onOpenChange={onNewProjectOpenChange}
         onConfirm={onCreateProject}
         onListDirectories={onListDirectories}
         onResolveLocalPath={onResolveLocalPath}
-      />
+      /></Suspense> : null}
 
       <div className="py-4 text-center">
         <span className="text-xs text-muted-foreground/50">v{SDK_CLIENT_APP.split("/")[1]}</span>

@@ -1,5 +1,6 @@
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { markStartupPhase } from "../lib/startupMetrics"
 import { useSidebarLayout } from "../hooks/useSidebarLayout"
 import { isConnectBrowser } from "../lib/remoteSession"
 import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
@@ -529,6 +530,7 @@ function useStillOnSocket() {
 
   useEffect(() => {
     const socket = socketRef.current
+    markStartupPhase("socket-start")
     socket?.start()
     return () => {
       socket?.dispose()
@@ -967,11 +969,15 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [cacheScope, sidebarBootstrap.identity])
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
+  useEffect(() => {
+    if (connectionStatus === "connected") markStartupPhase("socket-open")
+  }, [connectionStatus])
 
   useEffect(() => socket.subscribe({ type: "codex-model-policy" }, () => {}), [socket])
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
+      markStartupPhase("sidebar-data")
       setSidebarData(snapshot)
       sidebarSnapshotStatusRef.current = "authoritative"
       setSidebarSnapshotStatus("authoritative")
@@ -1019,6 +1025,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   useEffect(() => {
     return socket.subscribe<LocalProjectsSnapshot>({ type: "local-projects" }, (snapshot) => {
+      markStartupPhase("project-data")
       setLocalProjects(snapshot)
       setLocalProjectsReady(true)
       setCommandError(null)
@@ -1034,6 +1041,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   useEffect(() => {
     return socket.subscribe<AppSettingsSnapshot>({ type: "app-settings" }, (snapshot) => {
+      markStartupPhase("preferences")
       applyAppSettingsSnapshot(snapshot)
       setCommandError(null)
     })
@@ -1408,6 +1416,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const composerPreferencesReady = activeChatId
     ? chatReady && Boolean(runtime?.lastTurnPreferences || appSettings)
     : Boolean(appSettings)
+  useEffect(() => {
+    if (sidebarReady && localProjectsReady && composerPreferencesReady) markStartupPhase("workspace-data-ready")
+    if (activeChatId && chatReady && messages.length) markStartupPhase("chat-data")
+    if (activeChatId && composerPreferencesReady && connectionStatus === "connected") markStartupPhase("chat-preferences-ready")
+  }, [activeChatId, chatReady, messages.length, sidebarReady, localProjectsReady, composerPreferencesReady, connectionStatus])
   const queuedMessages = activeChatSnapshot?.queuedMessages ?? []
   const optimisticRuntimeStatus = optimisticProcessing?.scopeId === optimisticScopeId && (!runtime || runtime.status === "idle")
     ? "starting"
@@ -2320,7 +2333,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     chatDiffSnapshot,
     keybindings,
     appSettings,
-    workspaceCollapsed: sidebarBootstrap.view?.workspaceCollapsed,
+    workspaceCollapsed: appSettings?.workspaceCollapsed ?? sidebarBootstrap.view?.workspaceCollapsed,
     workspaceCollapseVersions: appSettings?.workspaceCollapseVersions ?? sidebarBootstrap.view?.workspaceCollapseVersions ?? {},
     handleWriteWorkspaceCollapsed,
     sidebarWidth,

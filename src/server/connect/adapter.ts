@@ -17,7 +17,7 @@ export function startRemoteAdapter(options: {
   targetOrigin: string; localSecret: string; publicKey: string; hostId: string; epoch: number; generation: number
 }) {
   const leases = new Map<string, ActiveLease>()
-  const relay = new ConnectRelay()
+  const relay = new ConnectRelay("adapter-upstream")
   const targetOrigin = new URL(options.targetOrigin).origin
   let stopped = false
   let wall = Date.now(), monotonic = performance.now()

@@ -55,7 +55,11 @@ describe("markdownComponents", () => {
           </Markdown>
         </OpenLocalLinkProvider>
       )
-      expect(html).toContain('role="link"')
+      const href = html.match(/<a[^>]+href="([^"]+)"/u)?.[1]
+      expect(href).toBeDefined()
+      const destination = new URL(href!, "http://localhost")
+      expect(destination.origin).toBe("http://localhost")
+      expect(destination.searchParams.get("address")).toBe(`http://${host}:5173/demo?mode=interactive#screen`)
       expect(html).not.toContain(`href="http://${host}:5173`)
       expect(html).not.toContain('target="_blank"')
     }
@@ -136,7 +140,11 @@ describe("markdownComponents", () => {
       </Markdown>
     )
 
-    expect(html).toContain('role="link"')
+    const href = html.match(/<a[^>]+href="([^"]+)"/u)?.[1]
+    expect(href).toBeDefined()
+    const destination = new URL(href!, "http://localhost")
+    expect(destination.origin).toBe("http://localhost")
+    expect(destination.searchParams.get("address")).toStartWith("/api/local-files/preview/")
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -152,7 +160,11 @@ describe("markdownComponents", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain('role="link"')
+    const href = html.match(/<a[^>]+href="([^"]+)"/u)?.[1]
+    expect(href).toBeDefined()
+    const destination = new URL(href!, "http://localhost")
+    expect(destination.origin).toBe("http://localhost")
+    expect(destination.searchParams.get("address")).toStartWith("/api/local-files/preview/")
     expect(html).not.toContain('target="_blank"')
   })
 
@@ -173,7 +185,11 @@ describe("markdownComponents", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain('role="link"')
+    const href = html.match(/<a[^>]+href="([^"]+)"/u)?.[1]
+    expect(href).toBeDefined()
+    const destination = new URL(href!, "http://localhost")
+    expect(destination.origin).toBe("http://localhost")
+    expect(destination.searchParams.get("address")).toStartWith("/api/local-files/preview/")
     expect(html).not.toContain('target="_blank"')
   })
 })

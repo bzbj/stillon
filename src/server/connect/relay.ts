@@ -2,6 +2,7 @@ import type { Server, ServerWebSocket } from "bun"
 import { CONNECT_MAX_STREAMS, CONNECT_MAX_WS_BYTES } from "../../shared/connect"
 import { randomId } from "./crypto"
 import { isConnectCookie } from "../../shared/connect-preview"
+import { canCacheBuildAsset, PRIVATE_BUILD_ASSET_CACHE } from "../../shared/public-asset-cache"
 
 export interface RelayScope { hostId: string; parentId: string; ownerId: string; valid: () => boolean; finished?: () => void; onActivity?: (message: string | Buffer) => void }
 interface ActiveStream { scope: RelayScope; close: () => void }
@@ -53,7 +54,7 @@ function copyApplicationCookies(upstream: Headers, outgoing: Headers) {
 export class ConnectRelay {
   private readonly streams = new Map<string, ActiveStream>()
   private readonly timer: ReturnType<typeof setInterval>
-  constructor() {
+  constructor(private readonly timingStage: "relay" | "gateway-upstream" | "adapter-upstream" = "relay") {
     this.timer = setInterval(() => {
       for (const stream of this.streams.values()) { if (!this.valid(stream.scope)) stream.close() }
     }, 1_000)
@@ -91,15 +92,18 @@ export class ConnectRelay {
       // exchange in Bun 1.3's private-hop pool for the next static module.
       const upstreamHeaders = new Headers(headers)
       upstreamHeaders.set("connection", "close")
+      const upstreamStartedAt = performance.now()
       const upstream = await fetch(target, { method: request.method, headers: upstreamHeaders, keepalive: false,
         body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
         signal: AbortSignal.any([request.signal, controller.signal]), redirect: "manual", decompress: false,
       })
       const outgoing = new Headers(upstream.headers)
+      const cacheableAsset = canCacheBuildAsset(request, upstream.status, upstream.headers, applicationCookies)
+      outgoing.append("Server-Timing", `${this.timingStage};dur=${Math.max(0, performance.now() - upstreamStartedAt).toFixed(2)}`)
       for (const name of HOP_HEADERS) if (name !== "content-length") outgoing.delete(name)
       outgoing.delete("set-cookie"); outgoing.delete("set-cookie2")
       if (applicationCookies) copyApplicationCookies(upstream.headers, outgoing)
-      outgoing.set("Cache-Control", "no-store")
+      outgoing.set("Cache-Control", cacheableAsset ? PRIVATE_BUILD_ASSET_CACHE : "no-store")
       outgoing.set("Referrer-Policy", "no-referrer")
       if (!upstream.body || request.method === "HEAD") { finish(); return new Response(null, { status: upstream.status, headers: outgoing }) }
       // This hop writes a new stream. Let Bun frame it rather than retaining

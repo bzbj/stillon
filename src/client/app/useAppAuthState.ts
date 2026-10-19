@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import type { ConnectHost } from "../../shared/connect"
 import { isConnectBrowser } from "../lib/remoteSession"
-import { parseSidebarViewSnapshot, type SidebarViewSnapshot } from "../../shared/sidebar-view"
+import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { markStartupPhase } from "../lib/startupMetrics"
+import { setResourceSessionScope } from "../lib/resourceRequests"
 
 const AUTH_STATUS_RETRY_DELAY_MS = 500
 
@@ -59,6 +61,7 @@ export function useAppAuthState() {
     const request = (async () => {
       setState((current) => current.status === "ready" ? current : { status: "checking" })
       try {
+        markStartupPhase("auth-start")
         const response = await fetch("/auth/status", {
           method: "GET",
           cache: "no-store",
@@ -70,21 +73,19 @@ export function useAppAuthState() {
         if (generation !== requestGeneration.current) return
         const next = getAppAuthStateFromStatus(payload)
         if (next.status === "ready") {
-          // Do not paint recency defaults while persisted view choices are
-          // still loading. This read uses the same authenticated host entry.
-          const viewResponse = await fetch("/api/sidebar-view", { cache: "no-store", signal: AbortSignal.timeout(10_000) })
-          if (generation !== requestGeneration.current) return
-          const sidebarView = viewResponse.ok ? parseSidebarViewSnapshot(await viewResponse.json()) : null
-          if (!sidebarView) throw new Error("Sidebar view unavailable")
-          if (generation !== requestGeneration.current) return
-          setState({ ...next, sidebarView })
+          // The authenticated socket delivers authoritative view preferences.
+          // Only the sidebar waits for them; project/chat subscriptions start now.
+          markStartupPhase("authenticated")
+          setResourceSessionScope(next.cacheScope ?? window.location.origin)
+          setState(next)
         } else {
+          setResourceSessionScope(null)
           setState(next)
         }
       } catch {
         if (generation !== requestGeneration.current) return
         // Preserve fail-closed handling for a check that cannot be completed.
-        if (isConnectBrowser()) setState({ status: "checking" })
+        if (isConnectBrowser()) { setResourceSessionScope(null); setState({ status: "checking" }) }
         retryTimeoutRef.current = window.setTimeout(() => {
           void refresh()
         }, AUTH_STATUS_RETRY_DELAY_MS)
@@ -101,6 +102,7 @@ export function useAppAuthState() {
     void refresh()
     const hidePrivatePage = () => {
       if (isConnectBrowser()) {
+        setResourceSessionScope(null)
         requestGeneration.current++
         inFlightRef.current = null
         flushSync(() => setState({ status: "checking" }))
