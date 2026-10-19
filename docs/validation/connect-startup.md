@@ -134,6 +134,9 @@ script/style failure recovery, OTP loading, reduced motion, static-only chunk
 reachability, fixture document isolation and built host/Connect controller serving
 under the unchanged CSP. The earlier real WAN checks above precede the new
 shell/entry revision; managed Connect visual acceptance has not been rerun.
+The transport integrity fixture selects a generated leaf ESM from the Vite
+manifest, independent of chunk naming. Twenty native cache-busted imports across
+cancelled metadata requests remain required; application entry modules are excluded.
 Run `bun run check`, then `bun run test`, then `bun run audit`. Avoid rebuilding
 the shared `dist` directory while tests serve it.
 

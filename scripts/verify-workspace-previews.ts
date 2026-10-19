@@ -10,6 +10,7 @@ import { startStillOnServer } from "../src/server/server"
 import { PreviewBrowser } from "../src/server/preview-browser"
 import { listLocalHttpServers } from "../src/server/local-http-servers"
 import { ConnectRelay } from "../src/server/connect/relay"
+import { findBuildModuleProbe } from "./build-module-probe"
 
 // Synthetic accounts/files only. Never enrolls a production computer, sends
 // mail, starts an Agent, or changes the installed application's environment.
@@ -415,12 +416,8 @@ try {
   console.log(JSON.stringify({ localOnly, checks }, null, 2))
   if (browserOutput) {
     clearInterval(progress)
-    const assetDirectory = path.resolve("dist/client/assets")
-    const modules = await Promise.all((await readdir(assetDirectory)).filter(name => /^download-[a-f0-9]{12}\.js$/u.test(name))
-      .map(async name => ({ name, size: (await readFile(path.join(assetDirectory, name))).length })))
-    const probeModule = modules.sort((a, b) => a.size - b.size)[0]
-    assert(probeModule, "The built download module must exist for transport integrity checks")
-    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, outsidePath, projectPath, fixtureRoot: root, output, moduleProbeAsset: "/assets/" + probeModule.name, gatewayVersion: sourceCommit, sourceVersion: sourceCommit, dirty, hostOS: os.platform(), hostRelease: os.release(), adapterVersion: sourceCommit, clientVersion: sourceCommit }))
+    const moduleProbeAsset = await findBuildModuleProbe(path.resolve("dist/client"))
+    await writeFile(path.resolve(browserOutput), JSON.stringify({ entries, addresses, targetIds, projectId: project.id, chatId: chat.id, appOrigin, serviceListPort, outsidePath, projectPath, fixtureRoot: root, output, moduleProbeAsset, gatewayVersion: sourceCommit, sourceVersion: sourceCommit, dirty, hostOS: os.platform(), hostRelease: os.release(), adapterVersion: sourceCommit, clientVersion: sourceCommit }))
     console.log("Workspace browser fixture ready")
     if (stopFile) { while (true) { try { await readFile(stopFile); break } catch { await Bun.sleep(200) } } }
     else await new Promise<void>(resolve => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve) })
