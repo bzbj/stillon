@@ -56,9 +56,9 @@ export function getConnectionStatusPresentation(
 ) {
   if (!ready && snapshotStatus === "cached") {
     return {
-      label: "Last known",
+      label: "Still On",
       description: "Showing a saved sidebar while this machine reconnects",
-      dotClassName: "bg-amber-400 animate-pulse",
+      dotClassName: "bg-amber-400",
     }
   }
 
@@ -66,20 +66,20 @@ export function getConnectionStatusPresentation(
     return {
       label: "Still On",
       description: "Connected to this machine",
-      dotClassName: "bg-emerald-400 shadow-[0_0_0_3px] shadow-emerald-500/15",
+      dotClassName: "bg-emerald-400",
     }
   }
 
   if (connectionStatus === "connecting" || !ready) {
     return {
-      label: "Reconnecting…",
+      label: "Still On",
       description: "Reconnecting to this machine",
-      dotClassName: "bg-amber-400 animate-pulse",
+      dotClassName: "bg-amber-400",
     }
   }
 
   return {
-    label: "Out of Reach",
+    label: "Still On",
     description: "This machine is currently unreachable",
     dotClassName: "bg-rose-400",
   }
@@ -198,7 +198,8 @@ function StillOnSidebarImpl({
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const actionsEnabled = connectionStatus === "connected" && ready
+  // Once hydrated, connection changes do not remove menus or move controls.
+  const actionsEnabled = ready
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
     if (!query) return []
@@ -542,15 +543,6 @@ function StillOnSidebarImpl({
           }}
         >
           <div className="p-2">
-            {!ready && snapshotStatus === "cached" ? (
-              <div
-                role="status"
-                className="mx-1 mb-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300"
-              >
-                Last-known conversations · {connectionStatus === "disconnected" ? "offline" : "updating…"}
-              </div>
-            ) : null}
-
             {!hasVisibleChats && isConnecting ? (
               <div className="space-y-5 px-1 pt-3">
                 {[0, 1, 2].map((section) => (
@@ -660,7 +652,7 @@ function StillOnSidebarImpl({
               </div>
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground" title={connectionPresentation.description}>
                 <span className="font-logo font-semibold tracking-[0.01em]">{connectionPresentation.label}</span>
-                <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", connectionPresentation.dotClassName)} />
+                <span role="img" aria-label={connectionPresentation.description} className={cn("h-2 w-2 rounded-full", connectionPresentation.dotClassName)} />
               </div>
             </div>
           </button>

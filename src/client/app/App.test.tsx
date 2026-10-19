@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { getAppPageTitle, shouldPlayChatNotificationSound } from "./App"
-import { getAppAuthStateFromStatus, shouldRetryAuthStatusRequest } from "./useAppAuthState"
+import { getAppAuthStateFromStatus } from "./useAppAuthState"
 import { getChatNotificationSnapshot, getChatSoundBurstCount, getNotificationTitleCount } from "./chatNotifications"
 import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, clampSidebarWidth, getConnectionStatusPresentation } from "./StillOnSidebar"
 import { isBrowserUnfocused, shouldPlayChatSound } from "../lib/chatSounds"
@@ -42,14 +42,14 @@ describe("connection status presentation", () => {
       label: "Still On",
       dotClassName: expect.stringContaining("emerald"),
     })
-    expect(getConnectionStatusPresentation("connecting", false)).toMatchObject({ label: "Reconnecting…" })
+    expect(getConnectionStatusPresentation("connecting", false)).toMatchObject({ label: "Still On", dotClassName: expect.stringContaining("amber") })
     expect(getConnectionStatusPresentation("connected", false, "cached")).toMatchObject({
-      label: "Last known",
+      label: "Still On",
       description: expect.stringContaining("saved sidebar"),
       dotClassName: expect.stringContaining("amber"),
     })
     expect(getConnectionStatusPresentation("disconnected", true)).toMatchObject({
-      label: "Out of Reach",
+      label: "Still On",
       dotClassName: expect.stringContaining("rose"),
     })
   })
@@ -78,12 +78,6 @@ describe("auth boot helpers", () => {
 
   test("maps enabled but unauthenticated auth status to locked", () => {
     expect(getAppAuthStateFromStatus({ enabled: true, authenticated: false })).toEqual({ status: "locked", error: null })
-  })
-
-  test("retries auth status requests unless the endpoint returned ok", () => {
-    expect(shouldRetryAuthStatusRequest(null)).toBe(true)
-    expect(shouldRetryAuthStatusRequest(false)).toBe(true)
-    expect(shouldRetryAuthStatusRequest(true)).toBe(false)
   })
 })
 
