@@ -1116,6 +1116,9 @@ export interface ChatDiffSnapshot extends BranchMetadata, UpstreamStatus {
   branchHistory?: ChatBranchHistorySnapshot
 }
 
+/** Negotiated HTTP delivery keeps large file lists off the shared socket. */
+export type ProjectGitSnapshotData = ChatDiffSnapshot | { deferred: true; revision: string } | null
+
 export interface BranchActionSuccess {
   ok: true
   branchName?: string

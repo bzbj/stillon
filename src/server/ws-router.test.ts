@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type {
   AppSettingsSnapshot,
+  ChatDiffSnapshot,
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   SubscriptionUsageSnapshot,
@@ -1301,18 +1302,15 @@ describe("ws-router", () => {
       updatedAt: 1,
     })
 
+    const gitSnapshot: ChatDiffSnapshot = { status: "ready", branchName: "main", files: [], branchHistory: { entries: [] } }
+
     const router = createWsRouter({
       store: {
         state,
         getProject: () => state.projectsById.get("project-1") ?? null,
       } as never,
       diffStore: {
-        getProjectSnapshot: () => ({
-          status: "ready",
-          branchName: "main",
-          files: [],
-          branchHistory: { entries: [] },
-        }),
+        getProjectSnapshot: () => gitSnapshot,
         refreshSnapshot: async () => false,
         listBranches: async () => ({ recent: [], local: [], remote: [], pullRequests: [], pullRequestsStatus: "unavailable" }),
         previewMergeBranch: async () => ({ currentBranchName: "main", targetBranchName: "feature/test", targetDisplayName: "feature/test", status: "mergeable", commitCount: 1, hasConflicts: false, message: "ready" }),
@@ -1366,6 +1364,18 @@ describe("ws-router", () => {
         },
       },
     })
+
+    gitSnapshot.files = Array.from({ length: 9_200 }, (_, index) => ({
+      path: `${"example/".repeat(16)}file-${index}.ts`, changeType: "added", isUntracked: true,
+      additions: 1, deletions: 0, patchDigest: "a".repeat(64),
+    }))
+    await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "subscribe", id: "project-git-sub-1",
+      topic: { type: "project-git", projectId: "project-1", deferLargeSnapshots: true } }))
+    const deferred = ws.sent.at(-1) as { snapshot: { data: { deferred: boolean; revision: string } } }
+    expect(deferred.snapshot.data.deferred).toBe(true)
+    expect(deferred.snapshot.data.revision).toHaveLength(64)
+    expect(Buffer.byteLength(JSON.stringify(deferred))).toBeLessThan(1024)
+    expect(gitSnapshot.files).toHaveLength(9_200)
   })
 
   test("reads diff patches through the project-scoped command", async () => {

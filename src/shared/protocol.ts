@@ -8,7 +8,7 @@ import type {
   AsyncQuestionAnswerInput,
   AsyncQuestionDeliveryStatus,
   ChatAttachment,
-  ChatDiffSnapshot,
+  ProjectGitSnapshotData,
   ChatHistoryPage,
   ChatSnapshot,
   DiffCommitMode,
@@ -97,7 +97,7 @@ export type SubscriptionTopic =
   | { type: "app-settings" }
   | { type: "codex-model-policy" }
   | { type: "chat"; chatId: string; recentLimit?: number; streamVersion?: 1; streamId?: string }
-  | { type: "project-git"; projectId: string }
+  | { type: "project-git"; projectId: string; deferLargeSnapshots?: true }
   | { type: "terminal"; terminalId: string }
 
 export interface TerminalSnapshot {
@@ -326,7 +326,7 @@ export type ServerSnapshot =
   | { type: "codex-model-policy"; data: CodexModelPolicySnapshot }
   | { type: "llm-provider"; data: LlmProviderSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
-  | { type: "project-git"; data: ChatDiffSnapshot | null }
+  | { type: "project-git"; data: ProjectGitSnapshotData }
   | { type: "terminal"; data: TerminalSnapshot | null }
 
 export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot } & (

@@ -43,6 +43,7 @@ import {
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { StillOnSocket, type SocketStatus } from "./socket"
+import { subscribeProjectGit } from "../lib/projectGitSubscription"
 import type { LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
@@ -1364,7 +1365,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       return
     }
 
-    const unsubscribe = socket.subscribe<ChatDiffSnapshot | null>({ type: "project-git", projectId: activeProjectId }, (snapshot) => {
+    const unsubscribe = subscribeProjectGit(socket, activeProjectId, (snapshot) => {
       setProjectDiffSnapshots((current) => {
         const nextDiffs = snapshot ?? null
         if (shouldPreserveExistingProjectDiffs(current[activeProjectId] ?? null, nextDiffs)) {

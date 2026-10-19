@@ -14,6 +14,7 @@ import type { CodexModelPolicyManager } from "./codex-model-policy-manager"
 import type { AppSettingsManager } from "./app-settings"
 import type { DiscoveredProject } from "./discovery"
 import { DiffStore } from "./diff-store"
+import { projectGitSnapshotForTransport } from "./project-git-snapshot"
 import { EventStore } from "./event-store"
 import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
@@ -841,9 +842,9 @@ export function createWsRouter({
         id,
         snapshot: {
           type: "project-git",
-          data: store.getProject(topic.projectId)
+          data: projectGitSnapshotForTransport(store.getProject(topic.projectId)
             ? resolvedDiffStore.getProjectSnapshot(topic.projectId)
-            : null,
+            : null, topic.deferLargeSnapshots),
         },
       }
     }

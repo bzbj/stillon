@@ -51,6 +51,7 @@ import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
+import { handleProjectGitSnapshotRequest } from "./project-git-snapshot"
 import { appendHttpTiming } from "../shared/http-timing"
 import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
@@ -501,6 +502,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               workspaceCollapseVersions: settings.workspaceCollapseVersions,
             }, { headers: { "Cache-Control": "no-store" } })
           }
+
+          const projectGitResponse = handleProjectGitSnapshotRequest(req, url,
+            id => store.getProject(id) ? diffStore.getProjectSnapshot(id) : null)
+          if (projectGitResponse) return projectGitResponse
 
           if (url.pathname === "/health") {
             return Response.json({ ok: true, port: actualPort,
