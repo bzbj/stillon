@@ -65,8 +65,9 @@ previews continue using their separate read-only resource capabilities.
 
     bun run check
     bun run test
-    bun run prepare:connect-runtime --server
-    bun scripts/test-connect-dynamic-preview.ts
+
+Full managed transport acceptance runs in the private service repository with
+`bun run test:previews`; public builds do not need private source or credentials.
 
 The isolated integration uses two real StillOn servers, a fake mail sender,
 real frps/frpc and a real Vite development server. It checks discovery through

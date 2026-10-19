@@ -55,9 +55,6 @@ bun run check
 bun run test
 bun run audit
 bun scripts/test-provider-cli-updates.ts
-bun run prepare:connect-runtime --server
-bun scripts/build-connect.ts
-bun scripts/test-connect-provider-cli-updates.ts --cloud-package=dist/connect-service
 ```
 
 Acceptance scripts use a synthetic npm prefix and installer. They launch real
@@ -66,7 +63,7 @@ package or account is used. Connect acceptance exercises a real login gateway,
 two tunnels, adapters and servers: remote update → local read, local update →
 remote read, reload, failure/retry, origin/account/host isolation and replay
 rejection. The platform CI matrix runs local process acceptance; Connect CI
-runs packaged cloud acceptance. Unit tests cover selection changes, active work,
+runs packaged cloud acceptance in the private service repository. Unit tests cover selection changes, active work,
 concurrency, redaction, preview versions and native/npm/App path handling.
 
 `bun scripts/test-provider-cli-updates.ts --browser` starts a bounded browser

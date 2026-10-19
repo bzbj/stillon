@@ -340,12 +340,14 @@ using the [external ingress contract](docs/external-ingress.md). Use
 ## Development
 
 The **StillOn Connect development preview** adds local email binding, managed
-outbound tunnels, separate computer URLs and remote Logout. See
-[Connect remote access](docs/connect-remote-access.md) for architecture, tests,
-packaging and release gates, and [email login](docs/connect-email-login.md) for
-sender configuration. A managed service must be deployed before a packaged
-client can use it; public-network and independent-platform acceptance remain
-required before a customer release.
+outbound tunnels, separate computer URLs and remote Logout. This public
+repository contains the local application and connector; the officially hosted
+account service, login portal and gateway are maintained separately in a private
+repository. Public builds and tests need no private access. See
+[repository layout](docs/repository-layout.md) and
+[Connect remote access](docs/connect-remote-access.md) for the shared protocol,
+trust boundaries and compatibility checks. A configured managed service is
+required for Connect; self-managed ingress remains available independently.
 
 ```bash
 bun run dev
