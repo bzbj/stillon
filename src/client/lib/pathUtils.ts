@@ -177,6 +177,8 @@ function parseRelativeFileTarget(target: string): ParsedFileTarget | null {
   const isLineSuffix = /^(?:[^/?#]*[./\\][^?#]*):\d+(?::\d+)?(?:[?#]|$)/.test(target)
   if (
     target.startsWith("/")
+    || WINDOWS_DRIVE_TARGET_PATTERN.test(target)
+    || WINDOWS_UNC_PATH_PATTERN.test(target)
     || target.startsWith("#")
     || target.startsWith("?")
     || target.startsWith("//")

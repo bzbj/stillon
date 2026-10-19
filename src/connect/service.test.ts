@@ -99,6 +99,7 @@ test("direct file origins bind resources to a live host parent and require the a
   const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     seen.push(request.clone())
     const headers: Record<string, string> = supported ? { "X-StillOn-File-Preview-Transport": "1" } : {}
+    if (new URL(request.url).pathname.endsWith("/demo.js")) return new Response("document.title='Loaded'", { headers: { ...headers, "content-type": "text/javascript" } })
     return request.method === "POST" ? Response.json({ protocol: 1, path: "/index.html", scopeKey: "a".repeat(64) }, { headers })
       : new Response('<head><script>const parentOrigin="http://localhost:3210";</script></head><input>', { headers: { ...headers, "content-type": "text/html" } })
   } })
@@ -130,10 +131,25 @@ test("direct file origins bind resources to a live host parent and require the a
   expect(new URL(seen.at(-1)!.url).pathname).toBe(`/api/file-previews/${targetId}/resource/index.html`)
   expect(seen.at(-1)!.headers.has("cookie")).toBe(false)
   expect(seen.at(-1)!.headers.has("authorization")).toBe(false)
+  // TLS terminates at the public proxy; Bun receives HTTP while module requests
+  // retain the browser's public HTTPS Origin.
+  const moduleUrl = new URL("/demo.js", url)
+  moduleUrl.protocol = "http:"
+  const moduleRequest = (from: string, extra: Record<string, string> = {}) => f.service.host(new Request(moduleUrl, { headers: {
+    host: url.host, origin: from, "sec-fetch-dest": "script", "sec-fetch-mode": "cors", ...extra,
+  } }), null as never)
+  const moduleResponse = (await moduleRequest(url.origin))!
+  expect(moduleResponse.status).toBe(200)
+  expect(moduleResponse.headers.get("content-type")).toContain("text/javascript")
+  expect(await moduleResponse.text()).toBe("document.title='Loaded'")
+  for (const from of ["null", moduleUrl.origin, hostOrigin, origin, "https://attacker.example", url.origin + ":8443"]) {
+    expect((await moduleRequest(from, { "x-forwarded-proto": "https" }))!.status).toBe(403)
+  }
   supported = false
   expect((await start())!.status).toBe(409)
   f.service.registry.setPaused(host.id, true)
   expect((await resource())!.status).toBe(410)
+  expect((await moduleRequest(url.origin))!.status).toBe(410)
   f.service.registry.setPaused(host.id, false)
   f.service.registry.revokeParent(account.identity.id)
   expect((await resource())!.status).toBe(410)

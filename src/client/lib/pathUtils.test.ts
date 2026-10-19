@@ -225,6 +225,15 @@ describe("parseProjectRelativeRenderableFileLink", () => {
 })
 
 describe("parseProjectRelativeFileLink", () => {
+  test("leaves Windows absolute and UNC code locations to the absolute link parser", () => {
+    for (const href of [
+      "C:/Users/example/work/src/app.ts:498",
+      "C:\\Users\\example\\work\\src\\app.ts:498:3",
+      "C:%5CUsers%5Cexample%5Cwork%5Csrc%5Capp.ts:498",
+      "\\\\server\\share\\work\\src\\app.ts:498",
+    ]) expect(parseProjectRelativeFileLink(href, "C:/Users/example/work")).toBeNull()
+  })
+
   test("resolves PDF, Excel, extensionless, and anchored document links from the project root", () => {
     expect(parseProjectRelativeFileLink("./output/report.pdf", "/Users/example/Projects/stillon")).toEqual({
       path: "/Users/example/Projects/stillon/output/report.pdf",

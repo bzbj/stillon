@@ -2,6 +2,15 @@ import { expect, test } from "bun:test"
 import { fileRenderer, IMAGE_EXTENSIONS } from "./file-renderers"
 import { getLinkActions } from "./link-actions"
 import { resolveLinkTarget } from "../client/lib/linkTarget"
+import { parseProjectRelativeFileLink } from "../client/lib/pathUtils"
+
+test("chat project resolution preserves Windows absolute code locations", () => {
+  const localPath = "C:/Users/example/work"
+  const target = resolveLinkTarget("C:/Users/example/work/src/app.ts:498", {
+    localPath, resolveFile: href => parseProjectRelativeFileLink(href, localPath),
+  })
+  expect(target).toEqual({ kind: "file", file: { path: localPath + "/src/app.ts", line: 498, column: undefined } })
+})
 
 test("B01–B08 default actions and menu order", () => {
   const rows = [

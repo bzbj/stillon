@@ -202,7 +202,12 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           if (!grant || request.headers.get("host") && request.headers.get("host") !== url.host) throw new ConnectFault("FILE_PREVIEW_EXPIRED", 410)
           if (!["GET", "HEAD"].includes(request.method) || request.headers.get("upgrade") || request.headers.get("service-worker") || request.headers.get("sec-fetch-dest") === "serviceworker") throw new ConnectFault("FILE_PREVIEW_READ_ONLY", 403)
           const from = request.headers.get("origin")
-          if (from && from !== url.origin) throw new ConnectFault("INVALID_ORIGIN", 403)
+          // The gateway may receive HTTP behind a TLS-terminating proxy. Match
+          // the configured public scheme and validated grant authority, never
+          // the internal request scheme or untrusted forwarded headers.
+          const publicOrigin = new URL(centralOrigin)
+          publicOrigin.host = url.host
+          if (from && from !== publicOrigin.origin) throw new ConnectFault("INVALID_ORIGIN", 403)
           const { session, targetId } = grant
           registry.limited(`file-preview:${session.ownerId}`, 1200, 60)
           const target = new URL(transport)
