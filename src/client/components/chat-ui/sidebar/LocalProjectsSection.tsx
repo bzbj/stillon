@@ -72,7 +72,6 @@ interface SortableProjectGroupProps {
   onRenameProject?: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => void
   onHideProject?: (projectId: string) => void
   isConnected?: boolean
-  actionsEnabled: boolean
   startingLocalPath?: string | null
 }
 
@@ -237,7 +236,6 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   onRenameProject,
   onHideProject,
   isConnected,
-  actionsEnabled,
   startingLocalPath,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, title } = group
@@ -248,7 +246,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   const activity = getWorkspaceActivity(group.chats)
   const description = activityDescription(activity, isActive)
   const hasMore = group.olderChats.length > 0
-  const hasProjectMenu = actionsEnabled && Boolean(onHideProject && onCopyPath)
+  const hasProjectMenu = Boolean(onHideProject && onCopyPath)
 
   const {
     attributes,
@@ -468,7 +466,6 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           onRenameProject={onRenameProject}
           onHideProject={onHideProject}
           isConnected={actionsEnabled && isConnected}
-          actionsEnabled={actionsEnabled}
           startingLocalPath={startingLocalPath}
         />
         ))}

@@ -16,7 +16,6 @@ interface TerminalWorkspaceShellProps {
   splitTerminalShortcut?: string[]
   focusRequestVersion: number
   pendingCommandsByTerminalId?: Record<string, string>
-  onTerminalCommandSent?: () => void
   onInitialTerminalCommandSent?: (terminalId: string) => void
   onRemoveTerminal: (projectId: string, terminalId: string) => void
   onTerminalLayout: ReturnType<typeof useTerminalLayoutStore.getState>["setTerminalSizes"]
@@ -34,7 +33,6 @@ export const TerminalWorkspaceShell = memo(function TerminalWorkspaceShell({
   splitTerminalShortcut,
   focusRequestVersion,
   pendingCommandsByTerminalId,
-  onTerminalCommandSent,
   onInitialTerminalCommandSent,
   onRemoveTerminal,
   onTerminalLayout,
@@ -52,7 +50,6 @@ export const TerminalWorkspaceShell = memo(function TerminalWorkspaceShell({
         splitTerminalShortcut={splitTerminalShortcut}
         focusRequestVersion={focusRequestVersion}
         pendingCommandsByTerminalId={pendingCommandsByTerminalId}
-        onTerminalCommandSent={onTerminalCommandSent}
         onInitialTerminalCommandSent={onInitialTerminalCommandSent}
         onRemoveTerminal={onRemoveTerminal}
         onTerminalLayout={onTerminalLayout}

@@ -38,6 +38,13 @@ clients. Server and client deployments do not happen together. A protocol
 change needs paired public/private changes, a recorded compatibility policy
 and a compatible server rollout before new client behavior is required.
 
+Host/browser Git subscriptions may opt in with `deferLargeSnapshots: true`.
+Snapshots over 512 KiB then carry `{ deferred: true, revision }`; the browser
+reads the complete snapshot from the authenticated, uncached
+`GET /api/projects/:projectId/git-snapshot` endpoint. Smaller snapshots and
+subscriptions without the opt-in retain the existing shape. This uses the
+current Connect HTTP relay and protocol 1, so no gateway update is required.
+
 Public checks cover the local app, connector, adapter and shared contracts.
 Maintainers also run the private integration suite with two real local clients,
 synthetic accounts, frps/frpc, the gateway and adapters before accepting remote

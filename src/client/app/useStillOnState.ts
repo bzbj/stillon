@@ -13,7 +13,7 @@ import {
   CHAT_HISTORY_PAGE_ENTRY_LIMIT,
   INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
 } from "../../shared/transcript-history"
-import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatDiffSnapshot, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
+import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { createComposerStateForNewChat, NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -131,62 +131,6 @@ function sameQueuedMessages(left: ChatSnapshot["queuedMessages"] | null | undefi
   if (!left || !right) return false
   if (left.length !== right.length) return false
   return left.every((message, index) => sameQueuedMessage(message, right[index]!))
-}
-
-function sameDiffs(left: ChatDiffSnapshot | null | undefined, right: ChatDiffSnapshot | null | undefined) {
-  if (left === right) return true
-  if (!left || !right) return false
-  if (left.status !== right.status) return false
-  if (left.branchName !== right.branchName) return false
-  if (left.defaultBranchName !== right.defaultBranchName) return false
-  if (left.hasOriginRemote !== right.hasOriginRemote) return false
-  if (left.originRepoSlug !== right.originRepoSlug) return false
-  if (left.hasUpstream !== right.hasUpstream) return false
-  if (left.aheadCount !== right.aheadCount) return false
-  if (left.behindCount !== right.behindCount) return false
-  if (left.lastFetchedAt !== right.lastFetchedAt) return false
-  const leftHistory = left.branchHistory?.entries ?? []
-  const rightHistory = right.branchHistory?.entries ?? []
-  if (leftHistory.length !== rightHistory.length) return false
-  const sameBranchHistory = leftHistory.every((entry, index) => {
-    const other = rightHistory[index]
-    return Boolean(other)
-      && entry.sha === other.sha
-      && entry.summary === other.summary
-      && entry.description === other.description
-      && entry.authorName === other.authorName
-      && entry.authoredAt === other.authoredAt
-      && entry.githubUrl === other.githubUrl
-      && entry.tags.length === other.tags.length
-      && entry.tags.every((tag, tagIndex) => tag === other.tags[tagIndex])
-  })
-  if (!sameBranchHistory) return false
-  if (left.files.length !== right.files.length) return false
-  return left.files.every((file, index) => {
-    const other = right.files[index]
-    return Boolean(other)
-      && file.path === other.path
-      && file.changeType === other.changeType
-      && file.isUntracked === other.isUntracked
-      && file.additions === other.additions
-      && file.deletions === other.deletions
-      && file.patchDigest === other.patchDigest
-      && file.mimeType === other.mimeType
-      && file.size === other.size
-  })
-}
-
-function shouldPreserveExistingProjectDiffs(
-  current: ChatDiffSnapshot | null | undefined,
-  next: ChatDiffSnapshot | null | undefined
-) {
-  return Boolean(
-    current
-    && current.status !== "unknown"
-    && next
-    && next.status === "unknown"
-    && next.files.length === 0
-  )
 }
 
 function sameChatSnapshotCore(left: ChatSnapshot | null, right: ChatSnapshot | null) {
@@ -737,7 +681,6 @@ export interface StillOnState {
   localProjects: LocalProjectsSnapshot | null
   defaultProjectId: string | null
   chatSnapshot: ChatSnapshot | null
-  chatDiffSnapshot: ChatDiffSnapshot | null
   keybindings: KeybindingsSnapshot | null
   appSettings: AppSettingsSnapshot | null
   workspaceCollapsed: SidebarViewSnapshot["workspaceCollapsed"] | undefined
@@ -878,7 +821,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [hasOlderHistory, setHasOlderHistory] = useState(false)
   const [historyRefreshEpoch, setHistoryRefreshEpoch] = useState(0)
-  const [projectDiffSnapshots, setProjectDiffSnapshots] = useState<Record<string, ChatDiffSnapshot | null>>({})
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettingsSnapshot | null>(null)
   const [machineName, setMachineName] = useState<string | null>(sidebarBootstrap.machineName)
@@ -910,10 +852,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   )
   const chatSubscriptionDebugRef = useRef(0)
   const lastStartingRenderedTraceIdRef = useRef<string | null>(null)
-  const lastActiveProjectDiffRef = useRef<{ projectId: string | null; diffs: ChatDiffSnapshot | null }>({
-    projectId: null,
-    diffs: null,
-  })
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
   const sidebarProjectGroups = useMemo(
@@ -1259,8 +1197,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
           snapshotProvider: snapshot?.runtime.provider ?? null,
           snapshotStatus: snapshot?.runtime.status ?? null,
           messageCount: snapshot?.messages.length ?? 0,
-          diffStatus: null,
-          diffFileCount: 0,
           reusedSnapshot: reused,
         })
         return reused ? current : snapshot
@@ -1342,47 +1278,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }),
     [activeChatId, activeChatSnapshot?.runtime.projectId, pendingChatId, selectedProjectId, sidebarProjectGroups, sidebarReady]
   )
-  const chatDiffSnapshot = useMemo(() => {
-    const currentDiffs = activeProjectId ? (projectDiffSnapshots[activeProjectId] ?? null) : null
-    if (activeProjectId && currentDiffs) {
-      lastActiveProjectDiffRef.current = {
-        projectId: activeProjectId,
-        diffs: currentDiffs,
-      }
-      return currentDiffs
-    }
-
-    if (activeProjectId && lastActiveProjectDiffRef.current.projectId === activeProjectId) {
-      return lastActiveProjectDiffRef.current.diffs
-    }
-
-    return currentDiffs
-  }, [activeProjectId, projectDiffSnapshots])
-
-  useEffect(() => {
-    if (!activeProjectId) {
-      return
-    }
-
-    const unsubscribe = socket.subscribe<ChatDiffSnapshot | null>({ type: "project-git", projectId: activeProjectId }, (snapshot) => {
-      setProjectDiffSnapshots((current) => {
-        const nextDiffs = snapshot ?? null
-        if (shouldPreserveExistingProjectDiffs(current[activeProjectId] ?? null, nextDiffs)) {
-          return current
-        }
-        if (sameDiffs(current[activeProjectId] ?? null, nextDiffs)) {
-          return current
-        }
-        return {
-          ...current,
-          [activeProjectId]: nextDiffs,
-        }
-      })
-      setCommandError(null)
-    })
-
-    return unsubscribe
-  }, [activeProjectId, socket])
   useEffect(() => {
     logStillOnState("active snapshot resolved", {
       routeChatId: activeChatId,
@@ -2330,7 +2225,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     localProjects,
     defaultProjectId: validDefaultProjectId,
     chatSnapshot,
-    chatDiffSnapshot,
     keybindings,
     appSettings,
     workspaceCollapsed: appSettings?.workspaceCollapsed ?? sidebarBootstrap.view?.workspaceCollapsed,

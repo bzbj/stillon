@@ -28,18 +28,23 @@ describe("normalizeKeybindings", () => {
   test("falls back to defaults for invalid entries", () => {
     const snapshot = normalizeKeybindings({
       toggleEmbeddedTerminal: [],
-      toggleRightSidebar: "Ctrl+B",
+      openInFinder: "Ctrl+B",
     }, TEST_FILE_PATH)
 
     expect(snapshot.bindings).toEqual(DEFAULT_KEYBINDINGS)
     expect(snapshot.warning).toContain("toggleEmbeddedTerminal")
-    expect(snapshot.warning).toContain("toggleRightSidebar")
+    expect(snapshot.warning).toContain("openInFinder")
+  })
+
+  test("ignores a retired Git shortcut while preserving other custom bindings", () => {
+    const snapshot = normalizeKeybindings(JSON.parse('{"toggleRightSidebar":["Ctrl+B"],"toggleEmbeddedTerminal":["Cmd+K"]}'), TEST_FILE_PATH)
+    expect(snapshot.bindings).toEqual({ ...DEFAULT_KEYBINDINGS, toggleEmbeddedTerminal: ["cmd+k"] })
+    expect(snapshot.warning).toBeNull()
   })
 
   test("keeps valid shortcut arrays", () => {
     const snapshot = normalizeKeybindings({
       toggleEmbeddedTerminal: [" Cmd+K ", "Ctrl+`"],
-      toggleRightSidebar: ["Ctrl+Shift+B"],
       openInFinder: ["Cmd+Alt+F"],
       openInEditor: ["Cmd+Shift+O"],
       addSplitTerminal: ["Cmd+Shift+J"],
@@ -51,7 +56,6 @@ describe("normalizeKeybindings", () => {
     expect(snapshot).toEqual({
       bindings: {
         toggleEmbeddedTerminal: ["cmd+k", "ctrl+`"],
-        toggleRightSidebar: ["ctrl+shift+b"],
         openInFinder: ["cmd+alt+f"],
         openInEditor: ["cmd+shift+o"],
         addSplitTerminal: ["cmd+shift+j"],
@@ -104,7 +108,6 @@ describe("KeybindingsManager", () => {
     await manager.initialize()
     const snapshot = await manager.write({
       toggleEmbeddedTerminal: ["Cmd+K"],
-      toggleRightSidebar: ["Ctrl+Shift+B"],
       openInFinder: ["Cmd+Alt+F"],
       openInEditor: ["Cmd+Shift+O"],
       addSplitTerminal: ["Cmd+Shift+J"],
@@ -116,7 +119,6 @@ describe("KeybindingsManager", () => {
     expect(snapshot).toEqual({
       bindings: {
         toggleEmbeddedTerminal: ["cmd+k"],
-        toggleRightSidebar: ["ctrl+shift+b"],
         openInFinder: ["cmd+alt+f"],
         openInEditor: ["cmd+shift+o"],
         addSplitTerminal: ["cmd+shift+j"],

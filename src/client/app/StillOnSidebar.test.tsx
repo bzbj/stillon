@@ -95,7 +95,7 @@ function renderSidebar({
 }
 
 describe("StillOnSidebar snapshot state", () => {
-  test("renders cached projects immediately with an explicit stale label and no mutations", () => {
+  test("renders cached projects without inserting reconnect text", () => {
     const html = renderSidebar({
       connectionStatus: "disconnected",
       ready: false,
@@ -104,13 +104,13 @@ describe("StillOnSidebar snapshot state", () => {
 
     expect(html).toContain("Synthetic Project")
     expect(html).toContain("Saved conversation")
-    expect(html).toContain("Last-known conversations · offline")
-    expect(html).toContain("Last known")
+    expect(html).not.toContain("Last-known conversations")
+    expect(html).toContain("Still On")
     expect(html).not.toContain("Archive chat")
     expect(html).not.toContain("Fork chat")
   })
 
-  test("removes the stale label after authoritative hydration", () => {
+  test("keeps the same footer label after authoritative hydration", () => {
     const html = renderSidebar({
       connectionStatus: "connected",
       ready: true,
@@ -128,7 +128,6 @@ describe("StillOnSidebar snapshot state", () => {
   })
 })
 
-
 test("saved fold choices override recency defaults before effects or sidebar hydration", () => {
   const collapsed = renderSidebar({ connectionStatus: "disconnected", ready: false, snapshotStatus: "cached", workspaceCollapsed: { "project-a": true } })
   expect(collapsed).toContain('aria-expanded="false"')
@@ -137,3 +136,21 @@ test("saved fold choices override recency defaults before effects or sidebar hyd
   expect(expanded).toContain('aria-expanded="true"')
   expect(expanded).toContain("Saved conversation")
 })
+
+for (const connectionStatus of ["connecting", "disconnected"] as const) {
+  test(`keeps hydrated sidebar controls and text stable while ${connectionStatus}`, () => {
+    const connected = renderSidebar({ connectionStatus: "connected", ready: true, snapshotStatus: "authoritative" })
+    const reconnecting = renderSidebar({ connectionStatus, ready: true, snapshotStatus: "authoritative" })
+    for (const label of ["workspace options", "Archive chat", "Fork chat", "Reorder Synthetic Project workspace"]) {
+      expect(connected).toContain(label)
+      expect(reconnecting).toContain(label)
+    }
+    for (const label of ["Still On", "Settings", "Synthetic Project", "Saved conversation"]) {
+      expect(connected).toContain(label)
+      expect(reconnecting).toContain(label)
+    }
+    for (const label of ["Reconnecting…", "Out of Reach", "Last known", "Last-known conversations"]) {
+      expect(reconnecting).not.toContain(label)
+    }
+  })
+}

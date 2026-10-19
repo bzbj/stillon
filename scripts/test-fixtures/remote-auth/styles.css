@@ -1,3 +1,2 @@
-body { margin: 0; padding: 24px; font: 16px system-ui, sans-serif; }
+body { margin: 0; font: 16px system-ui, sans-serif; }
 input { border: 1px solid #64748b; padding: 8px; }
-dialog > div { display: flex; min-height: 100dvh; align-items: center; justify-content: center; }

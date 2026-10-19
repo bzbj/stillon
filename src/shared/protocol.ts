@@ -8,10 +8,8 @@ import type {
   AsyncQuestionAnswerInput,
   AsyncQuestionDeliveryStatus,
   ChatAttachment,
-  ChatDiffSnapshot,
   ChatHistoryPage,
   ChatSnapshot,
-  DiffCommitMode,
   KeybindingsSnapshot,
   LlmProviderSnapshot,
   LocalProjectsSnapshot,
@@ -97,7 +95,6 @@ export type SubscriptionTopic =
   | { type: "app-settings" }
   | { type: "codex-model-policy" }
   | { type: "chat"; chatId: string; recentLimit?: number; streamVersion?: 1; streamId?: string }
-  | { type: "project-git"; projectId: string }
   | { type: "terminal"; terminalId: string }
 
 export interface TerminalSnapshot {
@@ -126,7 +123,6 @@ export type ClientCommand =
   | { type: "filesystem.listDirectories"; localPath?: string }
   | { type: "filesystem.resolvePath"; localPath: string }
   | { type: "sidebar.reorderProjectGroups"; projectIds: string[] }
-  | { type: "project.readDiffPatch"; projectId: string; path: string }
   | { type: "system.ping" }
   | { type: "browser.listLocalHttpServers"; projectId?: string }
   | { type: "browser.killLocalHttpServer"; port: number }
@@ -199,74 +195,6 @@ export type ClientCommand =
       effort?: string
       permissionMode?: AgentPermissionMode
     }
-  | { type: "chat.refreshDiffs"; chatId: string }
-  | { type: "chat.initGit"; chatId: string }
-  | { type: "chat.getGitHubPublishInfo"; chatId: string }
-  | { type: "chat.checkGitHubRepoAvailability"; chatId: string; owner: string; name: string }
-  | {
-      type: "chat.publishToGitHub"
-      chatId: string
-      owner: string
-      name: string
-      visibility: "public" | "private"
-      description?: string
-    }
-  | { type: "chat.listBranches"; chatId: string }
-  | {
-      type: "chat.previewMergeBranch"
-      chatId: string
-      branch:
-      | { kind: "local"; name: string }
-      | { kind: "remote"; name: string; remoteRef: string }
-      | {
-          kind: "pull_request"
-          name: string
-          prNumber: number
-          headRefName: string
-          headRepoCloneUrl?: string
-          isCrossRepository?: boolean
-          remoteRef?: string
-        }
-    }
-  | {
-      type: "chat.mergeBranch"
-      chatId: string
-      branch:
-      | { kind: "local"; name: string }
-      | { kind: "remote"; name: string; remoteRef: string }
-      | {
-          kind: "pull_request"
-          name: string
-          prNumber: number
-          headRefName: string
-          headRepoCloneUrl?: string
-          isCrossRepository?: boolean
-          remoteRef?: string
-        }
-    }
-  | { type: "chat.syncBranch"; chatId: string; action: "fetch" | "pull" | "push" | "publish" }
-  | {
-      type: "chat.checkoutBranch"
-      chatId: string
-      branch:
-      | { kind: "local"; name: string }
-      | { kind: "remote"; name: string; remoteRef: string }
-      | {
-          kind: "pull_request"
-          name: string
-          prNumber: number
-          headRefName: string
-          headRepoCloneUrl?: string
-          isCrossRepository?: boolean
-          remoteRef?: string
-        }
-      bringChanges?: boolean
-    }
-  | { type: "chat.createBranch"; chatId: string; name: string; baseBranchName?: string }
-  | { type: "chat.generateCommitMessage"; chatId: string; paths: string[] }
-  | { type: "chat.commitDiffs"; chatId: string; paths: string[]; summary: string; description?: string; mode: DiffCommitMode }
-  | { type: "chat.discardDiffFile"; chatId: string; path: string }
-  | { type: "chat.ignoreDiffFile"; chatId: string; path: string }
   | { type: "chat.cancel"; chatId: string }
   | { type: "chat.stopDraining"; chatId: string }
   | {
@@ -326,7 +254,6 @@ export type ServerSnapshot =
   | { type: "codex-model-policy"; data: CodexModelPolicySnapshot }
   | { type: "llm-provider"; data: LlmProviderSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
-  | { type: "project-git"; data: ChatDiffSnapshot | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 
 export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot } & (

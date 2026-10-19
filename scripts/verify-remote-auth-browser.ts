@@ -22,7 +22,7 @@ try {
   await page.goto(`http://${hostname}:${port}${route}?hold-auth=1`, { timeout: 60_000 })
   await page.waitForFunction(() => (window as any).remoteAuthFixture?.pending.length === 1, undefined, { timeout: 60_000 })
   assert.equal(await page.locator("#draft").count(), 0, "Authentication must finish before mounting private content")
-  assert.equal(await page.locator("dialog[open]").count(), 1)
+  assert.equal(await page.locator("dialog[open]").count(), 0, "Initial auth must not mount an extra checking shield")
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = false; fixture.release() })
   await page.evaluate(() => history.replaceState(null, "", location.pathname))
   await page.waitForFunction(() => (window as any).remoteAuthFixture?.mounts > 0 && !document.querySelector("dialog")?.open, undefined, { timeout: 60_000 })
@@ -39,6 +39,7 @@ try {
       const fixture = (window as any).remoteAuthFixture
       return fixture.settled >= target && !document.querySelector("dialog")?.open
     }, target)
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
   }
   await page.evaluate(() => {
     (document.querySelector("#draft") as HTMLInputElement).value = "Unsent fixture draft"
@@ -58,27 +59,16 @@ try {
   await page.evaluate(() => { (window as any).remoteAuthFixture.hold = false; (window as any).remoteAuthFixture.release() })
   await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 0)
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; window.dispatchEvent(new Event("stillon:check-session")) })
-  await page.waitForSelector("dialog[open]")
-  await page.keyboard.press("Escape")
-  assert.equal((await state()).checking, true, "Escape must not dismiss revalidation")
-  const shield = await page.evaluate(() => {
-    const dialog = document.querySelector("dialog")!
-    ;(document.querySelector("#private-portal") as HTMLButtonElement).focus()
-    const rect = dialog.getBoundingClientRect()
-    return { modal: dialog.matches(":modal"), backgroundFocused: document.activeElement?.id === "private-portal",
-      opaque: getComputedStyle(dialog).backgroundColor !== "rgba(0, 0, 0, 0)",
-      fullScreen: rect.width >= innerWidth && rect.height >= innerHeight }
-  })
-  assert.deepEqual(shield, { modal: true, backgroundFocused: false, opaque: true, fullScreen: true })
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 1)
+  assert.equal((await state()).checking, false, "Socket revalidation must leave the workspace visible")
+  await page.locator("#draft").focus()
+  assert.equal(await page.locator("#draft").evaluate(element => element === document.activeElement), true)
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = false; fixture.release() })
-  await page.waitForFunction(() => !document.querySelector("dialog")?.open)
-  assert.equal((await state()).mounts, before.mounts)
-  assert.equal((await state()).draft, before.draft)
-
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 0)
   await focus("valid", "stillon:check-session")
-  assert.equal((await state()).mounts, before.mounts, "A valid socket recheck must retain the workspace")
+  assert.equal((await state()).mounts, before.mounts)
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
-  assert.equal((await state()).checking, true)
+  assert.equal((await state()).checking, false)
   await focus("valid", "pageshow")
   assert.equal((await state()).mounts, before.mounts, "Restoring a valid page must retain the workspace")
 
@@ -87,17 +77,47 @@ try {
   assert.equal((await state()).viewRequests, 0)
   assert.equal((await state()).draft, before.draft)
 
-  for (const mode of ["network-error", "http-error"]) {
-    await page.evaluate(mode => { const fixture = (window as any).remoteAuthFixture; fixture.mode = mode; fixture.focus() }, mode)
-    await page.waitForFunction(() => (window as any).remoteAuthFixture.state().checking)
-    assert.equal((await state()).mounts, before.mounts)
-    await focus()
-    assert.equal((await state()).draft, before.draft)
+  for (const mode of ["network-error", "http-error", "malformed", "offline"]) {
+    await focus(mode)
+    const after = await state()
+    for (const key of ["mounts", "unmounts", "draft", "scroll", "checkId", "resourceEpoch"]) assert.equal(after[key], before[key], key)
+    assert.equal(after.checking, false)
+    assert.equal(after.authStatus, "ready")
+    const requests = after.requests
+    await page.waitForTimeout(700)
+    assert.equal((await state()).requests, requests, "Occasional failures must not schedule immediate retries")
+  }
+  await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.mode = "valid"; fixture.poll() })
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.state().authStatus === "ready")
+  const menu = page.getByRole("button", { name: "Synthetic Project workspace options", exact: true })
+  const composer = page.getByPlaceholder("Build something...")
+  await composer.fill("Unsent home draft")
+  const originalComposer = await composer.elementHandle()
+  const header = page.locator('[data-stillon-part="project-header"]')
+  const bounds = await header.boundingBox()
+  for (const status of ["connecting", "disconnected", "connected"]) {
+    const originalMenu = await menu.elementHandle()
+    await page.evaluate(status => (window as any).remoteAuthFixture.setConnection(status), status)
+    await menu.waitFor({ state: "visible" })
+    assert.equal(await originalMenu!.evaluate(element => element === document.querySelector('[aria-label="Synthetic Project workspace options"]')), true, "The menu button must stay mounted")
+    assert.equal(await originalComposer!.evaluate(element => element.isConnected), true, "Reconnecting must keep the home composer mounted")
+    assert.equal(await composer.inputValue(), "Unsent home draft")
+    assert.deepEqual(await header.boundingBox(), bounds, "Connection changes must not reflow sidebar headers")
+    assert.equal(await page.getByText("Reconnecting…", { exact: true }).count(), 0)
+    await menu.click()
+    await page.getByRole("menuitem", { name: "Copy Path", exact: true }).waitFor()
+    await page.keyboard.press("Escape")
   }
 
+  await page.evaluate(() => { (window as any).remoteAuthFixture.scope = "session-b" })
+  await focus()
+  await page.waitForFunction(() => (window as any).remoteAuthFixture.mounts === 2)
+  assert.equal((await state()).draft, "", "Changing accounts must isolate private state")
+  const beforeExpiry = await state()
   await focus("expired")
+  await page.waitForSelector("#draft", { state: "detached" })
   assert.equal(await page.locator("#draft").count(), 0, "Expired authentication must unmount private content")
-  assert.equal((await state()).unmounts, before.unmounts + 1)
+  assert.equal((await state()).unmounts, beforeExpiry.unmounts + 1)
   await focus()
   assert.equal((await state()).draft, "", "A new session must not resurrect the previous workspace")
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = true; fixture.focus() })
@@ -109,7 +129,7 @@ try {
   assert.equal(await page.locator("#draft").count(), 0, "A stale successful response must not restore an expired session")
   await focus()
   await focus("offline")
-  assert.equal(await page.locator("#draft").count(), 0, "An unavailable host must not expose the private workspace")
+  assert.equal(await page.locator("#draft").count(), 1, "A temporarily unavailable host must retain the authenticated workspace")
 
   await focus()
   await page.setViewportSize({ width: 412, height: 892 })
@@ -167,7 +187,7 @@ try {
   const requestsAtUnmount = imageRequests.length
   await page.waitForTimeout(700)
   assert.equal(imageRequests.length, requestsAtUnmount, "Session expiry must cancel pending image retries")
-  console.log(`${browserType.name()} remote auth checks passed: retained focus/restore/reconnect state, modal portal shield, fail-closed retries, expiry and stale-response fencing.`)
+  console.log(`${browserType.name()} remote auth checks passed: stable background polls, focus/restore/reconnect state, sidebar geometry/menus, no transient shields/retry bursts, expiry and stale-response fencing.`)
   console.log(`${browserType.name()} attachment image checks passed: transient recovery, bounded retries, online recovery, modal preview, source changes and unmount cleanup.`)
 } finally {
   await browser?.close()

@@ -130,6 +130,7 @@ interface SessionContext {
   model: string
   serviceTier?: ServiceTier
   sessionToken: string | null
+  pendingForkSessionToken: string | null
   pendingTurn: PendingTurn | null
   /** The latest run whose process has not been confirmed gone; the next turn waits for it. */
   writer: PendingTurn | null
@@ -404,10 +405,8 @@ export class CodexExecManager {
       model: args.model,
       serviceTier: args.serviceTier,
       permissionMode: args.permissionMode,
-      // codex exec has exact resume, but no confirmed fork equivalent. A fork
-      // request starts a fresh exec session; Still On clears the pending fork once
-      // the new thread id arrives.
       sessionToken: args.pendingForkSessionToken ? null : args.sessionToken,
+      pendingForkSessionToken: args.pendingForkSessionToken ?? null,
       pendingTurn: null,
       // A replaced session's last run may still be exiting; keep waiting for it.
       writer: existing?.writer && !existing.writer.released ? existing.writer : null,
@@ -444,8 +443,8 @@ export class CodexExecManager {
 
     const environment = this.getEnvironment()
     const commandArgs = this.buildCommandArgs(context, args)
-    // exec/resume own their config flags; outer CLI overrides can be replaced.
-    commandArgs.splice(commandArgs[1] === "resume" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment))
+    // Each exec subcommand owns its config flags; outer overrides can be replaced.
+    commandArgs.splice(commandArgs[1] === "resume" || commandArgs[1] === "fork" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment))
     const child = this.spawnProcess(commandArgs, context.cwd, environment)
     const pendingTurn: PendingTurn = {
       chatId: context.chatId,
@@ -618,16 +617,17 @@ export class CodexExecManager {
       ...serviceTierConfig(args.serviceTier ?? context.serviceTier),
       ...permissionConfig(args.permissionMode ?? context.permissionMode),
     ].flatMap((config) => ["-c", config])
-    if (context.sessionToken) {
+    const sessionToken = context.pendingForkSessionToken ?? context.sessionToken
+    if (sessionToken) {
       return [
         "exec",
-        "resume",
+        context.pendingForkSessionToken ? "fork" : "resume",
         "--json",
         "-m",
         args.model,
         ...configArgs,
         "--skip-git-repo-check",
-        context.sessionToken,
+        sessionToken,
         "-",
       ]
     }
@@ -719,6 +719,7 @@ export class CodexExecManager {
       const threadId = asString(event.thread_id) ?? asString(event.threadId)
       if (threadId) {
         context.sessionToken = threadId
+        context.pendingForkSessionToken = null
         this.claimThread(pendingTurn, threadId)
         pendingTurn.queue.push({ type: "session_token", sessionToken: threadId })
       }

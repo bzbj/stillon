@@ -3,7 +3,6 @@ import {
   getTerminalPanelDefaultSizes,
   getRightSidebarSizePercent,
   getRightSidebarSizePx,
-  getIgnoreFolderEntryFromDiffPath,
   hasFileDragTypes,
   shouldUseMobileRightSidebarOverlay,
   shouldAutoFollowTranscriptResize,
@@ -16,20 +15,6 @@ describe("hasFileDragTypes", () => {
 
   test("returns false for non-file drags", () => {
     expect(hasFileDragTypes(["text/plain", "text/uri-list"])).toBe(false)
-  })
-})
-
-describe("getIgnoreFolderEntryFromDiffPath", () => {
-  test("returns the parent folder with a trailing slash", () => {
-    expect(getIgnoreFolderEntryFromDiffPath("tmp/cache/output.log")).toBe("tmp/cache/")
-  })
-
-  test("normalizes repeated separators before deriving the folder", () => {
-    expect(getIgnoreFolderEntryFromDiffPath("tmp//cache/output.log")).toBe("tmp/cache/")
-  })
-
-  test("returns null for repo root files", () => {
-    expect(getIgnoreFolderEntryFromDiffPath("scratch.log")).toBeNull()
   })
 })
 

@@ -12,7 +12,7 @@ import type {
 } from "../../shared/protocol"
 import { LOG_PREFIX } from "../../shared/branding"
 import { generateUUID } from "../lib/utils"
-import { isConnectBrowser, requestRemoteAuthCheck } from "../lib/remoteSession"
+import { isConnectBrowser } from "../lib/remoteSession"
 
 type SnapshotListener<T> = (value: T) => void
 type EventListener<T> = (value: T) => void
@@ -342,7 +342,6 @@ export class StillOnSocket {
         pending.reject(new Error(this.remote ? `连接中断，结果尚未确认。请先查看任务状态，勿重复提交。（操作 ${id}）` : "Disconnected"))
       }
       this.pending.clear()
-      requestRemoteAuthCheck()
       if (reconnectImmediately) {
         this.connect()
         return

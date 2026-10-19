@@ -155,7 +155,6 @@ function createDefaultSnapshot(filePath: string, warning: string | null = null):
   return {
     bindings: {
       toggleEmbeddedTerminal: [...DEFAULT_KEYBINDINGS.toggleEmbeddedTerminal],
-      toggleRightSidebar: [...DEFAULT_KEYBINDINGS.toggleRightSidebar],
       openInFinder: [...DEFAULT_KEYBINDINGS.openInFinder],
       openInEditor: [...DEFAULT_KEYBINDINGS.openInEditor],
       addSplitTerminal: [...DEFAULT_KEYBINDINGS.addSplitTerminal],
