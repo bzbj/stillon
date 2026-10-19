@@ -107,6 +107,11 @@ try {
     }
     const page = await context.newPage()
     currentPage = page
+    const resolvedFileMenuLabels = async () => {
+      // File menus render a loading state before their read-only metadata is ready.
+      await page.getByRole("menuitem", { name: /^(Preview in sidebar|Open on this computer|Download)$/u }).first().waitFor()
+      return page.getByRole("menuitem").allTextContents()
+    }
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
     for (const name of ["project-markdown", "outside-markdown"]) {
       stage = entry.name + ":" + name + ":document-navigation"
@@ -145,28 +150,40 @@ try {
     assert.equal(imported, 20)
     checks.push({ entry: entry.name, check: "Twenty native cache-busted module imports remain valid across cancelled metadata requests", result: "Pass" })
     stage = entry.name + ":chat:link-resolution"
+    let idleFilePreparation = 0
+    const trackIdlePreparation = (request: import("playwright").Request) => {
+      const pathname = new URL(request.url()).pathname
+      if (pathname === "/api/link-capabilities" || request.method() === "POST" && (/^\/api\/preview-targets(?:\/resolve)?$/u.test(pathname) || /^\/api\/file-previews\/[^/]+\/entry$/u.test(pathname))) idleFilePreparation++
+    }
+    context.on("request", trackIdlePreparation)
     await page.goto(entry.origin + "/chat/" + config.chatId, { waitUntil: "domcontentloaded" })
     const guide = page.getByRole("link", { name: "Read guide", exact: true })
     await guide.waitFor()
+    await page.locator("textarea:not([disabled])").waitFor()
+    assert.equal(idleFilePreparation, 0, "Reading a conversation must not prepare file links or capabilities")
+    context.off("request", trackIdlePreparation)
     await page.evaluate(() => localStorage.setItem("stillon-main-secret", "fixture-secret"))
     await guide.click()
     await page.getByRole("heading", { name: "Preview guide" }).waitFor()
     assert.equal(new URL(page.url()).pathname, "/chat/" + config.chatId)
-    await page.waitForFunction(() => [...document.querySelectorAll("a")].some(link => link.textContent === "Read guide" && link.getAttribute("href")?.startsWith("/preview/")))
-    assert.match(await guide.getAttribute("href") ?? "", /^\/preview\/[\w-]+$/u)
+    const destination = new URL(await guide.getAttribute("href") ?? "", entry.origin)
+    assert.equal(destination.origin, entry.origin)
+    assert.equal(destination.pathname, "/resolve-resource")
+    assert(decodeURIComponent(destination.searchParams.get("address") ?? "").endsWith("README.md"))
     for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
       stage = entry.name + ":chat:" + ("button" in options ? "middle-click" : "modified-click")
       const [popup] = await Promise.all([context.waitForEvent("page"), guide.click(options)])
       await popup.getByRole("heading", { name: "Preview guide" }).waitFor(); await popup.close(); await page.bringToFront()
     }
     await guide.click({ button: "right" })
-    const labels = await page.getByRole("menuitem").allTextContents()
+    const labels = await resolvedFileMenuLabels()
     assert.deepEqual(labels, entry.name === "loopback" ? ["Preview in sidebar", "Open on this computer", "Show in folder"] : ["Preview in sidebar", "Download"])
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Escape")
     await page.getByRole("menu").waitFor({ state: "hidden" })
     await guide.focus(); await page.keyboard.press("Shift+F10")
     assert.equal(await page.getByRole("menu").count(), 1)
+    await resolvedFileMenuLabels()
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Enter")
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
@@ -188,7 +205,7 @@ try {
     for (const [label, fileName, previewable] of [["Text sample", "中文 text.txt", true], ["Image sample", "中文 image.png", true], ["Office sample", "sample.docx", false]] as const) {
       const link = page.getByRole("link", { name: label, exact: true })
       await link.click({ button: "right" })
-      assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(previewable))
+      assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(previewable))
       if (entry.name !== "loopback") await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), fileName)
       else await page.keyboard.press("Escape")
       if (previewable) {
@@ -201,14 +218,14 @@ try {
     }
     const markdownImage = page.getByRole("link", { name: "Image", exact: true })
     await markdownImage.click({ button: "right" })
-    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(true))
+    assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(true))
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
     await page.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
     await page.getByRole("button", { name: "Back", exact: true }).click()
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     const markdownOffice = page.getByRole("link", { name: "Office", exact: true })
     await markdownOffice.click({ button: "right" })
-    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(false))
+    assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(false))
     if (entry.name !== "loopback") {
       await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), "sample.docx")
       await verifyDownload(() => markdownOffice.click(), "sample.docx")
