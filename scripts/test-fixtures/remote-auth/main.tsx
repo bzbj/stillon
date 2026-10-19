@@ -7,7 +7,7 @@ import { AuthenticatedSessionBoundary } from "../../../src/client/app/Authentica
 import "./styles.css"
 
 const fixture = {
-  mode: "valid", requests: 0, settled: 0, viewRequests: 0, mounts: 0, unmounts: 0, hold: false,
+  mode: "valid", requests: 0, settled: 0, viewRequests: 0, mounts: 0, unmounts: 0, hold: new URL(location.href).searchParams.has("hold-auth"),
   pending: [] as Array<() => void>,
   release() { for (const resolve of fixture.pending.splice(0)) resolve() },
   state: () => ({ mode: fixture.mode, requests: fixture.requests, settled: fixture.settled, viewRequests: fixture.viewRequests, mounts: fixture.mounts, unmounts: fixture.unmounts,
