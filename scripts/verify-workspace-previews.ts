@@ -133,15 +133,8 @@ try {
   const projectPath = path.join(root, "workspace")
   const outsidePath = path.join(root, "outside")
   await fixtureFiles(projectPath); await fixtureFiles(outsidePath)
-  for (const arguments_ of [["init", "--quiet"], ["add", "."], ["-c", "user.name=Preview test", "-c", "user.email=preview@example.com", "commit", "--quiet", "-m", "Preview fixture"]]) {
-    const git = Bun.spawn(["git", "-C", projectPath, ...arguments_], { stdout: "ignore", stderr: "ignore" })
-    assert.equal(await git.exited, 0)
-  }
   const project = await server.store.openProject(projectPath, "Preview workspace")
   const chat = await server.store.createChat(project.id)
-  await writeFile(path.join(projectPath, "TREE-ENTRY.md"), await readFile(path.join(projectPath, "README.md")))
-  await copyFile(path.join(projectPath, "中文 image.png"), path.join(projectPath, "TREE-IMAGE.png"))
-  await copyFile(path.join(projectPath, "sample.docx"), path.join(projectPath, "TREE-OFFICE.docx"))
   const inputStates = new Map<string, { revision: number }>()
   let count = 0
   let activeSockets = 0
