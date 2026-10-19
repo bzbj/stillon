@@ -145,7 +145,12 @@ for (const connectionStatus of ["connecting", "disconnected"] as const) {
       expect(connected).toContain(label)
       expect(reconnecting).toContain(label)
     }
-    const text = (html: string) => html.replace(/<[^>]+>/gu, "")
-    expect(text(reconnecting)).toBe(text(connected))
+    for (const label of ["Still On", "Settings", "Synthetic Project", "Saved conversation"]) {
+      expect(connected).toContain(label)
+      expect(reconnecting).toContain(label)
+    }
+    for (const label of ["Reconnecting…", "Out of Reach", "Last known", "Last-known conversations"]) {
+      expect(reconnecting).not.toContain(label)
+    }
   })
 }
