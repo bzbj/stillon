@@ -80,7 +80,7 @@ describe("chat Markdown images", () => {
 })
 
 describe("TextMessage", () => {
-  test("keeps Windows file links focusable while their authorized href is pending", () => {
+  test("keeps Windows file links natively navigable before resource preparation", () => {
     const filePath = "C:/Users/example/output/report.html"
     const html = renderToStaticMarkup(
       <OpenLocalLinkProvider onOpenLocalLink={() => {}}>
@@ -95,7 +95,11 @@ describe("TextMessage", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html).toContain('role="link" tabindex="0"')
+    const href = html.match(/<a[^>]+href="([^"]+)"/u)?.[1]
+    expect(href).toBeDefined()
+    const resolved = new URL(href!, "http://localhost")
+    expect(resolved.origin).toBe("http://localhost")
+    expect(decodeURIComponent(resolved.searchParams.get("address")!)).toEndWith(filePath)
     expect(html).toContain("report.html")
     expect(html).not.toContain(`href="${filePath}"`)
     expect(html).not.toContain('target="_blank"')
@@ -118,7 +122,9 @@ describe("TextMessage", () => {
       </OpenLocalLinkProvider>
     )
 
-    expect(html.match(/role="link"/gu)).toHaveLength(2)
+    const addresses = [...html.matchAll(/<a[^>]+href="([^"]+)"/gu)].map(match => new URL(match[1]!, "http://localhost").searchParams.get("address"))
+    expect(addresses).toHaveLength(2)
+    expect(addresses.every(address => decodeURIComponent(address!).startsWith("/api/local-files/preview/C:/Users/demo/output/"))).toBe(true)
     expect(html).toContain("report.html")
     expect(html).toContain("index.html")
     expect(html).not.toContain('href="C:')

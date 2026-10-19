@@ -1,21 +1,21 @@
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react"
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ComponentPropsWithoutRef } from "react"
 import { resolveLinkTarget } from "../lib/linkTarget"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath, type ParsedLocalFileLink } from "../lib/pathUtils"
 import { buildProjectRenderablePreviewUrl } from "../../shared/project-file-urls"
 import { buildLocalFilePreviewUrl } from "../../shared/local-file-urls"
-import { fileRenderer } from "../../shared/file-renderers"
 import { getLinkActions, type LinkAction } from "../../shared/link-actions"
 import { isPlainPreviewClick } from "../../shared/preview-target"
-import { registerPreviewTarget, openStandalonePreview } from "../lib/previewTarget"
-import { usePreviewResolution } from "../lib/usePreviewHref"
-import { useLinkCapabilities } from "../lib/linkCapabilities"
+import { registerPreviewTarget, registerResourceTarget } from "../lib/previewTarget"
+import { resolveResourceMetadata, resourceResolutionHref, type ResourceMetadata } from "../lib/resourceResolution"
+import { getResourceEpoch, subscribeResourceScope } from "../lib/resourceRequests"
+import { getLinkCapabilities, type LinkCapabilities } from "../lib/linkCapabilities"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "./ui/context-menu"
 
-export async function executeResourceAction(address: string, action: LinkAction, projectId?: string, signal?: AbortSignal) {
-  const url = await registerPreviewTarget(address, projectId), id = url.split("/").pop()!
+export async function executeResourceAction(address: string, action: LinkAction, projectId?: string, signal?: AbortSignal, registeredUrl?: string) {
+  const url = registeredUrl ?? await registerPreviewTarget(address, projectId), id = url.split("/").pop()!
   signal?.throwIfAborted()
   const response = await fetch(`/api/preview-targets/${id}/${action === "download" ? "content?download=1" : "action"}`, action === "download" ? { cache: "no-store", signal } : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }), signal,
   })
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "File action failed. Reconnect and retry.")
   if (action !== "download") {
@@ -25,77 +25,119 @@ export async function executeResourceAction(address: string, action: LinkAction,
   }
   if (!response.headers.get("Content-Disposition")?.startsWith("attachment;")) { await response.body?.cancel(); throw new Error("The server did not return an authenticated file download.") }
   const name = /filename\*=UTF-8''([^;]+)/iu.exec(response.headers.get("Content-Disposition")!)?.[1]
-  const object = URL.createObjectURL(await response.blob())
+  const bytes = await response.blob()
+  signal?.throwIfAborted()
+  const object = URL.createObjectURL(bytes)
   const anchor = document.createElement("a")
   anchor.href = object; anchor.download = name ? decodeURIComponent(name) : "download"; anchor.click()
   setTimeout(() => URL.revokeObjectURL(object), 60_000)
 }
 
-/** All authored file/service links share classification, menu and explicit actions. */
-export function ResourceLink({ href, children, projectId, localPath, resolveFile, onPreview, ...props }: ComponentPropsWithoutRef<"a"> & {
+type PreparedResource = { capabilities: LinkCapabilities; metadata: ResourceMetadata; registeredUrl?: string }
+type MenuState = { status: "loading" } | { status: "error"; error: string } | { status: "ready"; value: PreparedResource }
+
+type ResourceLinkProps = ComponentPropsWithoutRef<"a"> & {
   projectId?: string; localPath?: string | null; resolveFile?: (href: string) => ParsedLocalFileLink | null
   onPreview?: (address: string) => void
-}) {
+}
+export function ResourceLink(props: ResourceLinkProps) {
+  const epoch = useSyncExternalStore(subscribeResourceScope, getResourceEpoch, getResourceEpoch)
+  return <ResourceLinkImpl key={JSON.stringify([epoch, props.href, props.projectId, props.localPath])} {...props} />
+}
+/** Rendering links performs syntax classification only; all I/O follows intent. */
+function ResourceLinkImpl({ href, children, projectId, localPath, resolveFile, onPreview, ...props }: ResourceLinkProps) {
   const target = resolveLinkTarget(href, { localPath, resolveFile, projectId, currentOrigin: typeof window === "undefined" ? undefined : window.location.origin })
-  const capabilities = useLinkCapabilities()
-  const [error, setError] = useState<string>()
-  const download = useRef<AbortController | undefined>(undefined)
-  const [downloading, setDownloading] = useState(false)
-  useEffect(() => () => download.current?.abort(), [])
   const file = target?.kind === "file" ? target.file : undefined
   const relative = file ? getProjectRelativeFilePath(file.path, localPath) : null
   const address = target?.kind === "file" && target.address ? target.address : file ? appendLocalFileLinkLocation(relative && projectId ? buildProjectRenderablePreviewUrl(projectId, relative) : buildLocalFilePreviewUrl(file.path), file)
     : target?.kind === "service" ? target.address : null
-  const renderer = file ? fileRenderer(file.path) : undefined
-  const resolution = usePreviewResolution(address, projectId), standalone = resolution?.url
-  const policy = getLinkActions({ kind: resolution?.directory ? "directory" : target?.kind === "file" ? "file" : target?.kind === "service" ? "service" : "other", renderer: resolution?.directory ? undefined : resolution?.renderer ?? renderer,
-    local: capabilities?.local ?? false, isMac: capabilities?.isMac })
-  if (!target || !address) return <a {...props} href={target ? href : undefined} target={target?.kind === "internal" ? props.target : "_blank"} rel="noopener noreferrer">{children}</a>
-  const activate = (action: LinkAction) => {
-    setError(undefined)
-    if (capabilities?.error) { setError(capabilities.error); return }
-    if (action === "preview") { if (onPreview) onPreview(address); else void openStandalonePreview(address, projectId).catch(e => setError(e.message)); return }
-    if (action === "download") {
-      download.current?.abort(); download.current = new AbortController(); setDownloading(true)
-    }
-    void executeResourceAction(address, action, projectId, action === "download" ? download.current?.signal : undefined)
-      .catch(e => setError(e.name === "AbortError" ? "Download cancelled." : e.message)).finally(() => setDownloading(false))
+  const generation = useRef(0), menuGeneration = useRef(0), busy = useRef(false)
+  const actionController = useRef<AbortController | undefined>(undefined)
+  const [menu, setMenu] = useState<MenuState>()
+  const [error, setError] = useState<string>()
+  const [preparing, setPreparing] = useState(false), [downloading, setDownloading] = useState(false)
+  useLayoutEffect(() => {
+    setMenu(undefined); setError(undefined); setPreparing(false); setDownloading(false); busy.current = false
+    return () => { generation.current++; menuGeneration.current++; actionController.current?.abort() }
+  }, [address, projectId])
+  const policyFor = ({ capabilities, metadata }: PreparedResource) => getLinkActions({
+    kind: metadata.directory ? "directory" : target?.kind === "file" ? "file" : "service",
+    renderer: metadata.directory ? undefined : metadata.renderer,
+    local: capabilities.local, isMac: capabilities.isMac, readable: metadata.canRead, canDownload: metadata.canDownload,
+  })
+  const prepare = async (register = false): Promise<PreparedResource> => {
+    const [capabilities, prepared] = await Promise.all([getLinkCapabilities(), register
+      ? registerResourceTarget(address!, projectId).then(value => ({ registeredUrl: value.url,
+        metadata: { kind: value.directory ? "directory" as const : target?.kind === "service" ? "service" as const : "file" as const,
+          directory: value.directory, renderer: value.renderer, canRead: true, canDownload: !value.directory && target?.kind === "file" } }))
+      : resolveResourceMetadata(address!, projectId).then(metadata => ({ metadata, registeredUrl: undefined }))])
+    return { capabilities, ...prepared }
   }
-  return <ContextMenu>
+  const loadMenu = () => {
+    const version = ++menuGeneration.current, life = generation.current
+    setMenu({ status: "loading" })
+    void prepare().then(value => {
+      if (life === generation.current && version === menuGeneration.current) setMenu({ status: "ready", value })
+    }).catch(e => {
+      if (life === generation.current && version === menuGeneration.current) setMenu({ status: "error", error: e.message })
+    })
+  }
+  const activate = async (selected?: LinkAction) => {
+    if (!address || busy.current) return
+    busy.current = true; setPreparing(true); setError(undefined)
+    const life = generation.current
+    try {
+      const value = selected && menu?.status === "ready" ? menu.value : await prepare(true)
+      if (life !== generation.current) return
+      const policy = policyFor(value), action = selected ?? policy.defaultAction
+      if (!action || !policy.actions.some(item => item.action === action && !item.disabled)) throw new Error(value.metadata.directory ? "Folder links cannot be downloaded." : "This file action is unavailable.")
+      if (action === "preview") {
+        if (onPreview) onPreview(address)
+        else {
+          const url = value.registeredUrl ?? await registerPreviewTarget(address, projectId)
+          if (life === generation.current) window.location.assign(url)
+        }
+      } else {
+        actionController.current = new AbortController()
+        if (action === "download") setDownloading(true)
+        await executeResourceAction(address, action, projectId, actionController.current.signal, value.registeredUrl)
+      }
+    } catch (e) {
+      if (life === generation.current) setError(e instanceof Error ? e.name === "AbortError" ? "File action cancelled. Retry when connected." : e.message : "File action failed.")
+    } finally {
+      if (life === generation.current) { busy.current = false; setPreparing(false); setDownloading(false) }
+    }
+  }
+  if (!target || !address) return <a {...props} href={target ? href : undefined} target={target?.kind === "internal" ? props.target : "_blank"} rel="noopener noreferrer">{children}</a>
+  return <ContextMenu onOpenChange={open => { if (open) loadMenu(); else { menuGeneration.current++; setMenu(undefined) } }}>
     <ContextMenuTrigger asChild>
-      <a {...props} href={standalone ? policy.defaultAction === "download" ? `/api/preview-targets/${standalone.split("/").pop()}/content?download=1` : standalone : undefined}
-        role="link" tabIndex={0} onContextMenu={event => { event.stopPropagation() }}
+      <a {...props} href={resourceResolutionHref(address, projectId)} aria-busy={preparing || undefined}
+        onContextMenu={event => event.stopPropagation()}
         onKeyDown={event => {
           if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) {
             event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect()
             event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom }))
-          } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) { event.preventDefault(); if (policy.defaultAction && capabilities) activate(policy.defaultAction) }
+          }
         }}
         onClick={event => {
           props.onClick?.(event)
-          if (event.defaultPrevented) return
-          if (!isPlainPreviewClick(event)) {
-            if (policy.defaultAction === "open_default") event.preventDefault()
-            else if (!standalone && policy.defaultAction === "preview") { event.preventDefault(); void openStandalonePreview(address, projectId).catch(e => setError(e.message)) }
-            return
-          }
-          event.preventDefault()
-          if (policy.defaultAction && (capabilities || policy.defaultAction === "preview")) activate(policy.defaultAction)
-        }}
-        onAuxClick={event => {
-          if (policy.defaultAction === "open_default") event.preventDefault()
-          else if (event.button === 1 && !standalone && policy.defaultAction === "preview") { event.preventDefault(); void openStandalonePreview(address, projectId).catch(e => setError(e.message)) }
+          if (event.defaultPrevented || !isPlainPreviewClick(event) || props.target === "_blank") return
+          event.preventDefault(); void activate()
         }}
       >{children}</a>
     </ContextMenuTrigger>
     <ContextMenuContent onContextMenu={event => event.stopPropagation()}>
-      {!capabilities ? <ContextMenuItem disabled>Loading file actions…</ContextMenuItem> : policy.actions.map(item =>
-        <ContextMenuItem key={item.action} disabled={item.disabled || Boolean(resolution?.error) || Boolean(capabilities?.error)} onSelect={() => activate(item.action)}>{item.label}</ContextMenuItem>)}
-      {resolution?.error ? <ContextMenuItem disabled>{resolution.error}</ContextMenuItem> : null}
-      {capabilities?.error ? <ContextMenuItem disabled>{capabilities.error}</ContextMenuItem> : null}
-      {resolution?.directory && !capabilities?.local ? <ContextMenuItem disabled>Folder links cannot be downloaded.</ContextMenuItem> : null}
+      {!menu || menu.status === "loading" ? <ContextMenuItem disabled>Loading file actions…</ContextMenuItem>
+        : menu.status === "error" ? <>
+          <ContextMenuItem disabled>{menu.error}</ContextMenuItem>
+          <ContextMenuItem onSelect={event => { event.preventDefault(); loadMenu() }}>Retry file actions</ContextMenuItem>
+        </> : <>
+          {policyFor(menu.value).actions.map(item => <ContextMenuItem key={item.action} disabled={item.disabled} onSelect={() => { void activate(item.action) }}>{item.label}</ContextMenuItem>)}
+          {menu.value.metadata.directory && !menu.value.capabilities.local ? <ContextMenuItem disabled>Folder links cannot be downloaded.</ContextMenuItem> : null}
+        </>}
     </ContextMenuContent>
-    {error || resolution?.error ? <span role="alert" className="ml-2 text-xs text-destructive">{error ?? resolution?.error}</span> : null}
-    {downloading ? <button type="button" className="ml-2 text-xs underline" onClick={() => download.current?.abort()}>Cancel download</button> : null}
+    {preparing ? <span role="status" className="ml-2 text-xs text-muted-foreground">Preparing file action…</span> : null}
+    {error ? <span role="alert" className="ml-2 text-xs text-destructive">{error} <button type="button" className="underline" onClick={() => { void activate() }}>Retry</button></span> : null}
+    {downloading ? <button type="button" className="ml-2 text-xs underline" onClick={() => actionController.current?.abort()}>Cancel download</button> : null}
   </ContextMenu>
 }

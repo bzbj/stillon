@@ -23,6 +23,7 @@
     "vite.connect.config.ts",
     "vite.export-viewer.config.ts",
     "src/main.tsx",
+    "src/startup/**/*.ts",
     "src/index.css",
     "src/export-viewer/**/*.ts",
     "src/export-viewer/**/*.tsx",

@@ -1,12 +1,14 @@
 import { useOutletContext } from "react-router-dom"
 import { LocalDev } from "../components/LocalDev"
 import type { StillOnState } from "./useStillOnState"
+import { StartupPart } from "./StartupReadiness"
 
 export function LocalProjectsPage() {
   const state = useOutletContext<StillOnState>()
 
   return (
     <div className="flex-1 flex flex-col min-w-0 relative">
+      <StartupPart name="route" />
       <LocalDev
         machineName={state.machineName ?? undefined}
         connectionStatus={state.connectionStatus}

@@ -19,7 +19,12 @@ try {
   }
   browser = await browserType.launch({ headless: true })
   const page = await browser.newPage()
-  await page.goto(`http://${hostname}:${port}${route}`, { timeout: 60_000 })
+  await page.goto(`http://${hostname}:${port}${route}?hold-auth=1`, { timeout: 60_000 })
+  await page.waitForFunction(() => (window as any).remoteAuthFixture?.pending.length === 1, undefined, { timeout: 60_000 })
+  assert.equal(await page.locator("#draft").count(), 0, "Authentication must finish before mounting private content")
+  assert.equal(await page.locator("dialog[open]").count(), 1)
+  await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = false; fixture.release() })
+  await page.evaluate(() => history.replaceState(null, "", location.pathname))
   await page.waitForFunction(() => (window as any).remoteAuthFixture?.mounts > 0 && !document.querySelector("dialog")?.open, undefined, { timeout: 60_000 })
   const state = () => page.evaluate(() => (window as any).remoteAuthFixture.state())
   async function focus(mode = "valid", event = "focus") {
@@ -40,7 +45,7 @@ try {
     document.querySelector("#history")!.scrollTop = 500
   })
   const before = await state()
-  assert.ok(before.viewRequests > 0, "The initial authenticated view must load before mounting the workspace")
+  assert.equal(before.viewRequests, 0, "Sidebar preferences must not gate authenticated workspace mounting")
   for (let attempt = 0; attempt < 5; attempt++) {
     await focus()
     const after = await state()
@@ -77,7 +82,12 @@ try {
   await focus("valid", "pageshow")
   assert.equal((await state()).mounts, before.mounts, "Restoring a valid page must retain the workspace")
 
-  for (const mode of ["network-error", "http-error", "view-error"]) {
+  await focus("view-error")
+  assert.equal((await state()).checking, false, "Unavailable sidebar preferences must not hide an authenticated workspace")
+  assert.equal((await state()).viewRequests, 0)
+  assert.equal((await state()).draft, before.draft)
+
+  for (const mode of ["network-error", "http-error"]) {
     await page.evaluate(mode => { const fixture = (window as any).remoteAuthFixture; fixture.mode = mode; fixture.focus() }, mode)
     await page.waitForFunction(() => (window as any).remoteAuthFixture.state().checking)
     assert.equal((await state()).mounts, before.mounts)

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react"
+import { getStartupController } from "../lib/startup"
 
 /** Revalidation hides private UI without discarding a still-valid workspace. */
 export function AuthenticatedSessionBoundary({
@@ -21,7 +22,9 @@ export function AuthenticatedSessionBoundary({
     const dialog = shield.current
     if (!dialog) return
     dialog.setAttribute("closedby", "none")
-    if (checking && !dialog.open) dialog.showModal()
+    // The independent HTML dialog already isolates the whole document during
+    // initial boot. A second top-layer dialog would cover its avatar with white.
+    if (checking && !dialog.open && !getStartupController()?.active) dialog.showModal()
     else if (!checking && dialog.open) dialog.close()
   })
 

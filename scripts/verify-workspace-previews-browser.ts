@@ -72,12 +72,13 @@ try {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
     await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
-    let browserRequests = 0, externalRegistrations = 0
+    let browserRequests = 0, externalRegistrations = 0, imageHeadRequests = 0
     const requestTimes: number[] = []
     context.on("request", request => {
       if (new URL(request.url()).origin === entry.origin) requestTimes.push(Date.now())
       const path = new URL(request.url()).pathname
       if (path.startsWith("/api/preview-browser")) browserRequests++
+      if (request.method() === "HEAD" && /^\/api\/preview-targets\/[\w-]+\/content$/u.test(path)) imageHeadRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
     context.on("response", response => {
@@ -107,6 +108,11 @@ try {
     }
     const page = await context.newPage()
     currentPage = page
+    const resolvedFileMenuLabels = async () => {
+      // File menus render a loading state before their read-only metadata is ready.
+      await page.getByRole("menuitem", { name: /^(Preview in sidebar|Open on this computer|Download)$/u }).first().waitFor()
+      return page.getByRole("menuitem").allTextContents()
+    }
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
     for (const name of ["project-markdown", "outside-markdown"]) {
       stage = entry.name + ":" + name + ":document-navigation"
@@ -145,28 +151,40 @@ try {
     assert.equal(imported, 20)
     checks.push({ entry: entry.name, check: "Twenty native cache-busted module imports remain valid across cancelled metadata requests", result: "Pass" })
     stage = entry.name + ":chat:link-resolution"
+    let idleFilePreparation = 0
+    const trackIdlePreparation = (request: import("playwright").Request) => {
+      const pathname = new URL(request.url()).pathname
+      if (pathname === "/api/link-capabilities" || request.method() === "POST" && (/^\/api\/preview-targets(?:\/resolve)?$/u.test(pathname) || /^\/api\/file-previews\/[^/]+\/entry$/u.test(pathname))) idleFilePreparation++
+    }
+    context.on("request", trackIdlePreparation)
     await page.goto(entry.origin + "/chat/" + config.chatId, { waitUntil: "domcontentloaded" })
     const guide = page.getByRole("link", { name: "Read guide", exact: true })
     await guide.waitFor()
+    await page.locator("textarea:not([disabled])").waitFor()
+    assert.equal(idleFilePreparation, 0, "Reading a conversation must not prepare file links or capabilities")
+    context.off("request", trackIdlePreparation)
     await page.evaluate(() => localStorage.setItem("stillon-main-secret", "fixture-secret"))
     await guide.click()
     await page.getByRole("heading", { name: "Preview guide" }).waitFor()
     assert.equal(new URL(page.url()).pathname, "/chat/" + config.chatId)
-    await page.waitForFunction(() => [...document.querySelectorAll("a")].some(link => link.textContent === "Read guide" && link.getAttribute("href")?.startsWith("/preview/")))
-    assert.match(await guide.getAttribute("href") ?? "", /^\/preview\/[\w-]+$/u)
+    const destination = new URL(await guide.getAttribute("href") ?? "", entry.origin)
+    assert.equal(destination.origin, entry.origin)
+    assert.equal(destination.pathname, "/resolve-resource")
+    assert(decodeURIComponent(destination.searchParams.get("address") ?? "").endsWith("README.md"))
     for (const options of [{ modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }, { button: "middle" as const }]) {
       stage = entry.name + ":chat:" + ("button" in options ? "middle-click" : "modified-click")
       const [popup] = await Promise.all([context.waitForEvent("page"), guide.click(options)])
       await popup.getByRole("heading", { name: "Preview guide" }).waitFor(); await popup.close(); await page.bringToFront()
     }
     await guide.click({ button: "right" })
-    const labels = await page.getByRole("menuitem").allTextContents()
+    const labels = await resolvedFileMenuLabels()
     assert.deepEqual(labels, entry.name === "loopback" ? ["Preview in sidebar", "Open on this computer", "Show in folder"] : ["Preview in sidebar", "Download"])
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Escape")
     await page.getByRole("menu").waitFor({ state: "hidden" })
     await guide.focus(); await page.keyboard.press("Shift+F10")
     assert.equal(await page.getByRole("menu").count(), 1)
+    await resolvedFileMenuLabels()
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Enter")
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
@@ -188,7 +206,7 @@ try {
     for (const [label, fileName, previewable] of [["Text sample", "中文 text.txt", true], ["Image sample", "中文 image.png", true], ["Office sample", "sample.docx", false]] as const) {
       const link = page.getByRole("link", { name: label, exact: true })
       await link.click({ button: "right" })
-      assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(previewable))
+      assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(previewable))
       if (entry.name !== "loopback") await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), fileName)
       else await page.keyboard.press("Escape")
       if (previewable) {
@@ -201,14 +219,14 @@ try {
     }
     const markdownImage = page.getByRole("link", { name: "Image", exact: true })
     await markdownImage.click({ button: "right" })
-    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(true))
+    assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(true))
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).click()
     await page.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
     await page.getByRole("button", { name: "Back", exact: true }).click()
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     const markdownOffice = page.getByRole("link", { name: "Office", exact: true })
     await markdownOffice.click({ button: "right" })
-    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), menuLabels(false))
+    assert.deepEqual(await resolvedFileMenuLabels(), menuLabels(false))
     if (entry.name !== "loopback") {
       await verifyDownload(() => page.getByRole("menuitem", { name: "Download", exact: true }).click(), "sample.docx")
       await verifyDownload(() => markdownOffice.click(), "sample.docx")
@@ -389,7 +407,9 @@ try {
         try {
           for (const view of [page, popup]) {
             currentPage = view
-            const missing = view.waitForResponse(response => response.status() === 404 && response.url().includes("/api/preview-targets"))
+            // A prepared HTML target revalidates directly at file entry rather
+            // than registering the same address again before every refresh.
+            const missing = view.waitForResponse(response => response.status() === 404 && /^\/api\/(?:preview-targets(?:\/|$)|file-previews\/[\w-]+\/entry$)/u.test(new URL(response.url()).pathname))
             await view.getByRole("button", { name: "Refresh", exact: true }).click()
             await missing
             await view.getByRole("alert").filter({ hasText: /not found|404/iu }).first().waitFor()
@@ -417,6 +437,7 @@ try {
     for (const outside of [false, true]) for (const extension of ["png", "jpg", "webp", "gif", "svg", "avif", "apng", "bmp", "ico"]) {
       await paceConnect()
       stage = entry.name + ":image:" + (outside ? "host:" : "project:") + extension
+      const headsBefore = imageHeadRequests
       const fileName = "图 image." + extension
       const base = outside ? config.addresses[entry.name]["outside-image"].replace(/[^/]+$/u, encodeURIComponent(config.outsidePath + "/" + fileName))
         : `/api/projects/${config.projectId}/preview/${encodeURIComponent(fileName)}`
@@ -441,12 +462,13 @@ try {
       await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
       await popup.reload({ waitUntil: "domcontentloaded" })
       await popup.waitForFunction((name) => [...document.images].some(image => image.alt.endsWith(name) && image.naturalWidth > 0), fileName)
+      assert.equal(imageHeadRequests, headsBefore, "Successful native images must load directly without HEAD probes")
       await popup.close(); await page.bringToFront()
       checks.push({ entry: entry.name, check: (outside ? "Authorized host" : "Project") + " " + extension + " native image sidebar/standalone/reload", result: "Pass" })
     }
-    for (const [fileName, message] of [["broken.png", "Image unavailable"], ["oversized.png", "25 MB"], ["large-dimensions.svg", "40 megapixel"]]) {
+    for (const [fileName, message] of [["broken.png", "Image cannot be read"], ["oversized.png", "25 MB"], ["large-dimensions.svg", "40 megapixel"]]) {
       await address.fill(`/api/projects/${config.projectId}/preview/${fileName}`); await address.press("Enter")
-      await page.getByText(message, { exact: false }).waitFor()
+      await page.getByRole("alert").filter({ hasText: message }).waitFor()
       assert.equal(await page.getByRole("button", { name: "Retry image" }).count(), 1)
     }
     checks.push({ entry: entry.name, check: "Damaged/oversized images report failures and offer retry", result: "Pass" })

@@ -51,6 +51,7 @@ import { QuickResponseAdapter } from "./quick-response"
 import { readSubscriptionUsageSnapshot } from "./subscription-usage"
 import { createSourceUpgradePromptGenerator } from "./source-upgrade-prompt"
 import { serveStaticAsset } from "./static-assets"
+import { appendHttpTiming } from "../shared/http-timing"
 import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
 import { validateIngress } from "./connect/ingress"
@@ -390,6 +391,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
         // Keep local previews and reverse-proxy WebSocket connections alive.
         idleTimeout: 120,
         async fetch(req, serverInstance) {
+          const requestStartedAt = performance.now()
           if (shuttingDown) {
             return new Response("Server is shutting down", {
               status: 503,
@@ -605,7 +607,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
                 if (ingress.kind === "remote") return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, path: previewFiles.entryPath(entry.target, file), scopeKey: previewFiles.scopeKey(file, previewFiles.directory(entry.target, file)) })
                 const previewUrl = await previewFiles.localEntry(entry.target, previewOwner, url.origin, () => !shuttingDown && (!auth || auth.isAuthenticated(req)))
                 return Response.json({ protocol: FILE_PREVIEW_PROTOCOL, url: previewUrl })
-              } catch (error) { return Response.json({ error: (error as Error).message }, { status: 403 }) }
+              } catch (error) { return Response.json({ error: (error as Error).message }, { status: error instanceof FileAccessError ? error.status : 403 }) }
             }
             if (operation === "resource" && ingress.kind === "remote") {
               try { const file = await previewFiles.resolve(entry.target); if (!/\.html?$/iu.test(file)) return new Response("Only HTML documents authorize a resource directory.", { status: 403 }); return previewFiles.resource(req, previewFiles.directory(entry.target, file), fileRequest[3] ?? "/", url.origin) }
@@ -676,7 +678,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           }
 
           return serveStaticAsset(distDir, req, url.pathname)
-          })())
+          })()).then(response => appendHttpTiming(response, "host", requestStartedAt))
         },
         websocket: {
           open(ws) {

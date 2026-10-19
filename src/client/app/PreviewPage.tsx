@@ -1,27 +1,27 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { PreviewSurface } from "../components/chat-ui/PreviewSurface"
-import { registerPreviewTarget } from "../lib/previewTarget"
-import { parsePreviewTarget, type PreviewTarget } from "../../shared/preview-target"
+import { PreviewSurface, type ResolvedPreviewEntry } from "../components/chat-ui/PreviewSurface"
+import { registerPreviewTarget, readPreviewEntry } from "../lib/previewTarget"
+import { parsePreviewTarget } from "../../shared/preview-target"
 import { Button } from "../components/ui/button"
+import { useStartupReveal } from "../lib/startup"
 
 export function PreviewPage() {
   const { targetId } = useParams()
   const navigate = useNavigate()
-  const [entry, setEntry] = useState<{ target: PreviewTarget; projectId?: string }>()
+  const [entry, setEntry] = useState<ResolvedPreviewEntry>()
   const [error, setError] = useState<string>()
   const [version, setVersion] = useState(0)
   const [zoom, setZoom] = useState(1)
   const resolvedId = useRef<string | undefined>(undefined)
   const navigationSequence = useRef(0)
+  useStartupReveal(Boolean(entry || error))
   useEffect(() => {
     if (resolvedId.current === targetId) return
     const sequence = ++navigationSequence.current
     let cancelled = false
     setEntry(undefined); setError(undefined)
-    void fetch(`/api/preview-targets/${encodeURIComponent(targetId ?? "")}`, { cache: "no-store" }).then(async response => {
-      const value = await response.json()
-      if (!response.ok) throw new Error(value.error || "Preview unavailable")
+    void readPreviewEntry(targetId ?? "").then(value => {
       if (!cancelled && sequence === navigationSequence.current) { resolvedId.current = targetId; setEntry(value) }
     }).catch(e => { if (!cancelled && sequence === navigationSequence.current) setError(e.message) })
     return () => { cancelled = true }
@@ -32,11 +32,16 @@ export function PreviewPage() {
       <Button variant="ghost" onClick={() => window.history.forward()}>Forward</Button>
       <Button variant="ghost" onClick={() => {
         if (!entry || entry.target.kind === "external-http") { window.location.reload(); return }
-        setError(undefined); setVersion(value => value + 1)
+        setError(undefined)
         const sequence = ++navigationSequence.current
-        void registerPreviewTarget(entry.target.address, entry.projectId).then(url => {
+        void registerPreviewTarget(entry.target.address, entry.projectId).then(async url => {
+          const id = url.split("/").pop()!
+          const value = await readPreviewEntry(id)
           if (sequence !== navigationSequence.current) return
-          resolvedId.current = url.split("/").pop(); navigate(url, { replace: true })
+          resolvedId.current = id
+          setEntry({ ...value, id, address: value.target.address })
+          setVersion(previous => previous + 1)
+          navigate(url, { replace: true })
         }).catch(e => { if (sequence === navigationSequence.current) setError(e.message) })
       }}>Refresh</Button>
       <Button variant="ghost" aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => setZoom(value => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))}>−</Button>
@@ -45,14 +50,19 @@ export function PreviewPage() {
       <span className="min-w-0 flex-1 truncate text-sm" aria-label="Preview address">{entry?.target.address ?? "Preview"}</span>
     </header>
     <div className="min-h-0 flex-1">
-      {error ? <div role="alert" className="p-6">{error}</div> : entry ? <PreviewSurface address={entry.target.address} projectId={entry.projectId} refreshVersion={version} zoom={zoom}
+      {error ? <div role="alert" className="p-6">{error}</div> : entry ? <PreviewSurface resolvedEntry={entry} address={entry.target.address} projectId={entry.projectId} refreshVersion={version} zoom={zoom}
         onNavigate={(address, mode) => {
           const sequence = ++navigationSequence.current
           const target = parsePreviewTarget(address, entry.projectId)
-          if (target) setEntry({ ...entry, target })
-          void registerPreviewTarget(address, entry.projectId).then(url => {
+          if (target && mode) setEntry({ ...entry, target, address })
+          else setEntry(undefined)
+          void registerPreviewTarget(address, entry.projectId).then(async url => {
+            const id = url.split("/").pop()!
+            const value = await readPreviewEntry(id)
             if (sequence !== navigationSequence.current) return
-            resolvedId.current = url.split("/").pop(); navigate(url, { replace: Boolean(mode) })
+            resolvedId.current = id
+            setEntry({ ...value, id, address: value.target.address })
+            navigate(url, { replace: Boolean(mode) })
           }).catch(e => { if (sequence === navigationSequence.current) setError(e.message) })
         }} /> : <p className="p-6">Loading preview…</p>}
     </div>

@@ -1,4 +1,5 @@
 import { chmod, readFile, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
 import path from "node:path"
 import type { Server } from "bun"
 import { z } from "zod"
@@ -34,7 +35,7 @@ export interface ConnectTransportOptions {
 
 export async function createConnectService(options: ConnectAuthOptions & { transport: ConnectTransportOptions }) {
   const registry = new ConnectRegistry(options.dataDir, options.origin, options.secret)
-  const relay = new ConnectRelay()
+  const relay = new ConnectRelay("gateway-upstream")
   const previewResources = new PreviewResources(REMOTE_PREVIEW_ASSET_PREFIX)
   const previewSessions = new WeakMap<PreviewResourceContext, { hostId: string; session: HostSessionRecord }>()
   const signingPath = path.join(options.dataDir, "gateway-keys.json")
@@ -175,6 +176,11 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
           const entry = registry.pendingEnrollment(enrollmentId)
           return json({ id: entry.id, name: entry.name, fingerprint: entry.publicKey.slice(-8), expiresAt: entry.expiresAt })
         }
+        if (route === "/api/connect/bootstrap" && request.method === "GET") {
+          const current = await auth.resolveSession(request)
+          return json({ session: current ? { user: { id: current.userId, email: current.email }, expiresAt: new Date(current.expiresAt).toISOString() } : null,
+            hosts: current ? registry.hosts(current.userId) : [] })
+        }
         const identity = await authenticated(request)
         if (route === "/api/connect/sessions" && request.method === "GET") return json(auth.browserSessions.list(identity.userId, identity.id))
         if (route === "/api/connect/sessions/revoke" && request.method === "POST") {
@@ -187,7 +193,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         if (route === "/api/connect/authorize" && request.method === "POST") {
           const { flow } = parse(z.object({ flow: id }).strict(), await jsonBody(request))
           const redirect = registry.authorizeFlow(flow, identity)
-          return json({ redirect, hostId: registry.flow(flow).hostId })
+          return json({ redirect, hostId: registry.flow(flow).hostId, userId: identity.userId })
         }
         const rename = /^\/api\/connect\/hosts\/([a-f0-9]{32})\/rename$/.exec(route)
         if (rename && request.method === "POST") { const input = parse(z.object({ name }).strict(), await jsonBody(request)); registry.rename(rename[1]!, identity.userId, input.name); return json({ success: true }) }
@@ -261,7 +267,7 @@ export async function createConnectService(options: ConnectAuthOptions & { trans
         const session = resourceSession?.session ?? registry.sessionForToken(hostId, cookieValue(request, cookieName(origin, "host-session")), auth.identityById)
         const loginUrl = `${origin}/_connect/login?return=${encodeURIComponent(safeRelativePath(url.pathname + url.search))}`
         if (url.pathname === "/auth/status" && request.method === "GET") return json({ mode: "connect", enabled: true,
-          authenticated: Boolean(session), cacheScope: null, loginUrl: `${origin}/_connect/login`, portalUrl: centralOrigin,
+          authenticated: Boolean(session), cacheScope: session ? createHash("sha256").update(JSON.stringify([hostId, session.ownerId, session.parentId])).digest("hex") : null, loginUrl: `${origin}/_connect/login`, portalUrl: centralOrigin,
           ...(session ? { host: registry.publicHost(registry.requireHost(hostId)) } : {}) })
         if (!session) {
           if (["GET", "HEAD"].includes(request.method) && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/auth/") && !url.pathname.startsWith("/_connect/sessions") && url.pathname !== "/ws") return redirect(loginUrl)

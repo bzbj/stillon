@@ -7,6 +7,34 @@ import { PreviewTargets } from "./preview-targets"
 import { parsePreviewTarget } from "../shared/preview-target"
 import { buildLocalFilePreviewUrl } from "../shared/local-file-urls"
 import { buildProjectFilePreviewUrl } from "../shared/project-file-urls"
+import { startStillOnServer } from "./server"
+
+test("a reused HTML target preserves missing-file status and can recover without registration", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-file-entry-refresh-"))
+  let server: Awaited<ReturnType<typeof startStillOnServer>> | undefined
+  try {
+    const reserved = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("reserved") })
+    const port = reserved.port!
+    await reserved.stop(true)
+    server = await startStillOnServer({ dataDir: path.join(root, "state"), discoveryHome: root,
+      port, strictPort: true, openBrowser: false, codexModelDiscovery: { discover: async () => { throw new Error("Disabled in fixture") } } })
+    const origin = `http://127.0.0.1:${server.port}`, file = path.join(root, "report.html")
+    await writeFile(file, "<!doctype html><h1>Fixture document</h1>")
+    const registered = await fetch(origin + "/api/preview-targets", { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ address: buildLocalFilePreviewUrl(file) }) })
+    expect(registered.ok).toBe(true)
+    const { id } = await registered.json()
+    const entry = () => fetch(origin + `/api/file-previews/${id}/entry`, { method: "POST", headers: { Origin: origin } })
+    await rm(file)
+    const missing = await entry()
+    expect(missing.status).toBe(404)
+    expect((await missing.json()).error).toContain("not found")
+    await writeFile(file, "<!doctype html><h1>Recovered document</h1>")
+    const recovered = await entry()
+    expect(recovered.status).toBe(200)
+    expect(new URL((await recovered.json()).url).origin).not.toBe(origin)
+  } finally { await server?.stop(); await rm(root, { recursive: true, force: true }) }
+})
 
 test("file targets read exact bytes; direct HTML isolates origin and authorizes only its directory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stillon-file-v2-")), folder = path.join(root, "authorized")

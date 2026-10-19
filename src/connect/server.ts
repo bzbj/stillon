@@ -1,5 +1,6 @@
 import { isIP } from "node:net"
 import path from "node:path"
+import { appendHttpTiming } from "../shared/http-timing"
 import { fileURLToPath } from "node:url"
 import { createConnectAuth, normalizeConnectOrigin, type ConnectAuthOptions } from "./auth"
 import { createConnectService, type ConnectTransportOptions } from "./service"
@@ -46,10 +47,12 @@ export async function startConnectServer(options: ConnectAuthOptions & { port?: 
     maxRequestBodySize: remote ? CONNECT_MAX_HTTP_BYTES : 4_096,
     idleTimeout: 120,
     async fetch(request, server) {
+      const requestStartedAt = performance.now()
       const url = new URL(request.url)
       if (remote && remote.hostId(request)) {
         const response = await track(remote.host(request, server))
         if (response) {
+          appendHttpTiming(response, "connect", requestStartedAt)
           response.headers.set("X-Content-Type-Options", "nosniff")
           response.headers.set("Referrer-Policy", "no-referrer")
           if (origin.startsWith("https:")) response.headers.set("Strict-Transport-Security", "max-age=31536000")

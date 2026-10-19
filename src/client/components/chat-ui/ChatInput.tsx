@@ -26,7 +26,7 @@ import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } fro
 import { CHAT_INPUT_ATTRIBUTE, focusNextChatInput } from "../../app/chatFocusPolicy"
 import { ChatPreferenceControls } from "./ChatPreferenceControls"
 import { AttachmentFileCard, AttachmentImageCard } from "../messages/AttachmentCard"
-import { AttachmentPreviewModal } from "../messages/AttachmentPreviewModal"
+import { AttachmentPreviewModal } from "../messages/DeferredAttachmentPreviewModal"
 import { classifyAttachmentPreview } from "../messages/attachmentPreview"
 
 const MAX_FILES_PER_DROP = 50

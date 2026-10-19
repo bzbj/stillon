@@ -2,6 +2,8 @@ import type { Stats } from "node:fs"
 import { lstat } from "node:fs/promises"
 import path from "node:path"
 import { APP_NAME } from "../shared/branding"
+import { publicBuildAssetProof } from "./public-build-assets"
+import { PUBLIC_BUILD_ASSET_HEADER } from "../shared/public-asset-cache"
 
 export const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 export const REVALIDATE_ASSET_CACHE_CONTROL = "no-cache"
@@ -367,6 +369,8 @@ export async function serveStaticAsset(
     "Last-Modified": new Date(representation.metadata.mtimeMs).toUTCString(),
     "X-Content-Type-Options": "nosniff",
   })
+  const proof = await publicBuildAssetProof(distDir, resolved.relativePath, representation.encoding)
+  if (proof) headers.set(PUBLIC_BUILD_ASSET_HEADER, proof)
   if (hasEncodedVariant) {
     headers.set("Vary", "Accept-Encoding")
   }

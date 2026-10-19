@@ -3,15 +3,21 @@ import react from "@vitejs/plugin-react"
 import { getDefaultDevServerPort } from "./src/shared/dev-ports"
 import { DEV_CLIENT_PORT } from "./src/shared/ports"
 import { precompressStaticAssets } from "./scripts/precompress-static-assets"
+import { writePublicBuildManifest } from "./src/server/public-build-assets"
+import { startupShellPlugin } from "./scripts/startup-shell"
+import { startupChunkGroups } from "./scripts/startup-chunks"
 
 const CLIENT_OUT_DIR = "dist/client"
 
 function precompressStaticAssetsPlugin(): Plugin {
+  let generatedPaths: string[] = []
   return {
     name: "stillon-precompress-static-assets",
     apply: "build",
+    generateBundle(_options, bundle) { generatedPaths = Object.keys(bundle) },
     async closeBundle() {
       const summary = await precompressStaticAssets(CLIENT_OUT_DIR)
+      await writePublicBuildManifest(CLIENT_OUT_DIR, generatedPaths)
       const originalKiB = Math.round(summary.originalBytes / 1_024)
       const brotliKiB = Math.round(summary.brotliBytes / 1_024)
       const gzipKiB = Math.round(summary.gzipBytes / 1_024)
@@ -52,7 +58,7 @@ const backendTargetHost = getBackendTargetHost()
 const backendPort = getBackendPort()
 
 export default defineConfig({
-  plugins: [react(), precompressStaticAssetsPlugin()],
+  plugins: [react(), startupShellPlugin("host"), precompressStaticAssetsPlugin()],
   server: {
     host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
@@ -75,10 +81,12 @@ export default defineConfig({
     allowedHosts: getAllowedHosts(),
   },
   build: {
+    manifest: true,
     outDir: CLIENT_OUT_DIR,
     emptyOutDir: true,
     rolldownOptions: {
       output: {
+        codeSplitting: { groups: startupChunkGroups },
         // A fixed hexadecimal hash shape lets the server distinguish
         // immutable build artifacts from mutable files without I/O or a
         // runtime manifest lookup.

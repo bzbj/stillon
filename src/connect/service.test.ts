@@ -41,6 +41,48 @@ async function fixture(upstreamOrigin = "http://127.0.0.1:9") {
   return { service, request, login, device, keys, messages, dataDir }
 }
 
+test("portal bootstrap combines only the current account's session and hosts and rejects cross-origin reads", async () => {
+  const f = await fixture()
+  expect(await (await f.request("bootstrap")).json()).toEqual({ session: null, hosts: [] })
+  const account = await f.login("bootstrap@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Bootstrap computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const result = await f.request("bootstrap", undefined, account.cookie)
+  const body = await result.json()
+  expect(result.headers.get("cache-control")).toBe("no-store")
+  expect(body.session.user.id).toBe(account.identity.userId)
+  expect(body.hosts.map((entry: { id: string }) => entry.id)).toEqual([host.id])
+  const denied = await f.service.central(new Request(origin + "/api/connect/bootstrap", { headers: { origin: "https://untrusted.example", cookie: account.cookie } }), "192.0.2.10")
+  expect(denied?.status).toBe(403)
+})
+
+test("workspace cache scope is stable within a host session and changes for a new browser parent", async () => {
+  const f = await fixture(), account = await f.login("cache-scope@example.com")
+  const enrollment = f.service.registry.createEnrollment(f.keys.publicKey, "Cache computer")
+  f.service.registry.approveEnrollment(enrollment.id, account.identity)
+  const host = f.service.registry.claimEnrollment(enrollment.id, f.keys.publicKey)!
+  const connection = f.service.registry.openConnection(host.id, randomId())
+  f.service.registry.frpCredential(host.id, connection.token, "cache-scope", "Login")
+  f.service.registry.frpCredential(host.id, connection.token, "cache-scope", "NewProxy")
+  const hostOrigin = f.service.registry.hostOrigin(host.id)
+  const { cookieName } = await import("./http")
+  const enter = (identity: typeof account.identity) => {
+    const flow = f.service.registry.newFlow(host.id, "/"), callback = new URL(f.service.registry.authorizeFlow(flow.id, identity))
+    const entry = f.service.registry.exchangeFlow(flow.id, host.id, flow.verifier, callback.searchParams.get("code")!, flow.state, f.service.auth.identityById)
+    return cookieName(hostOrigin, "host-session") + "=" + entry.token
+  }
+  const status = async (cookie: string) => (await (await f.service.host(new Request(hostOrigin + "/auth/status", { headers: { cookie } }), null as never))!.json())
+  const firstCookie = enter(account.identity), first = await status(firstCookie)
+  expect(first.cacheScope).toMatch(/^[a-f0-9]{64}$/u)
+  expect((await status(firstCookie)).cacheScope).toBe(first.cacheScope)
+  // Only synthetic fixture rate events are cleared to create a second parent.
+  const guard = new Database(path.join(f.dataDir, "guard.sqlite")); guard.exec("DELETE FROM connect_rate_event"); guard.close()
+  const second = await f.login("cache-scope@example.com")
+  expect((await status(enter(second.identity))).cacheScope).not.toBe(first.cacheScope)
+  expect((await status("")).cacheScope).toBeNull()
+})
+
 test.each(["/api/projects/workspace/preview/output/", "/api/local-html-previews/test-session/output/"])("remote HTML resources work without cookies and revoke with their host session: %s", async (directoryUrl) => {
   const paths: string[] = []
   const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {

@@ -1,7 +1,6 @@
 import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom"
-import { StandaloneShareDialog } from "../components/chat-ui/StandaloneShareDialog"
 import { AppDialogProvider } from "../components/ui/app-dialog"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card"
@@ -17,12 +16,17 @@ import { LocalProjectsPage } from "./LocalProjectsPage"
 import { useStillOnState } from "./useStillOnState"
 import type { AppSettingsSnapshot } from "../../shared/types"
 import { AuthenticatedSessionBoundary } from "./AuthenticatedSessionBoundary"
-import { PreviewPage } from "./PreviewPage"
-import { useAppAuthState } from "./useAppAuthState"
+import type { useAppAuthState } from "./useAppAuthState"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
+import { StartupPart, StartupReadiness } from "./StartupReadiness"
+import { useStartupReveal } from "../lib/startup"
+import { loadHomeComposer } from "../lib/homeComposer"
 
+const StandaloneShareDialog = lazy(() => import("../components/chat-ui/StandaloneShareDialog").then(({ StandaloneShareDialog }) => ({ default: StandaloneShareDialog })))
 const ChatPage = lazy(() => import("./ChatPage").then(({ ChatPage }) => ({ default: ChatPage })))
 const SettingsPage = lazy(() => import("./SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })))
+const PreviewPage = lazy(() => import("./PreviewPage").then(({ PreviewPage }) => ({ default: PreviewPage })))
+const ResolveResourcePage = lazy(() => import("./ResolveResourcePage").then(({ ResolveResourcePage }) => ({ default: ResolveResourcePage })))
 
 function LoadingBlock({ className }: { className: string }) {
   return (
@@ -35,7 +39,7 @@ function RouteLoadingFallback({ page }: { page: "chat" | "settings" }) {
 
   return (
     <div data-stillon-part="page" className="relative flex flex-1 min-w-0 overflow-hidden bg-background" aria-busy="true">
-      <span className="sr-only" role="status">{loadingLabel}</span>
+      <span className="absolute left-5 top-5 z-10 text-sm text-muted-foreground" role="status">{loadingLabel}</span>
       {page === "chat" ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex h-[72px] shrink-0 items-center border-b border-border px-5">
@@ -161,10 +165,13 @@ export function shouldPlayChatNotificationSound(
   return Boolean(appSettings) && shouldPlayChatSound(preference, doc)
 }
 
-function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
+function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot; startupCheckId: number }) {
   const location = useLocation()
   const params = useParams()
   const state = useStillOnState(params.chatId ?? null, cacheScope, sidebarView)
+  useEffect(() => {
+    if (location.pathname === "/") void loadHomeComposer().catch(() => { /* React lazy reports a failed load. */ })
+  }, [location.pathname])
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
@@ -215,7 +222,7 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
     state.setSidebarWidth(width)
   }, [state.setSidebarWidth])
   const sidebarElement = useMemo(() => (
-    <StillOnSidebar
+    state.appSettings || sidebarView ? <StillOnSidebar
       onResizeSidebar={handleSidebarResize}
       sidebarWidth={state.sidebarWidth}
       data={state.sidebarData}
@@ -251,8 +258,9 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
       onRenameProject={handleSidebarRenameProject}
       onHideProject={handleSidebarHideProject}
       onReorderProjectGroups={handleSidebarReorderProjectGroups}
-    />
+    /> : <aside className="hidden w-64 shrink-0 border-r border-border p-5 text-sm text-muted-foreground md:block" aria-busy="true"><p role="status">Loading workspace preferences…</p></aside>
   ), [
+    sidebarView,
     handleSidebarResize,
     state.sidebarWidth,
     state.workspaceCollapseVersions,
@@ -326,11 +334,17 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
     void playChatNotificationSound(chatSoundId, burstCount).catch(() => undefined)
   }, [chatSoundId, chatSoundPreference, state.appSettings, state.sidebarData, state.sidebarSnapshotStatus])
 
+  const startupReady = state.connectionStatus === "connected"
+    && state.sidebarSnapshotStatus === "authoritative" && state.localProjectsReady && Boolean(state.appSettings)
+  const required = location.pathname === "/" ? ["route", "composer"] as const
+    : location.pathname.startsWith("/chat/") ? ["route", "composer", "transcript"] as const : ["route"] as const
+
   return (
+    <StartupReadiness scope={`${location.key}:${startupCheckId}`} ready={startupReady} required={required}>
     <div data-stillon-part="workspace" className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
       {sidebarElement}
       <Outlet context={state} />
-      <StandaloneShareDialog
+      {state.standaloneShareUrl ? <Suspense fallback={<p role="status">Loading share actions…</p>}><StandaloneShareDialog
         open={Boolean(state.standaloneShareUrl)}
         shareUrl={state.standaloneShareUrl ?? ""}
         onOpenChange={(open) => {
@@ -340,13 +354,14 @@ function StillOnLayout({ cacheScope, sidebarView }: { cacheScope: string | null;
         }}
         onOpenLink={state.handleOpenStandaloneShareLink}
         onCopyLink={state.handleCopyStandaloneShareLink}
-      />
+      /></Suspense> : null}
     </div>
+    </StartupReadiness>
   )
 }
 
-export function App() {
-  const auth = useAppAuthState()
+export function App({ auth }: { auth: ReturnType<typeof useAppAuthState> }) {
+  useStartupReveal(auth.state.status === "locked" || auth.state.status === "connect-unavailable")
   let fallback = null
   if (auth.state.status === "locked") {
     fallback = <PasswordScreen error={auth.state.error} onSubmit={auth.submitPassword} />
@@ -364,18 +379,19 @@ export function App() {
 
   return (
     <AuthenticatedSessionBoundary authenticated={auth.state.status === "ready"} checking={auth.state.status === "checking"} fallback={fallback}>
-      {auth.state.status === "ready" ? <AuthenticatedAppRoutes key={auth.state.cacheScope ?? "local"} cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} /> : null}
+      {auth.state.status === "ready" ? <AuthenticatedAppRoutes key={auth.state.cacheScope ?? "local"} cacheScope={auth.state.cacheScope} sidebarView={auth.state.sidebarView} startupCheckId={auth.state.checkId ?? 0} /> : null}
     </AuthenticatedSessionBoundary>
   )
 }
 
-function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot }) {
+function AuthenticatedAppRoutes({ cacheScope, sidebarView, startupCheckId }: { cacheScope: string | null; sidebarView?: SidebarViewSnapshot; startupCheckId: number }) {
   return (
     <TooltipProvider>
       <AppDialogProvider>
         <Routes>
-          <Route path="/preview/:targetId" element={<PreviewPage />} />
-          <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} />}>
+          <Route path="/preview/:targetId" element={<Suspense fallback={<p role="status" className="p-6">Loading preview…</p>}><PreviewPage /></Suspense>} />
+          <Route path="/resolve-resource" element={<Suspense fallback={<p role="status" className="p-6">Resolving file actions…</p>}><ResolveResourcePage /></Suspense>} />
+          <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} startupCheckId={startupCheckId} />}>
             <Route path="/" element={<LocalProjectsPage />} />
             <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
             <Route
@@ -383,6 +399,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: strin
               element={(
                 <Suspense fallback={<RouteLoadingFallback page="settings" />}>
                   <SettingsPage />
+                  <StartupPart name="route" />
                 </Suspense>
               )}
             />
@@ -395,6 +412,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView }: { cacheScope: strin
               )}
             />
           </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppDialogProvider>
     </TooltipProvider>

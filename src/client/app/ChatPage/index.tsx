@@ -1,7 +1,8 @@
 import { executeResourceAction } from "../../components/ResourceLink"
+import { StartupPart } from "../StartupReadiness"
 import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
 import { fileRenderer } from "../../../shared/file-renderers"
-import { useLinkCapabilities } from "../../lib/linkCapabilities"
+import { getLinkCapabilities } from "../../lib/linkCapabilities"
 import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
@@ -15,7 +16,7 @@ import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath } from "../../lib/pathUtils"
-import { type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
+import { canOpenTranscriptFilesOnHost, type LocalFileLinkAction } from "../../lib/transcriptLocalLinkPolicy"
 import type { OpenLocalLinkTarget } from "../../components/messages/shared"
 import { cn } from "../../lib/utils"
 import { buildProjectRenderablePreviewUrl } from "../../../shared/project-file-urls"
@@ -541,8 +542,9 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
-  const linkCapabilities = useLinkCapabilities()
-  const canOpenHostFiles = linkCapabilities?.local ?? false
+  // Presentation can classify the entry without probing file capabilities.
+  // Explicit actions still check capabilities and server authorization.
+  const canOpenHostFiles = canOpenTranscriptFilesOnHost(window.location.hostname)
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
   const terminalLayout = projectTerminalLayout ?? DEFAULT_PROJECT_TERMINAL_LAYOUT
   const projectRightSidebarVisibility = useRightSidebarStore((store) => (projectId ? store.projects[projectId] : undefined))
@@ -798,7 +800,10 @@ export function ChatPage() {
       if (!projectId) throw new Error("Open this file from a workspace chat.")
       navigateBrowser(projectId, address)
       if (activeRightPanel !== "browser") toggleRightPanel(projectId, "browser")
-    } else await executeResourceAction(address, canOpenHostFiles ? "open_default" : "download", projectId ?? undefined)
+    } else {
+      const capabilities = await getLinkCapabilities()
+      await executeResourceAction(address, capabilities.local ? "open_default" : "download", projectId ?? undefined)
+    }
 
   }, [
     activeRightPanel,
@@ -893,13 +898,13 @@ export function ChatPage() {
 
       if (actionMatchesEvent(resolvedKeybindings, "openInFinder", event)) {
         event.preventDefault()
-        if (canOpenHostFiles) void state.handleOpenExternal("open_finder")
+        if (canOpenHostFiles) void getLinkCapabilities().then(value => { if (value.local) return state.handleOpenExternal("open_finder") }).catch(() => {})
         return
       }
 
       if (actionMatchesEvent(resolvedKeybindings, "openInEditor", event)) {
         event.preventDefault()
-        if (canOpenHostFiles) void state.handleOpenExternal("open_default")
+        if (canOpenHostFiles) void getLinkCapabilities().then(value => { if (value.local) return state.handleOpenExternal("open_default") }).catch(() => {})
         return
       }
 
@@ -1031,6 +1036,8 @@ export function ChatPage() {
           rightPanel={activeRightPanel}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
         />
+        {!state.runtime ? <p role="status" className="px-5 py-3 text-sm text-muted-foreground">{state.connectionStatus === "connected" ? "Loading conversation history…" : "Connecting to your computer…"}</p> : null}
+        <StartupPart name="route" ready={state.composerPreferencesReady} />
         <Suspense fallback={<ChatTranscriptLoadingFallback />}>
           <AsyncQuestionDeliveryContext.Provider value={{ chatId: state.activeChatId ?? "", delivery: state.asyncQuestionDelivery }}>
             <ChatTranscriptViewport
@@ -1069,6 +1076,7 @@ export function ChatPage() {
               isPageFileDragActive={isPageFileDragActive}
               showEmptyState={showEmptyState}
             />
+            <StartupPart name="transcript" />
           </AsyncQuestionDeliveryContext.Provider>
         </Suspense>
       </CardContent>
@@ -1092,6 +1100,7 @@ export function ChatPage() {
           onSubmit={handleChatSubmit}
           onCancel={handleCancel}
         />
+        <StartupPart name="composer" ready={state.composerPreferencesReady} />
       </Suspense>
     </Card>
   )
