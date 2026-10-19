@@ -232,6 +232,79 @@ describe("CodexExecManager", () => {
     ])
   })
 
+  test("forks the exact source thread, then resumes only the new thread", async () => {
+    const spawned: Array<{ args: string[]; cwd: string }> = []
+    const children: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: (args, cwd) => {
+        spawned.push({ args, cwd })
+        const child = new FakeCodexExecProcess()
+        children.push(child)
+        return child as never
+      },
+    })
+    try {
+      expect(await manager.startSession({
+        chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5",
+        sessionToken: "source-thread", pendingForkSessionToken: "source-thread",
+      })).toBeUndefined()
+      const fork = await startExecTurn(manager)
+      expect(spawned[0]?.cwd).toBe("/tmp/project")
+      expect(spawned[0]?.args.slice(0, 3)).toEqual(["exec", "fork", "--json"])
+      expect(spawned[0]?.args.slice(-2)).toEqual(["source-thread", "-"])
+      expect(spawned[0]?.args).not.toContain("--last")
+      expect(spawned[0]?.args).not.toContain("--worktree")
+      expect(children[0]!.stdinText).toBe("Work\n")
+      children[0]!.writeJson({ type: "thread.started", thread_id: "child-thread" })
+      children[0]!.writeJson({ type: "turn.completed" })
+      children[0]!.closeWithCode(0)
+      const events = await collectStream(fork.stream)
+      expect(events.filter(event => event.type === "session_token").map(event => event.sessionToken)).toEqual(["child-thread"])
+
+      const followup = await startExecTurn(manager)
+      expect(spawned[1]?.args.slice(0, 3)).toEqual(["exec", "resume", "--json"])
+      expect(spawned[1]?.args.slice(-2)).toEqual(["child-thread", "-"])
+      expect(spawned[1]?.args).not.toContain("source-thread")
+      children[1]!.writeJson({ type: "thread.started", thread_id: "child-thread" })
+      children[1]!.writeJson({ type: "turn.completed" })
+      children[1]!.closeWithCode(0)
+      await collectStream(followup.stream)
+    } finally { await manager.stopAll() }
+  })
+
+  test("a failed fork retains its source for retry instead of starting fresh", async () => {
+    const spawned: string[][] = []
+    const children: FakeCodexExecProcess[] = []
+    const manager = new CodexExecManager({
+      spawnProcess: args => {
+        spawned.push(args)
+        const child = new FakeCodexExecProcess()
+        children.push(child)
+        return child as never
+      },
+    })
+    try {
+      await manager.startSession({ chatId: "chat-1", cwd: "/tmp/project", model: "gpt-5.5",
+        sessionToken: null, pendingForkSessionToken: "source-thread" })
+      const failed = await startExecTurn(manager)
+      children[0]!.writeStderr("error: unrecognized subcommand 'fork'")
+      children[0]!.closeWithCode(2)
+      const events = await collectStream(failed.stream)
+      expect(events.some(event => event.type === "session_token")).toBe(false)
+      expect(events.at(-1)?.entry).toMatchObject({ kind: "result", isError: true })
+      const retry = await startExecTurn(manager)
+      expect(spawned).toHaveLength(2)
+      for (const args of spawned) {
+        expect(args.slice(0, 2)).toEqual(["exec", "fork"])
+        expect(args.slice(-2)).toEqual(["source-thread", "-"])
+      }
+      children[1]!.writeJson({ type: "thread.started", thread_id: "child-thread" })
+      children[1]!.writeJson({ type: "turn.completed" })
+      children[1]!.closeWithCode(0)
+      await collectStream(retry.stream)
+    } finally { await manager.stopAll() }
+  })
+
   test("maps Codex permission presets into exec config overrides", async () => {
     const spawned: Array<{ args: string[]; cwd: string }> = []
     const processes: FakeCodexExecProcess[] = []
@@ -957,10 +1030,11 @@ test("HTTPS selection is scoped to each new exec process and Auto removes the ov
     },
   })
   try {
-    for (const selected of ["https", "auto"] as const) {
-      mode = selected
+    for (const selected of ["https", "auto", "fork"] as const) {
+      mode = selected === "fork" ? "https" : selected
       const chatId = `transport-${selected}`
-      await manager.startSession({ chatId, cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: selected === "https" ? "existing-thread" : null })
+      await manager.startSession({ chatId, cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: selected === "https" ? "existing-thread" : null,
+        pendingForkSessionToken: selected === "fork" ? "source-thread" : null })
       const turn = await manager.startTurn({ chatId, model: "gpt-6.1-sol", content: "Hello", planMode: false, onToolRequest: async () => ({}) })
       const child = children.at(-1)!
       const events = collectStream(turn.stream)
@@ -972,6 +1046,9 @@ test("HTTPS selection is scoped to each new exec process and Auto removes the ov
     expect(spawned[0]?.slice(0, 3)).toEqual(["exec", "resume", "-c"])
     expect(spawned[1]?.[0]).toBe("exec")
     expect(spawned[1]?.join(" ")).not.toContain("supports_websockets")
+    expect(spawned[2]?.slice(0, 3)).toEqual(["exec", "fork", "-c"])
+    expect(spawned[2]?.join(" ")).toContain("supports_websockets")
+    expect(spawned[2]?.slice(-2)).toEqual(["source-thread", "-"])
     expect(environment).toEqual({ CODEX_HOME: "/missing-stillon-transport-test", HTTPS_PROXY: "http://127.0.0.1:7897" })
   } finally { await manager.stopAll() }
 })
