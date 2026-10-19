@@ -16,7 +16,7 @@ import { findBuildModuleProbe } from "./build-module-probe"
 // mail, starts an Agent, or changes the installed application's environment.
 for (const key of Object.keys(process.env)) if (key.startsWith("STILLON_UPDATE_") || key.startsWith("STILLON_CONNECT_") || key === "STILLON_RUNTIME_PROFILE") delete process.env[key]
 process.env.STILLON_MACHINE_NAME = "Preview test computer"
-const localOnly = process.argv.includes("--local-only")
+const localOnly = process.argv.includes("--local-only") || !process.argv.some(value => value.startsWith("--connect-fixture-module="))
 const filesOnly = process.argv.includes("--files-only")
 const browserOutput = process.argv.find(value => value.startsWith("--browser-output="))?.slice(17)
 const stopFile = process.argv.find(value => value.startsWith("--stop-file="))?.slice(12)

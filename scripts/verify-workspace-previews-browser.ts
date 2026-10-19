@@ -13,7 +13,7 @@ await mkdir(output, { recursive: true })
 const privateFixture = path.join(output, "private-browser-fixture-" + Date.now() + ".json")
 const stopFile = path.join(output, "fixture.stop-" + Date.now())
 const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
-const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value)), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true, detached: process.platform !== "win32" })
+const child = spawn("bun", ["scripts/verify-workspace-previews.ts", ...process.argv.filter(value => ["--local-only", "--external-sites", "--files-only"].includes(value) || value.startsWith("--connect-fixture-module=")), "--browser-output=" + privateFixture, "--stop-file=" + stopFile], { env: environment, stdio: "inherit", windowsHide: true, detached: process.platform !== "win32" })
 let fixtureExited = false
 const fixtureExit = new Promise<void>(resolve => child.once("exit", () => { fixtureExited = true; resolve() }))
 async function waitForFixtureExit(milliseconds: number) {

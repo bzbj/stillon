@@ -13,6 +13,12 @@ bun run test
 bun run audit
 ~~~
 
+The hosted Connect implementation and its full-stack integration CI live in a
+separate private repository. Public development remains independent; see
+[repository layout and compatibility checks](docs/repository-layout.md).
+Maintainers validate remote-affecting changes through both local and managed
+entries against the proposed public revision before acceptance.
+
 Open a focused pull request with a clear description, user impact, and validation notes.
 Write all pull request titles and descriptions in English. Write GitHub Release
 titles and release notes in English as well. Keep identifiers, commands and

@@ -3,6 +3,13 @@
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before making changes and follow
 [the release guide](docs/releasing.md) for explicitly requested releases.
 
+The hosted Connect service is maintained in a separate private repository.
+This public repository owns the local application, device connector/adapter,
+shared contracts and reusable utilities. See [repository layout](docs/repository-layout.md).
+Public builds must not require private source or credentials. Maintainers run
+full managed integration in the private repository against the exact public
+revision; moving tests does not waive paired-entry acceptance below.
+
 ## Public collaboration language
 
 - Write every pull request title and description in English.

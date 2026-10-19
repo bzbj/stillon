@@ -107,99 +107,39 @@ Bun 1.3.14 has a reproduced [server-side close shutdown issue](https://github.co
 Relay streams are explicitly terminated and listener shutdown is bounded; owned
 request tasks drain before databases close. Retest this when changing Bun.
 
-## Reproduce and package
+## Source ownership and verification
+
+The local connector/adapter and shared protocol remain in this public
+repository. The officially hosted account service, login portal, cloud
+packaging, deployment/recovery tooling and full integration suite live in a
+separate private repository. See [repository layout](repository-layout.md).
+
+Public development is independent:
 
 ```sh
 bun install --frozen-lockfile
 bun run check
 bun run test
-bun run prepare:connect-runtime --server
-bun scripts/test-connect-transport.ts
+bun run audit
 ```
 
-The last command uses two isolated real StillOn instances, accounts, frps/frpc
-and a fake sender. It verifies enrollment, authorization, HTTP/WS, avatar saves
-through both local and Connect entries with cross-entry reloads and persistence,
-rejected avatar writes and account isolation, 1/20/100 MiB file integrity,
-Range/HEAD/Unicode names, over-limit rejection, receipts, lease renewal, Logout
-and pause/resume/unbind. It does not call
-an agent model or send real email. `bun scripts/preview-connect.ts` provides the
-same isolation for browser QA; synthetic mail is in ignored test artifacts.
+For desktop packaging, set only the public `STILLON_CONNECT_ORIGIN` when running
+`bun run build:desktop --runtime-only`. The package includes the device-side
+frpc, its license/manifest and public `runtime/connect.json`; it does not include
+cloud server source, keys or databases. Existing saved bindings and device keys
+are not changed by the repository split.
 
-Set only the public `STILLON_CONNECT_ORIGIN` when running
-`bun run build:desktop --runtime-only`. The package includes frpc, its license,
-manifest and public `runtime/connect.json`; never cloud keys or databases.
-Development source runs use the same origin variable after preparing transport.
-The Desktop installers workflow accepts a `connect-origin` input. Pull-request
-artifacts include frpc with an intentionally invalid example origin to test
-packaging on every architecture; they need a real configured origin before use.
+Maintainers run the private suite against a pinned public revision and the
+pre-split client baseline. It exercises two isolated real StillOn instances,
+synthetic email accounts, enrollment, HTTP/WebSocket forwarding, file integrity,
+previews, cross-entry persistence, account isolation and revocation over real
+frps/frpc tunnels. Public preview scripts accept an explicit test fixture module
+from that suite. No public build or CI job needs private credentials.
 
-`bun scripts/build-connect.ts` assembles a separate cloud directory after
-`bun run build:connect`. Default target is `linux_amd64`; `--target=linux_arm64`
-selects that architecture. Install a verified supported Bun runtime separately
-at the unit's configured path. The assembled dependency lock and manifest seal
-that build. Verify its code and dependencies with
-`bun scripts/test-connect-transport.ts --cloud-package=dist/connect-service`.
-The loopback fixture uses the native frp binary; actual Linux startup still needs
-a Linux acceptance run. The cloud package contains `connect.env.example` and
-the recovery script; keep the real environment outside its release directory.
-
-## Deployment and recovery
-
-Pending enrollment can be cancelled from the local settings page. Cancellation
-is signed by the enrolling device; a lost claim response does not leave an
-active orphan host. If the cloud is unreachable, the local channel stays closed
-and the saved cancellation retries after restart before a new binding can begin.
-
-The local/remote settings page offers **Copy connection diagnostics**. Local
-reports include version, protocol, state, bounded error codes and the last cloud
-response time. Remote reports contain browser connection status only. Neither
-includes device keys, email, host IDs, paths, URLs or file contents; the local
-diagnostic endpoint is denied through the remote gateway.
-
-`/health` reports process liveness. `/ready` returns 200 only when the account,
-budget and host databases can be read and the frps HTTP listener responds; it
-returns 503 otherwise. Probes are coalesced/cached for five seconds, with a
-1.5-second dependency deadline and no redirects. This does not prove outbound
-mail delivery, disk write capacity, TLS validity or connectivity to every host.
-Operations should poll both endpoints and alert after repeated readiness
-failures, separately monitor certificate expiry, disk/RAM and mail failures,
-and rehearse those alerts before inviting users. Probe the central authority,
-not a host origin; preserve its Host header when checking loopback directly.
-
-1. Create a dedicated unprivileged account, `/var/lib/stillon-connect` and a
-   root-managed private environment file. Configure [mail](connect-email-login.md).
-   Preserve existing apps, personal Feishu ingress, VPN and SSH.
-2. Provision central/wildcard DNS and a certificate covering both names via
-   DNS-01. Keep DNS credentials in operations and verify certificate renewal.
-3. Review `packaging/connect/`. Only public TLS443 is exposed. The central
-   `/~!frp` WebSocket path goes to control3222; other central/host traffic goes
-   to the authorized gateway3220. Plugin3221 and vhost3223 are never public.
-4. A shared SNI dispatcher needs a separate narrow mapping and listener. Preserve
-   actual client IP using PROXY protocol or an equivalent trusted route; otherwise
-   login IP budgets collapse to one dispatcher. Overwrite X-Real-IP, avoid query/
-   body logging, disable private caching and apply edge connection/rate limits.
-5. Back up live configuration, validate candidates, activate atomically and check
-   the existing services plus real external TLS, email and cross-account denial.
-
-SQLite is single-instance with WAL; do not share its data directory between
-gateway processes. Stop the service and checkpoint all databases before backup.
-Keep private backups outside public assets. To restore a checkpointed backup:
-
-```sh
-bun scripts/restore-connect.ts /private/backup /private/new-data-dir
-```
-
-The tool refuses an existing destination, retains accounts, retires all old
-devices/sessions and omits old OTP receipts/signing keys. Supply a new account
-secret and bind computers again. This prevents a pre-revocation backup from
-resurrecting access. Original computer files are untouched. Roll back code/config
-without rolling back current revocation state. If schema compatibility is unknown,
-pause remote access and use conservative restore instead of replaying old state.
-
-Independent installation/reboot, macOS arm64/Windows, mobile/cellular access,
-real mail-provider matrix, TLS renewal, infrastructure rollback and a 12-hour
-soak remain required release gates.
+Managed-service operations, mail delivery, TLS, backups and recovery remain the
+service operator's responsibility. The source split alone does not deploy code
+or migrate account state. Public-network/platform acceptance remains separate
+from local integration evidence.
 
 ## Signed-in browsers
 
@@ -234,14 +174,8 @@ service or a failed request displays an unavailable/error state instead of
 claiming that zero browsers are signed in. Focus and periodic visible-page
 refreshes reconcile changes made through another entry.
 
-Focused end-to-end verification (synthetic mail and isolated data only):
-
-```sh
-bun scripts/test-connect-browser-sessions.ts
-```
-
-This exercises two real local servers, the account gateway, frps/frpc and the
-adapters: count/current markers, cross-entry reads and revocations, durable
+Focused browser-session integration lives in the private service repository.
+It exercises count/current markers, cross-entry reads and revocations, durable
 usage updates, multiple-computer stream closure, self-revocation and preserved
-bindings. Unit tests additionally cover cross-account denial, expiry,
-unknown historical usage and restart persistence.
+bindings. These checks continue to use the real account gateway, tunnels,
+adapters and local servers.
