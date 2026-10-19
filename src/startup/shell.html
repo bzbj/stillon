@@ -1,5 +1,4 @@
 <dialog id="stillon-startup" open aria-label="Opening Still On" aria-busy="true">
-  <div class="stillon-startup-wordmark" aria-hidden="true">Still On</div>
   <div class="stillon-startup-center">
     <svg class="stillon-startup-avatar" viewBox="0 0 64 64" aria-hidden="true">
       <path fill="#685cf1" d="M26 5C41 1 55 11 57 25C60 39 54 54 41 58C27 62 8 57 5 46C1 35 14 8 26 5Z"/>
@@ -7,9 +6,13 @@
     </svg>
     <h1>Still On</h1>
     <p id="stillon-startup-status" role="status" aria-live="polite">Opening your workspace…</p>
-    <p id="stillon-startup-detail"></p>
-    <details id="stillon-startup-recovery"><summary>Taking a while?</summary><a href="">Reload page</a> · <a href="/">Return to start</a></details>
     <noscript>Enable JavaScript to open Still On.</noscript>
   </div>
-  <div class="stillon-startup-footer">Leave your computer. Agent Still On.</div>
+  <details id="stillon-startup-recovery">
+    <summary>Taking a while?</summary>
+    <div class="stillon-startup-recovery-actions">
+      <p id="stillon-startup-detail"></p>
+      <a href="">Reload page</a> · <a href="/">Return to start</a>
+    </div>
+  </details>
 </dialog>
