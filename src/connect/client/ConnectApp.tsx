@@ -83,6 +83,7 @@ export function ConnectApp() {
   const sessionGeneration = useRef(0)
   const previousUserId = useRef<string | null>(null)
   const initialHosts = useRef<ConnectHost[] | null>(null)
+  const redirecting = useRef(false)
   const cooldown = email.trim().toLowerCase() === retryEmail ? Math.max(0, Math.ceil((retryAt - now) / 1_000)) : 0
   const needsCode = Boolean(intent && !intentDone)
   const automaticNavigation = Boolean(session && !intent && !["/computers", "/logout/complete"].includes(route.pathname))
@@ -116,6 +117,7 @@ export function ConnectApp() {
           if (!alive) return
           if (result.userId) { try { localStorage.setItem(`stillon-connect-host:${result.userId}`, result.hostId) } catch { /* optional preference */ } }
           window.location.replace(result.redirect)
+          redirecting.current = true
           return
         } catch (error) {
           authorization.current = null
@@ -124,7 +126,10 @@ export function ConnectApp() {
       }
       await refreshSession(!intent && route.pathname !== "/authorize" && route.pathname !== "/logout/complete")
     }
-    void begin().catch(() => { if (alive) setError("Unable to connect. Refresh the page to try again.") }).finally(() => { if (alive) setLoading(false) })
+    // Successful direct authorization has no session state in this document.
+    // Keep the shell up until the next document arrives, rather than revealing
+    // the sign-in form while its callback navigation is still in flight.
+    void begin().catch(() => { if (alive) setError("Unable to connect. Refresh the page to try again.") }).finally(() => { if (alive && !redirecting.current) setLoading(false) })
     const refresh = () => { void refreshSession().catch(() => {}) }
     window.addEventListener("focus", refresh)
     if (typeof BroadcastChannel !== "undefined") {
