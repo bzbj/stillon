@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import path from "node:path"
 import { brotliCompressSync, gzipSync } from "node:zlib"
+import { ConnectRelay, type RelaySocket } from "./relay"
+import { CONNECT_MAX_WS_BYTES } from "../../shared/connect"
 
 test("native relay survives client cancellations, streams incrementally and revokes active bodies", async () => {
   // Isolate native runtime failures: a Bun socket abort must fail this test,
@@ -73,3 +75,35 @@ test("native relay survives client cancellations, streams incrementally and revo
     if (child.exitCode === null) { child.kill(); await child.exited }
   }
 }, 25_000)
+
+test("native WebSocket relay accepts repeated 5 MiB text/binary messages and enforces the per-message ceiling", async () => {
+  const origin = Bun.serve({ port: 0, hostname: "127.0.0.1",
+    fetch: (request, server) => server.upgrade(request) ? undefined : new Response("Upgrade required", { status: 400 }),
+    websocket: { maxPayloadLength: CONNECT_MAX_WS_BYTES, message: (ws, message) => { ws.send(message) } },
+  })
+  const relay = new ConnectRelay()
+  const server = Bun.serve<RelaySocket>({ port: 0, hostname: "127.0.0.1",
+    fetch: (request, server) => relay.upgrade(request, server, `ws://127.0.0.1:${origin.port}`, new Headers(), {
+      hostId: "fixture", ownerId: "fixture", parentId: "fixture", valid: () => true,
+    }), websocket: relay.websocket,
+  })
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}`)
+  ws.binaryType = "arraybuffer"
+  try {
+    await new Promise<void>((resolve, reject) => { ws.onopen = () => resolve(); ws.onerror = () => reject(new Error("Connection failed")) })
+    for (const message of ["a".repeat(1_100_000), ...Array.from({ length: 4 }, (_, i) => String(i).repeat(CONNECT_MAX_WS_BYTES)), new Uint8Array(CONNECT_MAX_WS_BYTES).fill(73)]) {
+      const response = new Promise<string | ArrayBuffer>((resolve, reject) => {
+        const deadline = setTimeout(() => reject(new Error("Echo timed out")), 5000)
+        ws.onmessage = event => { clearTimeout(deadline); resolve(event.data) }
+      })
+      ws.send(message)
+      const echoed = await response
+      if (typeof message === "string") expect(echoed).toBe(message)
+      else expect(new Uint8Array(echoed as ArrayBuffer)).toEqual(message)
+      expect(ws.readyState).toBe(WebSocket.OPEN)
+    }
+    const closed = new Promise<void>(resolve => { ws.onclose = () => resolve() })
+    ws.send(new Uint8Array(CONNECT_MAX_WS_BYTES + 1))
+    await Promise.race([closed, Bun.sleep(3000).then(() => { throw new Error("Oversized message was not rejected") })])
+  } finally { ws.close(); relay.stop(); server.stop(true); origin.stop(true) }
+}, 15_000)

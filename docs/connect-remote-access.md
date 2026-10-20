@@ -179,3 +179,24 @@ It exercises count/current markers, cross-entry reads and revocations, durable
 usage updates, multiple-computer stream closure, self-revocation and preserved
 bindings. These checks continue to use the real account gateway, tunnels,
 adapters and local servers.
+
+### Large messages and slow connections
+
+The gateway and host adapter accept WebSocket messages up to 5 MiB each.
+Repeated messages within that ceiling are allowed; there is no large-message
+counter. Generic preview sockets preserve text/binary frames and subprotocols.
+Temporary congestion queues frames in order. A connection closes after 30
+seconds without send progress, or if actual pending data exceeds 64 MiB.
+
+New application browsers request `stillonTransport=1` on `/ws`. Supporting hosts
+announce `~stillon/ready/1` and split large protocol-1 JSON envelopes into small
+Unicode-safe frames, with four frames in flight and receiver acknowledgements.
+Commands execute only after complete assembly, keeping existing operation IDs
+and remote command receipts. Disconnecting discards partial transfers; it does
+not replay commands. Old browsers receive ordinary JSON, and new browsers use
+ordinary JSON with old hosts. Chunked messages also fit through the original
+1 MiB Connect relays. HTTP file transfers keep their separate limits.
+
+Raising the native frame ceiling requires upgrading both the gateway and host
+adapter. Chunking additionally requires the new application browser and host.
+Updating only the gateway cannot remove an old installed adapter's 1 MiB limit.
