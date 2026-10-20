@@ -1,6 +1,6 @@
 # Public-release readiness
 
-StillOn **0.5.0 (Husky)** is a macOS-first, source-available public beta. This
+StillOn **Husky (0.x)** is a macOS-first, source-available public beta. This
 page distinguishes implemented behavior and CI coverage from independent-user
 acceptance and distribution readiness. Unsigned beta publication is currently intentional. A published source release does not mean
 every platform or Connect customer-release gate has passed.
@@ -59,7 +59,7 @@ pilot provide additional evidence; they are not broad customer certification.
 Independent platform/user trials, public/mobile networks, the full fault/abuse/
 load matrix, a 12-hour soak and operational alert delivery remain release gates
 for a customer service. Billing, custom customer domains and shared-host teams
-are not part of 0.5.0.
+are not part of the current Husky scope.
 
 ## Security and operational boundaries
 
@@ -71,8 +71,9 @@ are not part of 0.5.0.
 - The gateway terminates TLS and is trusted. This is not end-to-end encryption.
   Agent/model providers can receive context sent to them by the local agents.
 - Remote access grants authority over local agent tasks and files. Only link
-  owned computers and use trusted browsers. Remote dynamic localhost previews
-  are disabled in this pilot; supported static previews are sandboxed.
+  owned computers and use trusted browsers. Owned localhost HTTP services can use the host’s isolated Chromium preview;
+  native HTML files use a separate file origin. Ordinary external websites
+  open on the visiting device. See the current preview contract.
 - Self-managed ingress still requires its own TLS, access policy and trusted
   proxy configuration. The optional application password is an additional
   local barrier, not a complete public gateway policy.
