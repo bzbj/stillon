@@ -6,19 +6,13 @@ import { canCacheBuildAsset, PRIVATE_BUILD_ASSET_CACHE } from "../../shared/publ
 import { RelayQueue } from "./relay-queue"
 
 export interface RelayScope { hostId: string; parentId: string; ownerId: string; valid: () => boolean; finished?: () => void; onActivity?: (message: string | Buffer) => void }
-/** Numeric observations only; observers never receive payloads or identities. */
-export interface RelayObserver {
-  bytes(direction: "upload" | "download", bytes: number, transport: "http" | "websocket"): void
-  websocket(event: "open" | "close" | "error"): void
-}
-interface ActiveStream { scope: RelayScope; close: (failed?: boolean) => void }
+interface ActiveStream { scope: RelayScope; close: () => void }
 export interface RelaySocket {
   upstream: WebSocket
   downstream?: ServerWebSocket<RelaySocket>
   scope: RelayScope
   id: string
   closed: boolean
-  opened?: boolean
   toDownstream?: RelayQueue
   toUpstream?: RelayQueue
 }
@@ -61,21 +55,14 @@ function copyApplicationCookies(upstream: Headers, outgoing: Headers) {
 export class ConnectRelay {
   private readonly streams = new Map<string, ActiveStream>()
   private readonly timer: ReturnType<typeof setInterval>
-  constructor(private readonly timingStage: "relay" | "gateway-upstream" | "adapter-upstream" = "relay", private readonly observer?: RelayObserver) {
+  constructor(private readonly timingStage: "relay" | "gateway-upstream" | "adapter-upstream" = "relay") {
     this.timer = setInterval(() => {
       for (const stream of this.streams.values()) { if (!this.valid(stream.scope)) stream.close() }
     }, 1_000)
     this.timer.unref()
   }
-  private bytes(direction: "upload" | "download", bytes: number, transport: "http" | "websocket") {
-    // Monitoring must never interrupt or retain the traffic it observes.
-    try { if (bytes > 0) this.observer?.bytes(direction, bytes, transport) } catch { /* Observer unavailable. */ }
-  }
-  private socketEvent(event: "open" | "close" | "error") {
-    try { this.observer?.websocket(event) } catch { /* Observer unavailable. */ }
-  }
   private valid(scope: RelayScope) { try { return scope.valid() } catch { return false } }
-  private reserve(scope: RelayScope, close: (failed?: boolean) => void) {
+  private reserve(scope: RelayScope, close: () => void) {
     if (!this.valid(scope)) throw new Error("ACCESS_REVOKED")
     if (this.streams.size >= 256 || [...this.streams.values()].filter(s => s.scope.ownerId === scope.ownerId).length >= CONNECT_MAX_STREAMS) throw new Error("CONNECTION_LIMIT")
     const id = randomId(); this.streams.set(id, { scope, close }); return id
@@ -107,12 +94,8 @@ export class ConnectRelay {
       const upstreamHeaders = new Headers(headers)
       upstreamHeaders.set("connection", "close")
       const upstreamStartedAt = performance.now()
-      const body = ["GET", "HEAD"].includes(request.method) ? undefined : request.body
-      const measuredBody = body && this.observer ? body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform: (chunk, controller) => { this.bytes("upload", chunk.byteLength, "http"); controller.enqueue(chunk) },
-      })) : body
       const upstream = await fetch(target, { method: request.method, headers: upstreamHeaders, keepalive: false,
-        body: measuredBody,
+        body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
         signal: AbortSignal.any([request.signal, controller.signal]), redirect: "manual", decompress: false,
       })
       const outgoing = new Headers(upstream.headers)
@@ -142,7 +125,6 @@ export class ConnectRelay {
               if (!this.valid(scope) || controller.signal.aborted) throw new Error("ACCESS_REVOKED")
               if (chunk.done) { finish(); output.close(); return }
               await output.write(chunk.value)
-              this.bytes("download", chunk.value.byteLength, "http")
               await output.flush()
             }
           } catch {
@@ -161,11 +143,9 @@ export class ConnectRelay {
 
   async upgrade(request: Request, server: Server<RelaySocket>, target: string, headers: Headers, scope: RelayScope) {
     const data: RelaySocket = { upstream: null as unknown as WebSocket, scope, id: "", closed: false }
-    const close = (failed = false) => {
+    const close = () => {
       if (data.closed) return
       data.closed = true
-      if (failed) this.socketEvent("error")
-      if (data.opened) this.socketEvent("close")
       data.toDownstream?.dispose()
       data.toUpstream?.dispose()
       this.streams.delete(data.id)
@@ -185,43 +165,34 @@ export class ConnectRelay {
       const upstream = upstreamWebSocket(target, headers, protocols)
       data.upstream = upstream; upstream.binaryType = "arraybuffer"
       data.toDownstream = new RelayQueue({
-        write: message => {
-          if (!data.downstream || data.downstream.send(message) === 0) return false
-          this.bytes("download", typeof message === "string" ? Buffer.byteLength(message) : message.byteLength, "websocket")
-          return true
-        },
+        write: message => Boolean(data.downstream && data.downstream.send(message) !== 0),
         buffered: () => data.downstream?.getBufferedAmount() ?? 0,
-        highWaterMark: BUFFER_LIMIT, fail: () => close(true),
+        highWaterMark: BUFFER_LIMIT, fail: close,
       })
       data.toUpstream = new RelayQueue({
-        write: message => {
-          if (upstream.readyState !== WebSocket.OPEN) return false
-          upstream.send(typeof message === "string" ? message : new Uint8Array(message))
-          this.bytes("upload", typeof message === "string" ? Buffer.byteLength(message) : message.byteLength, "websocket")
-          return true
-        },
+        write: message => { if (upstream.readyState !== WebSocket.OPEN) return false; upstream.send(typeof message === "string" ? message : new Uint8Array(message)); return true },
         buffered: () => upstream.bufferedAmount,
-        highWaterMark: BUFFER_LIMIT, fail: () => close(true),
+        highWaterMark: BUFFER_LIMIT, fail: close,
       })
       upstream.addEventListener("message", event => {
         if (!this.valid(scope) || data.closed) { close(); return }
         const message = event.data as string | ArrayBuffer
         const length = typeof message === "string" ? Buffer.byteLength(message) : message.byteLength
-        if (length > CONNECT_MAX_WS_BYTES) { close(true); return }
+        if (length > CONNECT_MAX_WS_BYTES) { close(); return }
         data.toDownstream!.push(message)
       })
-      upstream.addEventListener("close", event => close(![1000, 1001, 1005].includes(event.code)))
-      upstream.addEventListener("error", () => close(true))
+      upstream.addEventListener("close", close)
+      upstream.addEventListener("error", close)
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => { close(true); reject(new Error("Connection timeout")) }, 10_000)
+        const timer = setTimeout(() => { close(); reject(new Error("Connection timeout")) }, 10_000)
         upstream.addEventListener("open", () => { clearTimeout(timer); resolve() }, { once: true })
         upstream.addEventListener("error", () => { clearTimeout(timer); reject(new Error("Connection failed")) }, { once: true })
         upstream.addEventListener("close", () => { clearTimeout(timer); reject(new Error("Connection closed")) }, { once: true })
       })
       if (data.closed || !this.valid(scope)) throw new Error("ACCESS_REVOKED")
       if (server.upgrade(request, { data, headers: upstream.protocol ? { "Sec-WebSocket-Protocol": upstream.protocol } : undefined })) return undefined
-      close(true); return new Response("Upgrade failed", { status: 400 })
-    } catch { close(true); return Response.json({ error: "CONNECTION_UNAVAILABLE" }, { status: 503 }) }
+      close(); return new Response("Upgrade failed", { status: 400 })
+    } catch { close(); return Response.json({ error: "CONNECTION_UNAVAILABLE" }, { status: 503 }) }
   }
   readonly websocket = {
     maxPayloadLength: CONNECT_MAX_WS_BYTES,
@@ -232,8 +203,6 @@ export class ConnectRelay {
       const data = ws.data
       if (data.closed || !this.valid(data.scope)) { ws.close(1008); return }
       data.downstream = ws
-      data.opened = true
-      this.socketEvent("open")
       data.toDownstream?.flush()
     },
     message: (ws: ServerWebSocket<RelaySocket>, message: string | Buffer) => {
@@ -245,6 +214,6 @@ export class ConnectRelay {
       data.toUpstream?.push(message)
     },
     drain: (ws: ServerWebSocket<RelaySocket>) => { ws.data.toDownstream?.flush() },
-    close: (ws: ServerWebSocket<RelaySocket>, code = 1000) => { this.streams.get(ws.data.id)?.close(![1000, 1001, 1005].includes(code)) },
+    close: (ws: ServerWebSocket<RelaySocket>) => { this.streams.get(ws.data.id)?.close() },
   }
 }
