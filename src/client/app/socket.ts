@@ -13,6 +13,7 @@ import type {
 import { LOG_PREFIX } from "../../shared/branding"
 import { generateUUID } from "../lib/utils"
 import { isConnectBrowser } from "../lib/remoteSession"
+import { SocketTransport, SOCKET_TRANSPORT_QUERY } from "../../shared/socket-transport"
 
 type SnapshotListener<T> = (value: T) => void
 type EventListener<T> = (value: T) => void
@@ -44,6 +45,7 @@ export class StillOnSocket {
   private readonly url: string
   private readonly remote: boolean
   private ws: WebSocket | null = null
+  private transport: SocketTransport | null = null
   private started = false
   private reconnectTimer: number | null = null
   private reconnectDelayMs = 750
@@ -100,6 +102,7 @@ export class StillOnSocket {
     window.removeEventListener("online", this.handleOnline)
     document.removeEventListener("visibilitychange", this.handleVisibilityChange)
     this.ws?.close()
+    this.transport?.dispose()
     this.ws = null
     for (const pending of this.pending.values()) {
       pending.reject(new Error("Socket disposed"))
@@ -213,8 +216,19 @@ export class StillOnSocket {
       return
     }
     this.emitStatus("connecting")
-    this.ws = new WebSocket(this.url)
+    this.transport?.dispose()
+    const url = new URL(this.url)
+    url.searchParams.set(SOCKET_TRANSPORT_QUERY, "1")
+    this.ws = new WebSocket(url.href)
     const connection = this.ws
+    const transport = new SocketTransport({
+      write: frame => { if (connection.readyState !== WebSocket.OPEN) return false; connection.send(frame); return true },
+      fail: reason => connection.close(1013, reason),
+      // Only needed if a large command precedes every subscription/response.
+      // Old servers answer this ordinary protocol-1 ping and select legacy mode.
+      probe: () => connection.send(JSON.stringify({ v: 1, type: "command", id: "transport-probe", command: { type: "system.ping" } })),
+    })
+    this.transport = transport
 
     this.ws.addEventListener("open", () => {
       if (this.ws !== connection) return
@@ -240,7 +254,8 @@ export class StillOnSocket {
       if (this.ws !== connection) return
       this.lastMessageAt = Date.now()
       const receivedAt = performance.now()
-      const rawText = String(event.data)
+      const rawText = transport.receive(String(event.data))
+      if (rawText === null) return
       let payload: ServerEnvelope
       try {
         payload = JSON.parse(rawText) as ServerEnvelope
@@ -329,6 +344,7 @@ export class StillOnSocket {
 
     this.ws.addEventListener("close", () => {
       if (this.ws !== connection) return
+      transport.dispose()
       if (!this.started) {
         return
       }
@@ -474,6 +490,6 @@ export class StillOnSocket {
     if (envelope.type === "command" && envelope.command.type === "chat.answerAsyncQuestion") {
       traceAsyncAnswer("command_sent", { commandId: envelope.id, submissionId: envelope.command.submissionId })
     }
-    this.ws?.send(JSON.stringify(envelope))
+    this.transport?.send(JSON.stringify(envelope))
   }
 }

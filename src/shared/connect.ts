@@ -4,7 +4,7 @@ export const CONNECT_HEARTBEAT_MS = 15_000
 export const CONNECT_OFFLINE_MS = 45_000
 export const CONNECT_LEASE_MS = 45_000
 export const CONNECT_MAX_HTTP_BYTES = 110 * 1024 * 1024
-export const CONNECT_MAX_WS_BYTES = 1024 * 1024
+export const CONNECT_MAX_WS_BYTES = 5 * 1024 * 1024
 export const CONNECT_MAX_STREAMS = 32
 
 export type ConnectIntent = { purpose: "enroll"; id: string } | { purpose: "revoke-host"; id: string }

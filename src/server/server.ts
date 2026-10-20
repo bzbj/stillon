@@ -34,6 +34,7 @@ import { readLlmProviderSnapshot, validateLlmProviderCredentials, writeLlmProvid
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
 import { createWsRouter, type ClientState } from "./ws-router"
+import { SOCKET_TRANSPORT_QUERY } from "../shared/socket-transport"
 import { handleBrowserPreviewProxy, rewriteRootRelativeReferences } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
 import { resolveProjectUploadFilePath } from "./paths"
@@ -473,6 +474,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           if (url.pathname === "/ws") {
             const upgraded = serverInstance.upgrade(req, {
               data: {
+                chunkTransport: url.searchParams.get(SOCKET_TRANSPORT_QUERY) === "1",
                 canOpenHostFiles: ingress.kind === "local",
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),

@@ -9,6 +9,7 @@ import { INITIAL_CHAT_HISTORY_ENTRY_LIMIT } from "../shared/transcript-history"
 import { PROTOCOL_VERSION, getCodexModelForRole, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
+import { SocketTransport, SOCKET_TRANSPORT_READY } from "../shared/socket-transport"
 import type { AgentCoordinator } from "./agent"
 import type { CodexModelPolicyManager } from "./codex-model-policy-manager"
 import type { AppSettingsManager } from "./app-settings"
@@ -120,6 +121,8 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 }
 
 export interface ClientState {
+  chunkTransport?: boolean
+  transport?: SocketTransport
   canOpenHostFiles?: boolean
   remoteOwnerId?: string
   subscriptions: Map<string, SubscriptionTopic>
@@ -185,7 +188,8 @@ function getSidebarProjectOrder(store: EventStore) {
 
 function sendEnvelope(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
   const payload = JSON.stringify(message)
-  ws.send(payload)
+  if (ws.data.transport) ws.data.transport.send(payload)
+  else ws.send(payload)
   return Buffer.byteLength(payload, "utf8")
 }
 
@@ -1570,9 +1574,17 @@ export function createWsRouter({
 
   return {
     handleOpen(ws: ServerWebSocket<ClientState>) {
+      if (ws.data.chunkTransport) {
+        ws.data.transport = new SocketTransport({ enabled: true,
+          write: frame => ws.send(frame) !== 0,
+          fail: reason => ws.close(1013, reason),
+        })
+        ws.send(SOCKET_TRANSPORT_READY)
+      }
       sockets.add(ws)
     },
     handleClose(ws: ServerWebSocket<ClientState>) {
+      ws.data.transport?.dispose()
       sockets.delete(ws)
       ws.data.subscriptions.clear()
       ws.data.chatStreams?.clear()
@@ -1585,9 +1597,12 @@ export function createWsRouter({
     scheduleChatStateBroadcast,
     pruneStaleEmptyChats: () => maybePruneStaleEmptyChats(),
     async handleMessage(ws: ServerWebSocket<ClientState>, raw: string | Buffer | ArrayBuffer | Uint8Array) {
+      const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw)
+      const complete = ws.data.transport ? ws.data.transport.receive(text) : text
+      if (complete === null) return
       let parsed: unknown
       try {
-        parsed = JSON.parse(String(raw))
+        parsed = JSON.parse(complete)
       } catch {
         send(ws, { v: PROTOCOL_VERSION, type: "error", message: "Invalid JSON" })
         return
