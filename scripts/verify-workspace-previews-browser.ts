@@ -30,6 +30,18 @@ const networkFailures: { path: string; status: number; reason?: string }[] = []
 const browserErrors: string[] = []
 const assetFailures: Record<string, unknown>[] = []
 const safeError = (value: string) => value.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gu, raw => { try { return new URL(raw).pathname } catch { return "[URL]" } }).slice(0, 600)
+async function navigateServicePreview(page: Page, address: string, navigate: () => Promise<void>, applicationReady = false) {
+  // An image from the previous address can still be visible when Enter returns.
+  // Wait for the requested page's frame, not just the presence of an image.
+  const frame = page.waitForResponse(async response => {
+    if (response.request().method() !== "GET" || !/^\/api\/preview-browser\/[\w-]+$/u.test(new URL(response.url()).pathname) || !response.ok()) return false
+    const value = await response.json().catch(() => null)
+    return value?.address === address && typeof value.image === "string" && !value.error
+      && (!applicationReady || /^Application \d+ true$/u.test(value.title ?? ""))
+  })
+  // Observe navigation failure and response timeout together; never replay input.
+  await Promise.all([frame, navigate()])
+}
 let currentPage: Page | undefined
 let stage = "startup"
 const progress = setInterval(() => console.log("Browser validation stage: " + stage), 10_000)
@@ -291,7 +303,10 @@ try {
     for (const name of Object.keys(config.addresses[entry.name]).filter(name => !filesOnly || name !== "dynamic")) {
       await paceConnect()
       stage = entry.name + ":" + name + ":sidebar"
-      await address.fill(config.addresses[entry.name][name]); await address.press("Enter")
+      const destination = config.addresses[entry.name][name]
+      const navigate = async () => { await address.fill(destination); await address.press("Enter") }
+      if (name === "dynamic") await navigateServicePreview(page, destination, navigate, true)
+      else await navigate()
       await page.waitForFunction(value => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value === value, config.addresses[entry.name][name])
       if (name.endsWith("markdown")) { await page.getByRole("heading", { name: "Preview guide" }).waitFor(); await images(page) }
       else if (name.endsWith("html")) {
@@ -478,7 +493,10 @@ try {
         stage: value => { stage = value }, screenshot: path.join(output, entry.name + "-" + type.name() + "-input-" + view + ".png"),
         prepare: async destination => {
           if (view === "direct") await inputPage.goto(destination, { waitUntil: "domcontentloaded" })
-          else if (view === "sidebar") { await address.fill(destination); await address.press("Enter"); await inputPage.getByAltText("Interactive browser preview").waitFor() }
+          else if (view === "sidebar") {
+            await navigateServicePreview(inputPage, destination, async () => { await address.fill(destination); await address.press("Enter") })
+            await inputPage.getByAltText("Interactive browser preview").waitFor()
+          }
           else {
             const response = await inputPage.request.post(entry.origin + "/api/preview-targets", { headers: { Origin: entry.origin }, data: { projectId: config.projectId, address: destination } })
             assert(response.ok()); const target = await response.json()
