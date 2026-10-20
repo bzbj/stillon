@@ -3,6 +3,7 @@ import { applyCodexModelPolicy, normalizeCodexModelId, getCodexModelForRole } fr
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { StillOnSocket } from "./socket"
+import { SocketTransport, SOCKET_TRANSPORT_READY } from "../../shared/socket-transport"
 
 type EventHandler = (event?: unknown) => void
 
@@ -74,6 +75,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = []
 
   readonly sent: Array<Record<string, unknown>> = []
+  readonly rawSent: string[] = []
   private readonly listeners = new Map<string, Set<EventHandler>>()
   readyState = FakeWebSocket.CONNECTING
 
@@ -91,6 +93,8 @@ class FakeWebSocket {
   }
 
   send(message: string) {
+    this.rawSent.push(message)
+    if (message.startsWith("~stillon/")) return
     this.sent.push(JSON.parse(message))
   }
 
@@ -100,8 +104,10 @@ class FakeWebSocket {
   }
 
   receive(message: Record<string, unknown>) {
-    this.emit("message", { data: JSON.stringify(message) })
+    this.receiveRaw(JSON.stringify(message))
   }
+
+  receiveRaw(message: string) { this.emit("message", { data: message }) }
 
   close() {
     if (this.readyState === FakeWebSocket.CLOSED) return
@@ -164,6 +170,31 @@ describe("StillOnSocket", () => {
     restoreGlobalProperty("window", originalWindowDescriptor)
     restoreGlobalProperty("document", originalDocumentDescriptor)
     restoreGlobalProperty("WebSocket", originalWebSocketDescriptor)
+  })
+
+  test("negotiates large responses and resolves a complete >5 MiB command result without reconnecting", async () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    const frames: string[] = []
+    const server = new SocketTransport({ enabled: true, write: frame => { frames.push(frame); return true }, fail: reason => { throw new Error(reason) } })
+    try {
+      expect(new URL(ws.url).searchParams.get("stillonTransport")).toBe("1")
+      ws.open()
+      ws.receiveRaw(SOCKET_TRANSPORT_READY)
+      const result = socket.command({ type: "system.ping" })
+      const request = ws.sent.at(-1)!
+      const text = "资料😀".repeat(700_000)
+      server.send(JSON.stringify({ v: 1, type: "ack", id: request.id, result: text }))
+      let read = ws.rawSent.length
+      while (frames.length) {
+        for (const frame of frames.splice(0)) ws.receiveRaw(frame)
+        for (const frame of ws.rawSent.slice(read)) server.receive(frame)
+        read = ws.rawSent.length
+      }
+      expect(await result).toBe(text)
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN)
+    } finally { socket.dispose(); server.dispose() }
   })
 
   test("installs server policy before first settings callback and updates again on reconnect", () => {
