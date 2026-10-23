@@ -125,7 +125,7 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
     "typescript": "7.0.2",
-    "vite": "^8.1.4",
+    "vite": "^8.1.6",
     "zustand": "^5.0.10"
   }
 }
