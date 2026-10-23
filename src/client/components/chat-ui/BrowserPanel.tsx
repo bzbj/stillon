@@ -470,7 +470,7 @@ function BrowserPanelImpl({
                             tabIndex={0}
                             onClick={() => openAddress(server.address)}
                             onKeyDown={(event) => {
-                              if (event.key !== "Enter" && event.key !== " ") return
+                              if (event.target !== event.currentTarget || event.key !== "Enter" && event.key !== " ") return
                               event.preventDefault()
                               openAddress(server.address)
                             }}

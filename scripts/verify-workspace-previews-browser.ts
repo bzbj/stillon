@@ -355,7 +355,10 @@ try {
     if (entry.name === "loopback") {
       await localServicePopup(() => service.click(), "http://localhost:" + config.serviceListPort + "/")
       await localServicePopup(() => service.press("Enter"), "http://localhost:" + config.serviceListPort + "/")
-      await service.getByRole("button", { name: "Server actions", exact: true }).click()
+      const tabsBeforeMenu = context.pages().length
+      await service.getByRole("button", { name: "Server actions", exact: true }).press("Enter")
+      await page.getByRole("menuitem", { name: "Open in New Tab", exact: true }).waitFor()
+      assert.equal(context.pages().length, tabsBeforeMenu, "Keyboard activation of the nested menu must not open the service")
       await localServicePopup(() => page.getByRole("menuitem", { name: "Open in New Tab", exact: true }).click(), "http://localhost:" + config.serviceListPort + "/")
       checks.push({ entry: entry.name, check: "Service-list click, keyboard and new-tab actions open direct URLs without screenshots", result: "Pass" })
     } else {
