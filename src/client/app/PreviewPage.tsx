@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { PreviewSurface, type ResolvedPreviewEntry } from "../components/chat-ui/PreviewSurface"
 import { registerPreviewTarget, readPreviewEntry } from "../lib/previewTarget"
+import { localServiceBrowserAddress } from "../lib/localServiceBrowser"
 import { parsePreviewTarget } from "../../shared/preview-target"
 import { Button } from "../components/ui/button"
 import { useStartupReveal } from "../lib/startup"
@@ -22,7 +23,11 @@ export function PreviewPage() {
     let cancelled = false
     setEntry(undefined); setError(undefined)
     void readPreviewEntry(targetId ?? "").then(value => {
-      if (!cancelled && sequence === navigationSequence.current) { resolvedId.current = targetId; setEntry(value) }
+      if (!cancelled && sequence === navigationSequence.current) {
+        const direct = value.target.kind === "host-http" ? localServiceBrowserAddress(value.target.address) : null
+        if (direct) { window.location.replace(direct); return }
+        resolvedId.current = targetId; setEntry(value)
+      }
     }).catch(e => { if (!cancelled && sequence === navigationSequence.current) setError(e.message) })
     return () => { cancelled = true }
   }, [targetId])

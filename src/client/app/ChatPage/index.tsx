@@ -1,3 +1,4 @@
+import { openLocalServiceInBrowser } from "../../lib/localServiceBrowser"
 import { executeResourceAction } from "../../components/ResourceLink"
 import { StartupPart } from "../StartupReadiness"
 import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
@@ -683,6 +684,7 @@ export function ChatPage() {
   }, [state.handleCancel])
 
   const handleOpenTranscriptBrowserLink = useCallback((address: string) => {
+    if (openLocalServiceInBrowser(address)) return
     if (!projectId) return
     navigateBrowser(projectId, address)
     if (activeRightPanel !== "browser") toggleRightPanel(projectId, "browser")
