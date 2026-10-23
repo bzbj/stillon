@@ -23,6 +23,7 @@ import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
 import { getLinkActions } from "../../../shared/link-actions"
 import { executeResourceAction } from "../ResourceLink"
 import { useLinkCapabilities } from "../../lib/linkCapabilities"
+import { localServiceBrowserAddress, openLocalServiceInBrowser } from "../../lib/localServiceBrowser"
 import { parsePreviewTarget } from "../../../shared/preview-target"
 
 function formatOwnerPath(ownerPath: string) {
@@ -94,6 +95,9 @@ function BrowserPanelImpl({
   const browserState = useRightSidebarStore((store) => store.projectBrowser[projectId])
   const linkCapabilities = useLinkCapabilities()
   const navigateBrowser = useRightSidebarStore((store) => store.navigateBrowser)
+  function openAddress(address: string) {
+    if (!openLocalServiceInBrowser(address)) navigateBrowser(projectId, address)
+  }
   const syncBrowserAddress = useRightSidebarStore(store => store.syncBrowserAddress)
   const goBrowserBack = useRightSidebarStore((store) => store.goBrowserBack)
   const goBrowserForward = useRightSidebarStore((store) => store.goBrowserForward)
@@ -349,7 +353,7 @@ function BrowserPanelImpl({
     const target = resolveLinkTarget(addressDraft, { localPath, currentOrigin: window.location.origin })
     if (target?.kind === "external") { window.open(target.address, "_blank", "noopener,noreferrer"); return }
     if (target?.kind === "file") navigateBrowser(projectId, target.address ?? buildLocalFilePreviewUrl(target.file.path))
-    else if (target?.kind === "service" || target?.kind === "internal") navigateBrowser(projectId, target.address)
+    else if (target?.kind === "service" || target?.kind === "internal") openAddress(target.address)
     else setOpenError("Enter a host service URL or an authorized file path.")
   }
 
@@ -464,11 +468,11 @@ function BrowserPanelImpl({
                           <div
                             role="button"
                             tabIndex={0}
-                            onClick={() => navigateBrowser(projectId, server.address)}
+                            onClick={() => openAddress(server.address)}
                             onKeyDown={(event) => {
                               if (event.key !== "Enter" && event.key !== " ") return
                               event.preventDefault()
-                              navigateBrowser(projectId, server.address)
+                              openAddress(server.address)
                             }}
                             className="flex w-full min-w-0 cursor-pointer flex-col rounded-xl border border-border/70 px-3 py-1.5 pb-2.5 text-left outline-none hover:border-border hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                           >
@@ -500,9 +504,9 @@ function BrowserPanelImpl({
                         <ContextMenuContent>
                           {getLinkActions({ kind: "service", local: linkCapabilities?.local ?? false }).actions.map(item => <ContextMenuItem key={item.action}
                             disabled={!linkCapabilities} onSelect={() => {
-                              if (item.action === "preview") navigateBrowser(projectId, server.address)
+                              if (item.action === "preview") openAddress(server.address)
                               else void executeResourceAction(server.address, item.action, projectId).catch(error => setOpenError(error.message))
-                            }}>{item.label}</ContextMenuItem>)}
+                            }}>{item.action === "preview" && localServiceBrowserAddress(server.address) ? "Open in browser" : item.label}</ContextMenuItem>)}
                           <ContextMenuItem
                             onSelect={(event) => {
                               event.preventDefault()
@@ -548,7 +552,7 @@ function BrowserPanelImpl({
               {openError && <div role="alert" className="p-3 text-sm text-destructive">{openError}</div>}
               <PreviewSurface address={scopedAddress} projectId={projectId} refreshVersion={iframeVersion} zoom={zoom}
                 canOpenHostFiles={canOpenHostFiles} projectLocalPath={localPath} onOpenHostFile={onOpenHostFile}
-                onNavigate={(nextAddress, mode) => mode ? syncBrowserAddress(projectId, nextAddress, mode) : navigateBrowser(projectId, nextAddress)} />
+                onNavigate={(nextAddress, mode) => mode ? syncBrowserAddress(projectId, nextAddress, mode) : openAddress(nextAddress)} />
             </div>
           )}
         </div>

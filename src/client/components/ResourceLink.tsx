@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ComponentPropsWithoutRef } from "react"
+import { localServiceBrowserAddress } from "../lib/localServiceBrowser"
 import { resolveLinkTarget } from "../lib/linkTarget"
 import { appendLocalFileLinkLocation, getProjectRelativeFilePath, type ParsedLocalFileLink } from "../lib/pathUtils"
 import { buildProjectRenderablePreviewUrl } from "../../shared/project-file-urls"
@@ -108,6 +109,8 @@ function ResourceLinkImpl({ href, children, projectId, localPath, resolveFile, o
       if (life === generation.current) { busy.current = false; setPreparing(false); setDownloading(false) }
     }
   }
+  const directService = target?.kind === "service" && address ? localServiceBrowserAddress(address) : null
+  if (directService) return <a {...props} href={directService} target="_blank" rel="noopener noreferrer">{children}</a>
   if (!target || !address) return <a {...props} href={target ? href : undefined} target={target?.kind === "internal" ? props.target : "_blank"} rel="noopener noreferrer">{children}</a>
   return <ContextMenu onOpenChange={open => { if (open) loadMenu(); else { menuGeneration.current++; setMenu(undefined) } }}>
     <ContextMenuTrigger asChild>

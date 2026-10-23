@@ -1,3 +1,4 @@
+import { openLocalServiceInBrowser } from "./localServiceBrowser"
 import type { FileRenderer } from "../../shared/file-renderers"
 import { coalesceResourceRequest, getResourceEpoch, subscribeResourceScope } from "./resourceRequests"
 import type { PreviewTarget } from "../../shared/preview-target"
@@ -47,6 +48,7 @@ export async function registerResourceTarget(address: string, projectId?: string
 export async function registerPreviewTarget(address: string, projectId?: string) { return (await registerResourceTarget(address, projectId)).url }
 
 export async function openStandalonePreview(address: string, projectId?: string) {
+  if (openLocalServiceInBrowser(address)) return
   // Reserve the tab during the user gesture, before asynchronous authorization.
   const tab = window.open("about:blank", "_blank")
   if (tab) tab.opener = null

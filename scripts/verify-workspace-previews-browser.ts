@@ -166,6 +166,19 @@ try {
       await page.getByRole("menuitem", { name: /^(Preview in sidebar|Open on this computer|Download)$/u }).first().waitFor()
       return page.getByRole("menuitem").allTextContents()
     }
+    const localServicePopup = async (activate: () => Promise<unknown>, expected: string) => {
+      const before = browserRequests, source = page.url()
+      const opened = context.waitForEvent("page")
+      await activate()
+      const popup = await opened
+      await popup.waitForURL(expected, { waitUntil: "domcontentloaded" })
+      assert.equal(await popup.locator("[data-preview-service-warning]").count(), 0)
+      assert.equal(await popup.getByAltText("Interactive browser preview").count(), 0)
+      assert.equal(await popup.evaluate(() => window.opener === null), true)
+      assert.equal(page.url(), source)
+      assert.equal(browserRequests, before, "Local service gestures must not create or poll screenshot browsers")
+      await popup.close(); await page.bringToFront()
+    }
     const images = async (current: Page) => { await current.getByAltText("Fixture image").waitFor(); await current.waitForFunction(() => [...document.images].some(image => image.alt === "Fixture image" && image.naturalWidth > 0)) }
     for (const name of ["project-markdown", "outside-markdown"]) {
       stage = entry.name + ":" + name + ":document-navigation"
@@ -306,15 +319,25 @@ try {
     // Routing disables the context's HTTP cache. Restore normal caching before
     // many standalone reloads so the fixture models visiting-browser traffic.
     await context.unroute(externalPattern)
+    if (!filesOnly && entry.name === "loopback") {
+      await localServicePopup(() => page.getByRole("link", { name: "HTTP application", exact: true }).click(), config.addresses[entry.name].dynamic)
+    }
     stage = entry.name + ":markdown-body-links"
     for (const label of filesOnly ? ["HTML application"] : ["HTML application", "Host HTTP application"]) {
+      if (label === "Host HTTP application" && entry.name === "loopback") {
+        const link = page.getByRole("link", { name: label, exact: true })
+        for (const options of [{}, { button: "middle" as const }, { modifiers: [process.platform === "darwin" ? "Meta" as const : "Control" as const] }]) {
+          await localServicePopup(() => link.click(options), config.addresses[entry.name].dynamic)
+        }
+        continue
+      }
       await page.getByRole("link", { name: label, exact: true }).click()
       if (label === "HTML application") await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready").waitFor()
       else { await acceptServicePreview(page); await page.getByAltText("Interactive browser preview").waitFor() }
       await page.getByRole("button", { name: "Back", exact: true }).click()
       await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     }
-    checks.push({ entry: entry.name, check: "Markdown body HTML and host HTTP links route through the shared sidebar", result: "Pass" })
+    checks.push({ entry: entry.name, check: "Markdown HTML remains in sidebar; local services open native tabs and remote services require consent", result: "Pass" })
     stage = entry.name + ":workspace-without-git"
     await page.keyboard.press(process.platform === "darwin" ? "Meta+b" : "Control+b")
     assert.equal(await page.getByRole("button", { name: "Changes", exact: true }).count(), 0)
@@ -329,6 +352,13 @@ try {
     await page.getByRole("button", { name: "Home", exact: true }).click()
     const service = page.getByRole("button").filter({ has: page.getByText("http://localhost:" + config.serviceListPort, { exact: true }) }).filter({ hasText: "Service restored" })
     const creationsBeforeWarning = browserCreations
+    if (entry.name === "loopback") {
+      await localServicePopup(() => service.click(), "http://localhost:" + config.serviceListPort + "/")
+      await localServicePopup(() => service.press("Enter"), "http://localhost:" + config.serviceListPort + "/")
+      await service.getByRole("button", { name: "Server actions", exact: true }).click()
+      await localServicePopup(() => page.getByRole("menuitem", { name: "Open in New Tab", exact: true }).click(), "http://localhost:" + config.serviceListPort + "/")
+      checks.push({ entry: entry.name, check: "Service-list click, keyboard and new-tab actions open direct URLs without screenshots", result: "Pass" })
+    } else {
     await service.click()
     await page.locator("[data-preview-service-warning]").waitFor()
     assert.equal(browserCreations, creationsBeforeWarning, "Opening a service must show its warning before creating a browser")
@@ -346,11 +376,26 @@ try {
     await independentService.close(); await page.bringToFront()
     checks.push({ entry: entry.name, check: "Service-list sidebar and standalone require explicit consent; cancellation starts no browser session; static warning has equal-weight title lines", result: "Pass" })
     }
+    }
     for (const name of Object.keys(config.addresses[entry.name]).filter(name => !filesOnly || name !== "dynamic")) {
       await paceConnect()
       stage = entry.name + ":" + name + ":sidebar"
       const destination = config.addresses[entry.name][name]
       const navigate = async () => { await address.fill(destination); await address.press("Enter") }
+      if (name === "dynamic" && entry.name === "loopback") {
+        await localServicePopup(navigate, destination)
+        const popup = await context.newPage()
+        await popup.goto(entry.origin + "/preview/" + config.targetIds[entry.name].dynamic, { waitUntil: "domcontentloaded" })
+        await popup.waitForURL(destination, { waitUntil: "domcontentloaded" })
+        const before = (await (await fetch(config.appOrigin + "/api/counter")).json()).count
+        await popup.locator("#add").click()
+        await popup.waitForFunction(async before => (await (await fetch("/api/counter")).json()).count === before + 1, before)
+        assert.equal(await popup.locator("[data-preview-service-warning]").count(), 0)
+        await popup.close(); await page.bringToFront()
+        assert.equal(browserRequests, 0, "Local links and historical standalone targets must never start screenshot browsers")
+        checks.push({ entry: entry.name, check: "Address submission opens native service; historical standalone target redirects; native click updates backend", result: "Pass" })
+        continue
+      }
       if (name === "dynamic") await navigateServicePreview(page, destination, navigate, true)
       else await navigate()
       await page.waitForFunction(value => (document.querySelector('input[placeholder="Enter a URL"]') as HTMLInputElement)?.value === value, config.addresses[entry.name][name])
@@ -531,7 +576,7 @@ try {
     await page.getByRole("button", { name: "Zoom out", exact: true }).click()
     checks.push({ entry: entry.name, check: "Long image preserves aspect, zoom and scrolling", result: "Pass" })
     if (filesOnly) assert.equal(browserRequests, 0, "Files must not start browser sessions or screenshot polling")
-    for (const view of filesOnly ? [] : ["direct", "sidebar", "standalone"] as const) {
+    for (const view of filesOnly ? [] : entry.name === "loopback" ? ["direct"] as const : ["direct", "sidebar", "standalone"] as const) {
       const inputPage = view === "sidebar" ? page : await context.newPage()
       currentPage = inputPage
       const evidence = await verifyPreviewInput({ page: inputPage, appOrigin: config.appOrigin,

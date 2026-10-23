@@ -1,6 +1,13 @@
 # Host service preview warning
 
-Opening a loopback HTTP(S) service first displays the approved static SVG
+When StillOn is visited through a loopback origin, service links in chat and
+Markdown, sidebar service rows, address submission and standalone actions open
+the original HTTP(S) URL in a browser tab. Historical standalone service targets
+redirect to the original URL; a restored sidebar address offers a direct link.
+Neither path mounts a screenshot browser. Local file previews keep their native
+isolated iframe. LAN and Connect entries retain the remote preview behavior.
+
+Through a remote entry, opening a loopback HTTP(S) service first displays the approved static SVG
 warning in the sidebar or standalone viewer. Both title lines have equal size
 and weight. The recommended action copies a self-contained local HTML prompt;
 if both clipboard paths fail, a selected read-only prompt supports manual copy.

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react"
+import { localServiceBrowserAddress } from "../../lib/localServiceBrowser"
 import { parsePreviewTarget } from "../../../shared/preview-target"
 import { fileRenderer } from "../../../shared/file-renderers"
 import { preparePreviewEntry, type ResolvedPreviewEntry } from "../../lib/previewTarget"
@@ -18,6 +19,8 @@ export function PreviewSurface(props: Props) {
   const target = parsePreviewTarget(props.address, props.projectId)
   if (!target) return <div role="alert" className="p-6 text-sm">This address cannot be previewed. Open an authorized file or host service.</div>
   if (target.kind === "external-http") return <div className="p-6 text-sm"><p>External websites open in your browser.</p><a className="underline" href={target.address} target="_blank" rel="noopener noreferrer">Open in browser</a></div>
+  const directService = target.kind === "host-http" ? localServiceBrowserAddress(target.address) : null
+  if (directService) return <div className="p-6 text-sm" data-preview-local-service=""><p>本机服务网页可直接在浏览器中打开。</p><a className="underline" href={directService} target="_blank" rel="noopener noreferrer">在浏览器中打开 ↗</a></div>
   if (target.kind === "host-http") return <Suspense fallback={<p role="status" className="p-6">Loading service preview…</p>}><HostServicePreview key={`${props.projectId ?? ""}:${new URL(target.address).origin}`} address={target.address} projectId={props.projectId} refreshVersion={props.refreshVersion ?? 0} zoom={props.zoom ?? 1} onNavigate={props.onNavigate} /></Suspense>
   return <Suspense fallback={<p role="status" className="p-6">Loading file renderer…</p>}><FileSurface {...props} /></Suspense>
 }
