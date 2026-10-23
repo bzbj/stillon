@@ -310,7 +310,7 @@ try {
     for (const label of filesOnly ? ["HTML application"] : ["HTML application", "Host HTTP application"]) {
       await page.getByRole("link", { name: label, exact: true }).click()
       if (label === "HTML application") await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready").waitFor()
-      else await page.getByAltText("Interactive browser preview").waitFor()
+      else { await acceptServicePreview(page); await page.getByAltText("Interactive browser preview").waitFor() }
       await page.getByRole("button", { name: "Back", exact: true }).click()
       await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     }
