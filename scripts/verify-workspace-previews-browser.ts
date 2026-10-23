@@ -30,6 +30,34 @@ const networkFailures: { path: string; status: number; reason?: string }[] = []
 const browserErrors: string[] = []
 const assetFailures: Record<string, unknown>[] = []
 const safeError = (value: string) => value.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gu, raw => { try { return new URL(raw).pathname } catch { return "[URL]" } }).slice(0, 600)
+async function acceptServicePreview(page: Page, verifyCancellation = false) {
+  const warning = page.locator("[data-preview-service-warning]")
+  await warning.waitFor()
+  const creations: string[] = []
+  const track = (request: import("playwright").Request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/preview-browser") creations.push(request.url())
+  }
+  page.on("request", track)
+  try {
+    assert.equal(await page.getByAltText("Interactive browser preview").count(), 0)
+    const lines = await warning.locator("h1 span").evaluateAll(elements => elements.map(element => {
+      const style = getComputedStyle(element)
+      return { size: style.fontSize, weight: style.fontWeight }
+    }))
+    assert.equal(lines.length, 2); assert.deepEqual(lines[0], lines[1])
+    if (verifyCancellation) {
+      await page.getByRole("button", { name: "确认进入，继续预览本机服务网页" }).click()
+      await page.getByRole("button", { name: "返回，使用本地 HTML", exact: true }).press("Enter")
+      await page.getByRole("dialog").waitFor({ state: "hidden" })
+      assert.equal(await warning.count(), 1)
+      assert.equal(creations.length, 0, "Opening and cancelling the warning must not create a browser session")
+    }
+    await page.getByRole("button", { name: "确认进入，继续预览本机服务网页" }).click()
+    assert.equal(creations.length, 0, "The confirmation dialog must not start a browser session")
+    await page.getByRole("dialog").getByRole("button", { name: "确认进入", exact: true }).click()
+    await warning.waitFor({ state: "hidden" })
+  } finally { page.off("request", track) }
+}
 async function navigateServicePreview(page: Page, address: string, navigate: () => Promise<void>, applicationReady = false) {
   // An image from the previous address can still be visible when Enter returns.
   // Wait for the requested page's frame, not just the presence of an image.
@@ -40,7 +68,19 @@ async function navigateServicePreview(page: Page, address: string, navigate: () 
       && (!applicationReady || /^Application \d+ true$/u.test(value.title ?? ""))
   })
   // Observe navigation failure and response timeout together; never replay input.
-  await Promise.all([frame, navigate()])
+  await Promise.all([frame, (async () => {
+    await navigate()
+    // Same-service navigation keeps consent; a new service first shows its gate.
+    // Do not leave a losing waitFor().then(click) alive for a later navigation.
+    let settled = false
+    void frame.then(() => { settled = true }, () => { settled = true })
+    const deadline = Date.now() + 15_000
+    while (!settled) {
+      if (await page.locator("[data-preview-service-warning]").isVisible()) { await acceptServicePreview(page); break }
+      assert(Date.now() < deadline, "The service preview neither showed its warning nor returned a frame")
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+  })()])
 }
 let currentPage: Page | undefined
 let stage = "startup"
@@ -84,12 +124,13 @@ try {
       const index = part.indexOf("="); return { name: part.slice(0, index), value: part.slice(index + 1), url: entry.origin }
     }))
     await context.addCookies([{ name: "stillon_fixture_secret", value: "fixture-secret", url: entry.origin }])
-    let browserRequests = 0, externalRegistrations = 0, imageHeadRequests = 0
+    let browserRequests = 0, browserCreations = 0, externalRegistrations = 0, imageHeadRequests = 0
     const requestTimes: number[] = []
     context.on("request", request => {
       if (new URL(request.url()).origin === entry.origin) requestTimes.push(Date.now())
       const path = new URL(request.url()).pathname
       if (path.startsWith("/api/preview-browser")) browserRequests++
+      if (path === "/api/preview-browser" && request.method() === "POST") browserCreations++
       if (request.method() === "HEAD" && /^\/api\/preview-targets\/[\w-]+\/content$/u.test(path)) imageHeadRequests++
       if (path === "/api/preview-targets" && request.method() === "POST" && /^https?:\/\/example\.com\//u.test(request.postDataJSON()?.address ?? "")) externalRegistrations++
     })
@@ -287,7 +328,11 @@ try {
     stage = entry.name + ":service-list"
     await page.getByRole("button", { name: "Home", exact: true }).click()
     const service = page.getByRole("button").filter({ has: page.getByText("http://localhost:" + config.serviceListPort, { exact: true }) }).filter({ hasText: "Service restored" })
+    const creationsBeforeWarning = browserCreations
     await service.click()
+    await page.locator("[data-preview-service-warning]").waitFor()
+    assert.equal(browserCreations, creationsBeforeWarning, "Opening a service must show its warning before creating a browser")
+    await acceptServicePreview(page, true)
     await page.getByAltText("Interactive browser preview").waitFor()
     assert.equal(new URL(await address.inputValue()).port, String(config.serviceListPort))
     await page.getByRole("button", { name: "Home", exact: true }).click()
@@ -295,10 +340,11 @@ try {
     const servicePopup = context.waitForEvent("page")
     await page.getByRole("menuitem", { name: "Open in New Tab", exact: true }).click()
     const independentService = await servicePopup
+    await acceptServicePreview(independentService)
     await independentService.getByAltText("Interactive browser preview").waitFor()
     assert.equal(new URL(await independentService.getByLabel("Preview address").textContent() ?? "").port, String(config.serviceListPort))
     await independentService.close(); await page.bringToFront()
-    checks.push({ entry: entry.name, check: "Service-list ordinary click and native menu open the authorized service in sidebar and standalone", result: "Pass" })
+    checks.push({ entry: entry.name, check: "Service-list sidebar and standalone require explicit consent; cancellation starts no browser session; static warning has equal-weight title lines", result: "Pass" })
     }
     for (const name of Object.keys(config.addresses[entry.name]).filter(name => !filesOnly || name !== "dynamic")) {
       await paceConnect()
@@ -384,7 +430,7 @@ try {
       else if (name.endsWith("html")) await verifyDirectFileInput(popup, type === chromium)
       else if (name.endsWith("text")) await popup.getByText('中文 text <script>', { exact: false }).waitFor()
       else if (name.endsWith("image")) await popup.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
-      else await popup.getByAltText("Interactive browser preview").waitFor()
+      else { await acceptServicePreview(popup); await popup.getByAltText("Interactive browser preview").waitFor() }
       assert.equal(await popup.getByLabel("Preview address").textContent(), currentAddress)
       await popup.reload({ waitUntil: "domcontentloaded" })
       stage = entry.name + ":" + name + ":standalone-reload"
@@ -392,7 +438,7 @@ try {
       else if (name.endsWith("html")) await verifyDirectFileInput(popup, type === chromium)
       else if (name.endsWith("text")) await popup.getByText('中文 text <script>', { exact: false }).waitFor()
       else if (name.endsWith("image")) await popup.waitForFunction(() => [...document.images].some(image => image.alt.includes("中文 image.png") && image.naturalWidth > 0))
-      else await popup.getByAltText("Interactive browser preview").waitFor()
+      else { await acceptServicePreview(popup); await popup.getByAltText("Interactive browser preview").waitFor() }
       if (name === "project-markdown") await popup.screenshot({ path: path.join(output, entry.name + "-markdown-standalone.png") })
       if (name !== "dynamic") {
         stage = entry.name + ":" + name + ":deleted-file-retry"
@@ -501,6 +547,7 @@ try {
             const response = await inputPage.request.post(entry.origin + "/api/preview-targets", { headers: { Origin: entry.origin }, data: { projectId: config.projectId, address: destination } })
             assert(response.ok()); const target = await response.json()
             await inputPage.goto(entry.origin + target.url, { waitUntil: "domcontentloaded" })
+            await acceptServicePreview(inputPage)
           }
         } })
       checks.push({ entry: entry.name, check: view + " English, Chinese/Japanese " + (evidence.nativeIme ? "native IME" : "synthetic composition lifecycle")

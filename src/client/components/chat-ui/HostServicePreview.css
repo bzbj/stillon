@@ -1,0 +1,40 @@
+.host-service-warning {
+  height: 100%;
+  overflow: auto;
+  container: host-service-warning / inline-size;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.host-service-warning__layout {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 28px;
+  min-height: 100%;
+  padding: 40px 24px 20px;
+}
+.host-service-warning__state { align-self: center; width: min(440px, 100%); margin: auto; text-align: center; }
+.host-service-warning__avatar { display: block; width: 146px; height: 146px; margin: 0 auto 36px; }
+.host-service-warning__title { margin: 0; font-size: 22px; font-weight: 560; line-height: 1.65; letter-spacing: -.65px; }
+.host-service-warning__title span { display: block; font: inherit; color: inherit; }
+.host-service-warning__address { margin: 14px 0 0; font: 11px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.host-service-warning__recommendation { margin: 33px 0 18px; font-size: 13px; line-height: 1.85; color: hsl(var(--muted-foreground)); }
+.host-service-warning__recommendation strong { color: hsl(var(--foreground)); font-weight: 500; }
+.host-service-warning__actions { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.host-service-warning__primary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: min(300px, 100%); min-height: 48px; padding: 12px 16px; border: 1px solid hsl(var(--foreground)); border-radius: 9px; background: hsl(var(--foreground)); color: hsl(var(--background)); font-size: 13px; font-weight: 520; }
+.host-service-warning__primary:hover { opacity: .9; }
+.host-service-warning__secondary { min-height: 44px; padding: 10px 14px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.6; white-space: normal; }
+.host-service-warning__secondary:hover { color: hsl(var(--foreground)); }
+.host-service-warning__secondary span { margin-left: 5px; }
+.host-service-warning__copy-status { min-height: 20px; margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: hsl(var(--muted-foreground)); }
+.host-service-warning__signature { text-align: center; font-size: 12px; font-weight: 550; letter-spacing: -.35px; color: hsl(var(--muted-foreground)); }
+@container host-service-warning (max-width: 460px) {
+  .host-service-warning__avatar { width: 132px; height: 132px; margin-bottom: 32px; }
+  .host-service-warning__title { font-size: 20px; letter-spacing: -.5px; }
+  .host-service-warning__recommendation { margin-top: 29px; font-size: 12px; }
+}
+@container host-service-warning (max-width: 340px) {
+  .host-service-warning__layout { padding-inline: 18px; }
+  .host-service-warning__title { font-size: 18px; letter-spacing: -.4px; }
+  .host-service-warning__primary { font-size: 12px; }
+  .host-service-warning__secondary { font-size: 11px; }
+}

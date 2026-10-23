@@ -4,7 +4,7 @@ import { fileRenderer } from "../../../shared/file-renderers"
 import { preparePreviewEntry, type ResolvedPreviewEntry } from "../../lib/previewTarget"
 export type { ResolvedPreviewEntry } from "../../lib/previewTarget"
 const MarkdownPreviewPanel = lazy(() => import("./MarkdownPreviewPanel").then(module => ({ default: module.MarkdownPreviewPanel })))
-const IsolatedPreview = lazy(() => import("./IsolatedPreview").then(module => ({ default: module.IsolatedPreview })))
+const HostServicePreview = lazy(() => import("./HostServicePreview").then(module => ({ default: module.HostServicePreview })))
 const ImagePreviewPanel = lazy(() => import("./ImagePreviewPanel").then(module => ({ default: module.ImagePreviewPanel })))
 const TextPreviewPanel = lazy(() => import("./TextPreviewPanel").then(module => ({ default: module.TextPreviewPanel })))
 const DirectHtmlPreview = lazy(() => import("./DirectHtmlPreview").then(module => ({ default: module.DirectHtmlPreview })))
@@ -18,7 +18,7 @@ export function PreviewSurface(props: Props) {
   const target = parsePreviewTarget(props.address, props.projectId)
   if (!target) return <div role="alert" className="p-6 text-sm">This address cannot be previewed. Open an authorized file or host service.</div>
   if (target.kind === "external-http") return <div className="p-6 text-sm"><p>External websites open in your browser.</p><a className="underline" href={target.address} target="_blank" rel="noopener noreferrer">Open in browser</a></div>
-  if (target.kind === "host-http") return <Suspense fallback={<p role="status" className="p-6">Loading service preview…</p>}><IsolatedPreview address={props.address} projectId={props.projectId} refreshVersion={props.refreshVersion ?? 0} zoom={props.zoom ?? 1} onNavigate={props.onNavigate} /></Suspense>
+  if (target.kind === "host-http") return <Suspense fallback={<p role="status" className="p-6">Loading service preview…</p>}><HostServicePreview key={`${props.projectId ?? ""}:${new URL(target.address).origin}`} address={target.address} projectId={props.projectId} refreshVersion={props.refreshVersion ?? 0} zoom={props.zoom ?? 1} onNavigate={props.onNavigate} /></Suspense>
   return <Suspense fallback={<p role="status" className="p-6">Loading file renderer…</p>}><FileSurface {...props} /></Suspense>
 }
 function FileSurface({ address, projectId, refreshVersion = 0, zoom = 1, onNavigate, projectLocalPath, resolvedEntry }: Props) {

@@ -54,7 +54,11 @@ export function PreviewPage() {
         onNavigate={(address, mode) => {
           const sequence = ++navigationSequence.current
           const target = parsePreviewTarget(address, entry.projectId)
-          if (target && mode) setEntry({ ...entry, target, address })
+          // Keep the viewer (and its explicit consent) mounted while registering
+          // navigation within the service the user already chose to preview.
+          const sameService = target?.kind === "host-http" && entry.target.kind === "host-http"
+            && new URL(target.address).origin === new URL(entry.target.address).origin
+          if (target && (mode || sameService)) setEntry({ ...entry, target, address })
           else setEntry(undefined)
           void registerPreviewTarget(address, entry.projectId).then(async url => {
             const id = url.split("/").pop()!
