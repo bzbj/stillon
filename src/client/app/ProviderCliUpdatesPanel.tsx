@@ -68,7 +68,7 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
 }
 
 export function ProviderCliUpdatesPanel() {
-  return <section className="w-full max-w-[420px]" aria-label="CLI updates">
+  return <section className="w-full min-w-0" aria-label="CLI updates">
     <p className="text-sm text-muted-foreground">StillOn checks releases and only updates when you choose. Updates use the existing installation. Finish agent work and close terminals first.</p>
     <div className="divide-y divide-border"><ProviderCliUpdateRow provider="codex" label="Codex" /><ProviderCliUpdateRow provider="claude" label="Claude Code" /></div>
   </section>

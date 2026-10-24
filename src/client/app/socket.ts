@@ -1,3 +1,4 @@
+import { receiveClaudeModelPolicy } from "../stores/claudeModelPolicyStore"
 import { ConfirmedCommandError } from "./quickCommandDelivery"
 import { ChatStreamDecoder, type ChatStreamFrame } from "../../shared/chat-stream"
 import { receiveCodexModelPolicy } from "../stores/codexModelPolicyStore"
@@ -263,6 +264,10 @@ export class StillOnSocket {
         return
       }
 
+      if (payload.claudeModelPolicy) {
+        try { receiveClaudeModelPolicy(payload.claudeModelPolicy) }
+        catch (error) { console.error(LOG_PREFIX, "Rejected Claude model catalog", error); return }
+      }
       if (payload.codexModelPolicy) {
         try {
           receiveCodexModelPolicy(payload.codexModelPolicy)

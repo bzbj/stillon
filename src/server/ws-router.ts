@@ -1,3 +1,4 @@
+import type { ClaudeModelPolicyManager } from "./claude-model-policy-manager"
 import { mergeQuickCommands } from "../shared/quick-commands"
 import { defaultAppearance, mergeAppearance } from "../shared/appearance"
 import { ChatStreamEncoder, prepareChatSnapshot, type PreparedChatSnapshot } from "../shared/chat-stream"
@@ -128,6 +129,7 @@ export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
   chatStreams?: Map<string, ChatStreamEncoder>
+  claudeModelPolicySignature?: string
   modelPolicySignature?: string
   protectedDraftChatIds?: Set<string>
 }
@@ -139,6 +141,7 @@ interface CreateWsRouterArgs {
   agent: AgentCoordinator
   terminals: TerminalManager
   keybindings: KeybindingsManager
+  claudeModelPolicy?: ClaudeModelPolicyManager
   codexModelPolicy?: CodexModelPolicyManager
   appSettings?: Pick<AppSettingsManager, "getSnapshot"> & Partial<Pick<AppSettingsManager, "writePatch" | "onChange">>
   llmProvider?: {
@@ -409,6 +412,7 @@ export function createWsRouter({
   keybindings,
   appSettings,
   codexModelPolicy,
+  claudeModelPolicy,
   llmProvider,
   subscriptionUsage,
   sourceUpgradePrompt,
@@ -423,6 +427,14 @@ export function createWsRouter({
 }: CreateWsRouterArgs) {
   function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
     if (ws.data.remoteOwnerId) remoteOperations?.finish(ws.data.remoteOwnerId, message)
+    if (claudeModelPolicy) {
+      const snapshot = claudeModelPolicy.getSnapshot()
+      const signature = JSON.stringify(snapshot)
+      if (ws.data.claudeModelPolicySignature !== signature) {
+        ws.data.claudeModelPolicySignature = signature
+        message = { ...message, claudeModelPolicy: snapshot }
+      }
+    }
     if (codexModelPolicy) {
       const snapshot = codexModelPolicy.getSnapshot()
       const signature = JSON.stringify(snapshot)
@@ -668,7 +680,7 @@ export function createWsRouter({
       return true
     }
 
-    if (topic.type === "codex-model-policy") return false
+    if (topic.type === "codex-model-policy" || topic.type === "claude-model-policy") return false
 
     if (topic.type === "sidebar") {
       return Boolean(filter.includeSidebar)
@@ -734,6 +746,12 @@ export function createWsRouter({
     topic: SubscriptionTopic,
     cache?: SnapshotComputationCache,
   ): Promise<ServerEnvelope> {
+    if (topic.type === "claude-model-policy") {
+      if (!claudeModelPolicy) throw new Error("Claude model configuration is unavailable")
+      return { v: PROTOCOL_VERSION, type: "snapshot", id,
+        snapshot: { type: "claude-model-policy", data: claudeModelPolicy.getSnapshot() } }
+    }
+
     if (topic.type === "codex-model-policy") {
       if (!codexModelPolicy) throw new Error("Runtime model configuration is unavailable")
       return { v: PROTOCOL_VERSION, type: "snapshot", id,
@@ -1136,6 +1154,10 @@ export function createWsRouter({
     })
   })
 
+  const disposeClaudeModelPolicyEvents = claudeModelPolicy?.onChange(() => {
+    void broadcastSnapshots().catch((error: unknown) => broadcastError(String(error)))
+  })
+
   const disposeModelPolicyEvents = codexModelPolicy?.onChange(() => {
     void broadcastSnapshots().catch((error: unknown) => {
       broadcastError(error instanceof Error ? error.message : String(error))
@@ -1212,6 +1234,18 @@ export function createWsRouter({
         case "settings.writeKeybindings": {
           const snapshot = await keybindings.write(command.bindings)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "settings.readClaudeModelPolicy":
+        case "settings.discoverClaudeModels":
+        case "settings.applyClaudeModelSelection": {
+          if (!claudeModelPolicy) throw new Error("Claude model configuration is unavailable")
+          const result = command.type === "settings.discoverClaudeModels"
+            ? await claudeModelPolicy.discover()
+            : command.type === "settings.applyClaudeModelSelection"
+              ? await claudeModelPolicy.apply(command.selection)
+              : claudeModelPolicy.getSnapshot()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
         case "settings.readCodexModelPolicy":
@@ -1620,7 +1654,7 @@ export function createWsRouter({
       }
 
       if (parsed.type === "subscribe") {
-        if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "chat", "terminal"].includes(parsed.topic.type)) {
+        if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "claude-model-policy", "chat", "terminal"].includes(parsed.topic.type)) {
           send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Unknown subscription topic" })
           return
         }
@@ -1671,6 +1705,7 @@ export function createWsRouter({
       disposeKeybindingEvents()
       disposeAppSettingsEvents()
       disposeModelPolicyEvents?.()
+      disposeClaudeModelPolicyEvents?.()
     },
   }
 }

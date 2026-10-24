@@ -1,3 +1,4 @@
+import { ClaudeModelPolicyPanel } from "./ClaudeModelPolicyPanel"
 import { normalizeQuickCommands } from "../../shared/quick-commands"
 import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
 import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
@@ -1607,26 +1608,29 @@ function SettingsRow({
   children,
   bordered = true,
   alignStart = false,
+  stacked = false,
 }: {
   title: string
   description: ReactNode
   children: ReactNode
   bordered?: boolean
   alignStart?: boolean
+  stacked?: boolean
 }) {
   return (
     <div className={bordered ? "border-t border-border" : undefined}>
       <div
         className={cn(
-          "flex flex-col gap-4 py-5 md:flex-row md:justify-between md:gap-8",
-          alignStart ? "md:items-start" : "md:items-center"
+          "flex min-w-0 flex-col gap-4 py-5",
+          !stacked && "md:flex-row md:justify-between md:gap-8",
+          !stacked && (alignStart ? "md:items-start" : "md:items-center")
         )}
       >
         <div className="min-w-0 max-w-xl">
           <div className="text-sm font-medium text-foreground">{title}</div>
           <div className="mt-1 text-[13px] text-muted-foreground">{description}</div>
         </div>
-        <div className="flex items-center justify-start md:shrink-0 md:justify-end">{children}</div>
+        <div className={stacked ? "min-w-0 w-full" : "flex items-center justify-start md:shrink-0 md:justify-end"}>{children}</div>
       </div>
     </div>
   )
@@ -2835,7 +2839,7 @@ export function SettingsPage() {
                     <SettingsRow
                       title="CLI updates"
                       description="Choose when to update your installed providers."
-                      alignStart
+                      stacked
                     >
                       <ProviderCliUpdatesPanel />
                     </SettingsRow>
@@ -2900,7 +2904,11 @@ export function SettingsPage() {
                       </div>
                     </SettingsRow>
 
-                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." alignStart>
+                    <SettingsRow title="Claude Code Model Configuration" description="Fetch available models or add a model ID, choose which to enable, and confirm changes." stacked>
+                      <ClaudeModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
+                    </SettingsRow>
+
+                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." stacked>
                       <CodexModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
                     </SettingsRow>
 

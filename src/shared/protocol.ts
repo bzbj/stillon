@@ -1,3 +1,4 @@
+import type { ClaudeModelPolicySnapshot, ClaudeModelSelection } from "./claude-model-policy"
 import type { ChatDelta, ChatStreamStamp } from "./chat-stream"
 import type { CodexModelPolicySnapshot, CodexModelSelection } from "./codex-model-policy"
 import type {
@@ -94,6 +95,7 @@ export type SubscriptionTopic =
   | { type: "keybindings" }
   | { type: "app-settings" }
   | { type: "codex-model-policy" }
+  | { type: "claude-model-policy" }
   | { type: "chat"; chatId: string; recentLimit?: number; streamVersion?: 1; streamId?: string }
   | { type: "terminal"; terminalId: string }
 
@@ -130,6 +132,9 @@ export type ClientCommand =
   | { type: "project.writeQuickActions"; projectId: string; quickActions: ProjectQuickAction[] }
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
+  | { type: "settings.readClaudeModelPolicy" }
+  | { type: "settings.discoverClaudeModels" }
+  | { type: "settings.applyClaudeModelSelection"; selection: ClaudeModelSelection }
   | { type: "settings.readAppSettings" }
   | { type: "settings.readCodexModelPolicy" }
   | { type: "settings.refreshCodexModelPolicy" }
@@ -253,11 +258,12 @@ export type ServerSnapshot =
   | { type: "keybindings"; data: KeybindingsSnapshot }
   | { type: "app-settings"; data: AppSettingsSnapshot }
   | { type: "codex-model-policy"; data: CodexModelPolicySnapshot }
+  | { type: "claude-model-policy"; data: ClaudeModelPolicySnapshot }
   | { type: "llm-provider"; data: LlmProviderSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 
-export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot } & (
+export type ServerEnvelope = { codexModelPolicy?: CodexModelPolicySnapshot; claudeModelPolicy?: ClaudeModelPolicySnapshot } & (
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot; stream?: ChatStreamStamp }
   | { v: 1; type: "chat-delta"; id: string; delta: ChatDelta; stream: ChatStreamStamp; baseRevision: number }
   | { v: 1; type: "event"; id: string; event: TerminalEvent }

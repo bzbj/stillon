@@ -1,3 +1,4 @@
+import { useClaudeModelPolicyStore } from "../stores/claudeModelPolicyStore"
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
 import { markStartupPhase } from "../lib/startupMetrics"
@@ -786,6 +787,7 @@ export interface StillOnState {
 export function useStillOnState(activeChatId: string | null, cacheScope: string | null, initialSidebarView?: SidebarViewSnapshot): StillOnState {
   const navigate = useNavigate()
   const socket = useStillOnSocket()
+  const claudeModelPolicy = useClaudeModelPolicyStore((store) => store.snapshot)
   const modelPolicy = useCodexModelPolicyStore((store) => store.snapshot)
   const asyncQuestionDelivery = useMemo(() => getAsyncQuestionDelivery(socket), [socket])
   const dialog = useAppDialog()
@@ -912,6 +914,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     if (connectionStatus === "connected") markStartupPhase("socket-open")
   }, [connectionStatus])
 
+  useEffect(() => socket.subscribe({ type: "claude-model-policy" }, () => {}), [socket])
   useEffect(() => socket.subscribe({ type: "codex-model-policy" }, () => {}), [socket])
 
   useEffect(() => {
@@ -1324,8 +1327,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const effectiveRuntimeStatus = optimisticRuntimeStatus ?? runtime?.status ?? null
   const availableProviders = useMemo(() => (activeChatSnapshot?.availableProviders ?? PROVIDERS).map((provider) => (
     provider.id === "codex" && modelPolicy ? { ...provider, models: modelPolicy.policy.models,
-      defaultModel: modelPolicy.policy.roles.conversation } : provider
-  )), [activeChatSnapshot?.availableProviders, modelPolicy])
+      defaultModel: modelPolicy.policy.roles.conversation }
+      : provider.id === "claude" && claudeModelPolicy ? { ...provider, models: claudeModelPolicy.policy.models, defaultModel: claudeModelPolicy.policy.defaultModel } : provider
+  )), [activeChatSnapshot?.availableProviders, modelPolicy, claudeModelPolicy])
   const asyncQuestionResponses: AsyncQuestionResponse[] = activeChatSnapshot?.asyncQuestionResponses ?? []
   const isProcessing = isProcessingStatus(effectiveRuntimeStatus ?? undefined)
   const canCancel = canCancelStatus(effectiveRuntimeStatus ?? undefined)

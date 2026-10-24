@@ -100,7 +100,7 @@ function formatDisplayPath(filePath: string) {
 function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
     claude: {
-      model: "claude-opus-4-8",
+      model: normalizeClaudeModelId(),
       modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
       permissionMode: DEFAULT_CLAUDE_PERMISSION_MODE,
     },
@@ -216,6 +216,7 @@ function toFilePayload(state: AppSettingsState) {
     defaultProjectId: state.defaultProjectId,
     providerDefaults: {
       ...state.providerDefaults,
+      claude: normalizeClaudePreference(state.providerDefaults.claude),
       codex: normalizeCodexPreference(state.providerDefaults.codex),
     },
     network: state.network,
@@ -241,6 +242,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     defaultProjectId: state.defaultProjectId,
     providerDefaults: {
       ...state.providerDefaults,
+      claude: normalizeClaudePreference(state.providerDefaults.claude),
       codex: normalizeCodexPreference(state.providerDefaults.codex),
     },
     network: state.network,

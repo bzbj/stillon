@@ -1,3 +1,4 @@
+import { ClaudeModelPolicyManager, type ClaudeModelDiscoveryOptions } from "./claude-model-policy-manager"
 import { ProviderCliSettings } from "./provider-cli-settings"
 import { createProviderSetup } from "./provider-setup"
 import { handleProviderSetupRequest } from "./provider-setup-http"
@@ -100,6 +101,7 @@ export async function persistUploadedFiles(args: {
 
 export interface StartStillOnServerOptions {
   providerCliUpdates?: Pick<ProviderCliUpdatesOptions, "inspect" | "release" | "install" | "verify">
+  claudeModelDiscovery?: ClaudeModelDiscoveryOptions
   codexModelDiscovery?: CodexModelDiscoveryOptions
   port?: number
   host?: string
@@ -152,6 +154,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     getEnvironment: () => getAgentEnvironment(),
   })
   await codexModelPolicy.initialize()
+  const claudeModelPolicy = new ClaudeModelPolicyManager(store.dataDir, {
+    ...options.claudeModelDiscovery, getEnvironment: () => getAgentEnvironment(),
+  })
+  await claudeModelPolicy.initialize()
   const machineDisplayName = getMachineDisplayName()
   const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), {
     defaultMachineName: machineDisplayName,
@@ -303,7 +309,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     ...options.providerCliUpdates,
     getEnvironment: async () => { await cliEnvironment.refresh(); return getUpdateEnvironment() },
     reserve: async () => {
-      if (terminals.hasRunningSessions() || codexModelPolicy.busy) throw new Error("Close running terminals and wait for model discovery before updating the CLI.")
+      if (terminals.hasRunningSessions() || codexModelPolicy.busy || claudeModelPolicy.busy) throw new Error("Close running terminals and wait for model discovery before updating the CLI.")
       return agent.reserveCliUpdate()
     },
   })
@@ -316,6 +322,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     keybindings,
     appSettings,
     codexModelPolicy,
+    claudeModelPolicy,
     agentNetwork: {
       readStatus: () => getAgentNetworkStatus(appSettings.getSnapshot().network),
       detect: detectSystemProxy,
@@ -369,7 +376,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     instance: process.env.STILLON_UPDATE_INSTANCE,
     secret: process.env.STILLON_UPDATE_SECRET,
     verifying: process.env.STILLON_UPDATE_VERIFYING === "1",
-    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || providerCliUpdates.busy,
+    busy: () => agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || claudeModelPolicy.busy || providerCliUpdates.busy,
     shutdown: async () => { await shutdown(); process.emit("SIGTERM") },
   })
 
@@ -498,9 +505,29 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({ ok: true, port: actualPort,
               ...(url.searchParams.get("update-setup") === "1" ? { managedUpdateProtocol: 1,
                 runtimeProfile: getRuntimeProfile(),
-                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || providerCliUpdates.busy } : {}),
+                busy: agent.hasActiveWork() || terminals.hasRunningSessions() || pendingServerOperations.size > 0 || codexModelPolicy.busy || claudeModelPolicy.busy || providerCliUpdates.busy } : {}),
               ...(managedUpdate.instance ? { updateInstance: managedUpdate.instance, updateProtocol: 1, version: APP_VERSION } : {}),
             })
+          }
+
+          if (["/api/claude/model-policy", "/api/claude/model-policy/discover", "/api/claude/model-policy/apply"].includes(url.pathname)) {
+            const reading = url.pathname === "/api/claude/model-policy"
+            const method = reading ? "GET" : "POST"
+            if (req.method !== method) return new Response(null, { status: 405, headers: { Allow: method } })
+            // validateIngress has already checked the remote owner and signed adapter identity.
+            if (!reading && ingress.kind !== "remote" && (auth ? !auth.validateOrigin(req)
+              : req.headers.has("origin") && req.headers.get("origin") !== url.origin)) {
+              await req.arrayBuffer().catch(() => undefined)
+              return Response.json({ error: "Forbidden" }, { status: 403 })
+            }
+            try {
+              const result = reading ? claudeModelPolicy.getSnapshot()
+                : url.pathname.endsWith("/discover") ? await claudeModelPolicy.discover()
+                  : await claudeModelPolicy.apply(await req.json())
+              return Response.json(result, { headers: { "Cache-Control": "no-store" } })
+            } catch (error) {
+              return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400, headers: { "Cache-Control": "no-store" } })
+            }
           }
 
           if (["/api/codex/model-policy", "/api/codex/model-policy/refresh", "/api/codex/model-policy/restore", "/api/codex/model-policy/discover", "/api/codex/model-policy/apply"].includes(url.pathname)) {
@@ -731,6 +758,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       // that may remove the data directory.
       await stopConnectListener(server)
       await codexModelPolicy.close()
+      await claudeModelPolicy.close()
       await Promise.allSettled([...pendingServerOperations])
       await providerCliUpdates.close()
       await discoveryRefresh

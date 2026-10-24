@@ -55,7 +55,7 @@ export function CodexModelPolicyPanel({ socket, connected }: { socket: StillOnSo
   }
 
   return (
-    <div className="flex w-full max-w-[420px] flex-col gap-3">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       <p className="text-sm text-muted-foreground">
         After updating Codex CLI, fetch its available models here. Choose which models to enable, then confirm to apply.
       </p>
