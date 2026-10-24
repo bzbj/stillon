@@ -19,6 +19,7 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const updating = status?.operation?.state === "updating"
+  const elapsed = status?.operation?.startedAt ? Math.max(0, Math.floor((Date.now() - Date.parse(status.operation.startedAt)) / 1000)) : 0
   useEffect(() => {
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
@@ -33,12 +34,12 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
     return () => { stopped = true; clearTimeout(timer) }
   }, [provider, updating])
 
-  async function run(update: boolean) {
+  async function run(token?: string) {
     setPending(true); setError(null)
     try {
-      if (update && status?.updateToken) {
-        const operation = await request(provider, status.updateToken)
-        setStatus(current => current ? { ...current, operation, updateToken: undefined } : current)
+      if (token) {
+        const operation = await request(provider, token)
+        setStatus(current => current ? { ...current, operation, updateToken: undefined, repairToken: undefined } : current)
       } else setStatus(await request(provider, undefined, true))
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update this CLI.") }
     finally { setPending(false) }
@@ -50,8 +51,9 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
         <p className="text-sm text-muted-foreground">{status ? status.currentVersion ? `Current version ${status.currentVersion} · ${status.installation}` : status.installation : "Checking installed CLI…"}</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={pending || updating} onClick={() => void run(false)}>Check for updates</Button>
-        {status?.updateAvailable && status.updateToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(true)}>Update to {status.latest?.version}</Button>}
+        <Button size="sm" variant="outline" disabled={pending || updating} onClick={() => void run()}>Check for updates</Button>
+        {status?.repairToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.repairToken)}>Repair CLI · {status.repairVersion}</Button>}
+        {status?.updateAvailable && status.updateToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.updateToken)}>Update to {status.latest?.version}</Button>}
       </div>
     </div>
     {status?.latest && <p className="text-xs text-muted-foreground">
@@ -62,7 +64,9 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
     {status?.executable && <p className="break-all text-xs text-muted-foreground">Using: {status.executable}</p>}
     {status && <p className="text-xs text-muted-foreground">{status.automaticUpdates}</p>}
     {status?.reason && <p className="text-sm text-muted-foreground">{status.reason} <a className="underline" href={PROVIDER_SETUP_GUIDES[provider]} target="_blank" rel="noreferrer">Installation guide</a></p>}
-    {status?.operation && <p role="status" className={status.operation.state === "failed" ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>{status.operation.message}</p>}
+    {status?.operation && <p role="status" className={status.operation.state === "failed" ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>{status.operation.message}
+      {updating && status.operation.startedAt && ` · Elapsed ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`}
+    </p>}
     {(error || status?.releaseError) && <p role="alert" className="text-sm text-destructive">{error || status?.releaseError}</p>}
   </div>
 }

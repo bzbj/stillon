@@ -2,11 +2,40 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Collections.Generic;
+using System.Text;
 using System.Web.Script.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
 static class Launcher {
+  static readonly string LogFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StillOn", "launcher.log");
+  static void Log(string message) {
+    try {
+      Directory.CreateDirectory(Path.GetDirectoryName(LogFile));
+      if (File.Exists(LogFile) && new FileInfo(LogFile).Length > 2 * 1024 * 1024) {
+        File.Copy(LogFile, LogFile + ".previous", true);
+        File.WriteAllText(LogFile, "");
+      }
+      File.AppendAllText(LogFile, "[" + DateTimeOffset.Now.ToString("O") + "] " + message + Environment.NewLine);
+    } catch { /* A logging failure must not prevent startup or recovery. */ }
+  }
+  static async Task<string> ReadOutput(StreamReader reader, Label progress) {
+    var output = new StringBuilder();
+    string line;
+    while ((line = await reader.ReadLineAsync()) != null) {
+      if (output.Length < 64 * 1024) output.AppendLine(line.Substring(0, Math.Min(line.Length, 64 * 1024 - output.Length)));
+      const string prefix = "STILLON_DESKTOP_PROGRESS: ";
+      if (progress != null && line.StartsWith(prefix, StringComparison.Ordinal)) {
+        progress.Text = line.Substring(prefix.Length);
+        Log(progress.Text);
+      }
+    }
+    return output.ToString();
+  }
+  static void Failure(string message) {
+    Environment.ExitCode = 1;
+    MessageBox.Show(message + "\n\nDetails: " + LogFile, "StillOn needs attention", MessageBoxButtons.OK, MessageBoxIcon.Error);
+  }
   static Dictionary<string, object> ReadJson(string file) {
     try { return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file)); }
     catch { return new Dictionary<string, object>(); }
@@ -35,24 +64,30 @@ static class Launcher {
       if (MessageBox.Show(prompt, "StillOn", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return 0;
     }
     try {
+      Log("Starting desktop command: " + (uninstall ? "uninstall" : migration ? "migrate" : upgrade ? "update" : "open"));
       var start = new ProcessStartInfo(Path.Combine(payload, "runtime", "bun.exe")) {
         Arguments = "--no-env-file \"" + Path.Combine(payload, "bin", "desktop") + "\"" + (uninstall ? " --uninstall" : migration ? " --migrate" : upgrade ? " --update" : ""),
         WorkingDirectory = payload, UseShellExecute = false, CreateNoWindow = true,
         RedirectStandardError = true, RedirectStandardOutput = true
       };
-      using (var form = new Form { Text = "StillOn", Width = 360, Height = 120, StartPosition = FormStartPosition.CenterScreen, ControlBox = false }) {
-        form.Controls.Add(new Label { Text = uninstall ? "Removing background services…" : "Starting StillOn…", AutoSize = true, Left = 24, Top = 28 });
+      using (var form = new Form { Text = "StillOn", Width = 500, Height = 160, StartPosition = FormStartPosition.CenterScreen, ControlBox = false }) {
+        var progress = new Label { Text = uninstall ? "Removing background services…" : "Starting StillOn…", Width = 440, Height = 80, Left = 24, Top = 28 };
+        form.Controls.Add(progress);
         form.Shown += async (sender, e) => {
-          using (var process = Process.Start(start)) {
-            var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
-            await Task.Run(() => process.WaitForExit());
-            if (process.ExitCode != 0) { MessageBox.Show(await stdout + "\n" + await stderr, "StillOn needs attention", MessageBoxButtons.OK, MessageBoxIcon.Error); Environment.ExitCode = 1; }
-          }
-          form.Close();
+          try {
+            using (var process = Process.Start(start)) {
+              var stdout = ReadOutput(process.StandardOutput, progress); var stderr = ReadOutput(process.StandardError, null);
+              await Task.Run(() => process.WaitForExit());
+              string output = await stdout, errors = await stderr;
+              Log("exit=" + process.ExitCode + "\nSTDOUT:\n" + output + "\nSTDERR:\n" + errors);
+              if (process.ExitCode != 0) Failure(output + "\n" + errors);
+            }
+          } catch (Exception error) { Log(error.ToString()); Failure(error.Message); }
+          finally { form.Close(); }
         };
         Application.Run(form);
       }
       return Environment.ExitCode;
-    } catch (Exception error) { MessageBox.Show(error.Message, "StillOn needs attention"); return 1; }
+    } catch (Exception error) { Log(error.ToString()); Failure(error.Message); return 1; }
   }
 }
