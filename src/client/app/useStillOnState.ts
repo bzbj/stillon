@@ -749,6 +749,7 @@ export interface StillOnState {
   handleRenameChat: (chat: SidebarChatRow) => Promise<void>
   handleRenameProject: (projectId: string, sidebarTitle: string | undefined, realTitle: string) => Promise<void>
   handleShareChat: (chatId?: string | null) => Promise<void>
+  handlePinChat: (chat: SidebarChatRow) => Promise<void>
   handleArchiveChat: (chat: SidebarChatRow) => Promise<void>
   handleOpenArchivedChat: (chatId: string) => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
@@ -1904,6 +1905,15 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
   }, [activeChatId, dialog, navigate, sidebarProjectGroups, socket])
 
+  const handlePinChat = useCallback(async (chat: SidebarChatRow) => {
+    try {
+      await socket.command({ type: "chat.pin", chatId: chat.chatId, pinned: !chat.pinned })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }, [socket])
+
   const handleArchiveChat = useCallback(async (chat: SidebarChatRow) => {
     try {
       await socket.command({ type: "chat.archive", chatId: chat.chatId })
@@ -2294,6 +2304,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     handleRenameChat,
     handleRenameProject,
     handleShareChat,
+    handlePinChat,
     handleArchiveChat,
     handleOpenArchivedChat,
     handleDeleteChat,

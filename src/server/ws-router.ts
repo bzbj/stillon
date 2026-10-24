@@ -1398,6 +1398,12 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ includeSidebar: true })
           return
         }
+        case "chat.pin": {
+          await store.setChatPinned(command.chatId, command.pinned)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          await broadcastFilteredSnapshots({ includeSidebar: true })
+          return
+        }
         case "chat.rename": {
           await store.renameChat(command.chatId, command.title)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })

@@ -177,6 +177,7 @@ export type ClientCommand =
   | { type: "chat.startQuickCommand"; projectId: string; name: string; content: string; preferences: import("./types").ChatTurnPreferences }
   | { type: "chat.fork"; chatId: string }
   | { type: "chat.rename"; chatId: string; title: string }
+  | { type: "chat.pin"; chatId: string; pinned: boolean }
   | { type: "chat.archive"; chatId: string }
   | { type: "chat.unarchive"; chatId: string }
   | { type: "chat.delete"; chatId: string }

@@ -106,6 +106,7 @@ function getReplayEventPriority(event: StoreEvent) {
       return 0
     case "chat_created":
       return 1
+    case "chat_pin_set":
     case "chat_renamed":
     case "chat_provider_set":
     case "chat_turn_preferences_set":
@@ -543,6 +544,11 @@ export class EventStore {
         }
         chat.transcriptMetadataOffset = event.transcriptMetadataOffset
         chat.updatedAt = Math.max(chat.updatedAt, event.timestamp)
+        break
+      }
+      case "chat_pin_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (chat) chat.pinned = event.pinned
         break
       }
       case "chat_renamed": {
@@ -989,6 +995,14 @@ export class EventStore {
     return this.state.chatsById.get(chatId)!
   }
 
+  async setChatPinned(chatId: string, pinned: boolean) {
+    this.requireChat(chatId)
+    if (typeof pinned !== "boolean") throw new Error("Invalid pinned value")
+    await this.append(this.chatsLogPath, {
+      v: STORE_VERSION, type: "chat_pin_set", timestamp: Date.now(), chatId, pinned,
+    })
+  }
+
   async renameChat(chatId: string, title: string) {
     const trimmed = title.trim()
     if (!trimmed) return
@@ -1080,7 +1094,7 @@ export class EventStore {
     const prunedChatIds: string[] = []
 
     for (const chat of this.state.chatsById.values()) {
-      if (chat.deletedAt || chat.archivedAt || protectedChatIds.has(chat.id)) continue
+      if (chat.deletedAt || chat.archivedAt || chat.pinned || protectedChatIds.has(chat.id)) continue
       if (now - chat.createdAt < maxAgeMs) continue
       if (chat.hasMessages) continue
       if (await this.hasMessages(chat.id)) {

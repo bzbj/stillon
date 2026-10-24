@@ -48,6 +48,7 @@ interface StoredSidebarChat {
   createdAt: number
   unread: boolean
   provider: AgentProvider | null
+  pinned?: boolean
   lastMessageAt?: number
 }
 
@@ -73,7 +74,7 @@ const SNAPSHOT_KEYS = new Set(["version", "savedAt", "identity", "data"])
 const IDENTITY_KEYS = new Set(["origin", "authScope", "machineName"])
 const DATA_KEYS = new Set(["projectGroups"])
 const PROJECT_KEYS = new Set(["groupKey", "title", "realTitle", "sidebarTitle", "localPath", "chats"])
-const CHAT_KEYS = new Set(["chatId", "title", "createdAt", "unread", "provider", "lastMessageAt"])
+const CHAT_KEYS = new Set(["chatId", "title", "createdAt", "unread", "provider", "lastMessageAt", "pinned"])
 const VALID_PROVIDERS = new Set<AgentProvider>(["claude", "codex"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -161,6 +162,7 @@ function toStoredChat(value: SidebarChatRow): StoredSidebarChat | null {
   if (!isBoundedString(value.title, MAX_TITLE_LENGTH, true)) return null
   if (!isTimestamp(value._creationTime)) return null
   if (typeof value.unread !== "boolean") return null
+  if (value.pinned !== undefined && typeof value.pinned !== "boolean") return null
   if (value.provider !== null && !VALID_PROVIDERS.has(value.provider)) return null
   if (value.lastMessageAt !== undefined && !isTimestamp(value.lastMessageAt)) return null
 
@@ -169,6 +171,7 @@ function toStoredChat(value: SidebarChatRow): StoredSidebarChat | null {
     title: value.title,
     createdAt: value._creationTime,
     unread: value.unread,
+    ...(value.pinned === undefined ? {} : { pinned: value.pinned }),
     provider: value.provider,
     ...(value.lastMessageAt === undefined ? {} : { lastMessageAt: value.lastMessageAt }),
   }
@@ -240,6 +243,7 @@ function parseStoredChat(value: unknown): StoredSidebarChat | null {
   if (!isBoundedString(value.title, MAX_TITLE_LENGTH, true)) return null
   if (!isTimestamp(value.createdAt)) return null
   if (typeof value.unread !== "boolean") return null
+  if (value.pinned !== undefined && typeof value.pinned !== "boolean") return null
   if (value.provider !== null && !VALID_PROVIDERS.has(value.provider as AgentProvider)) return null
   if (value.lastMessageAt !== undefined && !isTimestamp(value.lastMessageAt)) return null
 
@@ -248,6 +252,7 @@ function parseStoredChat(value: unknown): StoredSidebarChat | null {
     title: value.title,
     createdAt: value.createdAt,
     unread: value.unread,
+    ...(value.pinned === undefined ? {} : { pinned: value.pinned }),
     provider: value.provider as AgentProvider | null,
     ...(value.lastMessageAt === undefined ? {} : { lastMessageAt: value.lastMessageAt }),
   }
@@ -330,6 +335,7 @@ function hydrateProject(group: StoredSidebarProject, nowMs: number): SidebarProj
     title: chat.title,
     status: "idle",
     unread: chat.unread,
+    ...(chat.pinned === undefined ? {} : { pinned: chat.pinned }),
     localPath: group.localPath,
     provider: chat.provider,
     ...(chat.lastMessageAt === undefined ? {} : { lastMessageAt: chat.lastMessageAt }),

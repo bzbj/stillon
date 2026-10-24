@@ -107,3 +107,11 @@ describe("getSidebarChatTimestamp", () => {
     expect(getSidebarChatTimestamp(createChat("chat-1", 123))).toBe(123)
   })
 })
+
+test("old pinned chats remain visible without collapsing their workspace", () => {
+  const pinned = { ...createChat("pinned", 1), pinned: true }
+  const recent = createChat("recent", 50 * hourMs)
+  const old = createChat("old", 1)
+  expect(getSidebarChatBuckets([pinned, recent, old], 50 * hourMs).collapsedChats).toEqual([pinned, recent])
+  expect(shouldDefaultCollapseSidebarProject([pinned, old], 50 * hourMs)).toBe(false)
+})

@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
-import { Archive, ChevronLeft, ChevronRight, Copy, EyeOff, FolderOpen, Palette, Pencil, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { Archive, ChevronLeft, ChevronRight, Copy, EyeOff, FolderOpen, Palette, Pencil, Pin, PinOff, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -79,6 +79,8 @@ export function ProjectSectionMenu({
 }
 
 export function ChatRowMenu({
+  pinned,
+  onPin,
   canFork,
   onRename,
   onShare,
@@ -88,6 +90,8 @@ export function ChatRowMenu({
   onDelete,
   children,
 }: {
+  pinned?: boolean
+  onPin?: () => void
   canFork?: boolean
   onRename: () => void
   onShare: () => void
@@ -103,6 +107,10 @@ export function ChatRowMenu({
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onPin ? <ContextMenuItem onSelect={onPin}>
+          {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+          {pinned ? "Unpin chat" : "Pin chat"}
+        </ContextMenuItem> : null}
         <ContextMenuItem
           onSelect={(event) => {
             event.preventDefault()

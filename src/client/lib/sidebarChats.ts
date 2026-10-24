@@ -14,14 +14,14 @@ export function shouldDefaultCollapseSidebarProject(
   chats: SidebarChatRow[],
   nowMs: number
 ) {
-  return chats.every((chat) => !isSidebarChatRecent(getSidebarChatTimestamp(chat), nowMs))
+  return chats.every((chat) => !chat.pinned && !isSidebarChatRecent(getSidebarChatTimestamp(chat), nowMs))
 }
 
 export function getSidebarChatBuckets(
   chats: SidebarChatRow[],
   nowMs: number
 ): SidebarChatBuckets {
-  const recentChats = chats.filter((chat) => isSidebarChatRecent(getSidebarChatTimestamp(chat), nowMs))
+  const recentChats = chats.filter((chat) => chat.pinned || isSidebarChatRecent(getSidebarChatTimestamp(chat), nowMs))
   const collapsedChats = recentChats.length > 0
     ? recentChats
     : chats.slice(0, Math.min(5, chats.length))

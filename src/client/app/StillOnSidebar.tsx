@@ -111,6 +111,7 @@ interface StillOnSidebarProps {
   keybindings: KeybindingsSnapshot | null
   onRenameChat: (chat: SidebarChatRow) => void
   onShareChat: (chatId: string) => void
+  onPinChat?: (chat: SidebarChatRow) => void
   onArchiveChat: (chat: SidebarChatRow) => void
   onOpenArchivedChat: (chatId: string) => void
   onDeleteChat: (chat: SidebarChatRow) => void
@@ -149,6 +150,7 @@ function StillOnSidebarImpl({
   keybindings,
   onRenameChat,
   onShareChat,
+  onPinChat,
   onArchiveChat,
   onOpenArchivedChat,
   onDeleteChat,
@@ -268,11 +270,12 @@ function StillOnSidebarImpl({
         onShareChat={() => onShareChat(chat.chatId)}
         onOpenInFinder={onOpenExternalPath ? () => onOpenExternalPath("open_finder", chat.localPath) : undefined}
         onForkChat={() => onForkChat(chat)}
+        onPinChat={onPinChat ? () => onPinChat(chat) : undefined}
         onArchiveChat={() => onArchiveChat(chat)}
         onDeleteChat={() => onDeleteChat(chat)}
       />
     )
-  }, [actionsEnabled, activeChatId, navigate, nowMs, onArchiveChat, onClose, onDeleteChat, onForkChat, onOpenExternalPath, onRenameChat, onShareChat, resolvedKeybindings, showNumberJumpHints, visibleIndexByChatId])
+  }, [actionsEnabled, activeChatId, navigate, nowMs, onPinChat, onArchiveChat, onClose, onDeleteChat, onForkChat, onOpenExternalPath, onRenameChat, onShareChat, resolvedKeybindings, showNumberJumpHints, visibleIndexByChatId])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

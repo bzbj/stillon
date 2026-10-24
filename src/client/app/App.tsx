@@ -249,6 +249,7 @@ function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope
       keybindings={state.keybindings}
       onRenameChat={handleSidebarRenameChat}
       onShareChat={handleSidebarShareChat}
+      onPinChat={state.handlePinChat}
       onArchiveChat={handleSidebarArchiveChat}
       onOpenArchivedChat={handleOpenArchivedChat}
       onDeleteChat={handleSidebarDeleteChat}
