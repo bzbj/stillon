@@ -7,7 +7,7 @@ import { isConnectBrowser } from "../lib/remoteSession"
 import { QuickCommandDelivery, type QuickCommandReceipt } from "./quickCommandDelivery"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
 import { AsyncQuestionDelivery, getAsyncQuestionDelivery } from "./asyncQuestionDelivery"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
 import {
@@ -44,6 +44,8 @@ import {
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { StillOnSocket, type SocketStatus } from "./socket"
+import { ConfirmedCommandError } from "./quickCommandDelivery"
+import { applySidebarChatChanges, SidebarChatActions, type SidebarChatChange } from "./sidebarChatActions"
 import type { LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
 
 function sameRuntime(left: ChatSnapshot["runtime"] | null | undefined, right: ChatSnapshot["runtime"] | null | undefined) {
@@ -815,6 +817,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     sidebarBootstrap.snapshot ? "cached" : "empty"
   )
   const sidebarSnapshotStatusRef = useRef(sidebarSnapshotStatus)
+  const [sidebarChatActions] = useState(() => new SidebarChatActions())
+  const sidebarChatChanges = useSyncExternalStore(sidebarChatActions.subscribe, sidebarChatActions.getSnapshot)
+  const [sidebarRefreshEpoch, setSidebarRefreshEpoch] = useState(0)
   const [optimisticSidebarProjectOrder, setOptimisticSidebarProjectOrder] = useState<string[] | null>(null)
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
   const [cachedDefaultProjectId, setCachedDefaultProjectId] = useState(readCachedDefaultProjectId)
@@ -837,6 +842,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false)
   const [commandError, setCommandError] = useState<string | null>(null)
+  const [sidebarActionError, setSidebarActionError] = useState<string | null>(null)
   const [isExportingStandalone, setIsExportingStandalone] = useState(false)
   const [standaloneShareUrl, setStandaloneShareUrl] = useState<string | null>(null)
   const [standaloneShareComplete, setStandaloneShareComplete] = useState(false)
@@ -858,8 +864,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
   const sidebarProjectGroups = useMemo(
-    () => applySidebarProjectOrder(sidebarData.projectGroups, optimisticSidebarProjectOrder),
-    [optimisticSidebarProjectOrder, sidebarData.projectGroups]
+    () => applySidebarProjectOrder(applySidebarChatChanges(sidebarData, sidebarChatChanges).projectGroups, optimisticSidebarProjectOrder),
+    [optimisticSidebarProjectOrder, sidebarData, sidebarChatChanges]
   )
   const resolvedSidebarData = useMemo(
     () => (
@@ -918,7 +924,12 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   useEffect(() => socket.subscribe({ type: "codex-model-policy" }, () => {}), [socket])
 
   useEffect(() => {
+    // Re-subscription reads after the command settled, including uncertain failures.
+    const freshRead = sidebarChatActions.getSnapshot().filter(change => change.settled)
+    let firstSnapshot = true
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
+      sidebarChatActions.receive(snapshot, firstSnapshot ? freshRead : [])
+      firstSnapshot = false
       markStartupPhase("sidebar-data")
       setSidebarData(snapshot)
       sidebarSnapshotStatusRef.current = "authoritative"
@@ -934,7 +945,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       setSidebarReady(true)
       setCommandError(null)
     })
-  }, [socket])
+  }, [socket, sidebarChatActions, sidebarRefreshEpoch])
 
   useEffect(() => {
     if (sidebarSnapshotStatus !== "authoritative" || !confirmedMachineName) return
@@ -1229,7 +1240,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   useEffect(() => {
     if (!activeChatId) return
     if (!sidebarReady || !chatReady) return
-    const exists = sidebarProjectGroups.some((group) => group.chats.some((chat) => chat.chatId === activeChatId))
+    // Optimistic archive owns navigation; only saved absence invalidates a route.
+    const exists = sidebarData.projectGroups.some((group) => group.chats.some((chat) => chat.chatId === activeChatId))
     if (exists) {
       if (pendingChatId === activeChatId) {
         setPendingChatId(null)
@@ -1240,7 +1252,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       return
     }
     navigate("/")
-  }, [activeChatId, chatReady, navigate, pendingChatId, sidebarProjectGroups, sidebarReady])
+  }, [activeChatId, chatReady, navigate, pendingChatId, sidebarData, sidebarReady])
 
   useEffect(() => {
     if (!chatSnapshot) return
@@ -1909,29 +1921,53 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     }
   }, [activeChatId, dialog, navigate, sidebarProjectGroups, socket])
 
-  const handlePinChat = useCallback(async (chat: SidebarChatRow) => {
+  const runSidebarChatChange = useCallback(async (change: SidebarChatChange) => {
+    setSidebarActionError(null)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 10_000)
     try {
-      await socket.command({ type: "chat.pin", chatId: chat.chatId, pinned: !chat.pinned })
-      setCommandError(null)
+      await socket.command(change.action.type === "pin"
+        ? { type: "chat.pin", chatId: change.chatId, pinned: change.action.pinned }
+        : { type: "chat.archive", chatId: change.chatId }, { signal: controller.signal })
+      sidebarChatActions.settle(change)
+      setSidebarActionError(null)
+      return true
     } catch (error) {
-      setCommandError(error instanceof Error ? error.message : String(error))
+      // Also cancel any unsent local envelope: reconnect must not replay it later.
+      controller.abort()
+      if (error instanceof ConfirmedCommandError) sidebarChatActions.reject(change)
+      else sidebarChatActions.settle(change)
+      const message = error instanceof Error ? error.message : String(error)
+      setSidebarActionError(error instanceof ConfirmedCommandError ? message : `Unable to confirm the change. Rechecking sidebar state. ${message}`)
+      return false
+    } finally {
+      window.clearTimeout(timeout)
+      setSidebarRefreshEpoch(epoch => epoch + 1)
     }
-  }, [socket])
+  }, [sidebarChatActions, socket])
+
+  const handlePinChat = useCallback(async (chat: SidebarChatRow) => {
+    const change = sidebarChatActions.begin(chat, "pin")
+    if (change) await runSidebarChatChange(change)
+  }, [runSidebarChatChange, sidebarChatActions])
 
   const handleArchiveChat = useCallback(async (chat: SidebarChatRow) => {
-    try {
-      await socket.command({ type: "chat.archive", chatId: chat.chatId })
-      if (chat.chatId === activeChatId) {
-        const nextChatId = getNewestRemainingChatId(sidebarProjectGroups, chat.chatId)
-        navigate(nextChatId ? `/chat/${nextChatId}` : "/")
-      }
-      setCommandError(null)
-    } catch (error) {
-      setCommandError(error instanceof Error ? error.message : String(error))
+    const wasActive = chat.chatId === activeChatIdRef.current
+    const nextChatId = wasActive ? getNewestRemainingChatId(sidebarProjectGroups, chat.chatId) : null
+    const change = sidebarChatActions.begin(chat, "archive")
+    if (!change) return
+    if (wasActive) {
+      activeChatIdRef.current = nextChatId
+      navigate(nextChatId ? `/chat/${nextChatId}` : "/")
     }
-  }, [activeChatId, navigate, sidebarProjectGroups, socket])
+    const saved = await runSidebarChatChange(change)
+    if (!saved && !sidebarChatActions.has(chat.chatId) && wasActive && activeChatIdRef.current === nextChatId) {
+      navigate(`/chat/${chat.chatId}`, { replace: true })
+    }
+  }, [navigate, runSidebarChatChange, sidebarChatActions, sidebarProjectGroups])
 
   const handleOpenArchivedChat = useCallback(async (chatId: string) => {
+    if (sidebarChatActions.has(chatId)) return
     try {
       setPendingChatId(chatId)
       await socket.command({ type: "chat.unarchive", chatId })
@@ -1941,7 +1977,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       setPendingChatId(null)
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [navigate, socket])
+  }, [navigate, sidebarChatActions, socket])
 
   const handleHideProject = useCallback(async (projectId: string) => {
     try {
@@ -2254,7 +2290,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     sidebarReady,
     sidebarSnapshotStatus,
     localProjectsReady,
-    commandError,
+    commandError: sidebarActionError ?? commandError,
     startingLocalPath,
     sidebarOpen,
     sidebarCollapsed,
