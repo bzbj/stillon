@@ -12,11 +12,11 @@ import { upstreamWebSocket } from "./connect/relay"
 function connect(port: number) {
   const ws = upstreamWebSocket(`ws://127.0.0.1:${port}/ws`, new Headers({ Origin: `http://127.0.0.1:${port}` }))
   const messages: ServerEnvelope[] = []
-  const pending = new Map<string, (message: ServerEnvelope) => void>()
+  const pending = new Map<string, { resolve: (message: ServerEnvelope) => void }>()
   ws.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data)) as ServerEnvelope
     messages.push(message)
-    if ((message.type === "ack" || message.type === "error") && message.id) pending.get(message.id)?.(message)
+    if ((message.type === "ack" || message.type === "error") && message.id) pending.get(message.id)?.resolve(message)
   })
   let serial = 0
   return { ws, messages,
@@ -25,7 +25,7 @@ function connect(port: number) {
       const id = `command-${serial++}`
       return new Promise<ServerEnvelope>((resolve, reject) => {
         const timeout = setTimeout(() => { pending.delete(id); reject(new Error("Command timeout")) }, 5_000)
-        pending.set(id, (message) => { clearTimeout(timeout); pending.delete(id); resolve(message) })
+        pending.set(id, { resolve: (message) => { clearTimeout(timeout); pending.delete(id); resolve(message) } })
         ws.send(JSON.stringify({ v: 1, type: "command", id, command }))
       })
     },
