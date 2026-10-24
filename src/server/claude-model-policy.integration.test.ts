@@ -48,7 +48,8 @@ test("Claude models sync to two clients before preference normalization, retain 
     await Promise.all([a.opened, b.opened])
     for (const client of clients) client.ws.send(JSON.stringify({ v: 1, type: "subscribe", id: "claude-catalog", topic: { type: "claude-model-policy" } }))
     const first = await a.command({ type: "settings.readClaudeModelPolicy" })
-    expect(first.claudeModelPolicy?.policy).toEqual(BUNDLED_CLAUDE_MODEL_POLICY)
+    expect(first.type).toBe("ack")
+    if (first.type === "ack") expect((first.result as any).policy).toEqual(BUNDLED_CLAUDE_MODEL_POLICY)
     const discovered = await a.command({ type: "settings.discoverClaudeModels" })
     expect(discovered.type).toBe("ack")
     const draft = (discovered as any).result
