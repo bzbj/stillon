@@ -1,3 +1,4 @@
+import type { ClaudeModelPolicy } from "../shared/claude-model-policy"
 import type {
   AgentProvider,
   ClaudeModelOptions,
@@ -14,6 +15,7 @@ import {
   normalizeClaudeContextWindow,
   normalizeCodexOptions,
   applyCodexModelPolicy,
+  applyClaudeModelPolicy,
   normalizeProviderModelId,
   isClaudeReasoningEffort,
 } from "../shared/types"
@@ -34,6 +36,12 @@ function createServerProviders(): ProviderCatalogEntry[] {
 }
 
 export const SERVER_PROVIDERS: ProviderCatalogEntry[] = createServerProviders()
+
+export function applyServerClaudeModelPolicy(policy: ClaudeModelPolicy) {
+  applyClaudeModelPolicy(policy)
+  const index = SERVER_PROVIDERS.findIndex((provider) => provider.id === "claude")
+  SERVER_PROVIDERS.splice(index, 1, { ...PROVIDERS.find((provider) => provider.id === "claude")! })
+}
 
 export function applyServerCodexModelPolicy(policy: CodexModelPolicy) {
   applyCodexModelPolicy(policy)

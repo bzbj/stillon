@@ -1,3 +1,4 @@
+import { claudeModelPolicySchema, type ClaudeModelPolicy } from "./claude-model-policy"
 import { CODEX_MODEL_POLICY, codexModelPolicySchema, type CodexModelPolicy } from "./codex-model-policy"
 export { CODEX_MODEL_POLICY } from "./codex-model-policy"
 
@@ -410,6 +411,18 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   },
 ]
 
+export const BUNDLED_CLAUDE_MODEL_POLICY: ClaudeModelPolicy = claudeModelPolicySchema.parse({
+  models: PROVIDERS[0]!.models,
+  defaultModel: "claude-opus-4-8",
+})
+
+export function applyClaudeModelPolicy(value: ClaudeModelPolicy) {
+  const validated = claudeModelPolicySchema.parse(value)
+  const claude = PROVIDERS.find((provider) => provider.id === "claude")!
+  claude.models = validated.models
+  claude.defaultModel = validated.defaultModel
+}
+
 export function applyCodexModelPolicy(value: CodexModelPolicy) {
   const validated = codexModelPolicySchema.parse(value)
   CODEX_MODELS.splice(0, CODEX_MODELS.length, ...validated.models)
@@ -445,7 +458,7 @@ export function normalizeProviderModelId(
     ?? getProviderCatalog(provider).defaultModel
 }
 
-export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "claude-opus-4-8"): string {
+export function normalizeClaudeModelId(modelId?: string, fallbackModelId = getProviderCatalog("claude").defaultModel): string {
   return normalizeProviderModelId("claude", modelId, fallbackModelId)
 }
 

@@ -1,3 +1,5 @@
+import { BUNDLED_CLAUDE_MODEL_POLICY } from "../shared/types"
+import { applyServerClaudeModelPolicy } from "./provider-catalog"
 import { describe, expect, test } from "bun:test"
 import {
   AgentCoordinator,
@@ -1711,6 +1713,27 @@ describe("AgentCoordinator stop and queued-message override (#126)", () => {
 })
 
 describe("AgentCoordinator claude integration", () => {
+  test("passes a newly configured Claude model to the session instead of falling back to a bundled model", async () => {
+    applyServerClaudeModelPolicy({ models: [{ id: "claude-new-model", label: "New model", supportsEffort: false }], defaultModel: "claude-new-model" })
+    const store = createFakeStore()
+    const events = new AsyncEventQueue<any>()
+    let actualModel: string | undefined
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {},
+      startClaudeSession: async (args) => {
+        actualModel = args.model
+        return { provider: "claude", stream: events, getAccountInfo: async () => null,
+          interrupt: async () => {}, close: () => events.close(), setModel: async () => {}, setPermissionMode: async () => {},
+          sendPrompt: async () => { events.push({ type: "transcript", entry: timestamped({ kind: "result", subtype: "success", isError: false, durationMs: 0, result: "done" }) }) },
+        }
+      },
+    })
+    try {
+      await coordinator.send({ type: "chat.send", chatId: "chat-1", provider: "claude", content: "Example", model: "claude-new-model" })
+      await waitFor(() => store.turnFinishedCount === 1)
+      expect(actualModel).toBe("claude-new-model")
+    } finally { await coordinator.shutdown(); applyServerClaudeModelPolicy(BUNDLED_CLAUDE_MODEL_POLICY) }
+  })
+
   test("reuses a persistent Claude session across turns", async () => {
     const events = new AsyncEventQueue<any>()
     const startSessionCalls: Array<{
