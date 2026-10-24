@@ -307,12 +307,15 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   })
   providerCliUpdates = new ProviderCliUpdates({
     ...options.providerCliUpdates,
+    journalDirectory: path.join(store.dataDir, "cli-updates"),
     getEnvironment: async () => { await cliEnvironment.refresh(); return getUpdateEnvironment() },
     reserve: async () => {
       if (terminals.hasRunningSessions() || codexModelPolicy.busy || claudeModelPolicy.busy) throw new Error("Close running terminals and wait for model discovery before updating the CLI.")
       return agent.reserveCliUpdate()
     },
   })
+  await providerCliUpdates.initialize()
+  void providerCliUpdates.recoverInterrupted()
   const workspaceAvatars = new WorkspaceAvatarsManager(store.dataDir)
   const previewResources = new PreviewResources(LOCAL_PREVIEW_ASSET_PREFIX)
   router = createWsRouter({

@@ -15,8 +15,9 @@ import { UPDATE_AGENT, UPDATE_TASK } from "../updater/native"
 import { stopWindowsEncodedProcesses } from "../updater/processes"
 import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import type { SetupState } from "../updater/setup"
-import { requestDesktopTransition, TRANSITION_FILE, type DesktopTransition } from "./transition"
+import { requestDesktopTransition } from "./transition"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
+import { DESKTOP_WAIT_MS, desktopProgress, openDesktopBrowser as openBrowser, waitForDesktopTransition } from "./desktop-progress"
 
 export interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
@@ -45,11 +46,6 @@ export function desktopPath(home: string, platform = process.platform, inherited
   return mergeSearchPaths(platform, inherited, cliFallbackPath(home, platform))
 }
 
-async function openBrowser(port: number) {
-  const url = `http://127.0.0.1:${port}`
-  assertCommandSucceeded("Open StillOn", await runServiceCommand(process.platform === "darwin" ? "/usr/bin/open" : "explorer.exe", [url]))
-}
-
 async function verifyOwnedDeployment(root: string) {
   root = await realpath(root)
   const deployment = await json<UpdateDeployment>(path.join(root, "deployment.json"))
@@ -69,12 +65,9 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   if (await exists(path.join(root, "deployment.json"))) root = await realpath(root)
   const marker = path.join(root, "desktop.json")
   async function transition() {
+    desktopProgress("Preparing the StillOn update… This may take several minutes.")
     await requestDesktopTransition(source, root)
-    await waitUntil(async () => {
-      const state = await json<DesktopTransition>(path.join(root, TRANSITION_FILE))
-      if (["failed", "rolled-back", "recovery-required"].includes(state.phase)) throw new Error(state.error ?? "Desktop migration needs recovery; your original installation and data have been kept.")
-      return state.phase === "succeeded"
-    }, 180_000)
+    await waitForDesktopTransition(root)
     if (options.open !== false) await openBrowser((await json<UpdateDeployment>(path.join(root, "deployment.json"))).port)
   }
   if (await desktopTransitionPending(root)) return transition()
@@ -144,11 +137,13 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       throw new Error("The StillOn port is already in use")
     } catch (error) { if (error instanceof Error && error.message === "The StillOn port is already in use") throw error }
     const runtime = path.join(root, "releases", `desktop-${sourceBundle.buildId}-${randomUUID()}`)
+    desktopProgress("Preparing the StillOn runtime…")
     await copyBundle(source, runtime, sourceBundle)
     install = { schema: 1, runtime, phase: "staged" }
     await atomicJson(marker, install)
   }
   const port = options.port ?? 3210
+  desktopProgress("Starting the StillOn background service…")
   await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,
     port, host: "127.0.0.1", pathEnvironment: desktopPath(home), recordInstallation: true })
@@ -161,13 +156,14 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
       const data = await response.json() as { ok?: boolean; busy?: boolean; managedUpdateProtocol?: number; runtimeProfile?: string }
       return response.ok && data.ok === true && data.busy === false && data.managedUpdateProtocol === 1 && data.runtimeProfile === "prod"
     } catch { return false }
-  }, target.platform === "win32" ? 120_000 : 60_000)
+  }, DESKTOP_WAIT_MS)
+  desktopProgress("Enabling managed updates and verifying StillOn…")
   await setupManagedUpdates(root)
   await waitUntil(async () => {
     const setup = await json<SetupState>(path.join(root, "setup.json"))
     if (["failed", "restored", "recovery-required"].includes(setup.phase)) throw new Error(setup.error ?? "Desktop setup needs recovery")
     return setup.phase === "enabled"
-  }, 120_000)
+  }, DESKTOP_WAIT_MS)
   await saveDesktopReceipt(await json<UpdateDeployment>(path.join(root, "deployment.json")))
   await atomicJson(marker, { ...install, phase: "installed" })
   if (options.open !== false) await openBrowser(port)

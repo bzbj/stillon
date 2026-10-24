@@ -49,21 +49,21 @@ require('node:readline').createInterface({input: process.stdin}).on('line', line
     await symlink(path.join(pkg, "cli.js"), executable)
     await symlink(npmScript, path.join(bin, "npm"))
   }
-  const environment = { ...process.env, HOME: root, USERPROFILE: root, CODEX_HOME: path.join(root, ".codex"), CODEX_EXECUTABLE: executable,
+  const environment = { ...process.env, HOME: root, USERPROFILE: root, NPM_CONFIG_PREFIX: root, CODEX_HOME: path.join(root, ".codex"), CODEX_EXECUTABLE: executable,
     CLAUDE_EXECUTABLE: executable,
     PATH: [bin, process.env.PATH].filter(Boolean).join(path.delimiter) }
   const options: Pick<ProviderCliUpdatesOptions, "inspect" | "release" | "install" | "verify"> = {
     inspect: requested => requested === provider ? inspectCliInstallation(provider, environment) : Promise.resolve({ identity: "missing", label: "Not installed", automaticUpdates: "Managed outside StillOn.", reason: "Synthetic fixture has no installation for this provider." }),
     release: async provider => ({ version: "1.2.4", publishedAt: "2026-01-01T00:00:00.000Z", url: provider === "codex" ? "https://github.com/openai/codex/releases/tag/rust-v1.2.4" : "https://github.com/anthropics/claude-code/releases/tag/v1.2.4" }),
-    install: async (provider, installation, target) => {
+    install: async (provider, installation, target, _environment, lifecycle) => {
       if (installation.method?.kind !== "npm") throw new Error("The fixture only permits its synthetic npm installer.")
       const plan = await npmUpdateCommand(environment, installation.method.prefix, provider, target)
       if (await realpath(plan.args[0]!) !== await realpath(npmScript) || await realpath(installation.method.prefix) !== await realpath(root)) {
         throw new Error("Refusing to run an installer outside the synthetic prefix.")
       }
-      await installCli(provider, installation, target, environment)
+      await installCli(provider, installation, target, environment, lifecycle)
     },
     verify: (provider, installation) => verifyCli(provider, installation, environment),
   }
-  return { options, environment, executable, version, serverVersion, failure, calls, installed: () => readFile(version, "utf8") }
+  return { options, environment, executable, version, serverVersion, failure, calls, npmScript, installed: () => readFile(version, "utf8") }
 }

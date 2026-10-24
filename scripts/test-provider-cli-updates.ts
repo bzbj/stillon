@@ -14,7 +14,8 @@ process.env.CLAUDE_CONFIG_DIR = path.join(root, ".claude")
 process.env.STILLON_MACHINE_NAME = "Test computer"
 for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CODEX_ACCESS_TOKEN", "CODEX_API_KEY"]) delete process.env[key]
 const engine = await createCliUpdateFixture(path.join(root, "npm"))
-const server = await startStillOnServer({ port: 0, strictPort: true, dataDir: path.join(root, "data"), discoveryHome: root, providerCliUpdates: engine.options })
+const serverOptions = { port: 0, strictPort: true, dataDir: path.join(root, "data"), discoveryHome: root, providerCliUpdates: engine.options }
+let server = await startStillOnServer(serverOptions)
 const origin = `http://127.0.0.1:${server.port}`, endpoint = `${origin}/api/provider-cli-updates/codex`
 async function status(): Promise<ProviderCliUpdateStatus> { const response = await fetch(endpoint); assert.equal(response.status, 200); return response.json() }
 try {
@@ -36,7 +37,15 @@ try {
     assert.equal(done.currentVersion, "1.2.4"); assert.equal(done.executable, before.executable)
     assert.equal(await readFile(engine.calls, "utf8"), "install\n")
     assert.equal((await status()).updateAvailable, false)
+    const operationId = done.operation!.id
+    await server.stop()
+    server = await startStillOnServer({ ...serverOptions, port: server.port })
+    const restarted = await status()
+    assert.equal(restarted.operation?.id, operationId)
+    assert.equal(restarted.operation?.state, "succeeded")
+    assert.equal(restarted.currentVersion, "1.2.4")
+    assert.equal(await readFile(engine.calls, "utf8"), "install\n")
     await writeFile(path.join(root, "accepted.txt"), "PASS")
-    console.log("PASS: local status → exact-version npm update in existing prefix → fresh App Server initialize/initialized + model/list → reload; no real CLI changed")
+    console.log("PASS: local status → exact-version npm update in existing prefix → fresh App Server initialize/initialized + model/list → reload and server restart preserve the result without reinstalling; no real CLI changed")
   }
 } finally { await server.stop(); await rm(root, { recursive: true, force: true }) }

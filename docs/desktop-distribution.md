@@ -105,6 +105,21 @@ downgrade. Closing the initiating launcher does not stop recovery.
 The embedded CLI exposes `desktop --migrate` and `desktop --update` for these
 explicit operations; existing pending transactions resume rather than duplicate.
 
+Desktop setup and upgrade waits allow up to 15 minutes per service/setup phase.
+The independent transition is polled for success, rollback or recovery, with
+phase messages shown by the Windows launcher while work continues. A transition
+wait expiring explains that the background update is still running; it does not
+cancel or duplicate the worker. Browser opening is best effort after the service
+is ready, including Explorer's successful URL handoff with exit code 1. If the
+browser handler fails, the desktop command still succeeds and prints the local
+workspace URL.
+
+Windows launcher progress, command completion, bounded stdout/stderr and errors
+are recorded in `%LOCALAPPDATA%/StillOn/launcher.log`. Error dialogs include the
+log path. Logs rotate after 2 MiB, keeping one previous file; failure to write a
+log does not prevent startup. `desktop --no-open` continues to suppress browser
+opening.
+
 ## Build and signing
 
 Official desktop releases require the repository Actions variable

@@ -11,6 +11,8 @@ export interface CliUpdateOperation {
   targetVersion: string
   state: "updating" | "succeeded" | "failed"
   message: string
+  startedAt?: string
+  attempts?: number
 }
 
 export interface ProviderCliUpdateStatus {
@@ -23,6 +25,9 @@ export interface ProviderCliUpdateStatus {
   updateAvailable: boolean
   /** Opaque, short-lived consent for this exact installation and release. */
   updateToken?: string
+  /** Consent to repair the same recorded installation at this exact version. */
+  repairToken?: string
+  repairVersion?: string
   reason?: string
   releaseError?: string
   operation?: CliUpdateOperation
