@@ -46,7 +46,7 @@ function isSidebarChatRecent(chat: Pick<SidebarChatRow, "lastMessageAt" | "_crea
 }
 
 function getSidebarChatBuckets(chats: SidebarChatRow[], nowMs: number) {
-  const recentChats = chats.filter((chat) => isSidebarChatRecent(chat, nowMs))
+  const recentChats = chats.filter((chat) => chat.pinned || isSidebarChatRecent(chat, nowMs))
   const previewChats = recentChats.length > 0
     ? recentChats
     : chats.slice(0, Math.min(SIDEBAR_FALLBACK_PREVIEW_LIMIT, chats.length))
@@ -98,12 +98,13 @@ export function deriveSidebarData(
 
   function toSidebarChatRows(project: NonNullable<typeof projects[number]>, projectChats: ChatRecord[]) {
     return projectChats
-      .sort((a, b) => getSidebarChatSortTimestamp(b) - getSidebarChatSortTimestamp(a))
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getSidebarChatSortTimestamp(b) - getSidebarChatSortTimestamp(a))
       .map((chat) => ({
         _id: chat.id,
         _creationTime: chat.createdAt,
         chatId: chat.id,
         title: chat.title,
+        pinned: chat.pinned,
         status: deriveStatus(chat, activeStatuses.get(chat.id)),
         unread: chat.unread,
         localPath: project.localPath,
@@ -129,7 +130,7 @@ export function deriveSidebarData(
       previewChats,
       olderChats,
       ...(archivedChats.length ? { archivedChats } : {}),
-      defaultCollapsed: chats.every((chat) => !isSidebarChatRecent(chat, nowMs)),
+      defaultCollapsed: chats.every((chat) => !chat.pinned && !isSidebarChatRecent(chat, nowMs)),
     }
   })
 

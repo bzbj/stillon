@@ -12,6 +12,7 @@ export interface ChatRecord {
   createdAt: number
   updatedAt: number
   deletedAt?: number
+  pinned?: boolean
   archivedAt?: number
   unread: boolean
   provider: AgentProvider | null
@@ -81,6 +82,13 @@ export type ChatEvent =
       chatId: string
       projectId: string
       title: string
+    }
+  | {
+      v: 2
+      type: "chat_pin_set"
+      timestamp: number
+      chatId: string
+      pinned: boolean
     }
   | {
       v: 2

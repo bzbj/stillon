@@ -251,3 +251,15 @@ describe("sidebar snapshot cache", () => {
     expect(persistSidebarSnapshot(createIdentity(), createSidebarData(), throwingStorage, 1_000_000)).toBe(false)
   })
 })
+
+test("preserves pin metadata and visibility when restoring an offline sidebar", () => {
+  const storage = createStorage()
+  const identity = createIdentity()
+  const source = createSidebarData()
+  source.projectGroups[0]!.chats[1]!.pinned = true
+  persistSidebarSnapshot(identity, source, storage, 100_000_000)
+  const group = loadSidebarSnapshot(identity, storage, 100_000_001)!.data.projectGroups[0]!
+  expect(group.chats.find(chat => chat.chatId === "chat-older")!.pinned).toBe(true)
+  expect(group.previewChats.some(chat => chat.chatId === "chat-older")).toBe(true)
+  expect(group.defaultCollapsed).toBe(false)
+})

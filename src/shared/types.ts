@@ -562,6 +562,7 @@ export interface ProjectSummary {
 }
 
 export interface SidebarChatRow {
+  pinned?: boolean
   _id: string
   _creationTime: number
   chatId: string

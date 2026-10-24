@@ -1,5 +1,5 @@
 import { memo } from "react"
-import { Archive, Loader2, Split } from "lucide-react"
+import { Archive, Loader2, Pin, PinOff, Split } from "lucide-react"
 import type { SidebarChatRow } from "../../../../shared/types"
 import { AnimatedShinyText } from "../../ui/animated-shiny-text"
 import { Button } from "../../ui/button"
@@ -23,6 +23,7 @@ interface Props {
   onShareChat: (chatId: string) => void
   onOpenInFinder?: (localPath: string) => void
   onForkChat: (chatId: string) => void
+  onPinChat?: () => void
   onArchiveChat: (chatId: string) => void
   onDeleteChat: (chatId: string) => void
 }
@@ -39,6 +40,7 @@ function ChatRowImpl({
   onShareChat,
   onOpenInFinder,
   onForkChat,
+  onPinChat,
   onArchiveChat,
   onDeleteChat,
 }: Props) {
@@ -80,6 +82,7 @@ function ChatRowImpl({
           </div>
         </div>
       ) : null}
+      {chat.pinned ? <Pin className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned chat" /> : null}
       <span className="text-sm truncate flex-1 translate-y-[-0.5px]">
         {chat.status !== "idle" && chat.status !== "waiting_for_user" ? (
           <AnimatedShinyText
@@ -92,7 +95,7 @@ function ChatRowImpl({
           chat.status !== 'idle' || activeChatId === normalizedChatId || chat.unread ? <span className="">{chat.title}</span> : <span className="text-slate-500 dark:text-slate-400">{chat.title}</span>
         }
       </span>
-      <div className={cn("relative h-7 mr-[2px] shrink-0", actionsEnabled && chat.canFork ? "w-12" : "w-6")}>
+      <div className={cn("relative h-7 mr-[2px] shrink-0", actionsEnabled && chat.canFork ? (onPinChat ? "w-[72px]" : "w-12") : (onPinChat ? "w-12" : "w-6"))}>
         {trailingLabel ? (
           showShortcutKeycap ? (
             <span className="hidden md:flex absolute inset-0 items-center justify-end pr-0.5 text-[11px] text-foreground transition-opacity group-hover:opacity-0">
@@ -115,6 +118,9 @@ function ChatRowImpl({
                 : "opacity-100 md:opacity-0 md:group-hover:opacity-100"
             )}
           >
+            {onPinChat ? <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" title={chat.pinned ? "Unpin chat" : "Pin chat"} onClick={event => { event.stopPropagation(); onPinChat() }}>
+              {chat.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+            </Button> : null}
             {chat.canFork ? (
               <Button
                 variant="ghost"
@@ -149,6 +155,8 @@ function ChatRowImpl({
 
   return actionsEnabled ? (
     <ChatRowMenu
+      pinned={chat.pinned}
+      onPin={onPinChat}
       canFork={chat.canFork}
       onRename={() => onRenameChat(chat.chatId)}
       onShare={() => onShareChat(chat.chatId)}
