@@ -21,6 +21,8 @@ check idle state, back up data, switch, verify, and roll back on failure.
 - Installed application: immutable vendor payload; never a place for personal CSS,
   settings, keys, or chat history.
 - ManagedUpdates: controller, versioned runtime payloads, journals, rollback data.
+- Transport/frp: independently downloaded, immutable Connect helpers shared by
+  runtime versions; kept outside ManagedUpdates and user-data rollback snapshots.
 - User data root (`~/.stillon`): history, settings, themes, skins, UI preferences.
   Installation and uninstallation preserve it; transactional rollback restores a
   matched snapshot only before allowing new user work.
@@ -112,7 +114,7 @@ Official desktop releases require the repository Actions variable
 `STILLON_CONNECT_MIGRATE_FROM_ORIGINS` optionally contains a JSON array of exact
 previous origins that the same operator has approved for migration. The release
 workflow passes both values into all four native builds and verifies the sealed
-`runtime/connect.json`, bundled frpc and fresh-profile binding configuration.
+`runtime/connect.json`, the pinned component requirement and fresh-profile binding configuration.
 Missing, insecure or example origins fail managed publication before building.
 
 An approved migration retains device keys, computer ID, account binding, pause
@@ -167,6 +169,7 @@ signatures, then signs and notarizes the containing app/DMG, following
 [Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 Windows signs the launcher, installer and uninstaller through
 [Inno Setup's SignTool integration](https://jrsoftware.org/ishelp/topic_setup_signtool.htm).
+The independent frpc component has its own signing/publication flow below.
 These production signing paths require acceptance with the project's certificates;
 successful unsigned CI builds do not demonstrate trusted signature validation.
 
@@ -176,3 +179,65 @@ replacement during migration or an installer upgrade is a journaled maintenance
 transaction performed by a distinct recovery helper. It stages immutable files
 and restores the original native registrations on failure; it never overwrites
 a running helper. Normal in-app runtime updates keep the controller pinned.
+
+## Independent Connect component
+
+The application payload contains `runtime/frp-component.json`, not an frpc
+executable. It seals the required upstream version, platform, architecture,
+HTTPS archive URL, archive SHA-256, installed executable SHA-256/size and signing
+kind. Building StillOn reads this small requirement without downloading,
+extracting, executing or signing frpc.
+
+First-time desktop setup downloads and verifies the component before starting
+background services, so a successful component setup is ready for email linking
+without another download. An otherwise healthy local installation remains usable
+if downloading or running the helper fails; Remote access shows the component
+failure and an explicit **Repair Connect component** action. A cold start under
+an older updater controller may make one asynchronous preparation attempt; local
+HTTP readiness never waits for it. Isolated update probes do not prepare helpers.
+
+Shared roots are:
+
+- Windows: `%LOCALAPPDATA%\StillOn\Transport\frp\`.
+- macOS: `~/Library/Application Support/StillOn/Transport/frp/`.
+
+Each root contains `<version>-<architecture>-<executable-hash-prefix>/frpc[.exe]`
+and the upstream license. The content suffix keeps different signed artifacts
+at the same upstream version separate for running instances and rollback. A
+cache hit verifies the executable against the **runtime's sealed requirement**;
+it does not trust a mutable cache manifest, write files, run a version probe or
+make a network request. Matching legacy bundled bytes can seed the shared cache.
+Application uninstall preserves it, alongside other user-owned data.
+
+Downloads are bounded and both archive and executable digests must match before
+execution. Archive paths and links are never extracted to disk. One writer owns
+the component preparation lock; durable attempt receipts prevent repeated
+downloads after interruption, failed verification or removal/quarantine. An
+explicit local repair can retry. Remote/external callers cannot manage the
+component. No operation disables Defender, Smart App Control or Gatekeeper,
+changes exclusions, removes quarantine attributes, or promises permanent trust.
+
+The checked-in `src/server/connect/frp-components.json` initially pins the
+upstream **unsigned** 0.71.1 artifacts, matching the existing unsigned beta
+channel. To publish signed independent components, run **Build independent
+Connect components** with an immutable release download base and signing enabled,
+or on each native target:
+
+```sh
+STILLON_REQUIRE_SIGNING=1 bun scripts/build-frp-component.ts --download-base=https://github.com/example/stillon/releases/download/frp-v0.71.1-r1
+```
+
+Use the existing platform signing secrets. The builder verifies upstream bytes,
+signs frpc itself, notarizes the macOS ZIP container when signed, then computes
+the final executable/archive hashes. Publish the resulting artifacts once and
+pin their descriptor entries in `frp-components.json` before a signed StillOn
+release. The manual workflow only uploads CI artifacts; it does not create a
+release. Never replace an already published component or re-sign it during an
+application build. Changed component bytes get new content-addressed filenames.
+
+`STILLON_FRP_COMPONENT_MANIFEST` optionally selects a local build-time descriptor
+array for staging/acceptance. It is not a runtime override. A signed StillOn build
+rejects unsigned component descriptors. macOS application signing/notarization
+continues per StillOn release, independently of component reuse. The standalone
+CLI's notarization ticket is available online; cold offline Gatekeeper assessment
+requires separate acceptance. Unsigned CI does not validate trusted signatures.

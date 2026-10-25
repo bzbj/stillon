@@ -91,8 +91,14 @@ without a CA file; the connector always supplies Bun's public roots and server
 name. Plain WebSocket is allowed only for loopback development. See the
 [upstream TLS implementation](https://github.com/fatedier/frp/blob/v0.71.1/pkg/transport/tls.go)
 and [plugin contract](https://gofrp.org/en/docs/features/common/server-plugin/).
-Build-time release downloads have pinned SHA-256 checksums. Startup verifies the
-installed binary manifest and never downloads an executable. Device keys and
+Desktop builds seal an independent component requirement with pinned archive and
+executable SHA-256 checksums. First-time setup prepares it in a per-user shared
+cache; subsequent application versions verify and reuse matching bytes. A cold
+start under an older updater may make one asynchronous preparation attempt, but
+the reconnect loop never downloads executables. Failed or quarantined attempts
+require explicit repair from local Remote access settings. See
+[component packaging and signing](desktop-distribution.md#independent-connect-component).
+Device keys and
 temporary transport credentials use 0600 files; Windows ACL handling requires
 real-machine acceptance.
 
@@ -125,7 +131,7 @@ bun run audit
 
 For desktop packaging, set only the public `STILLON_CONNECT_ORIGIN` when running
 `bun run build:desktop --runtime-only`. The package includes the device-side
-frpc, its license/manifest and public `runtime/connect.json`; it does not include
+frpc requirement and public `runtime/connect.json`; it does not include
 cloud server source, keys or databases. Existing saved bindings and device keys
 are not changed by the repository split.
 

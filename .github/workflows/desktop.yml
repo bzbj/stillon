@@ -77,7 +77,7 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.architecture }}
       - run: bun run check
-      - run: bun test src/server/distribution src/server/updater --timeout 30000
+      - run: bun test src/server/distribution src/server/updater src/server/connect --timeout 30000
       - name: Install pinned Inno Setup compiler
         if: runner.os == 'Windows'
         shell: pwsh
@@ -95,7 +95,7 @@ jobs:
       - name: Build runtime and native installer
         run: bun scripts/build-desktop.ts
         env:
-          # PR artifacts exercise bundled frpc without contacting a live service.
+          # PR artifacts prepare independent frpc without contacting a live service.
           # Deployment builds must supply their actual public origin explicitly.
           STILLON_CONNECT_ORIGIN: ${{ inputs.connect-origin || (github.event_name == 'pull_request' && 'https://connect.example.invalid') || '' }}
           STILLON_CONNECT_MIGRATE_FROM_ORIGINS: ${{ inputs.connect-migrate-from-origins || '[]' }}

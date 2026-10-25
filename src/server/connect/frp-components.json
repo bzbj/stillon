@@ -1,0 +1,104 @@
+[
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "win32",
+    "architecture": "x64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_windows_amd64.zip",
+      "sha256": "b90074b2b6a1d792a7a40f085ac6d276bcab2d1bc60201f8a86ca53ce65ce821",
+      "format": "zip",
+      "prefix": "frp_0.71.1_windows_amd64/"
+    },
+    "executable": {
+      "sha256": "23d11640bee87207c7a99d006b84c554df997feeba7ac7243db20a88a9cb5e01",
+      "size": 17043968
+    },
+    "signing": "unsigned"
+  },
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "win32",
+    "architecture": "arm64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_windows_arm64.zip",
+      "sha256": "6c25afb4058f7708937db7064836fec593e941de0e6c2c255982335a9b16d370",
+      "format": "zip",
+      "prefix": "frp_0.71.1_windows_arm64/"
+    },
+    "executable": {
+      "sha256": "f7d9a29869252a1a4525862a3d62d26c3fcf7b2e014343e2ae75f174f4061351",
+      "size": 14837760
+    },
+    "signing": "unsigned"
+  },
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "darwin",
+    "architecture": "x64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_darwin_amd64.tar.gz",
+      "sha256": "8acb59b6fb998cc8d209d1373d90bf70fa5ec3efeb4dfbc7bda6ce3abd78cb45",
+      "format": "tar.gz",
+      "prefix": "frp_0.71.1_darwin_amd64/"
+    },
+    "executable": {
+      "sha256": "01cb3d59aba860a7097e1343ce04f9b5d8164b7488e21f5c551a34e62406c4c6",
+      "size": 17032688
+    },
+    "signing": "unsigned"
+  },
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_darwin_arm64.tar.gz",
+      "sha256": "d15d0324b99e14619c9aa46e37f6db588c06a09be4bc6f7948890b6b61077842",
+      "format": "tar.gz",
+      "prefix": "frp_0.71.1_darwin_arm64/"
+    },
+    "executable": {
+      "sha256": "7aaaba058dbeeedc86be876c44912c4f33756ab3e6e7a085f8d7af7814a073c1",
+      "size": 15152338
+    },
+    "signing": "unsigned"
+  },
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "linux",
+    "architecture": "x64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_linux_amd64.tar.gz",
+      "sha256": "1d9875210972a5d1a62b2dc4c48df45ab0af05d3ca1b5e494a014428259df803",
+      "format": "tar.gz",
+      "prefix": "frp_0.71.1_linux_amd64/"
+    },
+    "executable": {
+      "sha256": "35c6054d4549bbcf2f02875543895fd9e44c2aae2925f61cd8ff5a693703c28b",
+      "size": 16912546
+    },
+    "signing": "unsigned"
+  },
+  {
+    "schema": 1,
+    "version": "0.71.1",
+    "platform": "linux",
+    "architecture": "arm64",
+    "archive": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.1/frp_0.71.1_linux_arm64.tar.gz",
+      "sha256": "8edf590b0c396fa42f9c147121a76af83cfc2002b08f5aef0ea1008c43482019",
+      "format": "tar.gz",
+      "prefix": "frp_0.71.1_linux_arm64/"
+    },
+    "executable": {
+      "sha256": "651de3428bdc7f37b4bad76ed3236b221939a989c433cd7daee79d2817519f8b",
+      "size": 15007906
+    },
+    "signing": "unsigned"
+  }
+]

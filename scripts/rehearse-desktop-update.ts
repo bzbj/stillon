@@ -9,6 +9,7 @@ import { enqueueUpdate, realUpdateEffects } from "../src/server/updater/engine"
 import { worker } from "../src/server/updater/entry"
 import { atomicJson, json } from "../src/server/updater/files"
 import type { UpdateDeployment, UpdateState } from "../src/server/updater/model"
+import { prepareRuntimeTransport } from "../src/server/connect/transport"
 
 /** Real packaged app/controller, synthetic next release, disposable user data. */
 export async function rehearseDesktopUpdate(runtime: string, root: string, env: NodeJS.ProcessEnv) {
@@ -49,6 +50,7 @@ export async function rehearseDesktopUpdate(runtime: string, root: string, env: 
   const personalAppearance = await seedAppearanceFixture(deployment.dataRoot)
   await atomicJson(path.join(root, "deployment.json"), deployment)
   await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
+  await prepareRuntimeTransport(runtime, { homeDirectory: home, localAppDataDirectory: deployment.launch.localAppDataDirectory })
   const controller = Bun.spawn([deployment.launch.executable, "--no-env-file", deployment.controller, "serve", root], {
     cwd: runtime, env: { ...env, HOME: home, USERPROFILE: home, LOCALAPPDATA: deployment.launch.localAppDataDirectory },
     stdin: "ignore", stdout: Bun.file(path.join(root, "controller.out.log")), stderr: Bun.file(path.join(root, "controller.err.log")),

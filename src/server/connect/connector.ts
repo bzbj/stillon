@@ -7,6 +7,8 @@ import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
 import pkg from "../../../package.json"
+import { prepareTransport, readRuntimeTransport, resolveTransport, type TransportLocation, type TransportStatus } from "./transport"
+import { FRP_VERSION, TransportError, type TransportComponent } from "./transport-component"
 
 type DeviceKeys = ReturnType<typeof newDeviceKeys>
 interface DeviceState {
@@ -28,6 +30,8 @@ export interface ConnectorOptions {
   runtimeRoot?: string
   /** Explicit CA fixture for integration tests/private installations, never insecure TLS. */
   trustedCaFile?: string
+  /** Isolated profiles/tests may select a cache root; never accepted over HTTP. */
+  transportLocation?: TransportLocation
 }
 function validOrigin(value: string) {
   const url = new URL(value)
@@ -48,6 +52,12 @@ export async function createConnector(options: ConnectorOptions) {
   const statePath = path.join(directory, "device.json")
   const configPath = path.join(directory, "frpc.json")
   const runtimeRoot = options.runtimeRoot ?? path.resolve(import.meta.dir, "../../..")
+  let component: TransportComponent | null = null
+  let componentStatus: TransportStatus | undefined
+  if (!options.frpcPath) {
+    try { component = await readRuntimeTransport(runtimeRoot) }
+    catch { componentStatus = { state: "error", version: FRP_VERSION, error: "CONNECTOR_COMPONENT_INVALID" } }
+  }
   const servicePath = path.join(directory, "service.json")
   let savedService: Record<string, unknown> | undefined
   try {
@@ -130,13 +140,25 @@ export async function createConnector(options: ConnectorOptions) {
     await rm(configPath, { force: true })
   }
   async function executable() {
+    if (component) {
+      try {
+        const file = await resolveTransport(component, options.transportLocation)
+        componentStatus = { state: "ready", version: component.version }
+        return file
+      } catch (error) {
+        const code = error instanceof TransportError ? error.code : "CONNECTOR_BLOCKED"
+        componentStatus = { state: "error", version: component.version, error: code }
+        throw new ConnectorError(code)
+      }
+    }
+    if (componentStatus?.error) throw new ConnectorError(componentStatus.error)
     const file = options.frpcPath ?? path.join(runtimeRoot, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
     if (!await Bun.file(file).exists()) throw new ConnectorError("CONNECTOR_NOT_INSTALLED")
     if (!options.frpcPath) {
       try {
         const manifest = JSON.parse(await readFile(path.join(path.dirname(file), "manifest.json"), "utf8"))
         const expected = manifest.files?.[path.basename(file)]
-        if (manifest.version !== "0.71.1" || !/^[a-f0-9]{64}$/.test(expected ?? "")
+        if (manifest.version !== FRP_VERSION || !/^[a-f0-9]{64}$/.test(expected ?? "")
           || createHash("sha256").update(await readFile(file)).digest("hex") !== expected) throw new Error("Invalid binary")
       } catch { throw new ConnectorError("CONNECTOR_INTEGRITY_FAILED") }
     }
@@ -167,9 +189,22 @@ export async function createConnector(options: ConnectorOptions) {
         customDomains: [new URL(result.hostOrigin).hostname] }] }
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 }); await secureFile(configPath)
     if (expectedRevision !== revision || stopped || state.paused || state.pendingUnbind) { await stopTransport(); return }
-    const child = Bun.spawn([binary, "-c", configPath], { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
+    let child: ReturnType<typeof Bun.spawn>
+    const startedAt = Date.now()
+    try { child = Bun.spawn([binary, "-c", configPath], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }) }
+    catch {
+      if (component) componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
+      throw new ConnectorError("CONNECTOR_BLOCKED")
+    }
     frpc = child; status = "connecting"; nextBeat = Date.now() + 2_000
-    void child.exited.then(() => { if (frpc === child) { frpc = null; status = "offline"; error = "TUNNEL_DISCONNECTED" } })
+    void child.exited.then(code => { if (frpc === child) {
+      frpc = null; status = "offline"; error = "TUNNEL_DISCONNECTED"
+      // A denied executable or immediate startup failure must not produce an
+      // endless relaunch/prompt loop. An explicit local repair retries it.
+      if (component && code !== 0 && Date.now() - startedAt < 2_000) {
+        error = "CONNECTOR_BLOCKED"; componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
+      }
+    } })
   }
   async function tick() {
     if (ticking || changing || stopped || !state || !origin || Date.now() < nextBeat) return
@@ -192,6 +227,7 @@ export async function createConnector(options: ConnectorOptions) {
         await prove("pause", {}); state.pendingPause = false; error = undefined; await save()
       }
       if (state.paused || !state.binding) return
+      if (componentStatus && componentStatus.state !== "ready") return
       if (!frpc) { await stopTransport(); await startTransport(currentRevision); return }
       if (Date.now() < nextBeat) return
       const requested = adapter?.activeLeases() ?? []
@@ -211,6 +247,24 @@ export async function createConnector(options: ConnectorOptions) {
         if (["CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED"].includes(error)) await stopTransport() }
     } finally { ticking = false }
   }
+  async function prepareComponent(repair = false) {
+    if (!component) throw new ConnectorError(componentStatus?.error ?? "CONNECTOR_NOT_INSTALLED")
+    componentStatus = { state: "preparing", version: component.version }
+    try {
+      await prepareTransport(component, { ...options.transportLocation, repair, legacyRuntime: runtimeRoot })
+      componentStatus = { state: "ready", version: component.version }
+      if (error?.startsWith("CONNECTOR_")) error = undefined
+      nextBeat = 0
+    } catch (caught) {
+      const code = caught instanceof TransportError ? caught.code : "CONNECTOR_BLOCKED"
+      componentStatus = { state: "error", version: component.version, error: code }
+      throw new ConnectorError(code)
+    }
+  }
+  // Compatibility with older independent updater controllers: make one durable
+  // preparation attempt at startup. Never block local HTTP readiness or download
+  // from tick(). A prior failed/quarantined attempt requires an explicit retry.
+  if (component && process.env.STILLON_UPDATE_PROBE !== "1") void prepareComponent().catch(() => {})
   const timer = setInterval(() => { void tick() }, 2_000); timer.unref()
   void tick()
   async function change<T>(operation: () => Promise<T>): Promise<T> {
@@ -236,21 +290,27 @@ export async function createConnector(options: ConnectorOptions) {
     diagnostics() {
       // An explicit allowlist prevents new state fields, keys, URLs and private
       // server error text from silently appearing in a copied support report.
-      const safeErrors = new Set(["SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
+      const safeErrors = new Set(["SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "CONNECTOR_BLOCKED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_REPAIR_REQUIRED", "CONNECTOR_COMPONENT_INVALID", "CONNECTOR_PREPARING", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
       return { schema: 1, reportId: randomId(), generatedAt: new Date().toISOString(), scope: "local-connector", version: pkg.version,
         protocol: CONNECT_PROTOCOL, platform: process.platform, architecture: process.arch, state: status, configured: Boolean(origin),
         bound: Boolean(state?.binding), transportRunning: Boolean(frpc), activeStreams: adapter?.activeLeases().length ?? 0,
-        lastCloudResponseAt, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
+        lastCloudResponseAt, transport: componentStatus, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
     },
     status(): ConnectLocalStatus { return { configured: Boolean(origin), origin, state: status, name: state?.name ?? options.name(),
       ...(state?.binding ? { email: state.binding.email.replace(/^(.).+(@.*)$/, "$1•••$2"), hostId: state.binding.hostId, url: state.binding.url } : {}),
-      ...(state?.enrollment ? { enrollment: state.enrollment } : {}), ...(error ? { error } : {}) } },
+      ...(state?.enrollment ? { enrollment: state.enrollment } : {}), ...(error ? { error } : {}), ...(componentStatus ? { transport: { ...componentStatus } } : {}) } },
+    repairTransport: () => change(async () => {
+      if (componentStatus?.state !== "ready") await stopTransport()
+      await prepareComponent(true)
+    }),
     enroll: () => change(async () => {
       if (!origin) throw new ConnectorError("SERVICE_NOT_CONFIGURED")
       if (error === "DEVICE_STATE_INVALID") throw new ConnectorError(error)
       if (state?.pendingUnbind) throw new ConnectorError("CLOUD_UPDATE_PENDING", 409)
       if (state?.binding) throw new ConnectorError("ALREADY_BOUND", 409)
       if (state?.enrollment && state.enrollment.expiresAt > Date.now()) return state.enrollment
+      if (componentStatus?.state === "preparing") throw new ConnectorError("CONNECTOR_PREPARING", 409)
+      if (componentStatus?.error) throw new ConnectorError(componentStatus.error)
       await executable()
       state = { version: 1, origin, name: options.name().slice(0, 80) || "My computer", keys: newDeviceKeys(), paused: false, pendingUnbind: false }
       await save()

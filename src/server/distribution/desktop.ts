@@ -17,6 +17,7 @@ import { captureServiceRegistration, hashServiceFile, verifyServiceRegistration,
 import type { SetupState } from "../updater/setup"
 import { requestDesktopTransition, TRANSITION_FILE, type DesktopTransition } from "./transition"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
+import { prepareRuntimeTransport } from "../connect/transport"
 
 export interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
@@ -149,6 +150,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
     await atomicJson(marker, install)
   }
   const port = options.port ?? 3210
+  await prepareRuntimeTransport(install.runtime, { homeDirectory: home })
   await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,
     port, host: "127.0.0.1", pathEnvironment: desktopPath(home), recordInstallation: true })
