@@ -120,3 +120,87 @@ describe("optimistic sidebar actions", () => {
     expect(actions.getSnapshot()).toEqual([next])
   })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+describe("pin reversals without a page reload", () => {
+  test("immediately accepts unpin while pin is pending, but ignores stale duplicate clicks", () => {
+    const { data, row } = fixture()
+    const actions = new SidebarChatActions()
+    const pin = actions.begin(row("oldest"), "pin", 0)!
+    expect(actions.begin(row("oldest"), "pin", 50)).toBeNull()
+    const unpin = actions.begin({ ...row("oldest"), pinned: true }, "pin", 80)!
+    expect(unpin).not.toBeNull()
+    expect(applySidebarChatChanges(data, actions.getSnapshot(), now).projectGroups[0]!.chats.find(c => c.chatId === "oldest")!.pinned).toBe(false)
+    actions.settle(pin)
+    actions.reject(pin)
+    expect(actions.getSnapshot()).toEqual([unpin])
+    expect(actions.begin(row("older"), "archive", 100)).toBeNull()
+  })
+
+  test("accepts reversal even during the click guard after the first state was confirmed", () => {
+    const { row, state, read } = fixture()
+    const actions = new SidebarChatActions()
+    const pin = actions.begin(row("oldest"), "pin", 0)!
+    actions.settle(pin)
+    state.chatsById.get("oldest")!.pinned = true
+    actions.receive(read())
+    expect(actions.has("oldest")).toBe(false)
+    expect(actions.begin({ ...row("oldest"), pinned: true }, "pin", 80)).not.toBeNull()
+  })
+
+  test("sends a reverse request only after the first write, preserving the latest UI through old snapshots", async () => {
+    const { row, state, read } = fixture()
+    const actions = new SidebarChatActions(), first = deferred<boolean>()
+    const sent: boolean[] = []
+    const pin = actions.begin(row("oldest"), "pin", 0)!
+    const pinRequest = actions.enqueue(pin, async () => {
+      sent.push(true)
+      await first.promise
+      state.chatsById.get("oldest")!.pinned = true
+      actions.settle(pin)
+      return true
+    })
+    await Promise.resolve(); await Promise.resolve()
+    const unpin = actions.begin({ ...row("oldest"), pinned: true }, "pin", 80)!
+    const unpinRequest = actions.enqueue(unpin, async () => {
+      sent.push(false)
+      state.chatsById.get("oldest")!.pinned = false
+      actions.settle(unpin)
+      return true
+    })
+    expect(sent).toEqual([true])
+    state.chatsById.get("oldest")!.pinned = true
+    actions.receive(read(), [pin])
+    expect(actions.getSnapshot()).toEqual([unpin])
+    expect(applySidebarChatChanges(read(), actions.getSnapshot(), now).projectGroups[0]!.chats.find(c => c.chatId === "oldest")!.pinned).toBe(false)
+    first.resolve(true)
+    await Promise.all([pinRequest, unpinRequest])
+    expect(sent).toEqual([true, false])
+    actions.receive(read())
+    expect(actions.getSnapshot()).toEqual([])
+  })
+
+  test("coalesces unsent reversals, permits another chat and continues after an earlier failure", async () => {
+    const { row } = fixture()
+    const actions = new SidebarChatActions(), first = deferred<boolean>()
+    const sent: string[] = []
+    const pin = actions.begin(row("oldest"), "pin", 0)!
+    const a = actions.enqueue(pin, async () => { sent.push("pin"); return first.promise })
+    await Promise.resolve(); await Promise.resolve()
+    const unpin = actions.begin({ ...row("oldest"), pinned: true }, "pin", 80)!
+    const b = actions.enqueue(unpin, async () => { sent.push("superseded-unpin"); return true })
+    const repin = actions.begin(row("oldest"), "pin", 160)!
+    const c = actions.enqueue(repin, async () => { sent.push("latest-pin"); actions.settle(repin); return true })
+    const other = actions.begin(row("other"), "pin", 1_000)!
+    await actions.enqueue(other, async () => { sent.push("other-chat"); return true })
+    expect(sent).toEqual(["pin", "other-chat"])
+    first.resolve(false)
+    await Promise.all([a, b, c])
+    expect(sent).toEqual(["pin", "other-chat", "latest-pin"])
+  })
+})
