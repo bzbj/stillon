@@ -1620,8 +1620,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [createChatForProject, resolveProjectIdForStartChat])
 
   const handleCreateChat = useCallback(async (projectId: string) => {
-    await startChatFromIntent({ kind: "project_id", projectId })
-  }, [startChatFromIntent])
+    navigate(`/?${new URLSearchParams({ workspace: projectId })}`)
+    setSidebarOpen(false)
+    setCommandError(null)
+  }, [navigate])
 
   const handleForkChat = useCallback(async (chat: SidebarChatRow) => {
     try {
@@ -2160,18 +2162,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [standaloneShareUrl])
 
   const handleCompose = useCallback(() => {
-    const intent = resolveComposeIntent({
-      selectedProjectId: validDefaultProjectId ?? selectedProjectId,
-      sidebarProjectId: sidebarReady ? sidebarProjectGroups[0]?.groupKey : null,
-      fallbackLocalProjectPath: sidebarReady ? null : fallbackLocalProjectPath,
-    })
-    if (intent) {
-      void startChatFromIntent(intent)
-      return
-    }
-
     navigate("/")
-  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, sidebarReady, startChatFromIntent, validDefaultProjectId])
+    setSidebarOpen(false)
+    setCommandError(null)
+  }, [navigate])
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
