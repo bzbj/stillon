@@ -30,7 +30,7 @@ export function validateTransportComponent(value: unknown, target: { platform: s
       || !/^[a-f0-9]{64}$/.test(c.executable.sha256) || !Number.isSafeInteger(c.executable.size)
       || c.executable.size < 1 || c.executable.size > MAX_TRANSPORT_BYTES
       || !/^(?:[a-zA-Z0-9._-]+\/)*$/.test(c.archive.prefix) || c.archive.prefix.split("/").includes("..")
-      || url.protocol !== "https:" || url.username || url.password || url.hash
+      || url.protocol !== "https:" || url.username || url.password || url.search || url.hash
       || !["unsigned", "authenticode", "developer-id"].includes(c.signing)
       || (c.signing === "authenticode" && c.platform !== "win32") || (c.signing === "developer-id" && c.platform !== "darwin")) throw new Error()
     return c

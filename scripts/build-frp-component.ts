@@ -9,7 +9,8 @@ import { downloadTransport } from "../src/server/connect/transport-component"
 async function main() {
   const value = (name: string) => process.argv.find(arg => arg.startsWith(`${name}=`))?.slice(name.length + 1)
   const base = value("--download-base")
-  if (!base || new URL(base).protocol !== "https:" || /[?#]$/.test(base)) throw new Error("Supply the immutable HTTPS component release URL with --download-base=…")
+  const baseUrl = base ? new URL(base) : null
+  if (!baseUrl || baseUrl.protocol !== "https:" || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) throw new Error("Supply the immutable HTTPS component release URL with --download-base=…")
   const source = validateTransportComponent(components.find(c => c.platform === process.platform && c.architecture === process.arch))
   const output = path.resolve(value("--output") ?? "dist/connect-components")
   await mkdir(output, { recursive: true })
@@ -44,6 +45,7 @@ async function main() {
     const format = signing === "developer-id" ? "zip" : "tar.gz"
     const filename = `stillon-frpc-${FRP_VERSION}-${source.platform}-${source.architecture}-${binaryHash.slice(0, 16)}.${format}`
     const archive = path.join(output, filename)
+    if (await Bun.file(archive).exists()) throw new Error("Refusing to replace an existing component artifact")
     if (format === "zip") {
       await run(["/usr/bin/ditto", "-c", "-k", directory, archive])
       await run(["/usr/bin/xcrun", "notarytool", "submit", archive, "--keychain-profile", process.env.MACOS_NOTARY_PROFILE!,
@@ -53,7 +55,7 @@ async function main() {
       await writeFile(archive, bytes, { flag: "wx" })
     }
     const result: TransportComponent = { schema: 1, version: FRP_VERSION, platform: source.platform, architecture: source.architecture,
-      archive: { url: `${base.replace(/\/$/, "")}/${filename}`, format, prefix: "", sha256: transportHash(await readFile(archive)) },
+      archive: { url: `${baseUrl.href.replace(/\/$/, "")}/${filename}`, format, prefix: "", sha256: transportHash(await readFile(archive)) },
       executable: { sha256: binaryHash, size: binary.length }, signing }
     validateTransportComponent(result)
     await readTransportArchive(await readFile(archive), result)

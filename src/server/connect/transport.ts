@@ -47,7 +47,8 @@ async function receipt(file: string, component: TransportComponent) {
 async function validBinary(directory: string, component: TransportComponent) {
   await assertPlainDirectory(directory)
   const file = path.join(directory, transportBinary(component))
-  await regularFile(file, component.executable.size)
+  const info = await regularFile(file, component.executable.size)
+  if (component.platform !== "win32" && !(info.mode & 0o111)) throw new TransportError("CONNECTOR_BLOCKED")
   if (transportHash(await readFile(file)) !== component.executable.sha256) throw new TransportError("CONNECTOR_INTEGRITY_FAILED")
   return file
 }
@@ -68,6 +69,9 @@ export async function resolveTransport(component: TransportComponent, location: 
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new TransportError("CONNECTOR_BLOCKED")
     const saved = await receipt(files.receipt, component)
     if (saved?.phase === "ready") throw new TransportError("CONNECTOR_BLOCKED")
+    if (saved?.phase === "failed" && ["CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_BLOCKED"].includes(saved.error ?? "")) {
+      throw new TransportError(saved.error!)
+    }
     if (saved) throw new TransportError("CONNECTOR_REPAIR_REQUIRED")
     throw new TransportError("CONNECTOR_NOT_INSTALLED")
   }

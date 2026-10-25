@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { deflateRawSync } from "node:zlib"
@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { prepareRuntimeTransport, prepareTransport, resolveTransport, transportRoot, transportStatus } from "./transport"
 import { createConnector } from "./connector"
 import { handleConnectLocal } from "./local-api"
-import { downloadTransport, FRP_VERSION, readTransportArchive, TRANSPORT_DESCRIPTOR, transportBinary, transportHash, validateTransportComponent, type TransportComponent } from "./transport-component"
+import { downloadTransport, FRP_VERSION, readTransportArchive, TRANSPORT_DESCRIPTOR, transportBinary, TransportError, transportHash, validateTransportComponent, type TransportComponent } from "./transport-component"
 import pinned from "./frp-components.json"
 
 const roots: string[] = []
@@ -33,7 +33,8 @@ test("component requirements pin all six targets and reject invalid metadata", (
   const component = pinned.find(c => c.platform === process.platform && c.architecture === process.arch)!
   for (const patch of [{ version: "not-a-version" }, { platform: "unknown" }, { executable: { size: 1, sha256: "not-a-hash" } },
     { archive: { ...component.archive, prefix: "../../" } }, { archive: { ...component.archive, url: "file:///tmp/frpc" } },
-    { archive: { ...component.archive, url: "https://user:password@example.invalid/frpc" } }, { signing: "self-signed" }]) {
+    { archive: { ...component.archive, url: "https://user:password@example.invalid/frpc" } },
+    { archive: { ...component.archive, url: "https://example.invalid/frpc?temporary=1" } }, { signing: "self-signed" }]) {
     expect(() => validateTransportComponent({ ...component, ...patch })).toThrow("CONNECTOR_COMPONENT_INVALID")
   }
 })
@@ -65,7 +66,7 @@ test("concurrent preparation shares a single writer", async () => {
 test("a byte-identical legacy bundled helper is migrated without any download", async () => {
   const f = await fixture()
   const directory = path.join(f.root, "old runtime/runtime/frp")
-  await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, transportBinary(f.component)), f.binary)
+  await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, transportBinary(f.component)), f.binary, { mode: 0o755 })
   await writeFile(path.join(directory, "LICENSE"), "Preserve upstream notice")
   const result = await prepareTransport(f.component, { ...f.options, legacyRuntime: path.join(f.root, "old runtime") })
   expect(result).toMatchObject({ reused: true, source: "legacy" })
@@ -93,14 +94,20 @@ test("quarantine or tampering never triggers repeated automatic downloads; expli
   expect(f.counts().downloads).toBe(2)
   await prepareTransport(f.component, { ...f.options, repair: true })
   expect(f.counts().downloads).toBe(3)
+  if (process.platform !== "win32") {
+    await chmod(first.file, 0o600)
+    await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_BLOCKED")
+    await prepareTransport(f.component, { ...f.options, repair: true })
+    expect((await stat(first.file)).mode & 0o111).not.toBe(0)
+  }
 })
 test("failed downloads are durable and do not retry until explicitly requested", async () => {
   const f = await fixture()
-  const failure = { ...f.options, effects: { download: async () => { throw new Error("private response text") } } }
-  await expect(prepareTransport(f.component, failure)).rejects.toThrow("CONNECTOR_BLOCKED")
-  await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_REPAIR_REQUIRED")
+  const failure = { ...f.options, effects: { download: async () => { throw new TransportError("CONNECTOR_DOWNLOAD_FAILED") } } }
+  await expect(prepareTransport(f.component, failure)).rejects.toThrow("CONNECTOR_DOWNLOAD_FAILED")
+  await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_DOWNLOAD_FAILED")
   expect(f.counts().downloads).toBe(0)
-  expect(await transportStatus(f.component, f.options)).toMatchObject({ state: "error", error: "CONNECTOR_REPAIR_REQUIRED" })
+  expect(await transportStatus(f.component, f.options)).toMatchObject({ state: "error", error: "CONNECTOR_DOWNLOAD_FAILED" })
   await prepareTransport(f.component, { ...f.options, repair: true })
   expect(f.counts().downloads).toBe(1)
 })
@@ -112,7 +119,7 @@ test("wrong archive or executable hashes never produce an installed component", 
     else component.executable.sha256 = "a".repeat(64)
     await expect(prepareTransport(component, f.options)).rejects.toThrow("CONNECTOR_INTEGRITY_FAILED")
     expect(f.counts().probes).toBe(0)
-    await expect(resolveTransport(component, f.options)).rejects.toThrow("CONNECTOR_REPAIR_REQUIRED")
+    await expect(resolveTransport(component, f.options)).rejects.toThrow("CONNECTOR_INTEGRITY_FAILED")
   }
 })
 test("OS execution denial is isolated and does not relaunch on cache miss", async () => {
@@ -120,7 +127,7 @@ test("OS execution denial is isolated and does not relaunch on cache miss", asyn
   await expect(prepareTransport(f.component, { ...f.options, effects: { ...f.options.effects,
     probe: async () => { throw new Error("Private operating-system diagnostic") },
   } })).rejects.toThrow("CONNECTOR_BLOCKED")
-  await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_REPAIR_REQUIRED")
+  await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_BLOCKED")
   expect(f.counts().downloads).toBe(1)
 })
 test("different component bytes coexist for rollback and never overwrite an active helper", async () => {
