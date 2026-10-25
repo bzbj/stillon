@@ -13,8 +13,7 @@
     "executable": {
       "sha256": "23d11640bee87207c7a99d006b84c554df997feeba7ac7243db20a88a9cb5e01",
       "size": 17043968
-    },
-    "signing": "unsigned"
+    }
   },
   {
     "schema": 1,
@@ -30,8 +29,7 @@
     "executable": {
       "sha256": "f7d9a29869252a1a4525862a3d62d26c3fcf7b2e014343e2ae75f174f4061351",
       "size": 14837760
-    },
-    "signing": "unsigned"
+    }
   },
   {
     "schema": 1,
@@ -47,8 +45,7 @@
     "executable": {
       "sha256": "01cb3d59aba860a7097e1343ce04f9b5d8164b7488e21f5c551a34e62406c4c6",
       "size": 17032688
-    },
-    "signing": "unsigned"
+    }
   },
   {
     "schema": 1,
@@ -64,8 +61,7 @@
     "executable": {
       "sha256": "7aaaba058dbeeedc86be876c44912c4f33756ab3e6e7a085f8d7af7814a073c1",
       "size": 15152338
-    },
-    "signing": "unsigned"
+    }
   },
   {
     "schema": 1,
@@ -81,8 +77,7 @@
     "executable": {
       "sha256": "35c6054d4549bbcf2f02875543895fd9e44c2aae2925f61cd8ff5a693703c28b",
       "size": 16912546
-    },
-    "signing": "unsigned"
+    }
   },
   {
     "schema": 1,
@@ -98,7 +93,6 @@
     "executable": {
       "sha256": "651de3428bdc7f37b4bad76ed3236b221939a989c433cd7daee79d2817519f8b",
       "size": 15007906
-    },
-    "signing": "unsigned"
+    }
   }
 ]

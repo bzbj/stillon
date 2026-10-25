@@ -21,7 +21,7 @@ if (process.platform === "win32") {
 const name = process.platform === "win32" ? "frpc.exe" : "frpc"
 const archive = await new Bun.Archive({ [name]: helper, LICENSE: "Synthetic fixture; no third-party executable" }, { compress: "gzip" }).bytes()
 const component: TransportComponent = { schema: 1, version: FRP_VERSION, platform: process.platform as TransportComponent["platform"],
-  architecture: process.arch as TransportComponent["architecture"], signing: "unsigned", executable: { sha256: transportHash(helper), size: helper.length },
+  architecture: process.arch as TransportComponent["architecture"], executable: { sha256: transportHash(helper), size: helper.length },
   archive: { url: "https://components.example.invalid/synthetic-frpc.tar.gz", sha256: transportHash(archive), format: "tar.gz", prefix: "" } }
 await writeFile(path.join(runtime, TRANSPORT_DESCRIPTOR), JSON.stringify(component))
 // Seed an interrupted first attempt. The browser must request an explicit retry.

@@ -18,7 +18,7 @@ async function fixture(content = "synthetic component") {
   const name = process.platform === "win32" ? "frpc.exe" : "frpc"
   const archive = await new Bun.Archive({ [name]: binary, LICENSE: "Synthetic license notice" }, { compress: "gzip" }).bytes()
   const component: TransportComponent = { schema: 1, version: FRP_VERSION, platform: process.platform as TransportComponent["platform"],
-    architecture: process.arch as TransportComponent["architecture"], signing: "unsigned", executable: { sha256: transportHash(binary), size: binary.length },
+    architecture: process.arch as TransportComponent["architecture"], executable: { sha256: transportHash(binary), size: binary.length },
     archive: { url: "https://components.example.invalid/frpc.tar.gz", sha256: transportHash(archive), format: "tar.gz", prefix: "" } }
   let downloads = 0, probes = 0
   const options = { cacheRoot: path.join(root, "shared component cache"), effects: {
@@ -34,7 +34,7 @@ test("component requirements pin all six targets and reject invalid metadata", (
   for (const patch of [{ version: "not-a-version" }, { platform: "unknown" }, { executable: { size: 1, sha256: "not-a-hash" } },
     { archive: { ...component.archive, prefix: "../../" } }, { archive: { ...component.archive, url: "file:///tmp/frpc" } },
     { archive: { ...component.archive, url: "https://user:password@example.invalid/frpc" } },
-    { archive: { ...component.archive, url: "https://example.invalid/frpc?temporary=1" } }, { signing: "self-signed" }]) {
+    { archive: { ...component.archive, url: "https://example.invalid/frpc?temporary=1" } }, { architecture: "unknown" }]) {
     expect(() => validateTransportComponent({ ...component, ...patch })).toThrow("CONNECTOR_COMPONENT_INVALID")
   }
 })

@@ -25,7 +25,7 @@ export function transportRoot(platform = process.platform, home = os.homedir(), 
 }
 function locations(component: TransportComponent, location: TransportLocation) {
   const root = path.resolve(location.cacheRoot ?? transportRoot(component.platform, location.homeDirectory, location.localAppDataDirectory))
-  // Different signed bytes at the same upstream version must never replace an
+  // Different component bytes at the same upstream version must never replace an
   // executable still used by an older StillOn runtime or a rollback.
   const id = `${component.version}-${component.architecture}-${component.executable.sha256.slice(0, 16)}`
   return { root, directory: path.join(root, id), receipt: path.join(root, `${id}.json`), lock: path.join(root, `.${id}.lock`) }
@@ -87,7 +87,6 @@ async function probe(file: string, component: TransportComponent) {
   try {
     // This bounded, read-only probe happens only when installing a component,
     // never on a cache hit or on every StillOn upgrade.
-    if (component.signing === "developer-id") await execute("/usr/bin/codesign", ["--verify", "--strict", file], { timeout: 30_000 })
     const result = await execute(file, ["--version"], { timeout: 30_000, windowsHide: true })
     if (result.stdout.trim() !== component.version) throw new Error()
   } catch { throw new TransportError("CONNECTOR_BLOCKED") }

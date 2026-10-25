@@ -1,4 +1,4 @@
-import { chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
@@ -125,16 +125,10 @@ async function main() {
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
   // Seal only the independent component requirement. Normal StillOn builds do
-  // not download, unpack, execute or re-sign frpc; the installer prepares it once.
-  const components = process.env.STILLON_FRP_COMPONENT_MANIFEST
-    ? JSON.parse(await readFile(path.resolve(process.env.STILLON_FRP_COMPONENT_MANIFEST), "utf8")) : transportComponents
-  if (!Array.isArray(components)) throw new Error("Invalid Connect component manifest")
-  const selected = components.filter(c => c.platform === target.platform && c.architecture === target.architecture)
+  // not download, unpack or execute frpc; the installer prepares it once.
+  const selected = transportComponents.filter(c => c.platform === target.platform && c.architecture === target.architecture)
   if (selected.length !== 1) throw new Error("A unique Connect component is required for this target")
   const component = validateTransportComponent(selected[0], target)
-  if (process.env.STILLON_REQUIRE_SIGNING === "1" && component.signing !== (target.platform === "darwin" ? "developer-id" : "authenticode")) {
-    throw new Error("Signed desktop builds require a previously signed independent Connect component. Build/publish it once and pin its descriptor before building StillOn.")
-  }
   await writeFile(path.join(runtime, TRANSPORT_DESCRIPTOR), JSON.stringify(component, null, 2) + "\n")
   if (connectConfig) {
     // Only public configuration enters the desktop artifact. Never copy an env file.

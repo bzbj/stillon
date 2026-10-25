@@ -97,7 +97,7 @@ cache; subsequent application versions verify and reuse matching bytes. A cold
 start under an older updater may make one asynchronous preparation attempt, but
 the reconnect loop never downloads executables. Failed or quarantined attempts
 require explicit repair from local Remote access settings. See
-[component packaging and signing](desktop-distribution.md#independent-connect-component).
+[component packaging](desktop-distribution.md#independent-connect-component).
 Device keys and
 temporary transport credentials use 0600 files; Windows ACL handling requires
 real-machine acceptance.

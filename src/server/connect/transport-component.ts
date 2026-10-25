@@ -12,7 +12,6 @@ export interface TransportComponent {
   architecture: "x64" | "arm64"
   archive: { url: string; sha256: string; format: "zip" | "tar.gz"; prefix: string }
   executable: { sha256: string; size: number }
-  signing: "unsigned" | "authenticode" | "developer-id"
 }
 export type TransportErrorCode = "CONNECTOR_NOT_INSTALLED" | "CONNECTOR_INTEGRITY_FAILED" | "CONNECTOR_DOWNLOAD_FAILED"
   | "CONNECTOR_BLOCKED" | "CONNECTOR_REPAIR_REQUIRED" | "CONNECTOR_PREPARING" | "CONNECTOR_COMPONENT_INVALID"
@@ -30,9 +29,7 @@ export function validateTransportComponent(value: unknown, target: { platform: s
       || !/^[a-f0-9]{64}$/.test(c.executable.sha256) || !Number.isSafeInteger(c.executable.size)
       || c.executable.size < 1 || c.executable.size > MAX_TRANSPORT_BYTES
       || !/^(?:[a-zA-Z0-9._-]+\/)*$/.test(c.archive.prefix) || c.archive.prefix.split("/").includes("..")
-      || url.protocol !== "https:" || url.username || url.password || url.search || url.hash
-      || !["unsigned", "authenticode", "developer-id"].includes(c.signing)
-      || (c.signing === "authenticode" && c.platform !== "win32") || (c.signing === "developer-id" && c.platform !== "darwin")) throw new Error()
+      || url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error()
     return c
   } catch { throw new TransportError("CONNECTOR_COMPONENT_INVALID") }
 }
