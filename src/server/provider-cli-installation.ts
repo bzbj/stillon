@@ -59,12 +59,14 @@ export async function inspectCliInstallation(provider: AgentProvider, env: NodeJ
     // only the configured global prefix or Windows' standard npm prefix. A
     // project's node_modules beside a PATH entry is not proof of a global install.
     const globalPrefix = env.npm_config_prefix || env.NPM_CONFIG_PREFIX || (platform === "win32" && env.APPDATA ? p.join(env.APPDATA, "npm") : undefined)
+    const canonicalGlobalPrefix = globalPrefix && p.isAbsolute(globalPrefix) ? await realpath(globalPrefix).catch(() => p.resolve(globalPrefix)) : undefined
     const directories = /[\\/]/u.test(command) ? [p.dirname(command)] : environmentPath(env).split(platform === "win32" ? ";" : ":").filter(Boolean)
     for (let directory of directories) {
       directory = directory.replace(/^"|"$/gu, "")
       const prefix = platform === "win32" ? directory : p.dirname(directory)
-      if (!globalPrefix || !p.isAbsolute(globalPrefix)) continue
-      const equalPrefix = platform === "win32" ? p.resolve(prefix).toLowerCase() === p.resolve(globalPrefix).toLowerCase() : p.resolve(prefix) === p.resolve(globalPrefix)
+      if (!canonicalGlobalPrefix) continue
+      const canonicalPrefix = await realpath(prefix).catch(() => p.resolve(prefix))
+      const equalPrefix = platform === "win32" ? canonicalPrefix.toLowerCase() === canonicalGlobalPrefix.toLowerCase() : canonicalPrefix === canonicalGlobalPrefix
       if (!equalPrefix) continue
       if (/\.app[\\/]|[\\/]WindowsApps[\\/]/iu.test(`${directory}${p.sep}`)) continue
       if (platform !== "win32" && p.basename(directory) !== "bin") continue
@@ -77,7 +79,7 @@ export async function inspectCliInstallation(provider: AgentProvider, env: NodeJ
       if (/[\\/]/u.test(command) && command !== expected) continue
       const info = await stat(p.join(pkg, "package.json"))
       return { ...base, executable: expected, identity: JSON.stringify([expected, "missing-shim", info.size, info.mtimeMs]), label: "Incomplete npm installation",
-        damaged: true, method: { kind: "npm", prefix }, automaticUpdates: "Managed with npm.", reason: "The npm package exists, but its CLI launcher is missing. Choose Repair CLI to reinstall in the same location." }
+        damaged: true, method: { kind: "npm", prefix: canonicalPrefix }, automaticUpdates: "Managed with npm.", reason: "The npm package exists, but its CLI launcher is missing. Choose Repair CLI to reinstall in the same location." }
     }
     return { ...base, reason: "Install the CLI from Get Started, then check again." }
   }
@@ -109,7 +111,7 @@ export async function inspectCliInstallation(provider: AgentProvider, env: NodeJ
     const shim = /\.(cmd|ps1|bat)$/iu.test(executable) ? await readFile(executable, "utf8").catch(() => "") : ""
     if (actual !== binPath && !shim.replaceAll("\\", "/").includes(`node_modules/${cliPackages[provider]}/`)) continue
     return { ...base, label: base.version ? "npm" : "Incomplete npm installation", damaged: !base.version,
-      reason: base.version ? undefined : "The npm CLI could not run. Choose Repair CLI to reinstall in the same location.", method: { kind: "npm", prefix }, automaticUpdates: provider === "claude"
+      reason: base.version ? undefined : "The npm CLI could not run. Choose Repair CLI to reinstall in the same location.", method: { kind: "npm", prefix: await realpath(prefix).catch(() => prefix) }, automaticUpdates: provider === "claude"
       ? "Claude supports its own background updates with npm too. Effective auto-update policy is not detected here. StillOn only updates on request."
       : "npm does not update this CLI automatically." }
   }

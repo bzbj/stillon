@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -83,10 +83,10 @@ test("missing npm shims and broken package binaries are repairable, but arbitrar
   try {
     const engine = await createCliUpdateFixture(root)
     const broken = await inspectCliInstallation("codex", engine.environment, process.platform, async () => { throw new Error("Missing optional dependency") })
-    expect(broken.damaged).toBe(true); expect(broken.method).toEqual({ kind: "npm", prefix: root })
+    expect(broken.damaged).toBe(true); expect(broken.method).toEqual({ kind: "npm", prefix: await realpath(root) })
     await rm(engine.executable)
     const missing = await inspectCliInstallation("codex", engine.environment)
-    expect(missing.damaged).toBe(true); expect(missing.method).toEqual({ kind: "npm", prefix: root })
+    expect(missing.damaged).toBe(true); expect(missing.method).toEqual({ kind: "npm", prefix: await realpath(root) })
     expect(missing.version).toBeUndefined()
     expect((await inspectCliInstallation("codex", { ...engine.environment, NPM_CONFIG_PREFIX: "", npm_config_prefix: "", APPDATA: "" })).method).toBeUndefined()
     const unrelated = await inspectCliInstallation("codex", { ...engine.environment, CODEX_EXECUTABLE: path.join(root, "other-codex") })
@@ -107,6 +107,23 @@ test("installer output beyond execFile's limit cannot kill a writing package man
     const marker = path.join(root, "completed")
     await runCliInstaller(process.execPath, ["-e", `process.stdout.write('x'.repeat(2*1024*1024));setTimeout(()=>require('node:fs').writeFileSync(${JSON.stringify(marker)},'complete'),100)`], { ...process.env, HOME: root, USERPROFILE: root })
     expect(await readFile(marker, "utf8")).toBe("complete")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("npm prefix identity is stable through directory aliases before and after shim retirement", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "stillon-cli-alias-"))
+  try {
+    const prefix = path.join(root, "prefix"), alias = path.join(root, "alias")
+    await mkdir(prefix)
+    await symlink(prefix, alias, process.platform === "win32" ? "junction" : "dir")
+    const engine = await createCliUpdateFixture(alias)
+    const before = await inspectCliInstallation("codex", engine.environment)
+    expect(before.method).toEqual({ kind: "npm", prefix: await realpath(prefix) })
+    await rm(engine.executable)
+    const after = await inspectCliInstallation("codex", engine.environment)
+    expect(after.executable).toBe(before.executable)
+    expect(after.method).toEqual(before.method)
+    expect(after.damaged).toBe(true)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
