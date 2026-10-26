@@ -1620,8 +1620,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [createChatForProject, resolveProjectIdForStartChat])
 
   const handleCreateChat = useCallback(async (projectId: string) => {
-    await startChatFromIntent({ kind: "project_id", projectId })
-  }, [startChatFromIntent])
+    navigate(`/?${new URLSearchParams({ workspace: projectId })}`)
+    setSidebarOpen(false)
+    setCommandError(null)
+  }, [navigate])
 
   const handleForkChat = useCallback(async (chat: SidebarChatRow) => {
     try {
@@ -1923,27 +1925,29 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const runSidebarChatChange = useCallback(async (change: SidebarChatChange) => {
     setSidebarActionError(null)
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 10_000)
-    try {
-      await socket.command(change.action.type === "pin"
-        ? { type: "chat.pin", chatId: change.chatId, pinned: change.action.pinned }
-        : { type: "chat.archive", chatId: change.chatId }, { signal: controller.signal })
-      sidebarChatActions.settle(change)
-      setSidebarActionError(null)
-      return true
-    } catch (error) {
-      // Also cancel any unsent local envelope: reconnect must not replay it later.
-      controller.abort()
-      if (error instanceof ConfirmedCommandError) sidebarChatActions.reject(change)
-      else sidebarChatActions.settle(change)
-      const message = error instanceof Error ? error.message : String(error)
-      setSidebarActionError(error instanceof ConfirmedCommandError ? message : `Unable to confirm the change. Rechecking sidebar state. ${message}`)
-      return false
-    } finally {
-      window.clearTimeout(timeout)
-      setSidebarRefreshEpoch(epoch => epoch + 1)
-    }
+    return sidebarChatActions.enqueue(change, async () => {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 10_000)
+      try {
+        await socket.command(change.action.type === "pin"
+          ? { type: "chat.pin", chatId: change.chatId, pinned: change.action.pinned }
+          : { type: "chat.archive", chatId: change.chatId }, { signal: controller.signal })
+        sidebarChatActions.settle(change)
+        return true
+      } catch (error) {
+        // Also cancel any unsent local envelope: reconnect must not replay it later.
+        controller.abort()
+        const isCurrent = sidebarChatActions.isCurrent(change)
+        if (error instanceof ConfirmedCommandError) sidebarChatActions.reject(change)
+        else sidebarChatActions.settle(change)
+        const message = error instanceof Error ? error.message : String(error)
+        if (isCurrent) setSidebarActionError(error instanceof ConfirmedCommandError ? message : `Unable to confirm the change. Rechecking sidebar state. ${message}`)
+        return false
+      } finally {
+        window.clearTimeout(timeout)
+        setSidebarRefreshEpoch(epoch => epoch + 1)
+      }
+    })
   }, [sidebarChatActions, socket])
 
   const handlePinChat = useCallback(async (chat: SidebarChatRow) => {
@@ -2158,18 +2162,10 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [standaloneShareUrl])
 
   const handleCompose = useCallback(() => {
-    const intent = resolveComposeIntent({
-      selectedProjectId: validDefaultProjectId ?? selectedProjectId,
-      sidebarProjectId: sidebarReady ? sidebarProjectGroups[0]?.groupKey : null,
-      fallbackLocalProjectPath: sidebarReady ? null : fallbackLocalProjectPath,
-    })
-    if (intent) {
-      void startChatFromIntent(intent)
-      return
-    }
-
     navigate("/")
-  }, [fallbackLocalProjectPath, navigate, selectedProjectId, sidebarProjectGroups, sidebarReady, startChatFromIntent, validDefaultProjectId])
+    setSidebarOpen(false)
+    setCommandError(null)
+  }, [navigate])
 
   const openSidebar = useCallback(() => setSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])

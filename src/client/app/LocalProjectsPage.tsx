@@ -1,10 +1,11 @@
-import { useOutletContext } from "react-router-dom"
+import { useOutletContext, useSearchParams } from "react-router-dom"
 import { LocalDev } from "../components/LocalDev"
 import type { StillOnState } from "./useStillOnState"
 import { StartupPart } from "./StartupReadiness"
 
 export function LocalProjectsPage() {
   const state = useOutletContext<StillOnState>()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   return (
     <div className="flex-1 flex flex-col min-w-0 relative">
@@ -15,6 +16,8 @@ export function LocalProjectsPage() {
         ready={state.localProjectsReady}
         projectGroups={state.sidebarData.projectGroups}
         sidebarReady={state.sidebarReady}
+        selectedProjectId={searchParams.get("workspace")}
+        onSelectedProjectChange={(projectId) => setSearchParams({ workspace: projectId }, { replace: true })}
         defaultProjectId={state.defaultProjectId}
         onDefaultProjectChange={state.setDefaultProjectId}
         onSend={state.handleSend}

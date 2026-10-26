@@ -12,6 +12,8 @@ export class SidebarChatActions {
   private changes: SidebarChatChange[] = []
   private listeners = new Set<() => void>()
   private lastAcceptedAt = -Infinity
+  private lastAccepted: SidebarChatChange | null = null
+  private commands = new Map<string, Promise<boolean>>()
 
   getSnapshot = () => this.changes
   subscribe = (listener: () => void) => {
@@ -24,17 +26,34 @@ export class SidebarChatActions {
   }
 
   begin(chat: SidebarChatRow, type: "pin" | "archive", now = Date.now()) {
-    // A removed/reordered row puts another button under a stationary pointer.
-    // Guard the whole list briefly, and each chat until its state is reconciled.
-    if (now - this.lastAcceptedAt < 400 || this.has(chat.chatId)) return null
+    const current = this.changes.find(change => change.chatId === chat.chatId)
+    const action: SidebarChatChange["action"] = type === "pin" ? { type, pinned: !chat.pinned } : { type }
+    // A stale repeat asks for the same value. A click on the updated button
+    // asks for the opposite value and must react even before the first ack.
+    const previous = current ?? (this.lastAccepted?.chatId === chat.chatId ? this.lastAccepted : null)
+    const reversesPin = action.type === "pin" && previous?.action.type === "pin" && action.pinned !== previous.action.pinned
+    if (current && !reversesPin) return null
+    // Keep replacement-row clicks protected when pinning moves another button
+    // under the pointer, while allowing an intentional reversal on this chat.
+    if (now - this.lastAcceptedAt < 400 && !reversesPin) return null
     this.lastAcceptedAt = now
-    const change: SidebarChatChange = {
-      chatId: chat.chatId,
-      action: type === "pin" ? { type, pinned: !chat.pinned } : { type },
-      settled: false,
-    }
-    this.update([...this.changes, change])
+    const change: SidebarChatChange = { chatId: chat.chatId, action, settled: false }
+    this.lastAccepted = change
+    this.update([...this.changes.filter(entry => entry !== current), change])
     return change
+  }
+
+  isCurrent(change: SidebarChatChange) { return this.changes.includes(change) }
+
+  async enqueue(change: SidebarChatChange, send: () => Promise<boolean>) {
+    const previous = this.commands.get(change.chatId) ?? Promise.resolve(true)
+    // Serialize writes per chat and skip superseded intents that have not sent.
+    // Different chats remain independent. Old acknowledgements cannot remove
+    // the newer optimistic state because receive/settle compare object identity.
+    const command = previous.catch(() => false).then(() => this.isCurrent(change) ? send() : true)
+    this.commands.set(change.chatId, command)
+    try { return await command }
+    finally { if (this.commands.get(change.chatId) === command) this.commands.delete(change.chatId) }
   }
 
   has(chatId: string) { return this.changes.some(change => change.chatId === chatId) }

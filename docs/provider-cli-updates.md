@@ -38,10 +38,38 @@ Short-lived opaque consent is scoped to the inspected installation and release.
 Selection changes invalidate it; concurrent updates and repeated POSTs cannot
 invoke an installer twice. Browsers never receive raw installer output or
 environment values. Failure messages contain only safe categories or numeric
-exit codes. There is no automatic rollback or retry after an interrupted or
-partial install: check the current version, repair with the original installer
-if needed, and check again. Operation state is in memory; the installed version
-is read afresh after restart. Shutdown waits for an in-progress update.
+exit codes. Installer processes have no destructive wall-clock timeout or output
+buffer limit: a large package must be allowed to finish writing and relinking
+its launchers. Version probes and release/download requests remain bounded.
+The UI shows elapsed time while installing or verifying. Shutdown waits for an
+in-progress installer rather than killing it.
+
+Before installation, StillOn atomically saves the consented provider, exact
+version, original installation, phase, timestamps, attempt count and safe result
+under `<dataDir>/cli-updates/codex.json` or `claude.json`. The installer PID is
+recorded after spawn. These local records never contain the environment or raw
+installer output, and the browser receives only the public operation status.
+The most recent result remains visible after restarting StillOn.
+
+An incomplete npm installation is retried once at the same prefix and exact
+consented version, then verified. Startup can resume a pending consented update:
+it reserves idle agents and waits for any surviving installer to exit before
+checking the CLI. A completed target is verified without reinstalling. A missing
+launcher/package can be reinstalled once, with a maximum of two installation
+attempts per operation. A changed executable, explicit selection, working older
+version or different version is not automatically overwritten. Native installer
+failures require the original installer when the CLI remains broken.
+
+Failed npm updates offer **Repair CLI · VERSION**, using new opaque consent for
+the recorded target, including when release lookup is offline. Recognized npm
+packages with unusable binaries also offer repair. Missing shims require the
+configured global prefix, Windows' standard npm prefix, or a saved update record; an
+unrecognized/custom/App-managed location never authorizes a replacement.
+Checks alone do not run an installer. If a crash occurred before the installer
+PID was saved, StillOn cannot safely determine whether it is still writing:
+finish that installer, repair through the original installer, then restart
+StillOn to verify the repaired target. It never launches a second installer in
+that uncertain state. Recovery also keeps the existing agent/terminal idle gate.
 
 Local and authenticated managed Connect share the same endpoints and state.
 Existing gateway ownership, origin checks, signed adapter ingress and local
@@ -65,8 +93,17 @@ remote read, reload, failure/retry, origin/account/host isolation and replay
 rejection. The platform CI matrix runs local process acceptance; Connect CI
 runs packaged cloud acceptance in the private service repository. Unit tests cover selection changes, active work,
 concurrency, redaction, preview versions and native/npm/App path handling.
+Recovery tests interrupt a real synthetic npm subprocess after it retires its
+shim and manifest, terminate its StillOn parent, restart recovery and verify
+that the shim and exact version are restored. Other checks cover surviving
+installer PIDs, bounded retries, durable failures, offline repair consent,
+unreadable/unwritable journals and installer output beyond the old buffer limit.
 
 `bun scripts/test-provider-cli-updates.ts --browser` starts a bounded browser
 fixture. This screenshot uses synthetic versions and masks the temporary path.
 
 ![CLI version and verified update in Providers](images/provider-cli-updates.png)
+
+An incomplete npm installation offers repair in its existing prefix:
+
+![Repair an incomplete npm CLI installation](images/provider-cli-repair.png)

@@ -35,6 +35,8 @@ interface LocalDevProps {
   ready: boolean
   projectGroups: SidebarProjectGroup[]
   sidebarReady: boolean
+  selectedProjectId: string | null
+  onSelectedProjectChange: (projectId: string) => void
   defaultProjectId: string | null
   onDefaultProjectChange: (projectId: string | null) => void
   onSend: StillOnState["handleSend"]
@@ -148,6 +150,8 @@ export function LocalDev({
   ready,
   projectGroups,
   sidebarReady,
+  selectedProjectId,
+  onSelectedProjectChange,
   defaultProjectId,
   onDefaultProjectChange,
   onSend,
@@ -162,7 +166,6 @@ export function LocalDev({
   onResolveLocalPath,
 }: LocalDevProps) {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const selectedProject = resolveHomeProject(projectGroups, selectedProjectId, defaultProjectId)
   const isConnecting = connectionStatus === "connecting" || !ready
 
@@ -274,7 +277,7 @@ export function LocalDev({
                         key={group.groupKey}
                         type="button"
                         aria-pressed={selectedProject?.groupKey === group.groupKey}
-                        onClick={() => { setSelectedProjectId(group.groupKey); setProjectMenuOpen(false) }}
+                        onClick={() => { onSelectedProjectChange(group.groupKey); setProjectMenuOpen(false) }}
                         className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                       >
                         <WorkspaceAvatar workspaceId={group.groupKey} className="size-6 shrink-0" />
