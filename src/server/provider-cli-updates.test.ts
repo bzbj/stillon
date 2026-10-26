@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { inspectCliInstallation, newerCliVersion, npmUpdateCommand, runCli, type CliInstallation } from "./provider-cli-installation"
@@ -111,7 +111,7 @@ test("npm ownership requires the selected bin/shim, and updates preserve a prefi
     const env = { HOME: root, USERPROFILE: root, PATH: bin, CODEX_EXECUTABLE: cli }
     const found = await inspectCliInstallation("codex", env, process.platform, async () => "codex-cli 1.2.3")
     expect(found.executable).toBe(cli)
-    if (windows) expect(found.method).toEqual({ kind: "npm", prefix: root })
+    if (windows) expect(found.method).toEqual({ kind: "npm", prefix: await realpath(root) })
     else expect(found.method).toBeUndefined()
     await writeFile(cli, "unrelated executable", { mode: 0o700 })
     expect((await inspectCliInstallation("codex", env, process.platform, async () => "1.2.3")).method).toBeUndefined()
