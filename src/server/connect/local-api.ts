@@ -43,6 +43,7 @@ export async function handleConnectLocal(request: Request, ingress: Ingress, con
   if (request.headers.get("content-length") && Number(request.headers.get("content-length")) > 32) return json({ error: "INVALID_BODY" }, 400)
   try {
     switch (route) {
+      case "/api/connect-local/repair-transport": await connector.repairTransport(); break
       case "/api/connect-local/enroll": return json(await connector.enroll())
       case "/api/connect-local/pause": await connector.pause(); break
       case "/api/connect-local/resume": await connector.resume(); break

@@ -41,6 +41,7 @@ export interface ConnectLocalStatus {
   url?: string
   enrollment?: { id: string; verificationUrl: string; expiresAt: number }
   error?: string
+  transport?: { state: "ready" | "missing" | "preparing" | "error"; version: string; error?: string }
 }
 export interface ConnectRemoteStatus {
   mode: "connect"

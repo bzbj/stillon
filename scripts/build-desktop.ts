@@ -1,9 +1,10 @@
-import { chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { updateTarget } from "../src/server/updater/model"
-import { FRP_VERSION, prepareConnectRuntime } from "./prepare-connect-runtime"
+import transportComponents from "../src/server/connect/frp-components.json"
+import { TRANSPORT_DESCRIPTOR, validateTransportComponent } from "../src/server/connect/transport-component"
 import { desktopConnectConfig } from "../src/server/connect/config"
 
 const repository = path.resolve(import.meta.dir, "..")
@@ -123,11 +124,12 @@ async function main() {
       filter: (source) => !/\.test\.tsx?$/.test(source) })
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
-  // Linked computers keep their service origin in user data. Always bundle the
-  // connector so migrating them never depends on the publisher's default origin.
-  await prepareConnectRuntime(path.join(runtime, "runtime/frp"))
-  const frpc = path.join(runtime, "runtime/frp", process.platform === "win32" ? "frpc.exe" : "frpc")
-  if (await capture([frpc, "--version"]) !== FRP_VERSION) throw new Error("Bundled connector cannot run on this build target")
+  // Seal only the independent component requirement. Normal StillOn builds do
+  // not download, unpack or execute frpc; the installer prepares it once.
+  const selected = transportComponents.filter(c => c.platform === target.platform && c.architecture === target.architecture)
+  if (selected.length !== 1) throw new Error("A unique Connect component is required for this target")
+  const component = validateTransportComponent(selected[0], target)
+  await writeFile(path.join(runtime, TRANSPORT_DESCRIPTOR), JSON.stringify(component, null, 2) + "\n")
   if (connectConfig) {
     // Only public configuration enters the desktop artifact. Never copy an env file.
     await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify(connectConfig) + "\n")
@@ -137,15 +139,6 @@ async function main() {
   const controller = await Bun.build({ entrypoints: [path.join(repository, "src/server/updater/entry.ts")], target: "bun", packages: "bundle", naming: "controller.js", outdir: path.join(runtime, "runtime") })
   if (!controller.success) throw new AggregateError(controller.logs, "Could not bundle the updater")
   if (target.platform === "darwin" && macosSignIdentity) {
-    {
-      const frpc = path.join(runtime, "runtime/frp/frpc")
-      await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--sign", macosSignIdentity, frpc])
-      // Pin downloads before signing, then seal the signed installed bytes.
-      const manifestFile = path.join(runtime, "runtime/frp/manifest.json")
-      const manifest = JSON.parse(await readFile(manifestFile, "utf8"))
-      manifest.files.frpc = sha256(await readFile(frpc))
-      await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + "\n")
-    }
     await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", macosSignIdentity,
       path.join(runtime, bunRelativePath("darwin"))])
     // Keep third-party Developer ID signatures intact, but reject unsigned or

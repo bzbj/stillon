@@ -18,6 +18,7 @@ import type { SetupState } from "../updater/setup"
 import { requestDesktopTransition } from "./transition"
 import { BUNDLE_FILE, bunRelativePath, copyBundle, validateBundle, verifyBundle } from "./bundle"
 import { DESKTOP_WAIT_MS, desktopProgress, openDesktopBrowser as openBrowser, waitForDesktopTransition } from "./desktop-progress"
+import { prepareRuntimeTransport } from "../connect/transport"
 
 export interface DesktopInstallation { schema: 1; runtime: string; phase: "staged" | "installed" }
 
@@ -143,6 +144,7 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
     await atomicJson(marker, install)
   }
   const port = options.port ?? 3210
+  await prepareRuntimeTransport(install.runtime, { homeDirectory: home })
   desktopProgress("Starting the StillOn background service…")
   await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,

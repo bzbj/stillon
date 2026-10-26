@@ -14,6 +14,7 @@ import { DEFAULT_WORKER, installUpdateWorker, macosUpdaterPlist, wakeUpdateWorke
 import { stopWindowsEncodedProcesses } from "../updater/processes"
 import { captureServiceRegistration, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
 import { bunRelativePath, copyBundle, sha256, verifyBundle } from "./bundle"
+import { prepareRuntimeTransport } from "../connect/transport"
 import { saveDesktopReceipt } from "./desktop"
 
 export const TRANSITION_FILE = "desktop-transition.json"
@@ -128,6 +129,8 @@ export async function requestDesktopTransition(source: string, root: string) {
   const id = randomUUID()
   const newRuntime = path.join(root, "releases", "desktop-" + bundle.buildId + "-" + id)
   await copyBundle(source, newRuntime, bundle)
+  await prepareRuntimeTransport(newRuntime, { homeDirectory: oldDeployment.launch.homeDirectory,
+    localAppDataDirectory: oldDeployment.launch.localAppDataDirectory, legacyRuntime: oldRuntime })
   const directory = path.join(root, "controllers", "desktop-" + id)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const executable = path.join(directory, oldDeployment.platform === "win32" ? "bun.exe" : "bun")

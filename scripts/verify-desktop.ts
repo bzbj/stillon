@@ -1,5 +1,5 @@
 import { assertAppearanceFixture, seedAppearanceFixture } from "./appearance-fixture"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { artifactName, bunRelativePath, unpackBundle, verifyBundle } from "../src/server/distribution/bundle"
@@ -10,6 +10,7 @@ import pkg from "../package.json"
 import { rehearseNativeSourceMigration } from "./rehearse-native-source-migration"
 import { rehearseDesktopUpdate } from "./rehearse-desktop-update"
 import { desktopConnectConfig, parseConnectRuntimeConfig } from "../src/server/connect/config"
+import { prepareTransport, readRuntimeTransport, transportRoot } from "../src/server/connect/transport"
 
 const target = updateTarget()
 const expectedConnect = desktopConnectConfig(process.env)
@@ -45,8 +46,19 @@ try {
   const configFile = Bun.file(path.join(runtime, "runtime/connect.json"))
   const actualConnect = await configFile.exists() ? parseConnectRuntimeConfig(await configFile.json()) : null
   if (JSON.stringify(actualConnect) !== JSON.stringify(expectedConnect)) throw new Error("Packaged Connect configuration differs from the requested deployment")
-  if (!await Bun.file(path.join(runtime, "runtime/frp", target.platform === "win32" ? "frpc.exe" : "frpc")).exists()) throw new Error("Packaged connector is missing")
-  checks.push("sealed Connect default and approved migration list match build inputs; frpc present")
+  if (await Bun.file(path.join(runtime, "runtime/frp", target.platform === "win32" ? "frpc.exe" : "frpc")).exists()) throw new Error("The independent connector was embedded in the application runtime")
+  const component = await readRuntimeTransport(runtime)
+  if (!component) throw new Error("Packaged Connect component requirement is missing")
+  const componentProfile = path.join(root, "component-profile")
+  const location = { homeDirectory: componentProfile, localAppDataDirectory: path.join(componentProfile, "AppData/Local") }
+  const installed = await prepareTransport(component, location)
+  if (installed.reused) throw new Error("First component preparation unexpectedly reused an installation")
+  const before = await lstat(installed.file)
+  const cached = await prepareTransport(component, { ...location, effects: {
+    download: async () => { throw new Error("Unexpected repeat component download") }, probe: async () => { throw new Error("Unexpected repeat component execution") },
+  } })
+  if (!cached.reused || cached.file !== installed.file || (await lstat(cached.file)).mtimeMs !== before.mtimeMs) throw new Error("Unchanged component was rewritten")
+  checks.push("sealed Connect configuration; no embedded frpc; independent first install; verified cache reuse without download, execution or rewrite")
   const executable = path.join(runtime, bunRelativePath(target.platform))
   const actual = JSON.parse(await run([executable, "--no-env-file", "-e", "console.log(JSON.stringify({platform:process.platform,architecture:process.arch}))"], env))
   if (actual.platform !== target.platform || actual.architecture !== target.architecture) throw new Error("Bundled runtime architecture mismatch")
@@ -77,6 +89,9 @@ try {
     if (!expectedConnect && connect.configured) throw new Error("Local-only package unexpectedly configured a managed service")
     checks.push(expectedConnect ? "fresh native user profile can start email binding with the packaged service default" : "explicit local-only package has no managed service default")
     checks.push("native per-user service and independent updater setup, no local build")
+    const nativeCache = transportRoot(target.platform, profile, env.LOCALAPPDATA)
+    const nativeComponent = await prepareTransport(component, { cacheRoot: nativeCache })
+    if (!nativeComponent.reused) throw new Error("First native setup did not prepare the Connect component")
     // Launching again must open the existing deployment, preserving identity.
     started = performance.now()
     await run([executable, "--no-env-file", path.join(runtime, "bin/desktop"), "--no-open"], env)
@@ -90,6 +105,7 @@ try {
     if (await readFile(custom, "utf8") !== "/* personal skin: preserve */") throw new Error("Personal skin removed during uninstall")
     await assertAppearanceFixture(path.join(profile, ".stillon"))
     if (await Bun.file(path.join(updateRoot(target.platform, profile, env.LOCALAPPDATA), "deployment.json")).exists()) throw new Error("Uninstall left an active deployment")
+    if (!await Bun.file(nativeComponent.file).exists()) throw new Error("Uninstall removed the shared Connect component")
     checks.push("repeat launch; native uninstall; user skin and appearance files retained")
     nativeStarted = true
     report.sourceMigration = await rehearseNativeSourceMigration(runtime, profile, env, run)

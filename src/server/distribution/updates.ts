@@ -5,6 +5,7 @@ import { probeRuntime } from "../updater/engine"
 import { atomicJson, exists, inside, json, manifest } from "../updater/files"
 import { newerRelease, releaseTag, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
 import { MAX_ARCHIVE_BYTES, RELEASE_FILE, selectArtifact, sha256, unpackBundle, verifyBundle } from "./bundle"
+import { prepareRuntimeTransport } from "../connect/transport"
 
 const RELEASE_BASE = "https://github.com/bzbj/stillon/releases/download"
 
@@ -70,6 +71,8 @@ export async function preparePackage(deployment: UpdateDeployment, state: Update
     if (bundle.buildId !== artifact.buildId) throw new Error("Downloaded runtime build identity mismatch")
     await atomicJson(path.join(transaction, "package.json"), { artifact, reused: false })
   }
+  await prepareRuntimeTransport(state.newRuntime, { homeDirectory: deployment.launch.homeDirectory,
+    localAppDataDirectory: deployment.launch.localAppDataDirectory, legacyRuntime: state.oldRuntime })
   await effects.probe(deployment, state.newRuntime, transaction)
   await verifyBundle(state.oldRuntime, expected)
   const candidate = await verifyBundle(state.newRuntime, { ...expected, tag: state.targetTag })
