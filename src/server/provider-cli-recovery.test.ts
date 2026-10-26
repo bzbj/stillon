@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import { createCliUpdateFixture } from "../../scripts/provider-cli-update-fixture"
 import { inspectCliInstallation, type CliInstallation } from "./provider-cli-installation"
 import { runCliInstaller } from "./provider-cli-installer"
@@ -104,8 +103,8 @@ test("missing npm shims and broken package binaries are repairable, but arbitrar
 test("installer output beyond execFile's limit cannot kill a writing package manager", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "stillon-cli-output-"))
   try {
-    const marker = path.join(root, "completed")
-    await runCliInstaller(process.execPath, ["-e", `process.stdout.write('x'.repeat(2*1024*1024));setTimeout(()=>require('node:fs').writeFileSync(${JSON.stringify(marker)},'complete'),100)`], { ...process.env, HOME: root, USERPROFILE: root })
+    const marker = path.join(root, "completed 'quoted' $literal `tick` [data] \u2028\u2029")
+    await runCliInstaller(process.execPath, [path.resolve(import.meta.dir, "../../scripts/test-fixtures/provider-cli/installer-output.cjs"), marker], { ...process.env, HOME: root, USERPROFILE: root })
     expect(await readFile(marker, "utf8")).toBe("complete")
   } finally { await rm(root, { recursive: true, force: true }) }
 })
@@ -182,37 +181,19 @@ test("a real interrupted npm write resumes after restart, waits for the survivin
   let worker: ReturnType<typeof Bun.spawn> | undefined, installerPid: number | undefined
   let manager: ProviderCliUpdates | undefined
   try {
-    const engine = await createCliUpdateFixture(path.join(root, "npm"))
-    const journalDirectory = path.join(root, "journal"), interrupted = path.join(root, "interrupted"), retired = path.join(root, "retired")
-    const pkg = path.join(path.dirname(engine.npmScript), "../../@openai/codex")
-    const manifest = path.join(pkg, "package.json")
-    const npmCode = await readFile(engine.npmScript, "utf8"), manifestCode = await readFile(manifest, "utf8")
-    const launcherCode = process.platform === "win32" ? await readFile(engine.executable, "utf8") : ""
-    await writeFile(interrupted, "interrupt")
-    await writeFile(engine.npmScript, `
-const fs=require('node:fs');
-if(fs.existsSync(${JSON.stringify(interrupted)})){
- fs.unlinkSync(${JSON.stringify(interrupted)});fs.appendFileSync(${JSON.stringify(engine.calls)},'install\\n');
- fs.unlinkSync(${JSON.stringify(engine.executable)});fs.unlinkSync(${JSON.stringify(manifest)});
- fs.writeFileSync(${JSON.stringify(retired)},'ready');setInterval(()=>{},1000);
-}else{
- fs.writeFileSync(${JSON.stringify(manifest)},${JSON.stringify(manifestCode)});
- ${process.platform === "win32" ? `fs.writeFileSync(${JSON.stringify(engine.executable)},${JSON.stringify(launcherCode)});` : `fs.symlinkSync(${JSON.stringify(path.join(pkg, "cli.js"))},${JSON.stringify(engine.executable)});`}
- { ${npmCode} }
-}`)
-    const workerFile = path.join(root, "worker.ts")
+    const engine = await createCliUpdateFixture(path.join(root, "npm 'quoted' $literal `tick` [data] \u2028\u2029"))
+    const journalDirectory = path.join(root, "journal")
+    await writeFile(engine.interrupted, "interrupt")
+    const workerFile = path.resolve(import.meta.dir, "../../scripts/test-fixtures/provider-cli/update-worker.ts")
     const environment = Object.fromEntries(["HOME", "USERPROFILE", "PATH", "SystemRoot", "ComSpec", "PATHEXT", "TEMP", "TMP", "CODEX_HOME", "CODEX_EXECUTABLE", "CLAUDE_EXECUTABLE"]
       .flatMap(key => engine.environment[key as keyof typeof engine.environment] ? [[key, engine.environment[key as keyof typeof engine.environment]]] : []))
-    await writeFile(workerFile, `import {ProviderCliUpdates} from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dir, "provider-cli-updates.ts")).href)};
-const manager=new ProviderCliUpdates({journalDirectory:${JSON.stringify(journalDirectory)},getEnvironment:async()=>(${JSON.stringify(environment)}),reserve:async()=>()=>{},release:async()=>(${JSON.stringify(release)})});
-await manager.start('codex',(await manager.status('codex')).updateToken);await manager.close();`)
-    worker = Bun.spawn([process.execPath, "--no-env-file", workerFile], { stdin: "ignore", stdout: "ignore", stderr: Bun.file(path.join(root, "worker-errors")) })
+    worker = Bun.spawn([process.execPath, "--no-env-file", workerFile, journalDirectory], { env: environment, stdin: "ignore", stdout: "ignore", stderr: Bun.file(path.join(root, "worker-errors")) })
     const journal = new CliUpdateJournals(journalDirectory)
     await eventually(async () => {
       if (worker!.exitCode !== null) throw new Error(`Synthetic update worker exited: ${await readFile(path.join(root, "worker-errors"), "utf8")}; journal: ${JSON.stringify(await journal.read("codex"))}`)
       const record = await journal.read("codex")
       installerPid = record?.installerPid
-      return !!installerPid && await Bun.file(retired).exists()
+      return !!installerPid && await Bun.file(engine.retired).exists()
     })
     worker.kill(); await worker.exited
     const survived = cliInstallerAlive(installerPid!)
