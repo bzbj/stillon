@@ -71,9 +71,13 @@ reinstall either of these supervisors.
 
 ## Upgrade
 
-Settings → Changelog shows **Prepare only** and **Upgrade to …** when the running
-instance belongs to a managed deployment. The original installation-analysis
-entry remains available for unsupported layouts and customization conflicts.
+Settings → About checks releases and offers a short, copyable coding-agent
+prompt when a newer stable release exists. The prompt asks the agent to preserve
+customizations and data, stage and verify the update, and use an independent
+system task to switch after conversations and terminals are idle. It also asks
+for restart and local/Connect connection checks with rollback on failure.
+Copying the prompt does not schedule or run an update. The managed CLI remains
+available for installations that use it.
 
 Equivalent commands:
 

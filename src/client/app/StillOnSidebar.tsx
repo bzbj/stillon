@@ -638,7 +638,7 @@ function StillOnSidebarImpl({
             <button
             type="button"
             onClick={() => {
-              navigate("/settings/welcome")
+              navigate("/settings")
               onClose()
             }}
             className={cn(

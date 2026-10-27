@@ -49,22 +49,22 @@ export function ProjectSectionMenu({
     {commands.global.length && local.length ? <ContextMenuSeparator className="mx-2 bg-border/50" /> : null}
     {local.map(command => <ContextMenuItem key={`workspace:${command.id}`} disabled={!onRunQuickCommand} title={command.description || command.name} onSelect={() => onRunQuickCommand?.({ ...command })}><span className="max-w-72 truncate">{command.name}</span></ContextMenuItem>)}
     {commands.global.length || local.length ? <ContextMenuSeparator className="mx-2 bg-border/50" /> : null}
-    <ContextMenuItem onSelect={event => { event.preventDefault(); onManageCommands?.() }}><Settings2 className="size-3.5" />Manage Workspace Commands…</ContextMenuItem>
+    <ContextMenuItem onSelect={event => { event.preventDefault(); onManageCommands?.() }}><Settings2 className="size-3.5" />Manage Workspace Prompts…</ContextMenuItem>
   </>
 
   return <ContextMenu onOpenChange={open => { if (!open) setShowCommands(false) }}>
     <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-    <ContextMenuContent aria-label={narrow && showCommands ? "Quick Commands" : undefined} className="max-h-[var(--radix-context-menu-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto">
+    <ContextMenuContent aria-label={narrow && showCommands ? "Preset Prompts" : undefined} className="max-h-[var(--radix-context-menu-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto">
       {narrow && showCommands ? <>
         <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(false) }}><ChevronLeft className="size-3.5" />Back</ContextMenuItem>
         <ContextMenuSeparator className="mx-2 bg-border/50" />
         {quickItems}
       </> : <>
         {onManageCommands ? narrow ? (
-          <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(true) }}><Sparkles className="size-3.5" />Quick Commands<ChevronRight className="ml-auto size-3.5" /></ContextMenuItem>
+          <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(true) }}><Sparkles className="size-3.5" />Preset Prompts<ChevronRight className="ml-auto size-3.5" /></ContextMenuItem>
         ) : (
           <ContextMenuSub>
-            <ContextMenuSubTrigger><Sparkles className="size-3.5" />Quick Commands<ChevronRight className="ml-auto size-3.5" /></ContextMenuSubTrigger>
+            <ContextMenuSubTrigger><Sparkles className="size-3.5" />Preset Prompts<ChevronRight className="ml-auto size-3.5" /></ContextMenuSubTrigger>
             <ContextMenuSubContent>{quickItems}</ContextMenuSubContent>
           </ContextMenuSub>
         ) : null}

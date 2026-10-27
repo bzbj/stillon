@@ -1,3 +1,4 @@
+import { finishSetup, rememberSettingsSection, settingsLandingPath, useSetupComplete } from "../lib/settingsNavigation"
 import { ClaudeModelPolicyPanel } from "./ClaudeModelPolicyPanel"
 import { normalizeQuickCommands } from "../../shared/quick-commands"
 import { QuickCommandsEditor } from "../components/QuickCommandsEditor"
@@ -11,7 +12,6 @@ import {
   BookText,
   CheckCircle2,
   Circle,
-  Command,
   Code,
   Copy,
   ExternalLink,
@@ -20,13 +20,10 @@ import {
   Clock3,
   Loader2,
   Menu,
-  Monitor,
   MonitorSmartphone,
-  Moon,
   MessageSquareQuote,
   RefreshCw,
   Search,
-  Settings2,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -36,7 +33,7 @@ import {
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { useNavigate, useOutletContext, useParams } from "react-router-dom"
+import { useNavigate, useOutletContext, useParams, Link } from "react-router-dom"
 import { APP_NAME, getKeybindingsFilePathDisplay, RELEASE_EDITION, SDK_CLIENT_APP } from "../../shared/branding"
 import {
   DEFAULT_KEYBINDINGS,
@@ -65,12 +62,10 @@ import {
 import { markdownComponents } from "../components/messages/shared"
 import { ChatPreferenceControls, type PermissionModeChange } from "../components/chat-ui/ChatPreferenceControls"
 import { Button, buttonVariants } from "../components/ui/button"
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import { Textarea } from "../components/ui/textarea"
-import type { ManagedUpdateStatus, SourceUpgradePromptResult } from "../../shared/protocol"
-import { ManagedUpgradePanel } from "./ManagedUpgradePanel"
 import { SegmentedControl } from "../components/ui/segmented-control"
 import {
   Select,
@@ -80,20 +75,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select"
-import { useTheme, type ThemePreference } from "../hooks/useTheme"
 import { KEYBINDING_ACTION_LABELS, formatKeybindingInput, getResolvedKeybindings, parseKeybindingInput } from "../lib/keybindings"
 import { playChatNotificationSound } from "../lib/chatSounds"
 import { copyTextToClipboard } from "../lib/clipboard"
 import { cn } from "../lib/utils"
-import {
-  DEFAULT_TERMINAL_MIN_COLUMN_WIDTH,
-  DEFAULT_TERMINAL_SCROLLBACK,
-  MAX_TERMINAL_MIN_COLUMN_WIDTH,
-  MAX_TERMINAL_SCROLLBACK,
-  MIN_TERMINAL_MIN_COLUMN_WIDTH,
-  MIN_TERMINAL_SCROLLBACK,
-  useTerminalPreferencesStore,
-} from "../stores/terminalPreferencesStore"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, type ChatSoundPreference } from "../stores/chatSoundPreferencesStore"
 import { AppearanceSettingsPanel } from "./AppearanceSettings"
@@ -109,28 +94,10 @@ const sidebarItems = [
     subtitle: "Name this machine, verify the local service, and connect Codex and Claude Code.",
   },
   {
-    id: "general",
-    label: "General",
-    icon: Settings2,
-    subtitle: "Manage this machine's identity, appearance, and embedded terminal defaults.",
-  },
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: Sun,
-    subtitle: "Make this workspace yours. Preview themes, skins and layout before applying.",
-  },
-  {
     id: "network",
     label: "Network",
     icon: ShieldCheck,
     subtitle: "Configure and test outbound network settings used by Codex and Claude Code.",
-  },
-  {
-    id: "skills",
-    label: "Skills",
-    icon: BookText,
-    subtitle: "Manage globally installed agent skills from the active skill lock file.",
   },
   {
     id: "providers",
@@ -145,10 +112,16 @@ const sidebarItems = [
     subtitle: "View local Codex and Claude Code subscription windows and reset times.",
   },
   {
-    id: "quick-commands",
-    label: "Quick Commands",
-    icon: Command,
-    subtitle: "Manage global prompts and keyboard shortcuts.",
+    id: "skills",
+    label: "Skills & Prompts",
+    icon: BookText,
+    subtitle: "Manage globally installed agent skills from the active skill lock file.",
+  },
+  {
+    id: "appearance",
+    label: "Personalization",
+    icon: Sun,
+    subtitle: "Make this workspace yours. Preview themes, skins and layout before applying.",
   },
   {
     id: "remote",
@@ -156,10 +129,9 @@ const sidebarItems = [
     icon: MonitorSmartphone,
     subtitle: "Link your email to use this computer from another device.",
   },
-  // always last
   {
-    id: "changelog",
-    label: "Changelog",
+    id: "about",
+    label: "About",
     icon: BookText,
     subtitle: "Release notes pulled from the public GitHub releases feed.",
   },
@@ -168,16 +140,11 @@ type SidebarItem = (typeof sidebarItems)[number]
 type SidebarPageId = SidebarItem["id"]
 
 export function resolveSettingsSectionId(sectionId: string | undefined): SidebarPageId | null {
-  if (sectionId === "keybindings") return "quick-commands"
+  if (sectionId === "keybindings" || sectionId === "quick-commands") return "skills"
+  if (sectionId === "changelog" || sectionId === "general") return "about"
   if (!sectionId) return null
   return sidebarItems.some((item) => item.id === sectionId) ? (sectionId as SidebarPageId) : null
 }
-
-const themeOptions = [
-  { value: "light" as ThemePreference, label: "Light", icon: Sun },
-  { value: "dark" as ThemePreference, label: "Dark", icon: Moon },
-  { value: "system" as ThemePreference, label: "System", icon: Monitor },
-]
 
 const chatSoundPreferenceOptions: { value: ChatSoundPreference; label: string }[] = [
   { value: "never", label: "Never" },
@@ -389,133 +356,18 @@ export function getAvailablePackageRelease(releases: GithubRelease[], currentVer
   }), currentVersion)
 }
 
-function SourceUpgradePrompt({
-  release,
-  onGenerate,
-}: {
-  release: GithubRelease
-  onGenerate: (release: GithubRelease) => Promise<SourceUpgradePromptResult>
-}) {
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [generationStatus, setGenerationStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
-  const [prompt, setPrompt] = useState("")
-  const [generationError, setGenerationError] = useState<string | null>(null)
+export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve customizations and data. Stage, verify and back up. Schedule an independent task to switch after conversations and terminals are idle. Verify restart and local/Connect connections; roll back on failure."
+
+function SourceUpgradePrompt({ release }: { release: GithubRelease }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")
-  const targetVersion = normalizeReleaseVersion(release.tag_name)
-
-  async function generatePrompt() {
-    if (generationStatus === "loading") return
-    setDialogOpen(true)
-    setGenerationStatus("loading")
-    setGenerationError(null)
-    setPrompt("")
-    setCopyStatus("idle")
-
-    try {
-      const result = await onGenerate(release)
-      setPrompt(result.prompt)
-      setGenerationStatus("success")
-    } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : "Could not generate the upgrade prompt.")
-      setGenerationStatus("error")
-    }
-  }
-
-  async function copyPrompt() {
-    const copied = await copyTextToClipboard(prompt)
-    setCopyStatus(copied ? "copied" : "error")
-  }
-
-  function handleDialogChange(open: boolean) {
-    setDialogOpen(open)
-    if (!open) setCopyStatus("idle")
-  }
-
-  return (
-    <>
-      <section className="rounded-xl border border-logo/30 bg-logo/5 px-5 py-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">Upgrade available: v{targetVersion}</div>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              Generate a ready-to-copy upgrade prompt. Your coding agent will check this installation when you run it.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => { void generatePrompt() }}
-            disabled={generationStatus === "loading"}
-            className="shrink-0"
-          >
-            {generationStatus === "loading" ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            ) : (
-              <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-            )}
-            {generationStatus === "loading" ? "Preparing…" : "Generate upgrade prompt"}
-          </Button>
-        </div>
-      </section>
-
-      <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-        <DialogContent size="lg">
-          <DialogBody className="space-y-4">
-            <div className="space-y-1">
-              <DialogTitle>Upgrade prompt for v{targetVersion}</DialogTitle>
-              <DialogDescription>
-                Copy this prompt to your coding agent to perform the upgrade. It will first verify your setup and preserve local customizations. Generating this prompt does not change your installation.
-              </DialogDescription>
-            </div>
-            {generationStatus === "loading" ? (
-              <div role="status" className="flex min-h-40 items-center justify-center rounded-xl border border-border bg-muted/30 px-6 text-sm text-muted-foreground">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span>Preparing your upgrade prompt…</span>
-                </div>
-              </div>
-            ) : null}
-            {generationStatus === "success" ? (
-              <Textarea
-                aria-label={`Upgrade prompt for StillOn v${targetVersion}`}
-                value={prompt}
-                readOnly
-                rows={12}
-                className="resize-y font-mono text-xs leading-5"
-              />
-            ) : null}
-            {generationStatus === "error" ? (
-              <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {generationError ?? "Could not generate the upgrade prompt."}
-              </div>
-            ) : null}
-            {copyStatus === "error" ? (
-              <p role="alert" className="text-xs text-destructive">
-                Could not copy the prompt. Select the text and copy it manually instead.
-              </p>
-            ) : null}
-          </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="secondary" size="sm" onClick={() => handleDialogChange(false)}>
-              Close
-            </Button>
-            {generationStatus === "error" ? (
-              <Button type="button" size="sm" onClick={() => { void generatePrompt() }}>
-                <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-                Try again
-              </Button>
-            ) : null}
-            {generationStatus === "success" ? (
-              <Button type="button" size="sm" onClick={() => { void copyPrompt() }}>
-                <Copy className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
-                <span aria-live="polite">{copyStatus === "copied" ? "Copied" : "Copy prompt"}</span>
-              </Button>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
+  return <section className="space-y-3 rounded-xl border border-logo/30 bg-logo/5 px-5 py-4">
+    <div className="text-sm font-medium">Upgrade available: {release.tag_name}</div>
+    <Textarea aria-label="Update prompt" value={STILLON_UPDATE_PROMPT} readOnly rows={4} className="text-sm" />
+    <Button size="sm" onClick={async () => setCopyStatus(await copyTextToClipboard(STILLON_UPDATE_PROMPT) ? "copied" : "error")}>
+      <Copy className="mr-2 h-3.5 w-3.5" />{copyStatus === "copied" ? "Copied" : "Copy update prompt"}
+    </Button>
+    {copyStatus === "error" && <p role="alert" className="text-sm text-destructive">Could not copy the prompt. Select the text and copy it manually instead.</p>}
+  </section>
 }
 
 export function ChangelogSection({
@@ -524,81 +376,19 @@ export function ChangelogSection({
   error,
   onRetry,
   currentVersion,
-  onGenerateUpgradePrompt,
-  onReadManagedUpdate,
-  onRequestManagedUpdate,
 }: {
   status: ChangelogStatus
   releases: GithubRelease[]
   error: string | null
   onRetry: () => void
   currentVersion: string
-  onGenerateUpgradePrompt: (release: GithubRelease) => Promise<SourceUpgradePromptResult>
-  onReadManagedUpdate?: () => Promise<ManagedUpdateStatus>
-  onRequestManagedUpdate?: (targetTag: string, prepareOnly: boolean) => Promise<ManagedUpdateStatus>
 }) {
   const normalizedCurrentVersion = currentVersion.replace(/^v/i, "")
-  const [managedStatus, setManagedStatus] = useState<ManagedUpdateStatus | null>(null)
-  const managedEnabled = managedStatus?.enabled ?? null
-  const packageTargets = Object.fromEntries(["darwin", "win32"].flatMap(platform => ["x64", "arm64"].map(architecture =>
-    [platform + "-" + architecture, getAvailablePackageRelease(releases, currentVersion, platform, architecture)?.tag_name])))
   const availableSourceRelease = status === "success"
     ? getAvailableSourceRelease(releases, currentVersion)
     : null
 
-  return (
-    <div className="space-y-4">
-      {onReadManagedUpdate && onRequestManagedUpdate ? (
-        <ManagedUpgradePanel targetTag={availableSourceRelease?.tag_name} onRead={onReadManagedUpdate} onRequest={onRequestManagedUpdate} packageTargets={packageTargets} onStatusChange={setManagedStatus} />
-      ) : null}
-      {status === "loading" || status === "idle" ? (
-        <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-border bg-card/40 px-6 py-8 text-sm text-muted-foreground">
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading release notes…</span>
-          </div>
-        </div>
-      ) : null}
-
-      {status === "error" ? (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-6 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium text-foreground">Could not load changelog</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {error ?? "Unable to load changelog."}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {status === "success" && releases.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card/30 px-6 py-8">
-          <div className="text-sm font-medium text-foreground">No releases yet</div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            GitHub did not return any published releases for this repository.
-          </div>
-        </div>
-      ) : null}
-
-      {availableSourceRelease && ((!onReadManagedUpdate || !onRequestManagedUpdate) || (managedEnabled === false && managedStatus?.channel !== "package")) ? (
-        <SourceUpgradePrompt
-          key={availableSourceRelease.id}
-          release={availableSourceRelease}
-          onGenerate={onGenerateUpgradePrompt}
-        />
-      ) : null}
-
-      {status === "success" && releases.length > 0 ? (
-        releases.map((release, index) => {
+  const renderRelease = (release: GithubRelease, index: number) => {
           const normalizedTag = release.tag_name.replace(/^v/i, "")
           const isLatestRelease = index === 0
           const isCurrentRelease = normalizedTag === normalizedCurrentVersion
@@ -683,7 +473,52 @@ export function ChangelogSection({
             )}
           </article>
           )
-        })
+  }
+  return (
+    <div className="space-y-4">
+      {status === "loading" || status === "idle" ? (
+        <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-border bg-card/40 px-6 py-8 text-sm text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading release notes…</span>
+          </div>
+        </div>
+      ) : null}
+
+      {status === "error" ? (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium text-foreground">Could not load changelog</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {error ?? "Unable to load changelog."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {status === "success" && releases.length === 0 ? (
+        <div className="rounded-lg border border-border bg-card/30 px-6 py-8">
+          <div className="text-sm font-medium text-foreground">No releases yet</div>
+          <div className="mt-2 text-sm text-muted-foreground">
+            GitHub did not return any published releases for this repository.
+          </div>
+        </div>
+      ) : null}
+
+      {availableSourceRelease ? <SourceUpgradePrompt key={availableSourceRelease.id} release={availableSourceRelease} /> : null}
+
+      {status === "success" && releases.length > 0 ? (
+        <>{renderRelease(releases[0], 0)}{releases.length > 1 && <details><summary className="cursor-pointer py-4 text-sm">Previous releases</summary><div className="space-y-4">{releases.slice(1).map((release, index) => renderRelease(release, index + 1))}</div></details>}</>
+
       ) : null}
     </div>
   )
@@ -1113,7 +948,6 @@ export function SubscriptionUsageSection({
   )
 }
 
-const ONBOARDING_PROGRESS_STORAGE_KEY = "stillon:onboarding-progress-v1"
 export const ONBOARDING_TASK_COUNT = 3
 
 export type OnboardingProgress = {
@@ -1124,12 +958,6 @@ export type OnboardingProgress = {
 
 type OnboardingCopyStatus = "idle" | "copied" | "error"
 
-const EMPTY_ONBOARDING_PROGRESS: OnboardingProgress = {
-  nameConfirmed: false,
-  codexChecked: false,
-  claudeChecked: false,
-}
-
 export function getOnboardingCompletedTaskCount(
   progress: OnboardingProgress,
   readiness: { localServiceReady: boolean; codexReady: boolean; claudeReady: boolean }
@@ -1139,25 +967,6 @@ export function getOnboardingCompletedTaskCount(
     readiness.localServiceReady,
     (progress.codexChecked && readiness.codexReady) || (progress.claudeChecked && readiness.claudeReady),
   ].filter(Boolean).length
-}
-
-function readOnboardingProgress(): OnboardingProgress {
-  if (typeof window === "undefined") return EMPTY_ONBOARDING_PROGRESS
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(ONBOARDING_PROGRESS_STORAGE_KEY) ?? "{}") as Partial<OnboardingProgress>
-    return {
-      nameConfirmed: parsed.nameConfirmed === true,
-      codexChecked: parsed.codexChecked === true,
-      claudeChecked: parsed.claudeChecked === true,
-    }
-  } catch {
-    return EMPTY_ONBOARDING_PROGRESS
-  }
-}
-
-function saveOnboardingProgress(progress: OnboardingProgress) {
-  window.localStorage.setItem(ONBOARDING_PROGRESS_STORAGE_KEY, JSON.stringify(progress))
 }
 
 function OnboardingStep({
@@ -1296,124 +1105,28 @@ export function OnboardingProviderStatusDetails({
 }
 
 export function WelcomeChecklist({ state }: { state: StillOnState }) {
-  const currentMachineName = state.machineName ?? ""
-  const isMachineNameReady = Boolean(state.appSettings)
-  const [machineNameDraft, setMachineNameDraft] = useState(currentMachineName)
-  const [isSavingName, setIsSavingName] = useState(false)
-  const [nameError, setNameError] = useState<string | null>(null)
-  const [codexReady, setCodexReady] = useState(false)
-  const [claudeReady, setClaudeReady] = useState(false)
-  const [progress, setProgress] = useState<OnboardingProgress>(readOnboardingProgress)
-
-  useEffect(() => {
-    setMachineNameDraft(currentMachineName)
-  }, [currentMachineName])
-
+  const navigate = useNavigate()
   const localServiceReady = state.connectionStatus === "connected" && state.localProjectsReady
-  const codexConnected = progress.codexChecked && codexReady
-  const claudeConnected = progress.claudeChecked && claudeReady
-  const completedSteps = getOnboardingCompletedTaskCount(progress, { localServiceReady, codexReady, claudeReady })
-
-  function updateProgress(patch: Partial<OnboardingProgress>) {
-    const next = { ...progress, ...patch }
-    setProgress(next)
-    saveOnboardingProgress(next)
-  }
-
-  async function saveMachineName() {
-    if (!isMachineNameReady) {
-      setNameError("Still loading this machine's saved name.")
-      return
-    }
-
-    const nextName = machineNameDraft.trim()
-    if (!nextName) {
-      setNameError("Enter a name for this machine before continuing.")
-      return
-    }
-
-    setIsSavingName(true)
-    setNameError(null)
-    try {
-      await state.handleWriteAppSettings({ machineName: nextName })
-      updateProgress({ nameConfirmed: true })
-    } catch (error) {
-      setNameError(error instanceof Error ? error.message : "Unable to save the machine name.")
-    } finally {
-      setIsSavingName(false)
-    }
-  }
-
-
-  return (
-    <div className="mx-auto w-full max-w-4xl pb-16">
-      <header className="rounded-xl border border-border bg-card px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 shrink-0 text-logo" aria-hidden="true" />
-          <h1 className="min-w-0 flex-1 text-base font-semibold text-foreground">Set up {APP_NAME}</h1>
-          <span className="shrink-0 text-xs text-muted-foreground" aria-live="polite">{completedSteps} of {ONBOARDING_TASK_COUNT} ready</span>
+  return <div className="mx-auto w-full max-w-4xl pb-16">
+    <header className="rounded-xl border border-border bg-card px-4 py-3">
+      <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 shrink-0 text-logo" aria-hidden="true" /><h1 className="text-base font-semibold">Set up {APP_NAME}</h1></div>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer, confirm the connection and set up one Agent.</p>
+    </header>
+    <div className="mt-5 space-y-4">
+      <OnboardingStep number={1} title="Name this machine" description="This label appears in the sidebar and browser tab so you can identify the computer when connecting remotely." complete={Boolean(state.appSettings?.machineName)}>
+        <Link className="text-sm underline" to="/settings/about">Open About</Link>
+      </OnboardingStep>
+      <OnboardingStep number={2} title="Confirm the local StillOn service" description="The app checks the active local connection. Remote access can be configured later, after this local setup is working." complete={localServiceReady}>
+        <div className={cn("flex items-center gap-2 text-sm", localServiceReady ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")}>
+          {localServiceReady ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}<span>{localServiceReady ? "StillOn is connected locally." : "Waiting for a local StillOn connection…"}</span>
         </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer, confirm the connection and set up one Agent.</p>
-      </header>
-
-      <div className="mt-5 space-y-4">
-        <OnboardingStep
-          number={1}
-          title="Name this machine"
-          description="This label appears in the sidebar and browser tab so you can identify the computer when connecting remotely."
-          complete={progress.nameConfirmed}
-        >
-          <label htmlFor="onboarding-machine-name" className="text-sm font-medium text-foreground">Machine name</label>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <Input
-              id="onboarding-machine-name"
-              value={machineNameDraft}
-              onChange={(event) => setMachineNameDraft(event.target.value)}
-              maxLength={80}
-              disabled={!isMachineNameReady || isSavingName}
-              className="min-h-11 flex-1"
-              aria-describedby={nameError ? "onboarding-machine-name-error" : "onboarding-machine-name-help"}
-            />
-            <Button type="button" onClick={() => { void saveMachineName() }} disabled={!isMachineNameReady || isSavingName} className="min-h-11 shrink-0">
-              {isSavingName ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-              Save name
-            </Button>
-          </div>
-          <p id="onboarding-machine-name-help" className="mt-2 text-xs leading-5 text-muted-foreground">
-            {isMachineNameReady ? "You can change it later in Settings → General." : "Loading this machine's saved name…"}
-          </p>
-          {nameError ? <p id="onboarding-machine-name-error" role="alert" className="mt-2 text-sm text-destructive">{nameError}</p> : null}
-        </OnboardingStep>
-
-        <OnboardingStep
-          number={2}
-          title="Confirm the local StillOn service"
-          description="The app checks the active local connection. Remote access can be configured later, after this local setup is working."
-          complete={localServiceReady}
-        >
-          <div className={cn("flex items-center gap-2 text-sm", localServiceReady ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")}>
-            {localServiceReady ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <Circle className="h-4 w-4" aria-hidden="true" />}
-            <span>{localServiceReady ? "StillOn is connected locally." : "Waiting for a local StillOn connection…"}</span>
-          </div>
-        </OnboardingStep>
-
-        <OnboardingStep
-          number={3}
-          title="Set up your Agent"
-          description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn."
-          complete={codexConnected || claudeConnected}
-        >
-          <AgentSetupPanel machineName={currentMachineName} initialProvider={state.appSettings?.defaultProvider === "claude" ? "claude" : "codex"}
-            onStatus={(provider, ready) => provider === "codex" ? setCodexReady(ready) : setClaudeReady(ready)}
-            onUse={async provider => {
-              await state.handleWriteAppSettings({ defaultProvider: provider })
-              updateProgress(provider === "codex" ? { codexChecked: true } : { claudeChecked: true })
-            }} />
-        </OnboardingStep>
-
-      </div>
+      </OnboardingStep>
+      <OnboardingStep number={3} title="Set up your Agent" description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn." complete={false}>
+        <Link className="text-sm underline" to="/settings/providers">Open Providers</Link>
+      </OnboardingStep>
+      <Button onClick={() => { finishSetup(); navigate(settingsLandingPath(), { replace: true }) }}>Finish setup</Button>
     </div>
-  )
+  </div>
 }
 
 function SubscriptionUsageProviderBlock({
@@ -1963,23 +1676,19 @@ export function SettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
   const state = useOutletContext<StillOnState>()
-  const { theme, setTheme } = useTheme()
   const [changelogStatus, setChangelogStatus] = useState<ChangelogStatus>("idle")
   const [signingOut, setSigningOut] = useState(false)
   const [authEnabled, setAuthEnabled] = useState(false)
   const [releases, setReleases] = useState<GithubRelease[]>([])
   const [changelogError, setChangelogError] = useState<string | null>(null)
-  const selectedPage = resolveSettingsSectionId(sectionId) ?? "general"
+  const setupComplete = useSetupComplete()
+  const visibleSidebarItems = sidebarItems.filter(item => item.id !== "welcome" || !setupComplete)
+  const [providerTab, setProviderTab] = useState<AgentProvider>("codex")
+  const selectedPage = resolveSettingsSectionId(sectionId) ?? (setupComplete ? "network" : "welcome")
   const isConnecting = state.connectionStatus === "connecting" || !state.localProjectsReady
   const appSettings = state.appSettings
   const confirmedMachineName = appSettings?.machineName ?? state.machineName
-  const machineName = confirmedMachineName ?? "Loading saved name…"
-  const projectCount = state.localProjects?.projects.length ?? 0
   const appVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
-  const scrollbackLines = useTerminalPreferencesStore((store) => store.scrollbackLines)
-  const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
-  const setScrollbackLines = useTerminalPreferencesStore((store) => store.setScrollbackLines)
-  const setMinColumnWidth = useTerminalPreferencesStore((store) => store.setMinColumnWidth)
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const setChatSoundPreference = useChatSoundPreferencesStore((store) => store.setChatSoundPreference)
@@ -1994,15 +1703,13 @@ export function SettingsPage() {
   const setProviderDefaultPermissionMode = useChatPreferencesStore((store) => store.setProviderDefaultPermissionMode)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
-  const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
-  const [minColumnWidthDraft, setMinColumnWidthDraft] = useState(String(minColumnWidth))
   const [machineNameDraft, setMachineNameDraft] = useState("")
   const [isSavingMachineName, setIsSavingMachineName] = useState(false)
   const [machineNameError, setMachineNameError] = useState<string | null>(null)
   const [machineNameNotice, setMachineNameNotice] = useState<string | null>(null)
   const lastConfirmedMachineNameRef = useRef<string | null>(null)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
-  const [commandsTab, setCommandsTab] = useState<"prompts" | "shortcuts">(sectionId === "keybindings" ? "shortcuts" : "prompts")
+  const [commandsTab, setCommandsTab] = useState<"skills" | "prompts" | "shortcuts">(sectionId === "keybindings" ? "shortcuts" : sectionId === "quick-commands" ? "prompts" : "skills")
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null)
   const [subscriptionUsage, setSubscriptionUsage] = useState<SubscriptionUsageSnapshot | null>(null)
@@ -2044,15 +1751,6 @@ export function SettingsPage() {
   }
 
   useEffect(() => {
-    setScrollbackDraft(String(scrollbackLines))
-  }, [scrollbackLines])
-
-  useEffect(() => {
-    setMinColumnWidthDraft(String(minColumnWidth))
-  }, [minColumnWidth])
-
-
-  useEffect(() => {
     if (!confirmedMachineName) return
 
     setMachineNameDraft((draft) => (
@@ -2088,10 +1786,14 @@ export function SettingsPage() {
   }, [llmProviderDraft.provider, llmProviderDraft.apiKey, llmProviderDraft.model, llmProviderDraft.baseUrl])
 
   useEffect(() => {
-    if (!sectionId) return
-    if (resolveSettingsSectionId(sectionId)) return
-    navigate("/settings/general", { replace: true })
-  }, [navigate, sectionId])
+    if (!sectionId || !resolveSettingsSectionId(sectionId) || (selectedPage === "welcome" && setupComplete)) {
+      navigate(settingsLandingPath(), { replace: true })
+      return
+    }
+    if (sectionId === "keybindings") setCommandsTab("shortcuts")
+    if (sectionId === "quick-commands") setCommandsTab("prompts")
+    rememberSettingsSection(selectedPage)
+  }, [navigate, sectionId, selectedPage, setupComplete])
 
   useEffect(() => {
     let cancelled = false
@@ -2132,7 +1834,7 @@ export function SettingsPage() {
   }, [isConnecting, selectedPage, state.connectionStatus, state.socket])
 
   useEffect(() => {
-    if (selectedPage !== "changelog" || isConnecting) return
+    if (selectedPage !== "about" || isConnecting) return
 
     let cancelled = false
     setChangelogStatus("loading")
@@ -2154,36 +1856,6 @@ export function SettingsPage() {
       cancelled = true
     }
   }, [isConnecting, selectedPage])
-
-  function commitScrollback() {
-    const nextValue = Number(scrollbackDraft)
-    if (!Number.isFinite(nextValue)) {
-      setScrollbackDraft(String(scrollbackLines))
-      return
-    }
-    setScrollbackLines(nextValue)
-    void handleWriteAppSettings({ terminal: { scrollbackLines: nextValue } }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save terminal settings.")
-    })
-  }
-
-  function commitMinColumnWidth() {
-    const nextValue = Number(minColumnWidthDraft)
-    if (!Number.isFinite(nextValue)) {
-      setMinColumnWidthDraft(String(minColumnWidth))
-      return
-    }
-    setMinColumnWidth(nextValue)
-    void handleWriteAppSettings({ terminal: { minColumnWidth: nextValue } }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save terminal settings.")
-    })
-  }
-
-  function handleNumberInputKeyDown(event: KeyboardEvent<HTMLInputElement>, commit: () => void) {
-    if (event.key !== "Enter") return
-    commit()
-    event.currentTarget.blur()
-  }
 
   function handleTextInputKeyDown(event: KeyboardEvent<HTMLInputElement>, commit: () => void) {
     if (event.key !== "Enter") return
@@ -2244,13 +1916,6 @@ export function SettingsPage() {
       event.preventDefault()
       void saveMachineName()
     }
-  }
-
-  function handleThemeChange(nextTheme: typeof theme) {
-    setTheme(nextTheme)
-    void handleWriteAppSettings({ theme: nextTheme }).catch((error) => {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save theme settings.")
-    })
   }
 
   function handleChatSoundPreferenceChange(nextValue: ChatSoundPreference) {
@@ -2402,10 +2067,9 @@ export function SettingsPage() {
 
   const selectedSection = sidebarItems.find((item) => item.id === selectedPage) ?? sidebarItems[0]
   const selectedSectionSubtitle =
-    selectedPage === "quick-commands" && commandsTab === "shortcuts"
+    selectedPage === "skills" && commandsTab === "shortcuts"
       ? getKeybindingsSubtitle(keybindingsFilePathDisplay)
       : selectedSection.subtitle
-  const showFooter = !isConnecting
   const llmValidationErrorText = llmValidationError ? JSON.stringify(llmValidationError, null, 2) : ""
   const llmValidationDescription = (
     <>
@@ -2457,13 +2121,13 @@ export function SettingsPage() {
 
   return (
     <div data-stillon-part="page" className="relative flex h-full flex-1 min-w-0 bg-background">
-      <div className={cn("flex min-w-0 flex-1", showFooter && "pb-[89px]")}>
-        <aside className={`hidden w-[200px] shrink-0 md:block ${showFooter ? "pb-[89px]" : ""}`}>
+      <div className="flex min-w-0 flex-1">
+        <aside className="hidden w-[200px] shrink-0 md:block">
           <div className="flex flex-col gap-1 px-4 py-6">
             <div className="px-3 pb-5 text-[22px] font-extrabold tracking-[-0.5px] text-foreground">
               Settings
             </div>
-            {sidebarItems.map((item) => (
+            {visibleSidebarItems.map((item) => (
               <button
                 key={item.label}
                 type="button"
@@ -2513,7 +2177,7 @@ export function SettingsPage() {
                   <Menu className="h-4 w-4 shrink-0" />
                 </button>
                 </div>
-                {sidebarItems.map((item) => (
+                {visibleSidebarItems.map((item) => (
                   <button
                     key={item.label}
                     type="button"
@@ -2565,7 +2229,7 @@ export function SettingsPage() {
                     <div className="text-lg font-semibold tracking-[-0.2px] text-foreground">
                       {selectedSection.label}
                     </div>
-                    {selectedPage === "quick-commands" && commandsTab === "shortcuts" ? (
+                    {selectedPage === "skills" && commandsTab === "shortcuts" ? (
                       <SettingsHeaderButton
                         onClick={() => {
                           if (canOpenTranscriptFilesOnHost(window.location.hostname)) void state.handleOpenExternalPath("open_default", keybindingsFilePathDisplay)
@@ -2589,40 +2253,333 @@ export function SettingsPage() {
                         Refresh
                       </SettingsHeaderButton>
                     ) : null}
-                    {selectedPage === "changelog" ? (
-                      <SettingsHeaderButton
-                        onClick={retryChangelog}
-                        disabled={changelogStatus === "loading"}
-                        icon={changelogStatus === "loading"
-                          ? <Loader2 className="h-4 w-4 animate-spin" />
-                          : <RefreshCw className="h-4 w-4" />}
-                      >
-                        {changelogStatus === "loading" ? "Checking…" : "Check releases"}
-                      </SettingsHeaderButton>
-                    ) : null}
+
                   </div>
                   <div className="mt-1 text-sm text-muted-foreground">
                     {selectedSectionSubtitle}
                   </div>
                 </div>
 
+                {appSettingsError || appSettings?.warning ? <div role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{appSettingsError ?? appSettings?.warning}</div> : null}
                 {selectedPage === "welcome" ? (
                   <WelcomeChecklist state={state} />
                 ) : selectedPage === "appearance" ? (
-                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} sidebarWidth={state.sidebarWidth} onSaveSidebarWidth={state.setSidebarWidth} />
-                ) : selectedPage === "general" ? (
+                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings}>
+                    <section className="rounded-2xl border border-border p-5"><h2 className="text-sm font-semibold">Sound</h2>
+                      <SettingsRow
+                        bordered={false}
+                        title="Notification Sounds"
+                        description="Play a pop when a chat starts waiting on you or the unread chat count increases"
+                      >
+                        <Select
+                          value={chatSoundPreference}
+                          onValueChange={(value) => handleChatSoundPreferenceChange(value as ChatSoundPreference)}
+                        >
+                          <SelectTrigger className="min-w-[180px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {chatSoundPreferenceOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </SettingsRow>
+
+                      <SettingsRow
+                        bordered={false}
+                        title="Sound Effect"
+                        description="The bundled sound used for chat notification playback and previews"
+                      >
+                        <Select
+                          value={chatSoundId}
+                          onValueChange={(value) => handleChatSoundIdChange(value as ChatSoundId)}
+                        >
+                          <SelectTrigger className="min-w-[180px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {CHAT_SOUND_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </SettingsRow>
+
+                    </section>
+                  </AppearanceSettingsPanel>
+                ) : selectedPage === "remote" ? (
+                  <RemoteAccessSettings onSignOut={state.handleSignOut} />
+                ) : selectedPage === "network" ? (
+                  <NetworkSettingsSection state={state} />
+                ) : selectedPage === "providers" ? (
+                  <div className="border-b border-border">
+                    <SettingsRow
+                      title="Default Provider"
+                      description="The default harness for new chats. Last Used remembers the harness; new chats always use its defaults below."
+                      bordered={false}
+                    >
+                      <Select
+                        value={defaultProvider}
+                        onValueChange={(value) => handleDefaultProviderChange(value as "last_used" | AgentProvider)}
+                      >
+                        <SelectTrigger className="min-w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="last_used">
+                              Last Used
+                            </SelectItem>
+                            {PROVIDERS.map((provider) => (
+                              <SelectItem key={provider.id} value={provider.id}>
+                                {provider.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </SettingsRow>
+
+                    <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} /></div>
+                    <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
+                      machineName={confirmedMachineName} cliActions={<ProviderCliUpdatesPanel provider={providerTab} compact />}
+                      onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
+                    {providerTab === "claude" ? <>
+                    <SettingsRow
+                      title="Claude Code Defaults"
+                      description="Saved defaults when using Claude Code."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={state.availableProviders}
+                          selectedProvider="claude"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.claude.model}
+                          modelOptions={providerDefaults.claude.modelOptions}
+                          onModelChange={(_, model) => {
+                            handleProviderDefaultModelChange("claude", model)
+                          }}
+                          onModelOptionChange={(change) => {
+                            if (change.type === "claudeReasoningEffort") {
+                              handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
+                            } else if (change.type === "contextWindow") {
+                              handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
+                            }
+                          }}
+                          permissionMode={providerDefaults.claude.permissionMode}
+                          onPermissionModeChange={handleProviderDefaultPermissionModeChange}
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+
+                    <SettingsRow title="Claude Code Model Configuration" description="Fetch available models or add a model ID, choose which to enable, and confirm changes." stacked>
+                      <ClaudeModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
+                    </SettingsRow>
+
+                    </> : <>
+                    <SettingsRow
+                      title="Codex Defaults"
+                      description="Saved defaults when using Codex."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={state.availableProviders}
+                          selectedProvider="codex"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.codex.model}
+                          modelOptions={providerDefaults.codex.modelOptions}
+                          onModelChange={(_, model) => {
+                            handleProviderDefaultModelChange("codex", model)
+                          }}
+                          onModelOptionChange={(change) => {
+                            if (change.type === "codexReasoningEffort") {
+                              handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
+                            } else if (change.type === "fastMode") {
+                              handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
+                            }
+                          }}
+                          permissionMode={providerDefaults.codex.permissionMode}
+                          onPermissionModeChange={handleProviderDefaultPermissionModeChange}
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+
+                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." stacked>
+                      <CodexModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Codex Execution Mode"
+                      description="Choose how new Codex chats run. Existing Codex chats keep the mode they started with."
+                    >
+                      <Select
+                        value={appSettings?.codexTransport ?? "app-server"}
+                        onValueChange={(value) => handleCodexTransportChange(value as CodexTransport)}
+                      >
+                        <SelectTrigger className="min-w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="exec">Exec</SelectItem>
+                            <SelectItem value="app-server">App Server</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </SettingsRow>
+
+                    </>}
+                    <SettingsRow
+                      title="Quick Response SDK"
+                      description={llmValidationDescription}
+                      alignStart
+                    >
+                      <div className="flex w-full max-w-[420px] flex-col gap-3">
+                        {llmProviderError ? (
+                          <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                            {llmProviderError}
+                          </div>
+                        ) : null}
+                        {llmProvider?.warning ? (
+                          <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
+                            {llmProvider.warning}
+                          </div>
+                        ) : null}
+                        <Select value={llmProviderDraft.provider} onValueChange={(value) => handleLlmProviderSelection(value as LlmProviderKind)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {QUICK_RESPONSE_PROVIDER_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        {llmProviderDraft.provider === "custom" ? (
+                          <Input
+                            value={llmProviderDraft.baseUrl}
+                            onChange={(event) => setLlmProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))}
+                            onBlur={() => void commitLlmProvider()}
+                            onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
+                            placeholder="https://your-provider.example/v1"
+                          />
+                        ) : null}
+                        <Input
+                          type="password"
+                          value={llmProviderDraft.apiKey}
+                          onChange={(event) => setLlmProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                          onBlur={() => void commitLlmProvider()}
+                          onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
+                          placeholder="API key"
+                        />
+                        <Input
+                          value={llmProviderDraft.model}
+                          onChange={(event) => setLlmProviderDraft((current) => ({ ...current, model: event.target.value }))}
+                          onBlur={() => void commitLlmProvider()}
+                          onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
+                          placeholder="Model id"
+                        />
+                      </div>
+                    </SettingsRow>
+                  </div>
+                ) : selectedPage === "usage" ? (
+                  <SubscriptionUsageSection
+                    snapshot={subscriptionUsage}
+                    status={subscriptionUsageStatus}
+                    error={subscriptionUsageError}
+                    onRetry={() => {
+                      void readSubscriptionUsage()
+                    }}
+                  />
+                ) : selectedPage === "skills" ? (
+                  <div className="space-y-5">
+                    <SegmentedControl value={commandsTab} onValueChange={setCommandsTab} options={[{ value: "skills", label: "Skills" }, { value: "prompts", label: "Preset Prompts" }, { value: "shortcuts", label: "Keyboard Shortcuts" }]} />
+                    {commandsTab === "skills" ? <SkillsSection state={state} /> : commandsTab === "prompts" ? <QuickCommandsEditor global commands={normalizeQuickCommands(appSettings?.quickCommands).global} disabled={!appSettings || state.connectionStatus !== "connected"} onSave={global => state.handleWriteAppSettings({ quickCommands: { global } })} /> : <div className="border-b border-border">
+                    {keybindingsError ? (
+                      <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                        {keybindingsError}
+                      </div>
+                    ) : null}
+                    {resolvedKeybindings.warning ? (
+                      <div className="mb-4 rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
+                        {resolvedKeybindings.warning}
+                      </div>
+                    ) : null}
+                    {KEYBINDING_ACTIONS.map((action, index) => {
+                      const defaultValue = formatKeybindingInput(DEFAULT_KEYBINDINGS[action])
+                      const currentValue = keybindingDrafts[action] ?? ""
+                      const showRestore = currentValue !== defaultValue
+
+                      return (
+                        <SettingsRow
+                          key={action}
+                          title={KEYBINDING_ACTION_LABELS[action]}
+
+                          description={(
+                            <>
+                              <span>Comma-separated shortcuts.</span>
+                              {showRestore ? (
+                                <>
+                                  <span> </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void restoreDefaultKeybinding(action)
+                                    }}
+                                    className="inline rounded text-foreground hover:text-foreground/80"
+                                  >
+                                    Restore: {defaultValue}
+                                  </button>
+                                </>
+                              ) : null}
+                            </>
+                          )}
+                          bordered={index !== 0}
+
+                        >
+                          <div className="flex min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
+                            <Input
+                              type="text"
+                              value={currentValue}
+                              onChange={(event) => {
+                                const nextValue = event.target.value
+                                setKeybindingDrafts((current) => ({ ...current, [action]: nextValue }))
+                              }}
+                              onBlur={() => {
+                                void commitKeybindings()
+                              }}
+                              onKeyDown={(event) => handleTextInputKeyDown(event, () => {
+                                void commitKeybindings()
+                              })}
+                              className="font-mono"
+                            />
+                          </div>
+                        </SettingsRow>
+                      )
+                    })}
+                  </div>}
+                  </div>
+                ) : (
                   <>
-                    {appSettingsError ? (
-                      <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                        {appSettingsError}
-                      </div>
-                    ) : null}
-                    {appSettings?.warning ? (
-                      <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                        {appSettings.warning}
-                      </div>
-                    ) : null}
-                    <div className="border-b border-border">
                       <SettingsRow
                         title="Machine Name"
                         description="This is the confirmed identity shown in the sidebar and browser tab when you control this computer remotely."
@@ -2697,391 +2654,20 @@ export function SettingsPage() {
                         </div>
                       </SettingsRow>
 
-                      <SettingsRow
-                        title="Theme"
-                        description="Choose between light, dark, or system appearance"
-                      >
-                        <SegmentedControl
-                          value={theme}
-                          onValueChange={handleThemeChange}
-                          options={themeOptions}
-                          size="sm"
-                        />
-                      </SettingsRow>
-
-                      <SettingsRow
-                        title="Chat Sounds"
-                        description="Play a pop when a chat starts waiting on you or the unread chat count increases"
-                      >
-                        <Select
-                          value={chatSoundPreference}
-                          onValueChange={(value) => handleChatSoundPreferenceChange(value as ChatSoundPreference)}
-                        >
-                          <SelectTrigger className="min-w-[180px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {chatSoundPreferenceOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </SettingsRow>
-
-                      <SettingsRow
-                        title="Chat Sound"
-                        description="The bundled sound used for chat notification playback and previews"
-                      >
-                        <Select
-                          value={chatSoundId}
-                          onValueChange={(value) => handleChatSoundIdChange(value as ChatSoundId)}
-                        >
-                          <SelectTrigger className="min-w-[180px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {CHAT_SOUND_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </SettingsRow>
-
-                      <SettingsRow
-                        title="Terminal Scrollback"
-                        description="Lines retained for embedded terminal history"
-                      >
-                        <div className="flex w-full min-w-0 flex-col items-stretch gap-2 md:w-auto md:items-end">
-                          <Input
-                            type="number"
-                            min={MIN_TERMINAL_SCROLLBACK}
-                            max={MAX_TERMINAL_SCROLLBACK}
-                            step={100}
-                            value={scrollbackDraft}
-                            onChange={(event) => setScrollbackDraft(event.target.value)}
-                            onBlur={commitScrollback}
-                            onKeyDown={(event) => handleNumberInputKeyDown(event, commitScrollback)}
-                            className="hide-number-steppers w-full text-left font-mono md:w-28 md:text-right"
-                          />
-                          <div className="text-left text-xs text-muted-foreground md:text-right">
-                            {MIN_TERMINAL_SCROLLBACK}-{MAX_TERMINAL_SCROLLBACK} lines
-                            {scrollbackLines === DEFAULT_TERMINAL_SCROLLBACK ? " (default)" : ""}
-                          </div>
-                        </div>
-                      </SettingsRow>
-
-                      <SettingsRow
-                        title="Terminal Min Column Width"
-                        description="Minimum width for each terminal pane"
-                      >
-                        <div className="flex w-full min-w-0 flex-col items-stretch gap-2 md:w-auto md:items-end">
-                          <Input
-                            type="number"
-                            min={MIN_TERMINAL_MIN_COLUMN_WIDTH}
-                            max={MAX_TERMINAL_MIN_COLUMN_WIDTH}
-                            step={10}
-                            value={minColumnWidthDraft}
-                            onChange={(event) => setMinColumnWidthDraft(event.target.value)}
-                            onBlur={commitMinColumnWidth}
-                            onKeyDown={(event) => handleNumberInputKeyDown(event, commitMinColumnWidth)}
-                            className="hide-number-steppers w-full text-left font-mono md:w-28 md:text-right"
-                          />
-                          <div className="text-left text-xs text-muted-foreground md:text-right">
-                            {MIN_TERMINAL_MIN_COLUMN_WIDTH}-{MAX_TERMINAL_MIN_COLUMN_WIDTH} px
-                            {minColumnWidth === DEFAULT_TERMINAL_MIN_COLUMN_WIDTH ? " (default)" : ""}
-                          </div>
-                        </div>
-                      </SettingsRow>
-
+                    <div className="flex items-center justify-between gap-4 border-t border-border py-5">
+                      <div><div className="text-sm font-medium">App Version</div><p className="mt-1 text-[13px] text-muted-foreground">{RELEASE_EDITION} Version {appVersion}</p></div>
+                      <SettingsHeaderButton onClick={retryChangelog} disabled={changelogStatus === "loading"} icon={<RefreshCw className={cn("h-4 w-4", changelogStatus === "loading" && "animate-spin")} />}>Check for Updates</SettingsHeaderButton>
                     </div>
-                  </>
-                ) : selectedPage === "remote" ? (
-                  <RemoteAccessSettings onSignOut={state.handleSignOut} />
-                ) : selectedPage === "network" ? (
-                  <NetworkSettingsSection state={state} />
-                ) : selectedPage === "providers" ? (
-                  <div className="border-b border-border">
-                    <SettingsRow
-                      title="Default Provider"
-                      description="The default harness for new chats. Last Used remembers the harness; new chats always use its defaults below."
-                      bordered={false}
-                    >
-                      <Select
-                        value={defaultProvider}
-                        onValueChange={(value) => handleDefaultProviderChange(value as "last_used" | AgentProvider)}
-                      >
-                        <SelectTrigger className="min-w-[180px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="last_used">
-                              Last Used
-                            </SelectItem>
-                            {PROVIDERS.map((provider) => (
-                              <SelectItem key={provider.id} value={provider.id}>
-                                {provider.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="CLI updates"
-                      description="Choose when to update your installed providers."
-                      stacked
-                    >
-                      <ProviderCliUpdatesPanel />
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Claude Code Defaults"
-                      description="Saved defaults when using Claude Code."
-                      alignStart
-                    >
-                      <div className="max-w-[420px]">
-                        <ChatPreferenceControls
-                          availableProviders={state.availableProviders}
-                          selectedProvider="claude"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.claude.model}
-                          modelOptions={providerDefaults.claude.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("claude", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "claudeReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
-                            } else if (change.type === "contextWindow") {
-                              handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
-                            }
-                          }}
-                          permissionMode={providerDefaults.claude.permissionMode}
-                          onPermissionModeChange={handleProviderDefaultPermissionModeChange}
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Codex Defaults"
-                      description="Saved defaults when using Codex."
-                      alignStart
-                    >
-                      <div className="max-w-[420px]">
-                        <ChatPreferenceControls
-                          availableProviders={state.availableProviders}
-                          selectedProvider="codex"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.codex.model}
-                          modelOptions={providerDefaults.codex.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("codex", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "codexReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
-                            } else if (change.type === "fastMode") {
-                              handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
-                            }
-                          }}
-                          permissionMode={providerDefaults.codex.permissionMode}
-                          onPermissionModeChange={handleProviderDefaultPermissionModeChange}
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow title="Claude Code Model Configuration" description="Fetch available models or add a model ID, choose which to enable, and confirm changes." stacked>
-                      <ClaudeModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
-                    </SettingsRow>
-
-                    <SettingsRow title="Codex Model Configuration" description="Fetch available models, choose which to enable, and confirm changes." stacked>
-                      <CodexModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Codex Execution Mode"
-                      description="Choose how new Codex chats run. Existing Codex chats keep the mode they started with."
-                    >
-                      <Select
-                        value={appSettings?.codexTransport ?? "app-server"}
-                        onValueChange={(value) => handleCodexTransportChange(value as CodexTransport)}
-                      >
-                        <SelectTrigger className="min-w-[180px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="exec">Exec</SelectItem>
-                            <SelectItem value="app-server">App Server</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Quick Response SDK"
-                      description={llmValidationDescription}
-                      alignStart
-                    >
-                      <div className="flex w-full max-w-[420px] flex-col gap-3">
-                        {llmProviderError ? (
-                          <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                            {llmProviderError}
-                          </div>
-                        ) : null}
-                        {llmProvider?.warning ? (
-                          <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
-                            {llmProvider.warning}
-                          </div>
-                        ) : null}
-                        <Select value={llmProviderDraft.provider} onValueChange={(value) => handleLlmProviderSelection(value as LlmProviderKind)}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {QUICK_RESPONSE_PROVIDER_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        {llmProviderDraft.provider === "custom" ? (
-                          <Input
-                            value={llmProviderDraft.baseUrl}
-                            onChange={(event) => setLlmProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))}
-                            onBlur={() => void commitLlmProvider()}
-                            onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
-                            placeholder="https://your-provider.example/v1"
-                          />
-                        ) : null}
-                        <Input
-                          type="password"
-                          value={llmProviderDraft.apiKey}
-                          onChange={(event) => setLlmProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
-                          onBlur={() => void commitLlmProvider()}
-                          onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
-                          placeholder="API key"
-                        />
-                        <Input
-                          value={llmProviderDraft.model}
-                          onChange={(event) => setLlmProviderDraft((current) => ({ ...current, model: event.target.value }))}
-                          onBlur={() => void commitLlmProvider()}
-                          onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
-                          placeholder="Model id"
-                        />
-                      </div>
-                    </SettingsRow>
-                  </div>
-                ) : selectedPage === "usage" ? (
-                  <SubscriptionUsageSection
-                    snapshot={subscriptionUsage}
-                    status={subscriptionUsageStatus}
-                    error={subscriptionUsageError}
-                    onRetry={() => {
-                      void readSubscriptionUsage()
-                    }}
-                  />
-                ) : selectedPage === "quick-commands" ? (
-                  <div className="space-y-5">
-                    <SegmentedControl value={commandsTab} onValueChange={setCommandsTab} options={[{ value: "prompts", label: "Prompts" }, { value: "shortcuts", label: "Keyboard Shortcuts" }]} />
-                    {commandsTab === "prompts" ? <QuickCommandsEditor global commands={normalizeQuickCommands(appSettings?.quickCommands).global} disabled={!appSettings || state.connectionStatus !== "connected"} onSave={global => state.handleWriteAppSettings({ quickCommands: { global } })} /> : <div className="border-b border-border">
-                    {keybindingsError ? (
-                      <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                        {keybindingsError}
-                      </div>
-                    ) : null}
-                    {resolvedKeybindings.warning ? (
-                      <div className="mb-4 rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
-                        {resolvedKeybindings.warning}
-                      </div>
-                    ) : null}
-                    {KEYBINDING_ACTIONS.map((action, index) => {
-                      const defaultValue = formatKeybindingInput(DEFAULT_KEYBINDINGS[action])
-                      const currentValue = keybindingDrafts[action] ?? ""
-                      const showRestore = currentValue !== defaultValue
-
-                      return (
-                        <SettingsRow
-                          key={action}
-                          title={KEYBINDING_ACTION_LABELS[action]}
-
-                          description={(
-                            <>
-                              <span>Comma-separated shortcuts.</span>
-                              {showRestore ? (
-                                <>
-                                  <span> </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void restoreDefaultKeybinding(action)
-                                    }}
-                                    className="inline rounded text-foreground hover:text-foreground/80"
-                                  >
-                                    Restore: {defaultValue}
-                                  </button>
-                                </>
-                              ) : null}
-                            </>
-                          )}
-                          bordered={index !== 0}
-
-                        >
-                          <div className="flex min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
-                            <Input
-                              type="text"
-                              value={currentValue}
-                              onChange={(event) => {
-                                const nextValue = event.target.value
-                                setKeybindingDrafts((current) => ({ ...current, [action]: nextValue }))
-                              }}
-                              onBlur={() => {
-                                void commitKeybindings()
-                              }}
-                              onKeyDown={(event) => handleTextInputKeyDown(event, () => {
-                                void commitKeybindings()
-                              })}
-                              className="font-mono"
-                            />
-                          </div>
-                        </SettingsRow>
-                      )
-                    })}
-                  </div>}
-                  </div>
-                ) : selectedPage === "skills" ? (
-                  <SkillsSection state={state} />
-                ) : (
+                    <h2 className="py-5 text-base font-semibold">Release notes</h2>
                   <ChangelogSection
                     status={changelogStatus}
                     releases={releases}
                     error={changelogError}
                     onRetry={retryChangelog}
                     currentVersion={appVersion}
-                    onReadManagedUpdate={() => state.socket.command<ManagedUpdateStatus>({ type: "settings.readManagedUpdateStatus" })}
-                    onRequestManagedUpdate={(targetTag, prepareOnly) => state.socket.command<ManagedUpdateStatus>({ type: "settings.requestManagedUpdate", targetTag, prepareOnly })}
-                    onGenerateUpgradePrompt={(release) => state.socket.command<SourceUpgradePromptResult>({
-                      type: "settings.generateSourceUpgradePrompt",
-                      targetTag: release.tag_name,
-                    })}
+
                   />
+                  </>
                 )}
               </div>
             )}
@@ -3097,32 +2683,6 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {showFooter ? (
-        <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background">
-          <div className="px-6 py-[14.25px]">
-            <div className="grid gap-3 text-xs text-muted-foreground grid-cols-2 lg:grid-cols-4">
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Machine</div>
-                <div className="text-foreground/80">{machineName}</div>
-              </div>
-              <div className="hidden md:block">
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Connection</div>
-                <div className="text-foreground/80">{state.connectionStatus}</div>
-              </div>
-              <div className="hidden md:block">
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Workspaces Indexed</div>
-                <div className="text-foreground/80">{projectCount}</div>
-              </div>
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">App Version</div>
-                <div className="text-foreground/80">
-                  {appVersion} <span className="text-muted-foreground">· {RELEASE_EDITION} Edition</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <Dialog open={llmValidationDialogOpen} onOpenChange={setLlmValidationDialogOpen}>
         <DialogContent size="lg">
           <DialogBody className="space-y-4">

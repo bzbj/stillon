@@ -1,8 +1,8 @@
-# Workspace Quick Commands
+# Workspace Preset Prompts
 
-The workspace menu starts with **Quick Commands**, followed by Rename, Change avatar, Copy Path, Show Archived and Hide. Desktop menus open a submenu on hover or with the keyboard. On narrow screens, clicking Quick Commands opens its list inside the same floating menu, with a Back action so both levels remain usable within the viewport.
+The workspace menu starts with **Preset Prompts**, followed by Rename, Change avatar, Copy Path, Show Archived and Hide. Desktop menus open a submenu on hover or with the keyboard. On narrow screens, clicking Preset Prompts opens its list inside the same floating menu, with a Back action so both levels remain usable within the viewport.
 
-Global commands appear first, workspace commands follow a subtle separator, and **Manage Workspace Commands…** opens a workspace-specific editor. The editor supports adding, editing, removing and reordering commands. Settings → Quick Commands contains **Prompts** and **Keyboard Shortcuts**; existing `/settings/keybindings` links still open the shortcut controls. Saving a prompt never executes it.
+Global commands appear first, workspace commands follow a subtle separator, and **Manage Workspace Prompts…** opens a workspace-specific editor. The editor supports adding, editing, removing and reordering commands. Settings → Skills & Prompts contains **Skills**, **Preset Prompts** and **Keyboard Shortcuts**; existing `/settings/keybindings` links still open the shortcut controls. Saving a prompt never executes it.
 
 The five editable defaults are Set Up Agent Workspace, Continue Work, Work Brief, Prepare Handoff and Organize Workspace. Work Brief requests a standalone HTML delivery. Setup and organization prompts preserve user files and storage habits, use root `agent.md` plus one support folder, and limit record updates to clearly agent-maintained material. These are editable prompt instructions and do not alter the selected agent's permissions.
 

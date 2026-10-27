@@ -14,8 +14,9 @@ async function request(provider: AgentProvider, token?: string, refresh = false)
   return body
 }
 
-function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; label: string }) {
+function ProviderCliUpdateRow({ provider, label, compact = false }: { provider: AgentProvider; label: string; compact?: boolean }) {
   const [status, setStatus] = useState<ProviderCliUpdateStatus | null>(null)
+  const [checked, setChecked] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const updating = status?.operation?.state === "updating"
@@ -35,7 +36,7 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
   }, [provider, updating])
 
   async function run(token?: string) {
-    setPending(true); setError(null)
+    setChecked(true); setPending(true); setError(null)
     try {
       if (token) {
         const operation = await request(provider, token)
@@ -45,17 +46,12 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
     finally { setPending(false) }
   }
 
-  return <div className="flex min-w-0 flex-col gap-2 py-4" aria-label={`${label} CLI updates`}>
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h3 className="text-sm font-medium">{label}</h3>
-        <p className="text-sm text-muted-foreground">{status ? status.currentVersion ? `Current version ${status.currentVersion} · ${status.installation}` : status.installation : "Checking installed CLI…"}</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={pending || updating} onClick={() => void run()}>Check for updates</Button>
-        {status?.repairToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.repairToken)}>Repair CLI · {status.repairVersion}</Button>}
-        {status?.updateAvailable && status.updateToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.updateToken)}>Update to {status.latest?.version}</Button>}
-      </div>
-    </div>
+  const actions = <>
+    <Button size="sm" variant="outline" disabled={pending || updating} onClick={() => void run()}>Check for updates</Button>
+    {status?.repairToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.repairToken)}>Repair CLI · {status.repairVersion}</Button>}
+    {status?.updateAvailable && status.updateToken && <Button size="sm" disabled={pending || updating} onClick={() => void run(status.updateToken)}>Update to {status.latest?.version}</Button>}
+  </>
+  const details = <>
     {status?.latest && <p className="text-xs text-muted-foreground">
       Latest release {status.latest.version} · {new Date(status.latest.publishedAt).toISOString().slice(0, 10)} · {" "}
       <a className="underline" href={status.latest.url} target="_blank" rel="noreferrer">Release notes</a>
@@ -68,10 +64,24 @@ function ProviderCliUpdateRow({ provider, label }: { provider: AgentProvider; la
       {updating && status.operation.startedAt && ` · Elapsed ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`}
     </p>}
     {(error || status?.releaseError) && <p role="alert" className="text-sm text-destructive">{error || status?.releaseError}</p>}
+  </>
+  if (compact) return <>
+    {actions}
+    {(checked || error || status?.operation || status?.releaseError || status?.repairToken) && <div className="w-full space-y-2" aria-label={`${label} CLI update status`}>
+      {status?.currentVersion && <p className="text-sm text-muted-foreground">Current version {status.currentVersion} · {status.installation}</p>}
+      {details}
+    </div>}
+  </>
+  return <div className="flex min-w-0 flex-col gap-2 py-4" aria-label={`${label} CLI updates`}>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><h3 className="text-sm font-medium">{label}</h3><p className="text-sm text-muted-foreground">{status ? status.currentVersion ? `Current version ${status.currentVersion} · ${status.installation}` : status.installation : "Checking installed CLI…"}</p></div>
+      <div className="flex flex-wrap gap-2">{actions}</div>
+    </div>{details}
   </div>
 }
 
-export function ProviderCliUpdatesPanel() {
+export function ProviderCliUpdatesPanel({ provider, compact = false }: { provider?: AgentProvider; compact?: boolean } = {}) {
+  if (provider) return <ProviderCliUpdateRow key={provider} provider={provider} label={provider === "codex" ? "Codex" : "Claude Code"} compact={compact} />
   return <section className="w-full min-w-0" aria-label="CLI updates">
     <p className="text-sm text-muted-foreground">StillOn checks releases and only updates when you choose. Updates use the existing installation. Finish agent work and close terminals first.</p>
     <div className="divide-y divide-border"><ProviderCliUpdateRow provider="codex" label="Codex" /><ProviderCliUpdateRow provider="claude" label="Claude Code" /></div>

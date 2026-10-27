@@ -28,14 +28,13 @@ function ColorField({ label, value, fallback, onChange }: { label: string; value
   </label>
 }
 
-export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSaveSidebarWidth }: {
+export function AppearanceSettingsPanel({ settings, onSave, children }: {
   settings: AppSettingsSnapshot | null
-  sidebarWidth: number
-  onSaveSidebarWidth: (width: number) => void
   onSave: (patch: AppSettingsPatch) => Promise<AppSettingsSnapshot>
+  children?: ReactNode
 }) {
   const { preview, safeMode, setPreview } = useAppearance()
-  const confirmed = useMemo(() => normalizeAppearance({ ...settings?.appearance, sidebarWidth }), [settings?.appearance, sidebarWidth])
+  const confirmed = useMemo(() => normalizeAppearance({ ...settings?.appearance, chatWidth: "comfortable" }), [settings?.appearance])
   const [draft, setDraft] = useState(confirmed)
   const [mode, setMode] = useState<AppThemePreference>(settings?.theme ?? "system")
   const [busy, setBusy] = useState(false)
@@ -59,16 +58,15 @@ export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSave
     if (preview) setPreview({ appearance: draft, theme: mode })
   }, [draft, mode])
 
-  function patch(value: Partial<AppearanceSettings>) { setDraft((current) => normalizeAppearance({ ...current, ...value })); setNotice(null); setError(null) }
+  function patch(value: Partial<AppearanceSettings>) { setDraft((current) => normalizeAppearance({ ...current, ...value, chatWidth: "comfortable" })); setNotice(null); setError(null) }
   function cancel() { setDraft(confirmed); setMode(settings?.theme ?? "system"); setPreview(null); setError(null); setNotice(null) }
   async function apply() {
     setBusy(true); setError(null); setNotice(null)
     try {
       const { sidebarWidth: width, ...sharedAppearance } = draft
       await onSave({ appearance: sharedAppearance, theme: mode })
-      onSaveSidebarWidth(width ?? 275)
       setPreview(null)
-      setNotice("Appearance applied. Sidebar width is saved in this browser.")
+      setNotice("Appearance applied.")
     } catch (cause) { setPreview(null); setError(cause instanceof Error ? cause.message : "Unable to save appearance. Your previous settings are kept.") }
     finally { setBusy(false) }
   }
@@ -84,7 +82,7 @@ export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSave
       const result = await readAppearanceResponse(response)
       if (kind === "skin") {
         if (!result.appearance || typeof result.appearance !== "object" || Array.isArray(result.appearance)) throw new Error("StillOn returned an invalid skin. Your appearance has not changed.")
-        setDraft(normalizeAppearance(result.appearance))
+        setDraft(normalizeAppearance({ ...result.appearance, chatWidth: "comfortable" }))
       } else {
         if (typeof result.asset !== "string" || !BACKGROUND_ASSET_PATTERN.test(result.asset)) throw new Error("StillOn returned an invalid background. Your appearance has not changed.")
         patch({ backgroundAsset: result.asset })
@@ -139,6 +137,9 @@ export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSave
           <ColorField label="Dark background" value={draft.darkBackground} fallback={swatch[2]} onChange={(darkBackground) => patch({ darkBackground })} />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">Text colors adjust to keep your chosen colors readable.</p>
+        <Field title="Background image" description="PNG, JPEG or WebP · up to 2 MB"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => backgroundInput.current?.click()}><ImagePlus className="mr-2 size-4" />Choose image</Button>{draft.backgroundAsset ? <Button size="sm" variant="ghost" onClick={() => patch({ backgroundAsset: null })}>Remove</Button> : null}</div></Field>
+        <input ref={backgroundInput} type="file" accept="image/png,image/jpeg,image/webp" aria-label="Upload background image" className="hidden" onChange={(event) => { void upload(event.target.files?.[0], "background"); event.target.value = "" }} />
+        {draft.backgroundAsset ? <Field title="Background strength"><label className="flex items-center gap-3"><input aria-label="Background strength" type="range" min={0} max={40} value={Math.round(draft.backgroundOpacity * 100)} onChange={(event) => patch({ backgroundOpacity: Number(event.target.value) / 100 })} /><span className="w-9 text-right text-xs tabular-nums">{Math.round(draft.backgroundOpacity * 100)}%</span></label></Field> : null}
       </section>
 
       <section className="divide-y divide-border rounded-2xl border border-border px-5">
@@ -147,15 +148,9 @@ export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSave
         <Field title="Corners"><label className="flex items-center gap-3"><input aria-label="Corners" type="range" min={4} max={20} value={draft.cornerRadius} onChange={(event) => patch({ cornerRadius: Number(event.target.value) })} /><span className="w-9 text-right text-xs tabular-nums">{draft.cornerRadius}px</span></label></Field>
         <Field title="Density" description="Spacing in workspace and conversation lists."><Choices label="Density" value={draft.density} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(density) => patch({ density })} /></Field>
         <Field title="Panels" description="Solid is flat, Soft lifts the workspace cards, and Glass adds a frosted surface."><Choices label="Panel style" value={draft.surface} options={[["solid", "Solid"], ["soft", "Soft"], ["glass", "Glass"]]} onChange={(surface) => patch({ surface })} /></Field>
-        <Field title="Sidebar width" description="Saved in this browser. The sidebar fits the available window space."><label className="flex items-center gap-3"><input aria-label="Sidebar width" type="range" min={220} max={520} step={5} value={draft.sidebarWidth ?? 275} onChange={(event) => patch({ sidebarWidth: Number(event.target.value) })} /><span className="w-10 text-right text-xs tabular-nums">{draft.sidebarWidth ?? 275}px</span></label></Field>
-        <Field title="Conversation width"><Choices label="Conversation width" value={draft.chatWidth} options={[["comfortable", "Focused"], ["wide", "Wide"], ["full", "Full"]]} onChange={(chatWidth) => patch({ chatWidth })} /></Field>
       </section>
 
-      <section className="rounded-2xl border border-border p-5">
-        <Field title="Background image" description="PNG, JPEG or WebP · up to 2 MB"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => backgroundInput.current?.click()}><ImagePlus className="mr-2 size-4" />Choose image</Button>{draft.backgroundAsset ? <Button size="sm" variant="ghost" onClick={() => patch({ backgroundAsset: null })}>Remove</Button> : null}</div></Field>
-        <input ref={backgroundInput} type="file" accept="image/png,image/jpeg,image/webp" aria-label="Upload background image" className="hidden" onChange={(event) => { void upload(event.target.files?.[0], "background"); event.target.value = "" }} />
-        {draft.backgroundAsset ? <Field title="Background strength"><label className="flex items-center gap-3"><input aria-label="Background strength" type="range" min={0} max={40} value={Math.round(draft.backgroundOpacity * 100)} onChange={(event) => patch({ backgroundOpacity: Number(event.target.value) / 100 })} /><span className="w-9 text-right text-xs tabular-nums">{Math.round(draft.backgroundOpacity * 100)}%</span></label></Field> : null}
-      </section>
+
 
       <section className="rounded-2xl border border-border p-5">
         <Field title="Your skin" description="Keep a portable copy with your colors, layout and background image."><input aria-label="Skin name" placeholder="My StillOn skin" maxLength={80} value={draft.skinName ?? ""} className={cn(fieldClass, "w-full sm:w-52")} onChange={(event) => { setDraft((current) => ({ ...current, skinName: event.target.value || null })); setNotice(null) }} /></Field>
@@ -165,10 +160,11 @@ export function AppearanceSettingsPanel({ settings, onSave, sidebarWidth, onSave
       </section>
     </fieldset>
 
+    {children}
     {error ? <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div> : null}
     {notice ? <div role="status" className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">{notice}</div> : null}
     <div className="sticky bottom-0 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background/95 p-3 shadow-sm backdrop-blur">
-      <Button aria-label="Restore default appearance" variant="ghost" size="sm" disabled={busy} onClick={() => { setDraft({ ...defaultAppearance(), sidebarWidth: 275 }); setMode("system"); setError(null); setNotice("Defaults ready. Apply to restore them.") }}><RotateCcw className="mr-2 size-4" />Restore defaults</Button>
+      <Button aria-label="Restore default appearance" variant="ghost" size="sm" disabled={busy} onClick={() => { setDraft(defaultAppearance()); setMode("system"); setError(null); setNotice("Defaults ready. Apply to restore them.") }}><RotateCcw className="mr-2 size-4" />Restore defaults</Button>
       <div className="flex flex-wrap gap-2"><Button aria-label="Cancel appearance changes" variant="ghost" size="sm" disabled={busy || !dirty && !preview} onClick={cancel}>Cancel</Button><Button aria-label={preview ? "End workspace preview" : "Preview in workspace"} variant="outline" size="sm" disabled={busy || safeMode} onClick={() => setPreview(preview ? null : { appearance: draft, theme: mode })}>{preview ? "End preview" : "Preview in workspace"}</Button><Button aria-label="Apply appearance" size="sm" disabled={busy || !dirty || !settings} onClick={() => void apply()}>{busy ? "Working…" : "Apply appearance"}</Button></div>
     </div>
     <p className="text-xs text-muted-foreground">Need to recover your view? <a className="underline" href="/settings/appearance?safe-mode=1">Open safe mode</a>.</p>

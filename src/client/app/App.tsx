@@ -394,7 +394,7 @@ function AuthenticatedAppRoutes({ cacheScope, sidebarView, startupCheckId }: { c
           <Route path="/resolve-resource" element={<Suspense fallback={<p role="status" className="p-6">Resolving file actions…</p>}><ResolveResourcePage /></Suspense>} />
           <Route element={<StillOnLayout cacheScope={cacheScope} sidebarView={sidebarView} startupCheckId={startupCheckId} />}>
             <Route path="/" element={<LocalProjectsPage />} />
-            <Route path="/settings" element={<Navigate to="/settings/welcome" replace />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route
               path="/settings/:sectionId"
               element={(
