@@ -1107,9 +1107,23 @@ export function OnboardingProviderStatusDetails({
 export function WelcomeChecklist({ state }: { state: StillOnState }) {
   const navigate = useNavigate()
   const localServiceReady = state.connectionStatus === "connected" && state.localProjectsReady
+  const [providerReady, setProviderReady] = useState(false)
+  useEffect(() => {
+    setProviderReady(false)
+    if (!localServiceReady) return
+    const controller = new AbortController()
+    void Promise.allSettled((["codex", "claude"] as const).map(async provider => {
+      const response = await fetch(`/api/provider-setup/${provider}/status`, { cache: "no-store", signal: controller.signal })
+      return response.ok && (await response.json()).state === "ready"
+    })).then(results => {
+      if (!controller.signal.aborted) setProviderReady(results.some(result => result.status === "fulfilled" && result.value))
+    })
+    return () => controller.abort()
+  }, [localServiceReady])
+  const completedSteps = [Boolean(state.appSettings?.machineName), localServiceReady, providerReady].filter(Boolean).length
   return <div className="mx-auto w-full max-w-4xl pb-16">
     <header className="rounded-xl border border-border bg-card px-4 py-3">
-      <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 shrink-0 text-logo" aria-hidden="true" /><h1 className="text-base font-semibold">Set up {APP_NAME}</h1></div>
+      <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 shrink-0 text-logo" aria-hidden="true" /><h1 className="min-w-0 flex-1 text-base font-semibold">Set up {APP_NAME}</h1><span className="shrink-0 text-xs text-muted-foreground" aria-live="polite">{completedSteps} of {ONBOARDING_TASK_COUNT} ready</span></div>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">Name this computer, confirm the connection and set up one Agent.</p>
     </header>
     <div className="mt-5 space-y-4">
@@ -1121,7 +1135,7 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
           {localServiceReady ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}<span>{localServiceReady ? "StillOn is connected locally." : "Waiting for a local StillOn connection…"}</span>
         </div>
       </OnboardingStep>
-      <OnboardingStep number={3} title="Set up your Agent" description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn." complete={false}>
+      <OnboardingStep number={3} title="Set up your Agent" description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn." complete={providerReady}>
         <Link className="text-sm underline" to="/settings/providers">Open Providers</Link>
       </OnboardingStep>
       <Button onClick={() => { finishSetup(); navigate(settingsLandingPath(), { replace: true }) }}>Finish setup</Button>

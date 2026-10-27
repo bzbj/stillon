@@ -106,6 +106,7 @@ try {
     stage = entries[i]!.name + ": settings entry"
     await p.goto(entries[i]!.origin + "/settings")
     await p.getByRole("link", { name: "Open Providers", exact: true }).waitFor()
+    await p.getByLabel("Step 3 complete", { exact: true }).waitFor()
     assert.equal(await p.locator("#onboarding-machine-name").count(), 0)
     await p.getByRole("link", { name: "Open Providers", exact: true }).click()
     await p.getByText("Codex CLI is signed in.", { exact: true }).waitFor()

@@ -213,6 +213,7 @@ describe("WelcomeChecklist", () => {
     expect(html).not.toContain("Send your first messages")
     expect(html).not.toContain("test chat")
     expect(html).toContain("Finish setup")
+    expect(html).toContain("1 of 3 ready")
   })
 
   test("counts name, service and either one ready Agent", () => {
