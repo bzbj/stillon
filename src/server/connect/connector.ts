@@ -318,7 +318,7 @@ export async function createConnector(options: ConnectorOptions) {
         if (currentRevision !== revision || stopped) return
         if (version === routing.version && !adapter?.activeLeases().length) {
           routing.probeResult(healthy)
-          if (healthy) await stopTransport()
+          if (healthy) { status = "connecting"; await stopTransport() }
         }
       }
       if (!frpc) { await stopTransport(); await startTransport(currentRevision); return }

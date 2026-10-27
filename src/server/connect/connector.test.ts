@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { createConnector } from "./connector"
-import { proxyServer } from "./fixtures/proxy"
+import { proxyServer } from "../../../scripts/fixtures/connect-routing/proxy"
 import { randomToken } from "./crypto"
 
 test("a migrated user service origin works without a package default", async () => {
@@ -86,6 +86,7 @@ test("API success with a stuck tunnel switches the complete route, then recovers
     // back to direct without changing the binding or provider environment.
     clock += 300_001
     await until(async () => connector!.diagnostics(), value => value.routing?.route === "direct")
+    expect(connector.diagnostics().state).toBe("connecting")
     await until(() => Bun.file(output).json(), value => value.config.transport.proxyURL === "")
     expect(environment).toEqual(originalEnvironment)
     expect(JSON.parse(await readFile(statePath, "utf8")).keys).toEqual(keys)

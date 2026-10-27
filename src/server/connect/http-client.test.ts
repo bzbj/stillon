@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { proxyServer } from "./fixtures/proxy"
+import { proxyServer } from "../../../scripts/fixtures/connect-routing/proxy"
 import { connectRequest } from "./http-client"
 import { createConnectRouting } from "./routing"
 
@@ -52,8 +52,8 @@ test("control-plane response limits, redirects and aborts do not become successf
 })
 
 test("HTTPS verifies certificates on both direct and HTTP CONNECT routes", async () => {
-  const cert = await Bun.file(import.meta.dir + "/fixtures/localhost-cert.pem").text()
-  const key = await Bun.file(import.meta.dir + "/fixtures/localhost-key.pem").text()
+  const cert = await Bun.file(new URL("../../../scripts/fixtures/connect-routing/localhost-cert.pem", import.meta.url)).text()
+  const key = await Bun.file(new URL("../../../scripts/fixtures/connect-routing/localhost-key.pem", import.meta.url)).text()
   const target = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert, key }, fetch: () => Response.json({ ok: true }) })
   const proxy = await proxyServer(target.port!)
   try {
