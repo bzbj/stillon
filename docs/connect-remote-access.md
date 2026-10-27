@@ -206,3 +206,35 @@ ordinary JSON with old hosts. Chunked messages also fit through the original
 Raising the native frame ceiling requires upgrading both the gateway and host
 adapter. Chunking additionally requires the new application browser and host.
 Updating only the gateway cannot remove an old installed adapter's 1 MiB limit.
+
+## Automatic outbound routing
+
+Connect tries direct access first. If DNS, a connection or a network timeout
+prevents access, it falls back to an inherited HTTP CONNECT proxy. Device API
+requests and frpc always share the selected route, including reconnects. There
+is no routing configuration UI; model/provider network settings are separate.
+System VPN routing continues to be handled by the operating system.
+
+For HTTPS authorities, proxy precedence is `https_proxy`, then `http_proxy`,
+then `all_proxy`; each lowercase variable takes precedence over its uppercase
+variant. HTTP test authorities skip `https_proxy`. `no_proxy` (or `NO_PROXY`)
+prevents fallback for matching API or tunnel authorities. Entries support `*`,
+host/domain suffixes, optional ports and bracketed IPv6 addresses. The shared
+proxy scheme is `http://` (with optional credentials); unsupported or malformed
+proxy values are reported in diagnostics without disclosing their contents.
+Only the frpc child receives a sanitized proxy environment. The application and
+provider environments are retained.
+
+API requests have a 10-second deadline. An API response without an online tunnel
+does not establish connectivity: after 30 seconds, Connect tears down the stuck
+tunnel and retries using the other available route, with 5–60-second backoff.
+Certificate verification, authentication and application errors do not trigger
+proxy fallback. Signed operations are not automatically replayed after a lost
+response. Device identity and email binding survive network recovery.
+
+While using a proxy, Connect probes direct HTTPS/HTTP health at most every five
+minutes when there are no active relayed leases. A successful idle probe starts
+a new direct tunnel; if that tunnel cannot connect, normal fallback applies.
+Active streams are never moved by this periodic probe. Local copied diagnostics
+include the selected route and the last API/tunnel failure category, without
+proxy URLs, credentials or raw transport logs.

@@ -7,6 +7,8 @@ import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
 import pkg from "../../../package.json"
+import { connectRequest } from "./http-client"
+import { createConnectRouting, networkFailure, transportEnvironment, transportFailure } from "./routing"
 import { prepareTransport, readRuntimeTransport, resolveTransport, type TransportLocation, type TransportStatus } from "./transport"
 import { FRP_VERSION, TransportError, type TransportComponent } from "./transport-component"
 
@@ -32,6 +34,10 @@ export interface ConnectorOptions {
   trustedCaFile?: string
   /** Isolated profiles/tests may select a cache root; never accepted over HTTP. */
   transportLocation?: TransportLocation
+  /** Connect-only environment snapshot; not accepted over HTTP. */
+  environment?: NodeJS.ProcessEnv
+  /** Deterministic lifecycle clock for isolated integration tests. */
+  now?: () => number
 }
 function validOrigin(value: string) {
   const url = new URL(value)
@@ -48,6 +54,7 @@ async function secureFile(file: string) {
   }
 }
 export async function createConnector(options: ConnectorOptions) {
+  const now = options.now ?? Date.now
   const directory = path.join(options.dataDir, "connect")
   const statePath = path.join(directory, "device.json")
   const configPath = path.join(directory, "frpc.json")
@@ -85,6 +92,8 @@ export async function createConnector(options: ConnectorOptions) {
   let adapter: ReturnType<typeof startRemoteAdapter> | null = null
   let frpc: ReturnType<typeof Bun.spawn> | null = null
   let generation = 0, revision = 0, nextBeat = 0, ticking = false, changing = false, stopped = false
+  let tunnelFailure: ReturnType<typeof transportFailure> = null
+  let transportRevision = 0, transportStartedAt = 0
   let lastCloudResponseAt: number | null = null
   const instanceId = randomId()
   const abort = new AbortController()
@@ -111,33 +120,74 @@ export async function createConnector(options: ConnectorOptions) {
     // Also finish a migration interrupted after device.json was already saved.
     await saveJson(servicePath, { ...savedService, origin: packageConfig.origin })
   }
+  const environment = { ...(options.environment ?? process.env) }
+  const trustedCa = options.trustedCaFile ? await readFile(options.trustedCaFile, "utf8") : undefined
+  const routing = origin ? createConnectRouting(origin, environment, now) : null
+  async function routeFailure(stage: "api" | "tunnel", code: string, version: number) {
+    if (routing && routing.version !== version) return false
+    const changed = routing?.fail(stage, code, version)
+    if (changed || stage === "tunnel") await stopTransport()
+    return changed
+  }
   async function post<T>(route: string, body: unknown): Promise<T> {
     if (!origin) throw new ConnectorError("SERVICE_NOT_CONFIGURED")
-    const response = await fetch(`${origin}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-      redirect: "error", signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) })
+    let response: Response
+    const request = () => connectRequest(new URL(`${origin}${route}`), { method: "POST", body: JSON.stringify(body),
+      proxy: routing?.proxy ?? "", ca: trustedCa, signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) })
+    const version = routing?.version ?? 0
+    try { response = await request() }
+    catch (caught) {
+      if (abort.signal.aborted) throw caught
+      const code = networkFailure(caught)
+      if (!code) throw caught
+      const changed = await routeFailure("api", code, version)
+      // Only challenge allocation is replayable. A signed mutation may already
+      // have been applied when its response was lost; let its caller reconcile.
+      if (changed && route === "/api/connect/device/challenge") {
+        try { response = await request() }
+        catch (retryError) {
+          const failure = networkFailure(retryError)
+          if (failure) await routeFailure("api", failure, routing!.version)
+          throw new ConnectorError(failure ? `CONNECT_API_${failure}` : "SERVICE_UNAVAILABLE")
+        }
+      } else throw new ConnectorError(`CONNECT_API_${code}`)
+    }
     const result = await response.json() as { error?: string }
     if (!response.ok) throw new ConnectorError(result.error ?? "SERVICE_UNAVAILABLE", response.status)
-    lastCloudResponseAt = Date.now()
+    lastCloudResponseAt = now()
     return result as T
   }
-  async function prove<T>(action: DeviceProof["action"], payload: Record<string, unknown>, provisional = false): Promise<T> {
-    if (!state) throw new ConnectorError("NOT_BOUND", 409)
-    const subject = provisional ? `key:${state.keys.publicKey}` : state.binding?.hostId
-    if (!subject) throw new ConnectorError("NOT_BOUND", 409)
-    const keys = state.keys
-    const { challenge } = await post<{ challenge: string }>("/api/connect/device/challenge", { subject, action })
-    return post<T>("/api/connect/device/request", signProof({ subject, challenge, action, payload }, keys.privateKey))
+  let proofTail = Promise.resolve()
+  function prove<T>(action: DeviceProof["action"], payload: Record<string, unknown>, provisional = false): Promise<T> {
+    // Local settings requests and heartbeats share the same route and challenge
+    // sequence, including while a failed route tears down its transport.
+    const operation = proofTail.then(async () => {
+      if (!state) throw new ConnectorError("NOT_BOUND", 409)
+      const subject = provisional ? `key:${state.keys.publicKey}` : state.binding?.hostId
+      if (!subject) throw new ConnectorError("NOT_BOUND", 409)
+      const keys = state.keys
+      const { challenge } = await post<{ challenge: string }>("/api/connect/device/challenge", { subject, action })
+      return post<T>("/api/connect/device/request", signProof({ subject, challenge, action, payload }, keys.privateKey))
+    })
+    proofTail = operation.then(() => {}, () => {})
+    return operation
   }
-  async function stopTransport() {
+  let transportStopping = Promise.resolve()
+  function stopTransport() {
+    transportRevision++
     const child = frpc; frpc = null
     const oldAdapter = adapter; adapter = null
-    if (child && child.exitCode === null) {
-      child.kill()
-      await Promise.race([child.exited, Bun.sleep(1_000)])
-      if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited }
-    }
-    await oldAdapter?.stop()
-    await rm(configPath, { force: true })
+    const operation = transportStopping.then(async () => {
+      if (child && child.exitCode === null) {
+        child.kill()
+        await Promise.race([child.exited, Bun.sleep(1_000)])
+        if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited }
+      }
+      await oldAdapter?.stop()
+      await rm(configPath, { force: true })
+    })
+    transportStopping = operation.catch(() => {})
+    return operation
   }
   async function executable() {
     if (component) {
@@ -165,11 +215,17 @@ export async function createConnector(options: ConnectorOptions) {
     return file
   }
   async function startTransport(expectedRevision: number) {
+    await transportStopping
     const binary = await executable()
     const result = await prove<{ token: string; generation: number; epoch: number; gatewayPublicKey: string; hostOrigin: string;
       tunnel: { hostname: string; port: number; protocol: "wss" | "websocket" }; protocol: number }>("connect", { instanceId, protocol: CONNECT_PROTOCOL })
     if (expectedRevision !== revision || stopped || !state?.binding || state.paused || state.pendingUnbind) return
     if (result.protocol !== CONNECT_PROTOCOL) throw new ConnectorError("UPGRADE_REQUIRED")
+    await transportStopping
+    const routeVersion = routing!.version
+    routing!.setTunnel(new URL(`${result.tunnel.protocol === "wss" ? "https" : "http"}://${result.tunnel.hostname}:${result.tunnel.port}`))
+    if (routeVersion !== routing!.version) throw new ConnectorError("CONNECT_ROUTE_CHANGED")
+    const activeTransportRevision = transportRevision
     const service = new URL(origin!)
     if (result.tunnel.protocol !== "wss" && service.protocol !== "http:") throw new ConnectorError("INVALID_TUNNEL_CONFIGURATION")
     generation = result.generation
@@ -184,30 +240,51 @@ export async function createConnector(options: ConnectorOptions) {
     if (!options.trustedCaFile) await writeFile(caFile, rootCertificates.join("\n"), { mode: 0o600 })
     const config = { serverAddr: result.tunnel.hostname, serverPort: result.tunnel.port, user: state.binding.hostId,
       metadatas: { connect_token: result.token }, loginFailExit: false,
-      transport: { protocol: result.tunnel.protocol, tls: { enable: result.tunnel.protocol === "wss", trustedCaFile: caFile, serverName: result.tunnel.hostname }, heartbeatInterval: 15, heartbeatTimeout: 45 },
-      log: { to: "console", level: "error" }, proxies: [{ name: "tunnel", type: "http", localIP: "127.0.0.1", localPort: adapter.port,
+      transport: { proxyURL: routing!.proxy, protocol: result.tunnel.protocol, tls: { enable: result.tunnel.protocol === "wss", trustedCaFile: caFile, serverName: result.tunnel.hostname }, heartbeatInterval: 15, heartbeatTimeout: 45 },
+      log: { to: "console", level: "warn" }, proxies: [{ name: "tunnel", type: "http", localIP: "127.0.0.1", localPort: adapter.port,
         customDomains: [new URL(result.hostOrigin).hostname] }] }
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 }); await secureFile(configPath)
-    if (expectedRevision !== revision || stopped || state.paused || state.pendingUnbind) { await stopTransport(); return }
+    if (expectedRevision !== revision || stopped || state.paused || state.pendingUnbind || activeTransportRevision !== transportRevision || routeVersion !== routing!.version) { await stopTransport(); return }
     let child: ReturnType<typeof Bun.spawn>
-    const startedAt = Date.now()
-    try { child = Bun.spawn([binary, "-c", configPath], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }) }
+    const startedAt = now()
+    try { child = Bun.spawn([binary, "-c", configPath], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: transportEnvironment(environment) }) }
     catch {
       if (component) componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
       throw new ConnectorError("CONNECTOR_BLOCKED")
     }
-    frpc = child; status = "connecting"; nextBeat = Date.now() + 2_000
-    void child.exited.then(code => { if (frpc === child) {
+    tunnelFailure = null
+    async function drain(stream: ReadableStream<Uint8Array>) {
+      const decoder = new TextDecoder()
+      let tail = ""
+      try {
+        for await (const bytes of stream) {
+          // Bound partial-line storage; credentials/paths never reach diagnostics.
+          tail = (tail + decoder.decode(bytes, { stream: true })).slice(-4096)
+          if (frpc === child) {
+            const failure = transportFailure(tail)
+            if (failure && tunnelFailure !== "TLS_FAILED") tunnelFailure = failure
+          }
+          const lastLine = tail.lastIndexOf("\n")
+          if (lastLine >= 0) tail = tail.slice(lastLine + 1)
+        }
+      } catch { /* Process shutdown closes both pipes. */ }
+    }
+    frpc = child
+    void drain(child.stdout as ReadableStream<Uint8Array>); void drain(child.stderr as ReadableStream<Uint8Array>)
+    transportStartedAt = now(); status = "connecting"; nextBeat = now() + 2_000
+    void child.exited.then(async code => { if (frpc === child) {
       frpc = null; status = "offline"; error = "TUNNEL_DISCONNECTED"
+      if (code === 0 || now() - startedAt >= 2_000 || !component) await routeFailure("tunnel", tunnelFailure ?? "TUNNEL_DISCONNECTED", routeVersion)
       // A denied executable or immediate startup failure must not produce an
       // endless relaunch/prompt loop. An explicit local repair retries it.
-      if (component && code !== 0 && Date.now() - startedAt < 2_000) {
+      if (component && code !== 0 && now() - startedAt < 2_000) {
         error = "CONNECTOR_BLOCKED"; componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
       }
-    } })
+      nextBeat = now() + (routing?.retryDelay ?? 5_000)
+    } }).catch(() => {})
   }
   async function tick() {
-    if (ticking || changing || stopped || !state || !origin || Date.now() < nextBeat) return
+    if (ticking || changing || stopped || !state || !origin || now() < nextBeat) return
     ticking = true
     const currentRevision = revision
     try {
@@ -217,7 +294,7 @@ export async function createConnector(options: ConnectorOptions) {
         state = null; status = "unbound"; error = undefined; await save(); return
       }
       if (state.enrollment && !state.binding) {
-        if (Date.now() >= state.enrollment.expiresAt) { state = null; status = "unbound"; error = "BINDING_EXPIRED"; await save(); return }
+        if (now() >= state.enrollment.expiresAt) { state = null; status = "unbound"; error = "BINDING_EXPIRED"; await save(); return }
         const claimed = await prove<{ state: "pending" } | ({ state: "bound" } & NonNullable<DeviceState["binding"]>)>("claim", { enrollmentId: state.enrollment.id }, true)
         if (currentRevision !== revision || stopped) return
         if (claimed.state === "bound") { state.binding = claimed; delete state.enrollment; await save() }
@@ -228,22 +305,46 @@ export async function createConnector(options: ConnectorOptions) {
       }
       if (state.paused || !state.binding) return
       if (componentStatus && componentStatus.state !== "ready") return
+      // Probe only when no relayed request/stream is active. Route changes never
+      // migrate a live stream; a successful probe starts a new tunnel generation.
+      if (routing?.probeDue() && !adapter?.activeLeases().length) {
+        const version = routing.version
+        let healthy = false
+        try {
+          const response = await connectRequest(new URL(`${origin}/health`), { proxy: "", ca: trustedCa,
+            signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5_000)]) })
+          healthy = response.ok && (await response.json()).ok === true
+        } catch { /* Keep the healthy proxy route until a later idle probe. */ }
+        if (currentRevision !== revision || stopped) return
+        if (version === routing.version && !adapter?.activeLeases().length) {
+          routing.probeResult(healthy)
+          if (healthy) await stopTransport()
+        }
+      }
       if (!frpc) { await stopTransport(); await startTransport(currentRevision); return }
-      if (Date.now() < nextBeat) return
+      if (now() < nextBeat) return
+      const heartbeatTransportRevision = transportRevision
       const requested = adapter?.activeLeases() ?? []
       const displayName = options.name().trim().slice(0, 80) || "My computer"
       const result = await prove<{ state: "online" | "connecting"; leases: { id: string; token: string }[] }>("heartbeat", {
         instanceId, generation, leases: requested, name: displayName,
       })
       if (currentRevision !== revision || stopped) return
+      if (heartbeatTransportRevision !== transportRevision) return
+      if (result.state === "connecting" && now() - transportStartedAt >= 30_000) {
+        const failure = tunnelFailure ?? "TUNNEL_TIMEOUT"
+        await routeFailure("tunnel", failure, routing!.version)
+        throw new ConnectorError(failure === "TUNNEL_TIMEOUT" ? "CONNECT_TUNNEL_TIMEOUT" : `CONNECT_TUNNEL_${failure}`)
+      }
+      if (result.state === "online") { routing?.online(); tunnelFailure = null }
       if (state.name !== displayName) { state.name = displayName; state.binding.name = displayName; await save() }
-      adapter?.renew(result.leases, requested); status = result.state; error = undefined; nextBeat = Date.now() + CONNECT_HEARTBEAT_MS
+      adapter?.renew(result.leases, requested); status = result.state; error = undefined; nextBeat = now() + CONNECT_HEARTBEAT_MS
     } catch (caught) {
       if (currentRevision !== revision || stopped) return
       error = caught instanceof ConnectorError ? caught.code : "SERVICE_UNAVAILABLE"
       if (error === "NOT_FOUND" && state?.binding) { status = "revoked"; state.paused = true; await save(); await stopTransport() }
       else if (error === "ACCESS_PAUSED") { status = "paused"; if (state) { state.paused = true; await save() }; await stopTransport() }
-      else { if (state?.binding) status = state.pendingUnbind ? "revocation-pending" : state.paused ? "paused" : "offline"; nextBeat = Date.now() + 5_000
+      else { if (state?.binding) status = state.pendingUnbind ? "revocation-pending" : state.paused ? "paused" : "offline"; nextBeat = now() + (routing?.retryDelay ?? 5_000)
         if (["CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED"].includes(error)) await stopTransport() }
     } finally { ticking = false }
   }
@@ -290,11 +391,11 @@ export async function createConnector(options: ConnectorOptions) {
     diagnostics() {
       // An explicit allowlist prevents new state fields, keys, URLs and private
       // server error text from silently appearing in a copied support report.
-      const safeErrors = new Set(["SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "CONNECTOR_BLOCKED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_REPAIR_REQUIRED", "CONNECTOR_COMPONENT_INVALID", "CONNECTOR_PREPARING", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
+      const safeErrors = new Set(["CONNECT_ROUTE_CHANGED", "CONNECT_TUNNEL_TIMEOUT", "CONNECT_TUNNEL_TLS_FAILED", "CONNECT_TUNNEL_DNS_FAILED", "CONNECT_TUNNEL_CONNECTION_FAILED", "CONNECT_API_DNS_FAILED", "CONNECT_API_CONNECTION_FAILED", "CONNECT_API_TIMEOUT", "CONNECT_API_TLS_FAILED", "SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "CONNECTOR_BLOCKED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_REPAIR_REQUIRED", "CONNECTOR_COMPONENT_INVALID", "CONNECTOR_PREPARING", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
       return { schema: 1, reportId: randomId(), generatedAt: new Date().toISOString(), scope: "local-connector", version: pkg.version,
         protocol: CONNECT_PROTOCOL, platform: process.platform, architecture: process.arch, state: status, configured: Boolean(origin),
         bound: Boolean(state?.binding), transportRunning: Boolean(frpc), activeStreams: adapter?.activeLeases().length ?? 0,
-        lastCloudResponseAt, transport: componentStatus, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
+        lastCloudResponseAt, tunnelFailure, routing: routing?.diagnostics(), transport: componentStatus, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
     },
     status(): ConnectLocalStatus { return { configured: Boolean(origin), origin, state: status, name: state?.name ?? options.name(),
       ...(state?.binding ? { email: state.binding.email.replace(/^(.).+(@.*)$/, "$1•••$2"), hostId: state.binding.hostId, url: state.binding.url } : {}),
@@ -308,7 +409,7 @@ export async function createConnector(options: ConnectorOptions) {
       if (error === "DEVICE_STATE_INVALID") throw new ConnectorError(error)
       if (state?.pendingUnbind) throw new ConnectorError("CLOUD_UPDATE_PENDING", 409)
       if (state?.binding) throw new ConnectorError("ALREADY_BOUND", 409)
-      if (state?.enrollment && state.enrollment.expiresAt > Date.now()) return state.enrollment
+      if (state?.enrollment && state.enrollment.expiresAt > now()) return state.enrollment
       if (componentStatus?.state === "preparing") throw new ConnectorError("CONNECTOR_PREPARING", 409)
       if (componentStatus?.error) throw new ConnectorError(componentStatus.error)
       await executable()
