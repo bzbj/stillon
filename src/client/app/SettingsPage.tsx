@@ -1349,6 +1349,10 @@ function SettingsRow({
   )
 }
 
+export function reconcileMachineNameDraft(draft: string, previousName: string | null, confirmedName: string) {
+  return (previousName === null ? !draft : draft.trim() === previousName) ? confirmedName : draft
+}
+
 export function getMachineNameEditorState(draft: string, confirmedName: string | null) {
   const normalizedDraft = draft.trim()
   const hasConfirmedName = Boolean(confirmedName)
@@ -1703,11 +1707,11 @@ export function SettingsPage() {
   const setProviderDefaultPermissionMode = useChatPreferencesStore((store) => store.setProviderDefaultPermissionMode)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
-  const [machineNameDraft, setMachineNameDraft] = useState("")
+  const [machineNameDraft, setMachineNameDraft] = useState(confirmedMachineName ?? "")
   const [isSavingMachineName, setIsSavingMachineName] = useState(false)
   const [machineNameError, setMachineNameError] = useState<string | null>(null)
   const [machineNameNotice, setMachineNameNotice] = useState<string | null>(null)
-  const lastConfirmedMachineNameRef = useRef<string | null>(null)
+  const lastConfirmedMachineNameRef = useRef<string | null>(confirmedMachineName ?? null)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [commandsTab, setCommandsTab] = useState<"skills" | "prompts" | "shortcuts">(sectionId === "keybindings" ? "shortcuts" : sectionId === "quick-commands" ? "prompts" : "skills")
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
@@ -1753,11 +1757,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!confirmedMachineName) return
 
-    setMachineNameDraft((draft) => (
-      !lastConfirmedMachineNameRef.current || draft.trim() === lastConfirmedMachineNameRef.current
-        ? confirmedMachineName
-        : draft
-    ))
+    setMachineNameDraft(draft => reconcileMachineNameDraft(draft, lastConfirmedMachineNameRef.current, confirmedMachineName))
     lastConfirmedMachineNameRef.current = confirmedMachineName
   }, [confirmedMachineName])
 

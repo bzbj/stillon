@@ -7,7 +7,18 @@ import { createConnectFixture, eventually } from "./connect-fixture"
 import { startStillOnServer } from "../src/server/server"
 
 // Synthetic CLIs, accounts and temporary data only; no real authentication or installers.
-const root = await mkdtemp(path.join(os.tmpdir(), "stillon-settings-"))
+// Bun caches homedir at process startup. Spawn with the isolated home already set,
+// before importing/initializing any application services in that process.
+if (!process.argv.includes("--isolated-settings-child")) {
+  const home = await mkdtemp(path.join(os.tmpdir(), "stillon-settings-"))
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
+  Object.assign(env, { HOME: home, USERPROFILE: home, CODEX_HOME: path.join(home, ".codex"), CLAUDE_CONFIG_DIR: path.join(home, ".claude"), STILLON_SETTINGS_TEST_ROOT: home })
+  const child = Bun.spawn([process.execPath, import.meta.path, ...process.argv.slice(2), "--isolated-settings-child"], { env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+  let code = 1
+  try { code = await child.exited } finally { await rm(home, { recursive: true, force: true }) }
+  process.exit(code)
+}
+const root = process.env.STILLON_SETTINGS_TEST_ROOT!
 const output = path.resolve("test-artifacts/settings", process.argv.includes("--local-only") ? "local" : "connect")
 await mkdir(output, { recursive: true })
 for (const name of Object.keys(process.env)) if (name.startsWith("STILLON_UPDATE_") || name.startsWith("STILLON_CONNECT_") || name === "STILLON_RUNTIME_PROFILE") delete process.env[name]
@@ -90,6 +101,7 @@ try {
     await p.getByRole("button", { name: "Claude Code", exact: true }).click()
     await p.getByText("Claude Code CLI is signed in.", { exact: true }).waitFor()
     assert.equal(await p.getByRole("button", { name: "Use Claude Code", exact: true }).count(), 0)
+    await p.screenshot({ path: path.join(output, entries[i]!.name + "-providers.png"), fullPage: true })
     await settings(p, i, "welcome")
     await p.getByRole("button", { name: "Finish setup", exact: true }).click()
     await p.waitForURL("**/settings/providers")
@@ -107,9 +119,13 @@ try {
     await p.getByRole("button", { name: i === 0 ? "Forest" : "Ocean", exact: true }).click()
     await p.getByRole("button", { name: "Apply appearance", exact: true }).click()
     await p.getByText("Appearance applied.", { exact: true }).waitFor()
+    await p.screenshot({ path: path.join(output, entries[i]!.name + "-personalization.png"), fullPage: true })
     await settings(p, i, "about")
     await p.waitForFunction(() => Boolean((document.querySelector("#machine-name") as HTMLInputElement | null)?.value))
-    await p.locator("#machine-name").fill("Fixture " + entries[i]!.name)
+    await p.locator("#machine-name").click()
+    await p.locator("#machine-name").press("ControlOrMeta+A")
+    await p.locator("#machine-name").pressSequentially("Fixture " + entries[i]!.name)
+    await p.getByText("Unsaved changes", { exact: true }).waitFor()
     await p.getByRole("button", { name: "Save name", exact: true }).click()
     await p.getByText(/^Saved as /).waitFor()
     assert.equal(await p.getByText("Managed updates", { exact: true }).count(), 0)
@@ -126,7 +142,7 @@ try {
     stage = entries[i]!.name + ": settings entry"
     await p.goto(entries[i]!.origin + "/settings")
     await p.locator("#machine-name").waitFor()
-    assert.deepEqual(await p.locator("aside button").allTextContents(), ["Network", "Providers", "Usage", "Skills & Prompts", "Personalization", "Remote access", "About"])
+    assert.deepEqual((await p.locator("aside button").allTextContents()).filter(name => name !== "Sign out"), ["Network", "Providers", "Usage", "Skills & Prompts", "Personalization", "Remote access", "About"])
     await settings(p, i, "keybindings")
     assert.equal(await p.getByRole("button", { name: "Keyboard Shortcuts", exact: true }).getAttribute("aria-pressed"), "true")
     await settings(p, i, "quick-commands")
@@ -148,13 +164,15 @@ try {
   await rename(settingsFile, settingsFile + ".backup")
   await mkdir(settingsFile)
   try {
-    const p = pages[0]!
-    await settings(p, 0, "about")
-    await p.locator("#machine-name").fill("Uncommitted draft")
-    await p.getByRole("button", { name: "Save name", exact: true }).click()
-    await p.locator("#machine-name-error").waitFor()
-    assert.equal(await p.locator("#machine-name").inputValue(), "Uncommitted draft")
-    checks.push("Failed save preserves confirmed settings and editable draft")
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i]!
+      await settings(p, i, "about")
+      await p.locator("#machine-name").fill("Uncommitted draft " + entries[i]!.name)
+      await p.getByRole("button", { name: "Save name", exact: true }).click()
+      await p.locator("#machine-name-error").waitFor()
+      assert.equal(await p.locator("#machine-name").inputValue(), "Uncommitted draft " + entries[i]!.name)
+    }
+    checks.push("Failed local/remote saves preserve confirmed settings and editable drafts")
   } finally { await rm(settingsFile, { recursive: true }); await rename(settingsFile + ".backup", settingsFile) }
   for (const provider of ["codex", "claude"]) {
     const p = pages[0]!, label = provider === "codex" ? "Codex" : "Claude Code"

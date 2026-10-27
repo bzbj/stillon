@@ -15,6 +15,7 @@ import {
   getCachedChangelog,
   getKeybindingsSubtitle,
   getMachineNameEditorState,
+  reconcileMachineNameDraft,
   getOnboardingProviderPendingLabel,
   isSubscriptionProviderReady,
   loadChangelog,
@@ -61,6 +62,14 @@ afterEach(() => {
 })
 
 describe("machine-name editor", () => {
+  test("late confirmation and cross-entry snapshots preserve an unsaved name draft", () => {
+    expect(reconcileMachineNameDraft("", null, "Saved name")).toBe("Saved name")
+    expect(reconcileMachineNameDraft("My edit", null, "Saved name")).toBe("My edit")
+    expect(reconcileMachineNameDraft("Old name", "Old name", "Remote name")).toBe("Remote name")
+    expect(reconcileMachineNameDraft("My edit", "Old name", "Remote name")).toBe("My edit")
+    expect(reconcileMachineNameDraft("", "Old name", "Remote name")).toBe("")
+  })
+
   test("keeps an edit local until it is meaningfully different from the confirmed name", () => {
     expect(getMachineNameEditorState("Office Mac", "Office Mac")).toEqual({
       canSave: false,
