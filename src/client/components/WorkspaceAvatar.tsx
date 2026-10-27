@@ -1,3 +1,4 @@
+import { useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { defaultWorkspaceStatusBadges, defaultWorkspaceAvatars, workspaceAvatarChoice, type WorkspaceAvatarChoice, type WorkspaceAvatars } from "../../shared/workspace-avatars"
 import { useWorkspaceAvatarsStore } from "../stores/workspaceAvatarsStore"
 import { cn } from "../lib/utils"
@@ -22,13 +23,17 @@ export interface WorkspaceActivity {
 export function WorkspaceAvatar({ workspaceId, className, activity, label = "Workspace" }: {
   workspaceId: string; className?: string; activity?: WorkspaceActivity; label?: string
 }) {
+  const sharing = useWorkspaceSharingStore(state => state.view)
+  const members = sharing?.workspaces.find(w => w.workspaceId === workspaceId)?.members ?? []
+  const shared = sharing?.mode === "guest" ? sharing.workspaceId === workspaceId : members.length > 0
+  const sharedDescription = sharing?.mode === "guest" ? "Shared workspace" : members.some(m => m.status === "joined") ? `Shared · ${members.filter(m => m.status === "joined").length} people` : "Sharing invitation pending"
   const saved = useWorkspaceAvatarsStore(state => state.config)
   const safeMode = useOptionalAppearance()?.safeMode
   const config = safeMode ? defaultWorkspaceAvatars() : saved
-  const artwork = <AvatarArtwork config={config} choice={workspaceAvatarChoice(config, workspaceId)} className={activity ? "size-full" : className} />
-  if (!activity) return artwork
+  const artwork = <AvatarArtwork config={config} choice={workspaceAvatarChoice(config, workspaceId)} className={activity || shared ? "size-full" : className} />
+  if (!activity && !shared) return artwork
   const badges = config.statusBadges ?? defaultWorkspaceStatusBadges()
-  const topBadge = activity.working ? "working" : activity.attention ? "attention" : null
+  const topBadge = activity?.working ? "working" : activity?.attention ? "attention" : null
   const badge = (kind: keyof typeof badges, description: string) => (
     <span key={kind} data-stillon-part="workspace-avatar-status" data-status={kind} role="img" aria-label={description} title={description}
       style={{ backgroundColor: badges[kind].background, color: badges[kind].foreground }}>
@@ -37,7 +42,8 @@ export function WorkspaceAvatar({ workspaceId, className, activity, label = "Wor
   )
   return <span data-stillon-part="workspace-avatar" className={cn("relative inline-flex overflow-visible", className)}>
     {artwork}
-    {topBadge ? badge(topBadge, activity.working ? `${label} is working` : `${label} needs your attention`) : null}
-    {activity.unreadResult ? badge("complete", `${label} has new results to read`) : null}
+    {shared ? <span data-stillon-part="workspace-avatar-companion" title={sharedDescription} role="img" aria-label={sharedDescription}><AvatarArtwork config={config} choice={workspaceAvatarChoice(config, workspaceId)} className="size-full opacity-75" /></span> : null}
+    {topBadge ? badge(topBadge, activity?.working ? `${label} is working` : `${label} needs your attention`) : null}
+    {activity?.unreadResult ? badge("complete", `${label} has new results to read`) : null}
   </span>
 }

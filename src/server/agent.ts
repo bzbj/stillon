@@ -878,6 +878,7 @@ export class AgentCoordinator {
   // Codex holds a per-thread writer lock, so resuming before the previous
   // process exits fails with "already has an active writer". Every start waits
   // on the chat's barrier, which clears only once that exit is confirmed.
+  private readonly runIds = new Map<string, string>()
   private readonly runControls = new Map<string, ChatRunControl>()
   private readonly stopConfirmTimeoutMs: number
   readonly claudeSessions = new Map<string, ClaudeSessionState>()
@@ -1356,6 +1357,7 @@ export class AgentCoordinator {
     if (this.isChatBusy(args.chatId)) {
       throw new ChatBusyError("Chat is already running")
     }
+    this.runIds.set(args.chatId, crypto.randomUUID())
     let finishLaunch!: () => void
     control.launching = new Promise<void>((resolve) => {
       finishLaunch = resolve
@@ -2093,7 +2095,12 @@ export class AgentCoordinator {
    * Esc (the default) also cancels a pending ↑ handoff and parks the queue;
    * `handoff` is ↑'s own stop, which keeps its pending action.
    */
-  async cancel(chatId: string, options?: { hideInterrupted?: boolean; handoff?: boolean }) {
+  getActiveRunId(chatId: string): string | null {
+    return this.activeTurns.has(chatId) || this.runControls.get(chatId)?.launching ? this.runIds.get(chatId) ?? null : null
+  }
+
+  async cancel(chatId: string, options?: { hideInterrupted?: boolean; handoff?: boolean; runId?: string | null }) {
+    if (options?.runId !== undefined && options.runId !== this.getActiveRunId(chatId)) return
     const control = this.control(chatId)
     if (!options?.handoff) {
       control.generation += 1

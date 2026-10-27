@@ -66,10 +66,20 @@ export interface AccessLease {
   sessionId: string
   parentId: string
   ownerId: string
+  actorId?: string
+  workspaceId?: string
   epoch: number
   generation: number
   method: string
   path: string
   issuedAt: number
   expiresAt: number
+}
+
+export interface WorkspaceSharingSnapshot {
+  workspaces: { workspaceId: string; title: string; members: { id: string; email: string; status: "pending" | "joined"; invitationUrl: string }[] }[]
+}
+export interface SharedWorkspaceEntry {
+  id: string; hostId: string; machineName: string; workspaceId: string; workspaceName: string; name: string;
+  online: boolean; accepted: boolean; url: string; invitationUrl: string
 }

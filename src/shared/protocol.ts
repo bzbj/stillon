@@ -201,7 +201,7 @@ export type ClientCommand =
       effort?: string
       permissionMode?: AgentPermissionMode
     }
-  | { type: "chat.cancel"; chatId: string }
+  | { type: "chat.cancel"; chatId: string; runId?: string | null }
   | { type: "chat.stopDraining"; chatId: string }
   | {
       type: "chat.exportStandalone"

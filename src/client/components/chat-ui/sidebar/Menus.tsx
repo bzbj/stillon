@@ -27,7 +27,7 @@ function isNarrowMenu() {
 
 export function ProjectSectionMenu({
   workspaceId, onRunQuickCommand, onManageCommands, onRename, onCopyPath,
-  onShowArchived, onHide, onCustomizeAvatar, children,
+  onShowArchived, onHide, onCustomizeAvatar, onShareWorkspace, canManageWorkspace = true, children,
 }: {
   workspaceId?: string
   onRunQuickCommand?: (command: QuickCommand) => void
@@ -36,6 +36,8 @@ export function ProjectSectionMenu({
   onCopyPath: () => void
   onShowArchived: () => void
   onHide: () => void
+  onShareWorkspace?: () => void
+  canManageWorkspace?: boolean
   onCustomizeAvatar?: () => void
   children: ReactNode
 }) {
@@ -68,11 +70,12 @@ export function ProjectSectionMenu({
             <ContextMenuSubContent>{quickItems}</ContextMenuSubContent>
           </ContextMenuSub>
         ) : null}
-        <ContextMenuItem onSelect={event => { event.preventDefault(); onRename() }}><Pencil className="size-3.5" />Rename</ContextMenuItem>
-        {onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="size-3.5" />Change avatar</ContextMenuItem> : null}
+        {onShareWorkspace ? <ContextMenuItem onSelect={event => { event.preventDefault(); onShareWorkspace() }}><UserRoundPlus className="size-3.5" />Share</ContextMenuItem> : null}
+        {canManageWorkspace ? <ContextMenuItem onSelect={event => { event.preventDefault(); onRename() }}><Pencil className="size-3.5" />Rename</ContextMenuItem> : null}
+        {canManageWorkspace && onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="size-3.5" />Change avatar</ContextMenuItem> : null}
         <ContextMenuItem onSelect={onCopyPath}><Copy className="size-3.5" />Copy Path</ContextMenuItem>
         <ContextMenuItem onSelect={onShowArchived}><Archive className="size-3.5" />Show Archived</ContextMenuItem>
-        <ContextMenuItem onSelect={onHide}><EyeOff className="size-3.5" />Hide</ContextMenuItem>
+        {canManageWorkspace ? <ContextMenuItem onSelect={onHide}><EyeOff className="size-3.5" />Hide</ContextMenuItem> : null}
       </>}
     </ContextMenuContent>
   </ContextMenu>

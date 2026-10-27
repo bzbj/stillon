@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
 import { useClaudeModelPolicyStore } from "../stores/claudeModelPolicyStore"
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
@@ -1121,7 +1122,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   }, [appSettings?.browserSettingsMigrated, connectionStatus, handleWriteAppSettings])
 
   useEffect(() => {
-    if (connectionStatus !== "connected") return
+    if (connectionStatus !== "connected" || isSharedWorkspaceBrowser()) return
     void handleReadLlmProvider()
   }, [connectionStatus, handleReadLlmProvider])
 
@@ -1854,11 +1855,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const handleCancel = useCallback(async () => {
     if (!activeChatId) return
     try {
-      await socket.command({ type: "chat.cancel", chatId: activeChatId })
+      await socket.command({ type: "chat.cancel", chatId: activeChatId, ...(chatSnapshot?.runtime.runId !== undefined ? { runId: chatSnapshot.runtime.runId } : {}) })
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [activeChatId, socket])
+  }, [activeChatId, socket, chatSnapshot?.runtime.runId])
 
   const handleStopDraining = useCallback(async () => {
     if (!activeChatId) return
@@ -2171,7 +2172,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
   const collapseSidebar = useCallback(() => setSidebarCollapsed(true), [setSidebarCollapsed])
   const expandSidebar = useCallback(() => setSidebarCollapsed(false), [setSidebarCollapsed])
-  const openAddProjectModal = useCallback(() => setAddProjectModalOpen(true), [])
+  const openAddProjectModal = useCallback(() => { if (!isSharedWorkspaceBrowser()) setAddProjectModalOpen(true) }, [])
   const closeAddProjectModal = useCallback(() => setAddProjectModalOpen(false), [])
 
   const handleListLocalDirectories = useCallback(async (localPath?: string) => {

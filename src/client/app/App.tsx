@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
 import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom"
@@ -176,7 +177,7 @@ function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
   const showMobileOpenButton = location.pathname === "/"
   const machineName = state.machineName
-  const appPageTitle = getAppPageTitle(machineName, getNotificationTitleCount(state.sidebarData))
+  const appPageTitle = getAppPageTitle(isSharedWorkspaceBrowser() ? state.sidebarData.projectGroups[0]?.title ?? machineName : machineName, getNotificationTitleCount(state.sidebarData))
   const previousSidebarDataRef = useRef<ReturnType<typeof useStillOnState>["sidebarData"] | null>(null)
   const previousSidebarSnapshotStatusRef = useRef(state.sidebarSnapshotStatus)
   const handleSidebarCreateChat = useCallback((projectId: string) => {

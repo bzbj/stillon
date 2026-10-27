@@ -1,3 +1,5 @@
+import { WorkspaceShareDialog } from "../../WorkspaceShareDialog"
+import { useWorkspaceSharingStore, isSharedWorkspaceBrowser } from "../../../stores/workspaceSharingStore"
 import type { QuickCommand } from "../../../../shared/quick-commands"
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { WorkspaceAvatar, type WorkspaceActivity } from "../../WorkspaceAvatar"
@@ -240,6 +242,8 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, title } = group
   const [avatarOpen, setAvatarOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
   const projectTitle = title || getPathBasename(localPath)
   const isExpanded = expandedGroups.has(groupKey)
   const isEmptyProject = group.chats.length === 0
@@ -281,7 +285,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           <TooltipTrigger asChild>
             <span data-stillon-part="workspace-title" className="min-w-0 flex-1 truncate text-sm font-semibold leading-5">{projectTitle}</span>
           </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={4}><p>{localPath}</p><p className="mt-1 opacity-70">{description}</p></TooltipContent>
+          <TooltipContent side="right" sideOffset={4}><p>{projectTitle}</p><p>{localPath}</p><p className="mt-1 opacity-70">{description}</p></TooltipContent>
         </Tooltip>
         <ChevronRight aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")} />
       </button>
@@ -306,6 +310,8 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
     >
       {hasProjectMenu ? (
         <ProjectSectionMenu
+          onShareWorkspace={guest ? undefined : () => setShareOpen(true)}
+          canManageWorkspace={!guest}
           onRename={() => onRenameProject?.(groupKey, group.sidebarTitle, group.realTitle || getPathBasename(localPath))}
           onCopyPath={() => onCopyPath?.(localPath)}
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
@@ -344,6 +350,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
             </>
         </div>
       )}
+      {shareOpen ? <WorkspaceShareDialog workspaceId={groupKey} title={projectTitle} open={shareOpen} onOpenChange={setShareOpen} /> : null}
       <WorkspaceAvatarPicker workspaceId={groupKey} title={projectTitle} open={avatarOpen} onOpenChange={setAvatarOpen} />
     </div>
   )
@@ -372,13 +379,14 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
 }: Props) {
   const keyboardDrag = useRef(false)
   useEffect(() => {
-    const reload = () => { void useWorkspaceAvatarsStore.getState().reload() }
+    const reload = () => { void useWorkspaceAvatarsStore.getState().reload(); void useWorkspaceSharingStore.getState().reload().catch(() => {}) }
+    const timer = window.setInterval(reload, 15_000)
     reload()
     window.addEventListener("focus", reload)
-    return () => window.removeEventListener("focus", reload)
+    return () => { window.removeEventListener("focus", reload); window.clearInterval(timer) }
   }, [])
   const supportsSidebarReorder = useSidebarReorderEnabled()
-  const isReorderEnabled = actionsEnabled && supportsSidebarReorder
+  const isReorderEnabled = actionsEnabled && supportsSidebarReorder && !isSharedWorkspaceBrowser()
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })

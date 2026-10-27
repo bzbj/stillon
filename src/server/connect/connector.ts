@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { rootCertificates } from "node:tls"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
+import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
@@ -28,6 +28,7 @@ export interface ConnectorOptions {
   localSecret: string
   origin?: string
   name: () => string
+  workspaces?: () => { id: string; title: string }[]
   frpcPath?: string
   runtimeRoot?: string
   /** Explicit CA fixture for integration tests/private installations, never insecure TLS. */
@@ -218,7 +219,7 @@ export async function createConnector(options: ConnectorOptions) {
     await transportStopping
     const binary = await executable()
     const result = await prove<{ token: string; generation: number; epoch: number; gatewayPublicKey: string; hostOrigin: string;
-      tunnel: { hostname: string; port: number; protocol: "wss" | "websocket" }; protocol: number }>("connect", { instanceId, protocol: CONNECT_PROTOCOL })
+      tunnel: { hostname: string; port: number; protocol: "wss" | "websocket" }; protocol: number }>("connect", { instanceId, protocol: CONNECT_PROTOCOL, workspaceSharing: 1 })
     if (expectedRevision !== revision || stopped || !state?.binding || state.paused || state.pendingUnbind) return
     if (result.protocol !== CONNECT_PROTOCOL) throw new ConnectorError("UPGRADE_REQUIRED")
     await transportStopping
@@ -327,7 +328,7 @@ export async function createConnector(options: ConnectorOptions) {
       const requested = adapter?.activeLeases() ?? []
       const displayName = options.name().trim().slice(0, 80) || "My computer"
       const result = await prove<{ state: "online" | "connecting"; leases: { id: string; token: string }[] }>("heartbeat", {
-        instanceId, generation, leases: requested, name: displayName,
+        instanceId, generation, leases: requested, name: displayName, ...(options.workspaces ? { workspaces: options.workspaces() } : {}),
       })
       if (currentRevision !== revision || stopped) return
       if (heartbeatTransportRevision !== transportRevision) return
@@ -380,6 +381,10 @@ export async function createConnector(options: ConnectorOptions) {
     } catch (caught) { if (!(caught instanceof ConnectorError && caught.code === "NOT_FOUND")) throw caught }
   }
   return {
+    async workspaceSharing(payload: Record<string, unknown>) {
+      if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
+      return prove<WorkspaceSharingSnapshot & { invitationUrl?: string; delivery?: string }>("workspace-sharing", { ...payload, ...(options.workspaces ? { workspaces: options.workspaces() } : {}) })
+    },
     async browserSessions() {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
       return prove<ConnectBrowserSessions>("list-sessions", {})

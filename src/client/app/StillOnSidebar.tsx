@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { useWorkspaceCollapse } from "../hooks/useWorkspaceCollapse"
 import type { WorkspaceCollapsed, WorkspaceCollapseVersions } from "../../shared/workspace-collapse"
 import type { SaveWorkspaceCollapse } from "../lib/workspaceCollapseSession"
@@ -162,6 +163,8 @@ function StillOnSidebarImpl({
   onReorderProjectGroups,
   onResizeSidebar,
 }: StillOnSidebarProps) {
+  const portalUrl = useWorkspaceSharingStore(s => s.view?.portalUrl)
+  const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
   const appearanceContext = useOptionalAppearance()
   const configuredWidth = appearanceContext?.preview?.appearance.sidebarWidth ?? savedSidebarWidth
   const safeMode = appearanceContext?.safeMode ?? false
@@ -604,7 +607,7 @@ function StillOnSidebarImpl({
             ) : <LocalProjectsSection
               projectGroups={data.projectGroups}
               activeProjectId={currentProjectId}
-              onReorderGroups={onReorderProjectGroups}
+              onReorderGroups={guest ? undefined : onReorderProjectGroups}
               collapsedSections={collapsedSections}
               expandedGroups={expandedGroups}
               onToggleSection={toggleSection}
@@ -612,7 +615,7 @@ function StillOnSidebarImpl({
               renderChatRow={renderChatRow}
               onShowArchivedProject={setArchivedProjectId}
               onRunQuickCommand={onRunQuickCommand}
-              onManageWorkspaceCommands={onWriteQuickCommands ? setCommandsProjectId : undefined}
+              onManageWorkspaceCommands={!guest && onWriteQuickCommands ? setCommandsProjectId : undefined}
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {
@@ -634,7 +637,7 @@ function StillOnSidebarImpl({
           <span>{collapseSaveError ?? "Workspace view waiting to sync…"}</span>
           {collapseSaveError ? <button type="button" onClick={retryCollapseSave} className="shrink-0 underline">Retry</button> : null}
         </div> : null}
-        <div className="border-t border-border p-2">
+        {!guest ? <div className="border-t border-border p-2">
             <button
             type="button"
             onClick={() => {
@@ -659,7 +662,7 @@ function StillOnSidebarImpl({
               </div>
             </div>
           </button>
-        </div>
+        </div> : <div className="border-t border-border p-3"><a href={portalUrl ? `${portalUrl}/computers` : undefined} className="text-sm text-muted-foreground hover:text-foreground">Back to Connect →</a></div>}
 
         <div
           role="separator"

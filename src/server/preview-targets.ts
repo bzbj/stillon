@@ -66,7 +66,7 @@ export class PreviewTargets {
       try { body = await request.json() } catch { return Response.json({ error: "Invalid preview target" }, { status: 400 }) }
       const projectId = typeof body?.projectId === "string" ? body.projectId : undefined
       const target = typeof body?.address === "string" ? parsePreviewTarget(body.address, projectId) : null
-      if (!target || (projectId && !projectExists(projectId))) return Response.json({ error: "Preview target is unavailable" }, { status: 400 })
+      if (!target || (projectId && !projectExists(projectId)) || (target.kind === "project-file" && !projectExists(target.projectId))) return Response.json({ error: "Preview target is unavailable" }, { status: 400 })
       if (target.kind === "external-http") return Response.json({ error: "External websites open in your browser." }, { status: 400 })
       if (target.kind === "host-html" && this.resolveHtml) {
         const existing = [...this.entries.values()].find(entry => entry.owner === owner && entry.expiresAt > Date.now() && entry.target.address === target.address && entry.target.kind === "host-html")

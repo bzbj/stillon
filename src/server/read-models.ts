@@ -189,6 +189,7 @@ export function deriveChatSnapshot(
   getMessages: (chatId: string) => Pick<ChatSnapshot, "messages" | "history">,
   steeringQueuedMessageId: string | null = null,
   asyncQuestionResponses: ChatSnapshot["asyncQuestionResponses"] = [],
+  runId?: string | null,
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -196,6 +197,7 @@ export function deriveChatSnapshot(
   if (!project || project.deletedAt) return null
 
   const runtime: ChatRuntime = {
+    ...(runId !== undefined ? { runId } : {}),
     chatId: chat.id,
     projectId: project.id,
     localPath: project.localPath,
