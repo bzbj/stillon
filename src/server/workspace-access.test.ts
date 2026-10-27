@@ -14,6 +14,7 @@ test("invited workspace capabilities follow actual resource ownership and never 
   expect(workspaceTopicAllowed({ type: "chat", chatId: "private-chat" }, "shared", state, terminals)).toBe(false)
   expect(workspaceTopicAllowed({ type: "terminal", terminalId: "private" }, "shared", state, terminals)).toBe(false)
   for (const command of [
+    null, { type: 1 }, { type: "settings.writeAppSettingsPatch", patch: null },
     { type: "project.create", localPath: "/example/new", title: "New" },
     { type: "project.open", localPath: "/example/private" },
     { type: "chat.send", chatId: "private-chat", projectId: "shared", content: "Example" },

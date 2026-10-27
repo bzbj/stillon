@@ -15,12 +15,14 @@ export function workspaceTopicAllowed(topic: SubscriptionTopic, workspaceId: str
   return false
 }
 export function workspaceCommandAllowed(command: ClientCommand, workspaceId: string, state: StoreState, terminals: TerminalManager) {
+  if (!command || typeof command.type !== "string") return false
   if (!state.projectsById.get(workspaceId) || state.projectsById.get(workspaceId)?.deletedAt) return false
   const chatAllowed = (id: unknown) => typeof id === "string" && state.chatsById.get(id)?.projectId === workspaceId
   if (command.type === "system.ping" || ["settings.readKeybindings", "settings.readAppSettings", "settings.readCodexModelPolicy", "settings.readClaudeModelPolicy"].includes(command.type)) return true
   if (command.type === "chat.setDraftProtection") return Array.isArray(command.chatIds) && command.chatIds.every(chatAllowed)
   if (command.type === "settings.writeAppSettingsPatch") {
     const patch = command.patch
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return false
     return Object.keys(patch).every(k => k === "workspaceCollapsed" || k === "workspaceCollapseExpectedVersions") && Object.keys(patch.workspaceCollapsed ?? {}).every(id => id === workspaceId)
       && Object.keys(patch.workspaceCollapseExpectedVersions ?? {}).every(id => id === workspaceId)
   }
