@@ -1,14 +1,14 @@
 import { createServer } from "node:http"
 import { connect } from "node:net"
 
-export async function proxyServer(targetPort: number) {
+export async function proxyServer(targetPort: number | ((authority: string) => number)) {
   const connections = new Set<import("node:net").Socket>()
   const seen: { authority: string; authorization?: string }[] = []
   const server = createServer((_request, response) => { response.writeHead(502).end() })
   server.on("connection", socket => { connections.add(socket); socket.on("close", () => connections.delete(socket)) })
   server.on("connect", (request, client, head) => {
     seen.push({ authority: request.url!, authorization: request.headers["proxy-authorization"] })
-    const upstream = connect(targetPort, "127.0.0.1", () => {
+    const upstream = connect(typeof targetPort === "number" ? targetPort : targetPort(request.url!), "127.0.0.1", () => {
       client.write("HTTP/1.1 200 Connection Established\r\n\r\n")
       if (head.length) upstream.write(head)
       client.pipe(upstream); upstream.pipe(client)
