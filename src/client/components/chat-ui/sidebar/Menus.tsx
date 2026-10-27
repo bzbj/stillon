@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
-import { Archive, ChevronLeft, ChevronRight, Copy, EyeOff, FolderOpen, Palette, Pencil, Pin, PinOff, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { Archive, ChevronLeft, ChevronRight, Copy, X, FolderOpen, Palette, Pencil, Pin, PinOff, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -75,7 +75,7 @@ export function ProjectSectionMenu({
         {canManageWorkspace && onCustomizeAvatar ? <ContextMenuItem onSelect={event => { event.preventDefault(); onCustomizeAvatar() }}><Palette className="size-3.5" />Change avatar</ContextMenuItem> : null}
         <ContextMenuItem onSelect={onCopyPath}><Copy className="size-3.5" />Copy Path</ContextMenuItem>
         <ContextMenuItem onSelect={onShowArchived}><Archive className="size-3.5" />Show Archived</ContextMenuItem>
-        {canManageWorkspace ? <ContextMenuItem onSelect={onHide}><EyeOff className="size-3.5" />Hide</ContextMenuItem> : null}
+        {canManageWorkspace ? <ContextMenuItem onSelect={onHide}><X className="size-3.5" />Close workspace</ContextMenuItem> : null}
       </>}
     </ContextMenuContent>
   </ContextMenu>
