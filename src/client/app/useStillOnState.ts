@@ -1,4 +1,4 @@
-import { isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { useClaudeModelPolicyStore } from "../stores/claudeModelPolicyStore"
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
@@ -1986,6 +1986,22 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
 
   const handleHideProject = useCallback(async (projectId: string) => {
     try {
+      // Refresh before deciding: another owner may have invited someone since
+      // the sidebar last loaded. If sharing cannot be checked, still warn.
+      let sharingUnknown = false
+      try { await useWorkspaceSharingStore.getState().reload() }
+      catch { sharingUnknown = true }
+      const shared = useWorkspaceSharingStore.getState().view?.workspaces
+        .some(workspace => workspace.workspaceId === projectId && workspace.members.length > 0)
+      if (shared || sharingUnknown) {
+        const confirmed = await dialog.confirm({
+          title: "Close workspace?",
+          description: "Closing this workspace will stop sharing and invited people will lose access. Files and conversations will be kept.",
+          confirmLabel: "Close workspace",
+          confirmVariant: "destructive",
+        })
+        if (!confirmed) return
+      }
       await socket.command({ type: "project.remove", projectId })
       useTerminalLayoutStore.getState().clearProject(projectId)
       useRightSidebarStore.getState().clearProject(projectId)
@@ -1996,7 +2012,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [navigate, runtime?.projectId, socket])
+  }, [dialog, navigate, runtime?.projectId, socket])
 
   const handleReorderProjectGroups = useCallback(async (projectIds: string[]) => {
     setOptimisticSidebarProjectOrder(projectIds)
