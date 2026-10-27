@@ -2367,7 +2367,7 @@ export function SettingsPage() {
                     <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
                       machineName={confirmedMachineName} cliActions={<ProviderCliUpdatesPanel provider={providerTab} compact />}
                       onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
-                    {providerTab === "claude" ? <>
+                    <div hidden={providerTab !== "claude"}>
                     <SettingsRow
                       title="Claude Code Defaults"
                       description="Saved defaults when using Claude Code."
@@ -2402,7 +2402,8 @@ export function SettingsPage() {
                       <ClaudeModelPolicyPanel socket={state.socket} connected={state.connectionStatus === "connected"} />
                     </SettingsRow>
 
-                    </> : <>
+                    </div>
+                    <div hidden={providerTab !== "codex"}>
                     <SettingsRow
                       title="Codex Defaults"
                       description="Saved defaults when using Codex."
@@ -2457,7 +2458,7 @@ export function SettingsPage() {
                       </Select>
                     </SettingsRow>
 
-                    </>}
+                    </div>
                     <SettingsRow
                       title="Quick Response SDK"
                       description={llmValidationDescription}
