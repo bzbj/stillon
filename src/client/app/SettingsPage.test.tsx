@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react"
 import { MemoryRouter } from "react-router-dom"
 import {
   ChangelogSection,
+  STILLON_UPDATE_PROMPT,
   getOnboardingCompletedTaskCount,
   ONBOARDING_TASK_COUNT,
   compareReleaseVersions,
@@ -14,6 +15,7 @@ import {
   getCachedChangelog,
   getKeybindingsSubtitle,
   getMachineNameEditorState,
+  reconcileMachineNameDraft,
   getOnboardingProviderPendingLabel,
   isSubscriptionProviderReady,
   loadChangelog,
@@ -55,13 +57,19 @@ const SAMPLE_RELEASES = [
   },
 ]
 
-const generateUpgradePrompt = async () => ({ prompt: "执行本机定制升级并重启服务。" })
-
 afterEach(() => {
   resetSettingsPageChangelogCache()
 })
 
 describe("machine-name editor", () => {
+  test("late confirmation and cross-entry snapshots preserve an unsaved name draft", () => {
+    expect(reconcileMachineNameDraft("", null, "Saved name")).toBe("Saved name")
+    expect(reconcileMachineNameDraft("My edit", null, "Saved name")).toBe("My edit")
+    expect(reconcileMachineNameDraft("Old name", "Old name", "Remote name")).toBe("Remote name")
+    expect(reconcileMachineNameDraft("My edit", "Old name", "Remote name")).toBe("My edit")
+    expect(reconcileMachineNameDraft("", "Old name", "Remote name")).toBe("")
+  })
+
   test("keeps an edit local until it is meaningfully different from the confirmed name", () => {
     expect(getMachineNameEditorState("Office Mac", "Office Mac")).toEqual({
       canSave: false,
@@ -159,12 +167,12 @@ describe("changelog cache", () => {
 describe("resolveSettingsSectionId", () => {
   test("accepts known settings sections", () => {
     expect(resolveSettingsSectionId("welcome")).toBe("welcome")
-    expect(resolveSettingsSectionId("general")).toBe("general")
+    expect(resolveSettingsSectionId("general")).toBe("about")
     expect(resolveSettingsSectionId("network")).toBe("network")
     expect(resolveSettingsSectionId("providers")).toBe("providers")
-    expect(resolveSettingsSectionId("changelog")).toBe("changelog")
-    expect(resolveSettingsSectionId("keybindings")).toBe("quick-commands")
-    expect(resolveSettingsSectionId("quick-commands")).toBe("quick-commands")
+    expect(resolveSettingsSectionId("changelog")).toBe("about")
+    expect(resolveSettingsSectionId("keybindings")).toBe("skills")
+    expect(resolveSettingsSectionId("quick-commands")).toBe("skills")
     expect(resolveSettingsSectionId("skills")).toBe("skills")
   })
 
@@ -197,13 +205,15 @@ describe("WelcomeChecklist", () => {
       </MemoryRouter>
     )
 
-    expect(html).toContain("1 of 3 ready")
-    expect(html).toContain("1. Choose one Agent")
+    expect(html).toContain('href="/settings/about"')
+    expect(html).toContain('href="/settings/providers"')
+    expect(html).not.toContain('id="onboarding-machine-name"')
     expect(html).toContain("Claude Code")
     expect(html).toContain("One signed-in CLI is enough")
     expect(html).not.toContain("Send your first messages")
     expect(html).not.toContain("test chat")
-    expect(html).toContain("Official CLI installation guide")
+    expect(html).toContain("Finish setup")
+    expect(html).toContain("1 of 3 ready")
   })
 
   test("counts name, service and either one ready Agent", () => {
@@ -587,7 +597,6 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
-        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -597,6 +606,9 @@ describe("ChangelogSection", () => {
     expect(html).toContain("Better cursor color")
     expect(html).toContain('aria-label="View release on GitHub"')
     expect(html).toContain("https://github.com/bzbj/stillon/releases/tag/v0.8.1")
+    expect(html).toContain("Previous releases")
+    expect(html).toContain("<details>")
+    expect(html).not.toContain("<details open")
     expect(html).toContain("Prerelease")
     expect(html).toContain("No release notes were provided.")
     expect(html).toContain(formatPublishedDate("2026-03-19T16:53:08Z"))
@@ -611,7 +623,6 @@ describe("ChangelogSection", () => {
         error="GitHub said no"
         onRetry={() => {}}
         currentVersion="1.0.0"
-        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -628,7 +639,6 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="1.0.0"
-        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
@@ -652,13 +662,15 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
-        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
     expect(html).toContain("Upgrade available: v0.8.2")
-    expect(html).toContain("Generate upgrade prompt")
-    expect(html).toContain("Your coding agent will check this installation when you run it.")
+    expect(html).toContain("Copy update prompt")
+    expect(html).toContain("local/Connect connections")
+    expect(html).not.toContain("Managed updates")
+    expect(STILLON_UPDATE_PROMPT.length).toBeLessThanOrEqual(300)
+    expect(STILLON_UPDATE_PROMPT).toContain("independent task")
     expect(html).not.toContain("Analyze this installation")
     expect(html).not.toContain("Let Codex inspect")
     expect(html).not.toContain("npm install")
@@ -672,11 +684,10 @@ describe("ChangelogSection", () => {
         error={null}
         onRetry={() => {}}
         currentVersion="0.8.1"
-        onGenerateUpgradePrompt={generateUpgradePrompt}
       />
     )
 
-    expect(html).not.toContain("Generate upgrade prompt")
+    expect(html).not.toContain("Copy update prompt")
   })
 })
 

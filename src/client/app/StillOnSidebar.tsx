@@ -641,7 +641,7 @@ function StillOnSidebarImpl({
             <button
             type="button"
             onClick={() => {
-              navigate("/settings/welcome")
+              navigate("/settings")
               onClose()
             }}
             className={cn(
@@ -708,7 +708,7 @@ function StillOnSidebarImpl({
 
       <Dialog open={Boolean(commandsProject)} onOpenChange={open => { if (!open) setCommandsProjectId(null) }}>
         <DialogContent size="lg" className="w-[calc(100%-24px)] sm:max-w-2xl">
-          <DialogHeader><DialogTitle>Workspace Commands</DialogTitle><DialogDescription>{commandsProject?.title || "Workspace"} · Commands for this workspace.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Workspace Preset Prompts</DialogTitle><DialogDescription>{commandsProject?.title || "Workspace"} · Preset prompts for this workspace.</DialogDescription></DialogHeader>
           <DialogBody>{commandsProject && onWriteQuickCommands ? <QuickCommandsEditor key={commandsProject.groupKey} commands={quickCommands.workspaces[commandsProject.groupKey] ?? []} disabled={!actionsEnabled} onSave={commands => onWriteQuickCommands({ workspaces: { [commandsProject.groupKey]: commands } })} /> : null}</DialogBody>
         </DialogContent>
       </Dialog>

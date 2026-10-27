@@ -77,7 +77,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       <Button variant="outline" onClick={() => void onSignOut()}>Logout</Button>
     </> : local ? <>
       <div className="rounded-2xl border p-5"><div className="flex items-center gap-3"><span className={`size-2 rounded-full ${local.state === "online" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} /><h3 className="font-medium">{labels[local.state]}</h3></div><p className="mt-3 text-sm text-muted-foreground">{local.name}{local.email ? ` · ${local.email}` : ""}</p></div>
-      <p className="text-sm leading-6 text-muted-foreground">Link your email, then sign in from another device to continue tasks, view files and edit results. Keep this computer on, online and running StillOn.</p>
+      {!local.hostId && <p className="text-sm leading-6 text-muted-foreground">Link your email, then sign in from another device to continue tasks, view files and edit results. Keep this computer on, online and running StillOn.</p>}
       {local.transport && local.transport.state !== "ready" && <div role="status" className="space-y-3 rounded-xl border p-4">
         <p className="text-sm leading-6">{local.transport.state === "preparing" ? "Preparing the Connect component…" : errors[local.transport.error ?? "CONNECTOR_NOT_INSTALLED"] ?? "The Connect component needs repair."}</p>
         {local.transport.state !== "preparing" && local.transport.error !== "CONNECTOR_COMPONENT_INVALID" && <Button disabled={busy} variant="outline" onClick={() => void action("repair-transport")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Repair Connect component</Button>}

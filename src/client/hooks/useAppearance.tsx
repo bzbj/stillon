@@ -35,7 +35,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (new URLSearchParams(location.search).get("safe-mode") === "1") setSafeMode(true)
   }, [location.search])
-  const appearance = useMemo(() => normalizeAppearance(safeMode ? undefined : preview?.appearance ?? settings), [preview, safeMode, settings])
+  const appearance = useMemo(() => normalizeAppearance({ ...(safeMode ? undefined : preview?.appearance ?? settings), chatWidth: "comfortable" }), [preview, safeMode, settings])
 
   useEffect(() => { setPreview(null) }, [location.pathname, safeMode])
   useEffect(() => {
