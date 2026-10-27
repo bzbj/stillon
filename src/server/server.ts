@@ -1,3 +1,5 @@
+import { handleWorkspaceSharing } from "./workspace-sharing"
+import { workspaceHttpAllowed } from "./workspace-access"
 import { ClaudeModelPolicyManager, type ClaudeModelDiscoveryOptions } from "./claude-model-policy-manager"
 import { ProviderCliSettings } from "./provider-cli-settings"
 import { createProviderSetup } from "./provider-setup"
@@ -54,7 +56,7 @@ import { serveStaticAsset } from "./static-assets"
 import { appendHttpTiming } from "../shared/http-timing"
 import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
-import { validateIngress } from "./connect/ingress"
+import { validateIngress, remoteOperationOwner } from "./connect/ingress"
 import { handleConnectLocal } from "./connect/local-api"
 import { RemoteOperations } from "./connect/operations"
 import { stopConnectListener } from "./connect/stop-server"
@@ -404,6 +406,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             const url = new URL(req.url)
             const ingress = validateIngress(req, { port: serverInstance.port!, hostname, peer: serverInstance.requestIP(req)?.address, secret: localSecret, allowedOrigins })
             if (ingress instanceof Response) return ingress
+            const sharedWorkspaceId = ingress.kind === "remote" ? ingress.workspaceId : undefined
+            if (sharedWorkspaceId && !workspaceHttpAllowed(url, req.method, sharedWorkspaceId)) return Response.json({ error: "WORKSPACE_ONLY" }, { status: 403 })
+            if (url.pathname === "/api/workspace-sharing") return await handleWorkspaceSharing(req, ingress, connector, store) ?? new Response(null, { status: 404 })
             if (url.pathname.startsWith(LOCAL_PREVIEW_ASSET_PREFIX)) {
               const resource = ["GET", "HEAD"].includes(req.method) ? previewResources.resolve(url.pathname) : null
               if (!resource) return new Response("Preview expired or unavailable", { status: 403 })
@@ -419,7 +424,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
             if (url.pathname.startsWith("/api/connect-operations/")) {
               if (ingress.kind !== "remote" || req.method !== "GET") return new Response("Forbidden", { status: 403 })
-              try { const operation = remoteOperations.get(ingress.ownerId, url.pathname.slice("/api/connect-operations/".length)); return Response.json(operation ?? { state: "not-received" }, { headers: { "Cache-Control": "no-store" } }) }
+              try { const operation = remoteOperations.get(remoteOperationOwner(ingress), url.pathname.slice("/api/connect-operations/".length)); return Response.json(operation ?? { state: "not-received" }, { headers: { "Cache-Control": "no-store" } }) }
               catch { return Response.json({ error: "OPERATION_EXPIRED" }, { status: 410, headers: { "Cache-Control": "no-store" } }) }
             }
             const updateResponse = managedUpdate.handle(req, serverInstance.requestIP(req)?.address)
@@ -488,7 +493,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
                 canOpenHostFiles: ingress.kind === "local",
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),
-                ...(ingress.kind === "remote" ? { remoteOwnerId: ingress.ownerId } : {}),
+                ...(ingress.kind === "remote" ? { remoteOwnerId: remoteOperationOwner(ingress), workspaceId: ingress.workspaceId } : {}),
               },
             })
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
@@ -499,8 +504,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             const settings = appSettings.getSnapshot()
             return Response.json({
               machineName: settings.machineName,
-              workspaceCollapsed: settings.workspaceCollapsed,
-              workspaceCollapseVersions: settings.workspaceCollapseVersions,
+              workspaceCollapsed: sharedWorkspaceId ? Object.fromEntries(Object.entries(settings.workspaceCollapsed ?? {}).filter(([id]) => id === sharedWorkspaceId)) : settings.workspaceCollapsed,
+              workspaceCollapseVersions: sharedWorkspaceId ? Object.fromEntries(Object.entries(settings.workspaceCollapseVersions ?? {}).filter(([id]) => id === sharedWorkspaceId)) : settings.workspaceCollapseVersions,
             }, { headers: { "Cache-Control": "no-store" } })
           }
 
@@ -566,6 +571,10 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           })
           if (providerSetupResponse) return providerSetupResponse
 
+          if (sharedWorkspaceId && url.pathname === "/api/appearance/avatars") {
+            const snapshot = await workspaceAvatars.snapshot()
+            return Response.json({ ...snapshot, config: { ...snapshot.config, workspaces: Object.fromEntries(Object.entries(snapshot.config.workspaces).filter(([id]) => id === sharedWorkspaceId)) } }, { headers: { "Cache-Control": "no-store" } })
+          }
           const avatarsResponse = await handleWorkspaceAvatars(req, workspaceAvatars, {
             workspaceExists: id => Boolean(store.getProject(id)),
             // Ingress already validated the browser origin against the declared
@@ -582,7 +591,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
           })
           if (appearanceResponse) return appearanceResponse
 
-          const previewOwner = ingress.kind === "remote" ? ingress.ownerId : "local"
+          const previewOwner = ingress.kind === "remote" ? sharedWorkspaceId ? `${ingress.ownerId}:workspace:${sharedWorkspaceId}` : ingress.ownerId : "local"
           if ((url.pathname.startsWith("/api/preview-targets") || url.pathname.startsWith("/api/preview-browser") || url.pathname.startsWith("/api/file-previews")) && ingress.kind === "external" && !auth) {
             return Response.json({ error: "Preview access requires local access, Connect or application authentication." }, { status: 403 })
           }
@@ -591,7 +600,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return Response.json({ error: "Update the StillOn remote adapter before using isolated previews." }, { status: 409 })
           }
           const previewScope = ingress.kind === "remote" ? previewOwner + ":" + req.headers.get(REMOTE_SESSION_HEADER) : "local"
-          const targetResponse = await previewTargets.handle(req, url, previewOwner, id => Boolean(store.getProject(id)), id => store.getProject(id)?.localPath)
+          const targetResponse = await previewTargets.handle(req, url, previewOwner, id => (!sharedWorkspaceId || id === sharedWorkspaceId) && Boolean(store.getProject(id)), id => store.getProject(id)?.localPath)
           if (targetResponse) return targetResponse
           if (url.pathname === "/api/link-capabilities" && req.method === "GET") return Response.json({
             local: ingress.kind === "local", isMac: process.platform === "darwin", filePreviewProtocol: FILE_PREVIEW_PROTOCOL,
@@ -732,7 +741,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
   connector = await createConnector({ ...options.connect, origin: options.connect?.origin ?? process.env.STILLON_CONNECT_ORIGIN,
     dataDir: store.dataDir, localSecret, targetOrigin: `http://${hostname === "::" ? "[::1]" : hostname === "0.0.0.0" ? "127.0.0.1" : hostname}:${actualPort}`,
-    name: () => appSettings.getSnapshot().machineName })
+    name: () => appSettings.getSnapshot().machineName,
+    workspaces: () => [...store.state.projectsById.values()].filter(p => !p.deletedAt).map(p => ({ id: p.id, title: (p.sidebarTitle ?? p.title).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 256) || "Workspace" })) })
 
   // Binding the server is the startup critical path. Provider history is
   // discovered incrementally afterwards, while saved sidebar projects are

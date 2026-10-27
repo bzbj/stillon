@@ -1684,6 +1684,24 @@ describe("AgentCoordinator stop and queued-message override (#126)", () => {
     expect(store.queuedMessages.map((message) => message.content)).toEqual(["message-M"])
   })
 
+  test("a delayed participant stop targets its observed run and cannot cancel the next run", async () => {
+    const { manager, runs } = createFakeCodexRuns()
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({ store: store as never, onStateChange: () => {}, codexManager: manager as never })
+    await startRunning(coordinator)
+    const firstRun = coordinator.getActiveRunId("chat-1")!
+    expect(firstRun).toBeString()
+    await coordinator.cancel("chat-1", { runId: firstRun })
+    await coordinator.send({ type: "chat.send", chatId: "chat-1", provider: "codex", content: "Second participant's run", model: "gpt-5.4" })
+    const secondRun = coordinator.getActiveRunId("chat-1")!
+    expect(secondRun).not.toBe(firstRun)
+    await coordinator.cancel("chat-1", { runId: firstRun })
+    expect(coordinator.getActiveRunId("chat-1")).toBe(secondRun)
+    expect(runs).toHaveLength(2)
+    await coordinator.cancel("chat-1", { runId: secondRun })
+    expect(coordinator.getActiveRunId("chat-1")).toBeNull()
+  })
+
   test("sends racing a stop start exactly one run; the rest are queued", async () => {
     const stop = gate()
     const { manager, runs } = createFakeCodexRuns({ interrupt: () => stop.opened })

@@ -137,3 +137,8 @@ html [data-stillon-part="workspace-card"][data-workspace-active="true"] {
   [data-stillon-part="workspace-avatar-status"][data-status="working"] path { animation: workspace-working 1.8s ease-in-out infinite; }
 }
 @keyframes workspace-working { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+[data-stillon-part="workspace-avatar-companion"] {
+  position: absolute; z-index: 2; left: -22%; top: 34%; width: 72%; height: 72%;
+  border-radius: 50%; background: hsl(var(--background)); padding: 1.5px;
+}

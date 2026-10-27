@@ -9,6 +9,8 @@ import { protectPreviewPort, releasePreviewPort } from "../preview-ports"
 interface ActiveLease { token: string; lease: AccessLease; deadline: number }
 export const REMOTE_HEADER = "x-stillon-local-remote"
 export const REMOTE_OWNER_HEADER = "x-stillon-local-owner"
+export const REMOTE_ACTOR_HEADER = "x-stillon-local-actor"
+export const REMOTE_WORKSPACE_HEADER = "x-stillon-local-workspace"
 export const REMOTE_SESSION_HEADER = "x-stillon-local-session"
 export const REMOTE_EXPIRY_HEADER = "x-stillon-local-expiry"
 
@@ -41,6 +43,7 @@ export function startRemoteAdapter(options: {
       const headers = forwardingHeaders(request, Boolean(preview))
       const scope = { hostId: lease.hostId, parentId: lease.parentId, ownerId: lease.ownerId, valid: () => valid(entry),
         finished: () => { if (leases.get(lease.id) === entry) leases.delete(lease.id) } }
+      if (preview && lease.workspaceId) { leases.delete(lease.id); return new Response("Workspace only", { status: 403 }) }
       if (preview) {
         try {
           const blockedPorts = [Number(new URL(targetOrigin).port || 80), server.port!]
@@ -64,6 +67,8 @@ export function startRemoteAdapter(options: {
       }
       headers.set(REMOTE_HEADER, options.localSecret)
       headers.set(REMOTE_OWNER_HEADER, lease.ownerId)
+      if (lease.actorId) headers.set(REMOTE_ACTOR_HEADER, lease.actorId)
+      if (lease.workspaceId) headers.set(REMOTE_WORKSPACE_HEADER, lease.workspaceId)
       headers.set(REMOTE_SESSION_HEADER, lease.parentId)
       headers.set(REMOTE_EXPIRY_HEADER, String(lease.expiresAt))
       headers.set("origin", targetOrigin)
@@ -106,6 +111,7 @@ export function startRemoteAdapter(options: {
         const update = values.find(v => v.id === id)!
         const next = verifyLease(update.token, options.publicKey)
         if (!next || next.id !== id || next.hostId !== entry.lease.hostId || next.parentId !== entry.lease.parentId
+          || next.actorId !== entry.lease.actorId || next.workspaceId !== entry.lease.workspaceId
           || next.sessionId !== entry.lease.sessionId || next.ownerId !== entry.lease.ownerId || next.epoch !== entry.lease.epoch
           || next.generation !== entry.lease.generation || next.path !== entry.lease.path || next.method !== entry.lease.method || !valid(entry)) {
           leases.delete(id); continue

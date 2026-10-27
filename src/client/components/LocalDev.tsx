@@ -1,3 +1,4 @@
+import { useWorkspaceSharingStore, isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
 import { lazy, Suspense, useState, type ComponentType, type ReactNode } from "react"
 import {
   ArrowLeftRight,
@@ -165,6 +166,7 @@ export function LocalDev({
   onListDirectories,
   onResolveLocalPath,
 }: LocalDevProps) {
+  const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const selectedProject = resolveHomeProject(projectGroups, selectedProjectId, defaultProjectId)
   const isConnecting = connectionStatus === "connecting" || !ready
@@ -262,7 +264,7 @@ export function LocalDev({
                   <button
                     type="button"
                     aria-label="Choose workspace"
-                    disabled={!sidebarReady}
+                    disabled={!sidebarReady || guest}
                     className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
                   >
                     {selectedProject ? <WorkspaceAvatar workspaceId={selectedProject.groupKey} className="size-6 shrink-0" /> : <FolderOpen className="h-4 w-4 shrink-0" />}
@@ -336,7 +338,7 @@ export function LocalDev({
         </div>
       )}
 
-      {newProjectOpen ? <Suspense fallback={<p role="status">Loading workspace picker… <button type="button" onClick={() => onNewProjectOpenChange(false)}>Cancel</button></p>}><NewProjectModal
+      {newProjectOpen && !guest ? <Suspense fallback={<p role="status">Loading workspace picker… <button type="button" onClick={() => onNewProjectOpenChange(false)}>Cancel</button></p>}><NewProjectModal
         machineName={machineName}
         open={newProjectOpen}
         onOpenChange={onNewProjectOpenChange}

@@ -1,3 +1,4 @@
+import { workspaceState, workspaceTopicAllowed, workspaceCommandAllowed } from "./workspace-access"
 import type { ClaudeModelPolicyManager } from "./claude-model-policy-manager"
 import { mergeQuickCommands } from "../shared/quick-commands"
 import { defaultAppearance, mergeAppearance } from "../shared/appearance"
@@ -43,6 +44,13 @@ import type {
   SkillUninstallResult,
   SubscriptionUsageSnapshot,
 } from "../shared/types"
+
+function scopedAppSettings(settings: AppSettingsSnapshot, workspaceId?: string): AppSettingsSnapshot {
+  if (!workspaceId) return settings
+  const only = <T>(values: Record<string, T> | undefined) => Object.fromEntries(Object.entries(values ?? {}).filter(([id]) => id === workspaceId))
+  return { ...settings, browserSettingsMigrated: true, defaultProjectId: workspaceId, workspaceCollapsed: only(settings.workspaceCollapsed), workspaceCollapseVersions: only(settings.workspaceCollapseVersions),
+    quickCommands: settings.quickCommands ? { ...settings.quickCommands, workspaces: only(settings.quickCommands.workspaces) } : undefined }
+}
 
 const SKILL_AGENT_ALIASES = ["universal", "claude-code"] as const
 
@@ -125,6 +133,7 @@ export interface ClientState {
   chunkTransport?: boolean
   transport?: SocketTransport
   canOpenHostFiles?: boolean
+  workspaceId?: string
   remoteOwnerId?: string
   subscriptions: Map<string, SubscriptionTopic>
   snapshotSignatures: Map<string, string>
@@ -745,6 +754,7 @@ export function createWsRouter({
     id: string,
     topic: SubscriptionTopic,
     cache?: SnapshotComputationCache,
+    workspaceId?: string,
   ): Promise<ServerEnvelope> {
     if (topic.type === "claude-model-policy") {
       if (!claudeModelPolicy) throw new Error("Claude model configuration is unavailable")
@@ -766,14 +776,14 @@ export function createWsRouter({
         id,
         snapshot: {
           type: "sidebar",
-          data: sidebar.data,
+          data: workspaceId ? { projectGroups: deriveSidebarData(workspaceState(store.state, workspaceId), agent.getActiveStatuses(), { drainingChatIds: agent.getDrainingChatIds() }).projectGroups.map(group => ({ ...group, title: `${getCurrentMachineDisplayName()} - ${group.title}`, sidebarTitle: undefined })) } : sidebar.data,
         },
       }
     }
 
     if (topic.type === "local-projects") {
       const discoveredProjects = getDiscoveredProjects()
-      const snapshot = deriveLocalProjectsSnapshot(store.state, discoveredProjects, getCurrentMachineDisplayName())
+      const snapshot = deriveLocalProjectsSnapshot(workspaceId ? workspaceState(store.state, workspaceId) : store.state, workspaceId ? [] : discoveredProjects, getCurrentMachineDisplayName())
       const data = isDiscoveryInProgress
         ? { ...snapshot, isDiscovering: isDiscoveryInProgress() }
         : snapshot
@@ -808,7 +818,7 @@ export function createWsRouter({
         id,
         snapshot: {
           type: "app-settings",
-          data: resolvedAppSettings.getSnapshot(),
+          data: scopedAppSettings(resolvedAppSettings.getSnapshot(), workspaceId),
         },
       }
     }
@@ -864,6 +874,7 @@ export function createWsRouter({
           () => transcript,
           agent.getSteeringQueuedMessageId?.(topic.chatId) ?? null,
           store.listAsyncQuestionResponses?.(topic.chatId) ?? [],
+          agent.getActiveRunId?.(topic.chatId),
         ),
       },
     }
@@ -888,7 +899,8 @@ export function createWsRouter({
         continue
       }
       const envelopeStartedAt = performance.now()
-      const envelope = await createEnvelope(id, topic, options?.cache)
+      if (ws.data.workspaceId && !workspaceTopicAllowed(topic, ws.data.workspaceId, store.state, terminals)) continue
+      const envelope = await createEnvelope(id, topic, options?.cache, ws.data.workspaceId)
       const createdAt = performance.now()
       if (ws.data.subscriptions.get(id) !== topic) continue
       if (envelope.type !== "snapshot") continue
@@ -912,10 +924,10 @@ export function createWsRouter({
           continue
         }
       }
-      const signature = topic.type === "sidebar"
+      const signature = topic.type === "sidebar" && !ws.data.workspaceId
         ? getSidebarSnapshotCacheEntry(options?.cache).signature
         : JSON.stringify(envelope.snapshot)
-      const signatureReadyAt = topic.type === "sidebar" ? createdAt : performance.now()
+      const signatureReadyAt = topic.type === "sidebar" && !ws.data.workspaceId ? createdAt : performance.now()
       if (snapshotSignatures.get(id) === signature) {
         skippedCount += 1
         continue
@@ -1071,6 +1083,7 @@ export function createWsRouter({
 
   function broadcastError(message: string) {
     for (const ws of sockets) {
+      if (ws.data.workspaceId) continue
       send(ws, {
         v: PROTOCOL_VERSION,
         type: "error",
@@ -1084,7 +1097,7 @@ export function createWsRouter({
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "terminal" || topic.terminalId !== terminalId) continue
-        const envelope = await createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic, undefined, ws.data.workspaceId)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1118,7 +1131,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         for (const [id, topic] of ws.data.subscriptions.entries()) {
           if (topic.type !== "keybindings") continue
-          const envelope = await createEnvelope(id, topic)
+          const envelope = await createEnvelope(id, topic, undefined, ws.data.workspaceId)
           if (envelope.type !== "snapshot") continue
           const signature = JSON.stringify(envelope.snapshot)
           if (snapshotSignatures.get(id) === signature) continue
@@ -1139,7 +1152,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         for (const [id, topic] of ws.data.subscriptions.entries()) {
           if (topic.type !== "app-settings" && topic.type !== "local-projects") continue
-          const envelope = await createEnvelope(id, topic)
+          const envelope = await createEnvelope(id, topic, undefined, ws.data.workspaceId)
           if (envelope.type !== "snapshot") continue
           const signature = JSON.stringify(envelope.snapshot)
           if (snapshotSignatures.get(id) === signature) continue
@@ -1267,12 +1280,13 @@ export function createWsRouter({
           return
         }
         case "settings.readAppSettings": {
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: resolvedAppSettings.getSnapshot() })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: scopedAppSettings(resolvedAppSettings.getSnapshot(), ws.data.workspaceId) })
           return
         }
         case "settings.writeAppSettingsPatch": {
           const previousNetwork = resolvedAppSettings.getSnapshot().network
-          const snapshot = await resolvedAppSettings.writePatch(command.patch)
+          const updatedSettings = await resolvedAppSettings.writePatch(command.patch)
+          const snapshot = scopedAppSettings(updatedSettings, ws.data.workspaceId)
           if (command.patch.network && JSON.stringify(previousNetwork) !== JSON.stringify(snapshot.network)) {
             agentNetworkRestartRequired = true
           }
@@ -1491,7 +1505,7 @@ export function createWsRouter({
           return
         }
         case "chat.cancel": {
-          await agent.cancel(command.chatId)
+          await agent.cancel(command.chatId, { runId: command.runId })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           return
         }
@@ -1654,6 +1668,9 @@ export function createWsRouter({
       }
 
       if (parsed.type === "subscribe") {
+        if (ws.data.workspaceId && (!parsed.topic || !workspaceTopicAllowed(parsed.topic, ws.data.workspaceId, store.state, terminals))) {
+          send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "WORKSPACE_ONLY" }); return
+        }
         if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "claude-model-policy", "chat", "terminal"].includes(parsed.topic.type)) {
           send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Unknown subscription topic" })
           return
@@ -1662,7 +1679,7 @@ export function createWsRouter({
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)
         ws.data.chatStreams?.delete(parsed.id)
-        if (parsed.topic.type === "local-projects") {
+        if (parsed.topic.type === "local-projects" && !ws.data.workspaceId) {
           // Saved StillOn projects can be rendered immediately. Provider
           // history discovery continues in the background and pushes updates.
           const discovery = refreshDiscovery()
@@ -1687,6 +1704,9 @@ export function createWsRouter({
         return
       }
 
+      if (ws.data.workspaceId && !workspaceCommandAllowed(parsed.command, ws.data.workspaceId, store.state, terminals)) {
+        sendEnvelope(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "WORKSPACE_ONLY" }); return
+      }
       if (ws.data.remoteOwnerId && parsed.command.type !== "system.ping") {
         try {
           if (!remoteOperations) throw new Error("Remote command receipts are unavailable")

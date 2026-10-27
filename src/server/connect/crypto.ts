@@ -51,6 +51,8 @@ export function verifyLease(token: string, key: string, now = Date.now()): Acces
     if (!verify(null, Buffer.from(data), publicKey(key), Buffer.from(signature, "base64url"))) return null
     const lease = JSON.parse(Buffer.from(data, "base64url").toString()) as AccessLease
     if (lease.v !== 1 || ![lease.id, lease.hostId, lease.sessionId, lease.parentId, lease.ownerId].every(v => typeof v === "string" && v.length > 0 && v.length < 256)
+      || (lease.actorId !== undefined && (typeof lease.actorId !== "string" || !lease.actorId || lease.actorId.length > 256))
+      || (lease.workspaceId !== undefined && (typeof lease.workspaceId !== "string" || !lease.workspaceId || lease.workspaceId.length > 256 || !lease.actorId))
       || !Number.isSafeInteger(lease.generation) || !Number.isSafeInteger(lease.epoch)
       || !Number.isSafeInteger(lease.issuedAt) || !Number.isSafeInteger(lease.expiresAt)
       || lease.issuedAt > now + 5_000 || lease.expiresAt <= now

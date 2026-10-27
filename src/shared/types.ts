@@ -1209,6 +1209,7 @@ export type HydratedTranscriptMessage =
   | ({ id: string; messageId?: string; hidden?: boolean } & HydratedToolCall)
 
 export interface ChatRuntime {
+  runId?: string | null
   chatId: string
   projectId: string
   localPath: string
