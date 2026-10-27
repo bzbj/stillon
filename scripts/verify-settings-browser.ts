@@ -12,6 +12,12 @@ import { startStillOnServer } from "../src/server/server"
 if (!process.argv.includes("--isolated-settings-child")) {
   const home = await mkdtemp(path.join(os.tmpdir(), "stillon-settings-"))
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("STILLON_UPDATE_") && !name.startsWith("STILLON_CONNECT_") && name !== "STILLON_RUNTIME_PROFILE"))
+  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
+    const executable = chromium.executablePath()
+    const marker = executable.lastIndexOf(path.sep + "chromium-")
+    assert(marker >= 0, "Cannot locate the installed Playwright browser cache")
+    env.PLAYWRIGHT_BROWSERS_PATH = executable.slice(0, marker)
+  }
   Object.assign(env, { HOME: home, USERPROFILE: home, CODEX_HOME: path.join(home, ".codex"), CLAUDE_CONFIG_DIR: path.join(home, ".claude"), STILLON_SETTINGS_TEST_ROOT: home })
   const child = Bun.spawn([process.execPath, import.meta.path, ...process.argv.slice(2), "--isolated-settings-child"], { env, stdin: "inherit", stdout: "inherit", stderr: "inherit" })
   let code = 1
@@ -87,6 +93,14 @@ try {
     await p.waitForURL("**/settings/" + section)
     await p.locator("button:visible").filter({ hasText: /^Providers$/ }).first().waitFor()
   }
+  async function editName(p: Page, value: string) {
+    const input = p.locator("#machine-name")
+    await input.waitFor()
+    await input.click()
+    await input.press("ControlOrMeta+A")
+    await input.pressSequentially(value)
+    await p.getByText("Unsaved changes", { exact: true }).waitFor()
+  }
   for (let i = 0; i < entries.length; i++) {
     const p = pages[i]!
     stage = entries[i]!.name + ": settings entry"
@@ -121,11 +135,7 @@ try {
     await p.getByText("Appearance applied.", { exact: true }).waitFor()
     await p.screenshot({ path: path.join(output, entries[i]!.name + "-personalization.png"), fullPage: true })
     await settings(p, i, "about")
-    await p.waitForFunction(() => Boolean((document.querySelector("#machine-name") as HTMLInputElement | null)?.value))
-    await p.locator("#machine-name").click()
-    await p.locator("#machine-name").press("ControlOrMeta+A")
-    await p.locator("#machine-name").pressSequentially("Fixture " + entries[i]!.name)
-    await p.getByText("Unsaved changes", { exact: true }).waitFor()
+    await editName(p, "Fixture " + entries[i]!.name)
     await p.getByRole("button", { name: "Save name", exact: true }).click()
     await p.getByText(/^Saved as /).waitFor()
     assert.equal(await p.getByText("Managed updates", { exact: true }).count(), 0)
@@ -153,7 +163,7 @@ try {
   if (pages.length > 1) {
     await settings(pages[0]!, 0, "about")
     assert.equal(await pages[0]!.locator("#machine-name").inputValue(), "Fixture connect")
-    await pages[0]!.locator("#machine-name").fill("Cross-entry name")
+    await editName(pages[0]!, "Cross-entry name")
     await pages[0]!.getByRole("button", { name: "Save name", exact: true }).click()
     await pages[0]!.getByText(/^Saved as /).waitFor()
     await settings(pages[1]!, 1, "about")
@@ -167,7 +177,7 @@ try {
     for (let i = 0; i < pages.length; i++) {
       const p = pages[i]!
       await settings(p, i, "about")
-      await p.locator("#machine-name").fill("Uncommitted draft " + entries[i]!.name)
+      await editName(p, "Uncommitted draft " + entries[i]!.name)
       await p.getByRole("button", { name: "Save name", exact: true }).click()
       await p.locator("#machine-name-error").waitFor()
       assert.equal(await p.locator("#machine-name").inputValue(), "Uncommitted draft " + entries[i]!.name)
