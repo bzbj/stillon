@@ -118,7 +118,7 @@ export interface StartStillOnServerOptions {
   trustProxy?: boolean
   /** Explicit origins for an operator-managed reverse proxy. */
   allowedOrigins?: string[]
-  connect?: Pick<ConnectorOptions, "origin" | "frpcPath" | "trustedCaFile" | "runtimeRoot" | "transportLocation">
+  connect?: Pick<ConnectorOptions, "origin" | "frpcPath" | "trustedCaFile" | "runtimeRoot" | "transportLocation" | "environment" | "now">
   /** Alternate provider-history root for isolated installations and tests. */
   discoveryHome?: string
   uploadLimits?: {
