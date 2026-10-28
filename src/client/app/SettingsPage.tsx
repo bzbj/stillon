@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Volume2,
   LogOut,
   Trash2,
   X,
@@ -120,9 +121,15 @@ const sidebarItems = [
   },
   {
     id: "appearance",
-    label: "Personalization",
+    label: "Appearance",
     icon: Sun,
     subtitle: "Make this workspace yours. Preview themes, skins and layout before applying.",
+  },
+  {
+    id: "sound",
+    label: "Sound",
+    icon: Volume2,
+    subtitle: "",
   },
   {
     id: "remote",
@@ -2283,17 +2290,18 @@ function OwnerSettingsPage() {
                     ) : null}
 
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
+                  {selectedSectionSubtitle ? <div className="mt-1 text-sm text-muted-foreground">
                     {selectedSectionSubtitle}
-                  </div>
+                  </div> : null}
                 </div>
 
                 {appSettingsError || appSettings?.warning ? <div role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{appSettingsError ?? appSettings?.warning}</div> : null}
                 {selectedPage === "welcome" ? (
                   <WelcomeChecklist state={state} />
                 ) : selectedPage === "appearance" ? (
-                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings}>
-                    <section className="rounded-2xl border border-border p-5"><h2 className="text-sm font-semibold">Sound</h2>
+                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} />
+                ) : selectedPage === "sound" ? (
+                    <section aria-label="Sound settings" className="rounded-2xl border border-border p-5">
                       <SettingsRow
                         bordered={false}
                         title="Notification Sounds"
@@ -2343,7 +2351,6 @@ function OwnerSettingsPage() {
                       </SettingsRow>
 
                     </section>
-                  </AppearanceSettingsPanel>
                 ) : selectedPage === "remote" ? (
                   <RemoteAccessSettings onSignOut={state.handleSignOut} />
                 ) : selectedPage === "network" ? (
@@ -2611,6 +2618,7 @@ function OwnerSettingsPage() {
                   <>
                       <SettingsRow
                         title="Machine Name"
+                        alignStart
                         description="This is the confirmed identity shown in the sidebar and browser tab when you control this computer remotely."
                       >
                         <div className="flex w-full min-w-0 max-w-[440px] flex-1 flex-col items-stretch gap-2">
@@ -2636,7 +2644,7 @@ function OwnerSettingsPage() {
                                 maxLength={80}
                                 disabled={isSavingMachineName}
                                 aria-invalid={Boolean(machineNameError)}
-                                aria-describedby={machineNameError ? "machine-name-error" : machineNameNotice ? "machine-name-status" : "machine-name-help"}
+                                aria-describedby={machineNameError ? "machine-name-error" : machineNameNotice ? "machine-name-status" : undefined}
                                 className="min-h-11"
                               />
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2671,9 +2679,6 @@ function OwnerSettingsPage() {
                               <span className="sr-only" role="status">Loading saved machine name…</span>
                             </div>
                           )}
-                          <div id="machine-name-help" className="text-xs leading-5 text-muted-foreground">
-                            Up to 80 characters. The name changes only after you save it. Press Enter to save or Escape to discard edits.
-                          </div>
                           {machineNameError ? (
                             <p id="machine-name-error" role="alert" className="text-xs leading-5 text-destructive">{machineNameError}</p>
                           ) : null}

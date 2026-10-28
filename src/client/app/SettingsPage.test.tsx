@@ -176,6 +176,8 @@ describe("resolveSettingsSectionId", () => {
     expect(resolveSettingsSectionId("keybindings")).toBe("skills")
     expect(resolveSettingsSectionId("quick-commands")).toBe("skills")
     expect(resolveSettingsSectionId("skills")).toBe("skills")
+    expect(resolveSettingsSectionId("appearance")).toBe("appearance")
+    expect(resolveSettingsSectionId("sound")).toBe("sound")
   })
 
   test("rejects unknown settings sections", () => {
@@ -738,7 +740,8 @@ test("shared workspace settings expose Remote access without owner settings", ()
     const html = renderToStaticMarkup(<MemoryRouter initialEntries={["/settings/providers"]}><Routes><Route element={<Outlet context={{ openSidebar() {}, async handleSignOut() {} }} />}><Route path="/settings/:sectionId" element={<SettingsPage />} /></Route></Routes></MemoryRouter>)
     expect(html).toContain("Remote access")
     expect(html).not.toContain("Providers")
-    expect(html).not.toContain("Personalization")
+    expect(html).not.toContain("Appearance")
+    expect(html).not.toContain("Sound settings")
     expect(html).not.toContain("Default Provider")
   } finally { initial.view = previous }
 })
