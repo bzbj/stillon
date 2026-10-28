@@ -2611,6 +2611,7 @@ function OwnerSettingsPage() {
                   <>
                       <SettingsRow
                         title="Machine Name"
+                        alignStart
                         description="This is the confirmed identity shown in the sidebar and browser tab when you control this computer remotely."
                       >
                         <div className="flex w-full min-w-0 max-w-[440px] flex-1 flex-col items-stretch gap-2">
@@ -2636,7 +2637,7 @@ function OwnerSettingsPage() {
                                 maxLength={80}
                                 disabled={isSavingMachineName}
                                 aria-invalid={Boolean(machineNameError)}
-                                aria-describedby={machineNameError ? "machine-name-error" : machineNameNotice ? "machine-name-status" : "machine-name-help"}
+                                aria-describedby={machineNameError ? "machine-name-error" : machineNameNotice ? "machine-name-status" : undefined}
                                 className="min-h-11"
                               />
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2671,9 +2672,6 @@ function OwnerSettingsPage() {
                               <span className="sr-only" role="status">Loading saved machine name…</span>
                             </div>
                           )}
-                          <div id="machine-name-help" className="text-xs leading-5 text-muted-foreground">
-                            Up to 80 characters. The name changes only after you save it. Press Enter to save or Escape to discard edits.
-                          </div>
                           {machineNameError ? (
                             <p id="machine-name-error" role="alert" className="text-xs leading-5 text-destructive">{machineNameError}</p>
                           ) : null}
