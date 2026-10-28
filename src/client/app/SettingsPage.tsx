@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { finishSetup, rememberSettingsSection, settingsLandingPath, useSetupComplete } from "../lib/settingsNavigation"
 import { ClaudeModelPolicyPanel } from "./ClaudeModelPolicyPanel"
 import { normalizeQuickCommands } from "../../shared/quick-commands"
@@ -1691,6 +1692,19 @@ function NetworkSettingsSection({ state }: { state: StillOnState }) {
 }
 
 export function SettingsPage() {
+  const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
+  return guest ? <SharedWorkspaceSettingsPage /> : <OwnerSettingsPage />
+}
+
+function SharedWorkspaceSettingsPage() {
+  const state = useOutletContext<StillOnState>()
+  return <div data-stillon-part="page" className="relative flex h-full min-w-0 flex-1 bg-background">
+    <aside className="hidden w-[200px] shrink-0 md:block"><div className="flex flex-col gap-1 px-4 py-6"><div className="px-3 pb-5 text-[22px] font-extrabold tracking-[-0.5px] text-foreground">Settings</div><div className="rounded-lg bg-muted px-3 py-2 text-sm font-medium">Remote access</div></div></aside>
+    <div className="min-w-0 flex-1 overflow-y-auto px-6 py-6"><button type="button" onClick={state.openSidebar} className="mb-4 p-2 md:hidden" aria-label="Open sidebar"><Menu className="size-4" /></button><h2 className="text-lg font-semibold">Remote access</h2><RemoteAccessSettings onSignOut={state.handleSignOut} /></div>
+  </div>
+}
+
+function OwnerSettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
   const state = useOutletContext<StillOnState>()

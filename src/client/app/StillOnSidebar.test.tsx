@@ -1,3 +1,4 @@
+import { useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { MemoryRouter } from "react-router-dom"
@@ -154,3 +155,15 @@ for (const connectionStatus of ["connecting", "disconnected"] as const) {
     }
   })
 }
+
+test("shared workspace visitors keep Settings and the existing portal link", () => {
+  const initial = useWorkspaceSharingStore.getInitialState()
+  const previous = initial.view
+  initial.view = { mode: "guest", workspaceId: "project-a", portalUrl: "https://connect.example.com", workspaces: [] }
+  try {
+    const html = renderSidebar({ connectionStatus: "connected", ready: true, snapshotStatus: "authoritative" })
+    expect(html).toContain("Settings")
+    expect(html).toContain("Back to Connect")
+    expect(html).toContain("https://connect.example.com/computers")
+  } finally { initial.view = previous }
+})

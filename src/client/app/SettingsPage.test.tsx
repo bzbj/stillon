@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { RefreshCw } from "lucide-react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom"
+import { useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import {
+  SettingsPage,
   ChangelogSection,
   STILLON_UPDATE_PROMPT,
   getOnboardingCompletedTaskCount,
@@ -726,4 +728,17 @@ describe("installer release availability", () => {
     expect(getAvailablePackageRelease(releases, "0.8.1", "darwin", "arm64")?.tag_name).toBe("v0.8.3")
     expect(getAvailablePackageRelease(releases, "0.8.1", "win32", "arm64")).toBeNull()
   })
+})
+
+test("shared workspace settings expose Remote access without owner settings", () => {
+  const initial = useWorkspaceSharingStore.getInitialState()
+  const previous = initial.view
+  initial.view = { mode: "guest", workspaceId: "project-a", workspaces: [] }
+  try {
+    const html = renderToStaticMarkup(<MemoryRouter initialEntries={["/settings/providers"]}><Routes><Route element={<Outlet context={{ openSidebar() {}, async handleSignOut() {} }} />}><Route path="/settings/:sectionId" element={<SettingsPage />} /></Route></Routes></MemoryRouter>)
+    expect(html).toContain("Remote access")
+    expect(html).not.toContain("Providers")
+    expect(html).not.toContain("Personalization")
+    expect(html).not.toContain("Default Provider")
+  } finally { initial.view = previous }
 })

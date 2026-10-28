@@ -637,11 +637,11 @@ function StillOnSidebarImpl({
           <span>{collapseSaveError ?? "Workspace view waiting to sync…"}</span>
           {collapseSaveError ? <button type="button" onClick={retryCollapseSave} className="shrink-0 underline">Retry</button> : null}
         </div> : null}
-        {!guest ? <div className="border-t border-border p-2">
+        <div className="border-t border-border p-2">
             <button
             type="button"
             onClick={() => {
-              navigate("/settings")
+              navigate(guest ? "/settings/remote" : "/settings")
               onClose()
             }}
             className={cn(
@@ -662,7 +662,8 @@ function StillOnSidebarImpl({
               </div>
             </div>
           </button>
-        </div> : <div className="border-t border-border p-3"><a href={portalUrl ? `${portalUrl}/computers` : undefined} className="text-sm text-muted-foreground hover:text-foreground">Back to Connect →</a></div>}
+        </div>
+        {guest && <div className="border-t border-border p-3"><a href={portalUrl ? `${portalUrl}/computers` : undefined} className="text-sm text-muted-foreground hover:text-foreground">Back to Connect →</a></div>}
 
         <div
           role="separator"

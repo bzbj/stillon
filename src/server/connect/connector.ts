@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { rootCertificates } from "node:tls"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
+import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type SharedWorkspaceEntry, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
@@ -384,6 +384,10 @@ export async function createConnector(options: ConnectorOptions) {
     async workspaceSharing(payload: Record<string, unknown>) {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
       return prove<WorkspaceSharingSnapshot & { invitationUrl?: string; delivery?: string }>("workspace-sharing", { ...payload, ...(options.workspaces ? { workspaces: options.workspaces() } : {}) })
+    },
+    async sharedWorkspaces() {
+      if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
+      return prove<{ sharedWorkspaces: SharedWorkspaceEntry[] }>("list-shared-workspaces", {})
     },
     async browserSessions() {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
