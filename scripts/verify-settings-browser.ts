@@ -92,6 +92,7 @@ try {
     await p.goto(entries[entry]!.origin + "/settings/" + section)
     await p.waitForURL("**/settings/" + section)
     await p.locator("button:visible").filter({ hasText: /^Providers$/ }).first().waitFor()
+    if (section === "sound") await p.getByRole("region", { name: "Sound settings", exact: true }).waitFor()
   }
   async function editName(p: Page, value: string) {
     const input = p.locator("#machine-name")
@@ -141,6 +142,7 @@ try {
     await p.getByRole("button", { name: "Sound", exact: true }).click()
     await p.waitForURL("**/settings/sound")
     const sound = p.getByRole("region", { name: "Sound settings", exact: true })
+    await sound.waitFor()
     assert.equal(await sound.getByText("Notification Sounds", { exact: true }).count(), 1)
     assert.equal(await sound.getByText("Sound Effect", { exact: true }).count(), 1)
     assert.equal(await sound.locator(".border-t").count(), 0)
