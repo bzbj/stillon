@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, ExternalLink, LoaderCircle, Monitor } from "lucide-react"
 import { Button, buttonVariants } from "../components/ui/button"
+import { SharedWorkspacesSettings } from "./SharedWorkspacesSettings"
 import { BrowserSessionSettings } from "./BrowserSessionSettings"
 import type { ConnectHost, ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/connect"
 
@@ -71,7 +72,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
   }
   return <section className="max-w-xl space-y-6 py-6">
     {remote ? <>
-      <div className="flex items-center gap-3"><Monitor className="size-5" /><div><h3 className="font-medium">{remote.host?.name ?? "Current computer"}</h3><p className="mt-1 text-sm text-muted-foreground">You are using this computer remotely. Tasks and files stay on this computer.</p></div></div>
+      <div className="flex items-center gap-3"><Monitor className="size-5" /><div><h3 className="font-medium">{remote.sharedWorkspace?.name ?? remote.host?.name ?? "Current computer"}</h3><p className="mt-1 text-sm text-muted-foreground">You are using this computer remotely. Tasks and files stay on this computer.</p></div></div>
       {hosts.length > 1 && <div className="space-y-3"><h4 className="text-sm font-medium">Switch computers</h4>{hosts.map(host => <div key={host.id} className="flex items-center gap-4 rounded-xl border p-4"><span className="min-w-0 flex-1 truncate text-sm">{host.name} · {host.online ? "Online" : "Offline"}</span>{host.id === remote.host?.id ? <span className="text-xs text-muted-foreground">Current computer</span> : <a className="text-sm underline" href={`${host.url}/_connect/login`}>Switch</a>}</div>)}</div>}
       <p className="text-sm leading-6 text-muted-foreground">Switching affects only this tab. Logout ends all computer connections in this browser. Tasks on your computers keep running.</p>
       <Button variant="outline" onClick={() => void onSignOut()}>Logout</Button>
@@ -100,6 +101,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       </>}
       {local.error && local.error !== local.transport?.error && <p className="text-sm text-muted-foreground">{errors[local.error] ?? "The connection is unavailable. StillOn will try to reconnect automatically."}</p>}
     </> : !error ? <p className="text-sm text-muted-foreground">Loading connection status…</p> : null}
+    {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <SharedWorkspacesSettings remote={Boolean(remote)} />}
     {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <BrowserSessionSettings remote={Boolean(remote)} logoutUrl={remote ? `${remote.portalUrl}/logout/complete` : undefined} />}
     {(local || remote) && <div className="space-y-2 border-t pt-4"><Button variant="ghost" onClick={() => void copyDiagnostics()}>{diagnosticsCopied ? "Diagnostics copied" : "Copy connection diagnostics"}</Button><p className="text-xs text-muted-foreground">Includes connection status and version details for troubleshooting. Excludes email addresses, keys and file contents.</p></div>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

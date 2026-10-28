@@ -50,6 +50,7 @@ export interface ConnectRemoteStatus {
   cacheScope: null
   loginUrl: string
   portalUrl: string
+  sharedWorkspace?: { id: string; name: string }
   host?: ConnectHost
 }
 export interface DeviceProof {
