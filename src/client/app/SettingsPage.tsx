@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Volume2,
   LogOut,
   Trash2,
   X,
@@ -120,9 +121,15 @@ const sidebarItems = [
   },
   {
     id: "appearance",
-    label: "Personalization",
+    label: "Appearance",
     icon: Sun,
     subtitle: "Make this workspace yours. Preview themes, skins and layout before applying.",
+  },
+  {
+    id: "sound",
+    label: "Sound",
+    icon: Volume2,
+    subtitle: "",
   },
   {
     id: "remote",
@@ -2283,17 +2290,18 @@ function OwnerSettingsPage() {
                     ) : null}
 
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
+                  {selectedSectionSubtitle ? <div className="mt-1 text-sm text-muted-foreground">
                     {selectedSectionSubtitle}
-                  </div>
+                  </div> : null}
                 </div>
 
                 {appSettingsError || appSettings?.warning ? <div role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{appSettingsError ?? appSettings?.warning}</div> : null}
                 {selectedPage === "welcome" ? (
                   <WelcomeChecklist state={state} />
                 ) : selectedPage === "appearance" ? (
-                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings}>
-                    <section className="rounded-2xl border border-border p-5"><h2 className="text-sm font-semibold">Sound</h2>
+                  <AppearanceSettingsPanel settings={appSettings} onSave={handleWriteAppSettings} />
+                ) : selectedPage === "sound" ? (
+                    <section aria-label="Sound settings" className="rounded-2xl border border-border p-5">
                       <SettingsRow
                         bordered={false}
                         title="Notification Sounds"
@@ -2343,7 +2351,6 @@ function OwnerSettingsPage() {
                       </SettingsRow>
 
                     </section>
-                  </AppearanceSettingsPanel>
                 ) : selectedPage === "remote" ? (
                   <RemoteAccessSettings onSignOut={state.handleSignOut} />
                 ) : selectedPage === "network" ? (

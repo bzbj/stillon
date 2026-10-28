@@ -4,7 +4,7 @@ const PROGRESS_KEY = "stillon:onboarding-progress-v1"
 const COMPLETE_KEY = "stillon:setup-complete-v1"
 const LAST_KEY = "stillon:last-settings-section-v1"
 const CHANGED = "stillon:settings-navigation-changed"
-const sections = ["network", "providers", "usage", "skills", "appearance", "remote", "about"]
+const sections = ["network", "providers", "usage", "skills", "appearance", "sound", "remote", "about"]
 let completedInMemory = false
 let lastInMemory = "network"
 
