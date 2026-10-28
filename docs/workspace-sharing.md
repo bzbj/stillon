@@ -22,6 +22,18 @@ avatar at its lower left, preserving the existing activity indicators. Sharing
 ends when all invitations/access are removed; conversations and files remain.
 Drafts remain private to each browser until sent.
 
+Sharing badges use a five-minute display cache. Only visible pages refresh it,
+with a small scheduling jitter; returning to a page reuses fresh metadata.
+The host coalesces readers across local and Connect pages, and failed automatic
+refreshes back off for five, ten, then twenty minutes while keeping the last
+displayed state. Avatar metadata is not polled with sharing state.
+
+Opening Share or closing a workspace explicitly refreshes membership. Invite,
+remove and Stop sharing update the cached display immediately; same-origin tabs
+receive an invalidation hint. Authentication and access revocation always use
+live server checks, never this display cache. Heartbeats take priority over queued
+sharing reads; an already running challenge/request pair finishes normally.
+
 Agent and terminal execution use the computer's existing provider configuration,
 credentials and operating-system permissions. Workspace restrictions apply to
 StillOn's resource APIs and navigation; they do not introduce an execution sandbox.

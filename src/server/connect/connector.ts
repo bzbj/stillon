@@ -2,6 +2,8 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { rootCertificates } from "node:tls"
 import path from "node:path"
 import { createHash } from "node:crypto"
+import { SharingCache } from "../../shared/sharing-cache"
+import { ProofQueue } from "./proof-queue"
 import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type SharedWorkspaceEntry, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
@@ -158,21 +160,22 @@ export async function createConnector(options: ConnectorOptions) {
     lastCloudResponseAt = now()
     return result as T
   }
-  let proofTail = Promise.resolve()
-  function prove<T>(action: DeviceProof["action"], payload: Record<string, unknown>, provisional = false): Promise<T> {
+  const proofQueue = new ProofQueue()
+  function prove<T>(action: DeviceProof["action"], payload: Record<string, unknown>, provisional = false, priority = 1): Promise<T> {
     // Local settings requests and heartbeats share the same route and challenge
     // sequence, including while a failed route tears down its transport.
-    const operation = proofTail.then(async () => {
+    return proofQueue.run(async () => {
       if (!state) throw new ConnectorError("NOT_BOUND", 409)
       const subject = provisional ? `key:${state.keys.publicKey}` : state.binding?.hostId
       if (!subject) throw new ConnectorError("NOT_BOUND", 409)
       const keys = state.keys
       const { challenge } = await post<{ challenge: string }>("/api/connect/device/challenge", { subject, action })
       return post<T>("/api/connect/device/request", signProof({ subject, challenge, action, payload }, keys.privateKey))
-    })
-    proofTail = operation.then(() => {}, () => {})
-    return operation
+    }, action === "heartbeat" ? 0 : priority)
   }
+  const sharingCache = new SharingCache<WorkspaceSharingSnapshot>(force => prove("workspace-sharing", {
+    operation: "list", ...(options.workspaces ? { workspaces: options.workspaces() } : {}),
+  }, false, force ? 1 : 2), now)
   let transportStopping = Promise.resolve()
   function stopTransport() {
     transportRevision++
@@ -371,7 +374,7 @@ export async function createConnector(options: ConnectorOptions) {
   void tick()
   async function change<T>(operation: () => Promise<T>): Promise<T> {
     if (changing || ticking) throw new ConnectorError("BUSY", 409)
-    changing = true; revision++; nextBeat = 0
+    changing = true; revision++; nextBeat = 0; sharingCache.invalidate()
     try { return await operation() } finally { changing = false }
   }
   async function revoke() {
@@ -381,9 +384,18 @@ export async function createConnector(options: ConnectorOptions) {
     } catch (caught) { if (!(caught instanceof ConnectorError && caught.code === "NOT_FOUND")) throw caught }
   }
   return {
-    async workspaceSharing(payload: Record<string, unknown>) {
+    async workspaceSharing(payload: Record<string, unknown>, force = false) {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
-      return prove<WorkspaceSharingSnapshot & { invitationUrl?: string; delivery?: string }>("workspace-sharing", { ...payload, ...(options.workspaces ? { workspaces: options.workspaces() } : {}) })
+      if (payload.operation === "list") return sharingCache.read(force)
+      sharingCache.invalidate()
+      try {
+        const result = await prove<Partial<WorkspaceSharingSnapshot> & { invitationUrl?: string; delivery?: string }>("workspace-sharing", { ...payload, ...(options.workspaces ? { workspaces: options.workspaces() } : {}) })
+        // Invalidate again: an earlier read may have completed during the mutation.
+        sharingCache.invalidate()
+        if (result.workspaces) sharingCache.set({ workspaces: result.workspaces })
+        const snapshot = result.workspaces ? { workspaces: result.workspaces } : await sharingCache.read(true)
+        return { ...result, ...snapshot }
+      } catch (error) { sharingCache.invalidate(); throw error }
     },
     async sharedWorkspaces() {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)

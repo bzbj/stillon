@@ -13,7 +13,7 @@ export function WorkspaceShareDialog({ workspaceId, title, open, onOpenChange }:
   const [error, setError] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const members = view?.workspaces.find(w => w.workspaceId === workspaceId)?.members ?? []
-  useEffect(() => { if (open) void reload().catch(e => setError(e.message)) }, [open, reload])
+  useEffect(() => { if (open) void reload(true).catch(e => setError(e.message)) }, [open, reload])
   async function action(body: unknown) {
     setBusy(true); setError("")
     try { const result = await change(body); setEmail(""); setNotice(result.invitationUrl ? result.delivery === "sent" ? "Invitation email sent. You can also copy the link below." : result.delivery === "unavailable" ? "Invitation created. Email delivery failed; copy the invitation link below." : "Invitation created. Copy the invitation link below." : "") }
@@ -34,7 +34,7 @@ export function WorkspaceShareDialog({ workspaceId, title, open, onOpenChange }:
         {members.length ? <div className="border-t pt-4"><Button variant="outline" disabled={busy} className="text-destructive" onClick={() => void action({ operation: "stop", workspaceId })}>Stop sharing</Button><p className="mt-2 text-xs text-muted-foreground">Remove everyone's access. Conversations and files stay here.</p></div> : null}
       </>}
       {notice ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
-      {error ? <div role="alert" className="text-sm text-destructive">{error} <button className="underline" onClick={() => { setError(""); void reload().catch(e => setError(e.message)) }}>Retry</button></div> : null}
+      {error ? <div role="alert" className="text-sm text-destructive">{error} <button className="underline" onClick={() => { setError(""); void reload(true).catch(e => setError(e.message)) }}>Retry</button></div> : null}
     </div>
   </DialogContent></Dialog>
 }

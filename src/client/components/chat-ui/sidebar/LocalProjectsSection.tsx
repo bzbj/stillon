@@ -1,5 +1,6 @@
 import { WorkspaceShareDialog } from "../../WorkspaceShareDialog"
-import { useWorkspaceSharingStore, isSharedWorkspaceBrowser } from "../../../stores/workspaceSharingStore"
+import { useWorkspaceSharingStore, isSharedWorkspaceBrowser, SHARING_CHANGED_EVENT } from "../../../stores/workspaceSharingStore"
+import { startWorkspaceSharingRefresh } from "../../../lib/workspaceSharingRefresh"
 import type { QuickCommand } from "../../../../shared/quick-commands"
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { WorkspaceAvatar, type WorkspaceActivity } from "../../WorkspaceAvatar"
@@ -379,11 +380,25 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
 }: Props) {
   const keyboardDrag = useRef(false)
   useEffect(() => {
-    const reload = () => { void useWorkspaceAvatarsStore.getState().reload(); void useWorkspaceSharingStore.getState().reload().catch(() => {}) }
-    const timer = window.setInterval(reload, 15_000)
+    const reload = () => { void useWorkspaceAvatarsStore.getState().reload() }
     reload()
     window.addEventListener("focus", reload)
-    return () => { window.removeEventListener("focus", reload); window.clearInterval(timer) }
+    return () => { window.removeEventListener("focus", reload) }
+  }, [])
+  useEffect(() => {
+    const sharing = () => useWorkspaceSharingStore.getState()
+    const stop = startWorkspaceSharingRefresh({ reload: () => sharing().reload() }, {
+      document, window, setTimeout, clearTimeout, random: Math.random,
+    })
+    const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("stillon-workspace-sharing")
+    if (channel) channel.onmessage = event => {
+      if (event.data?.scope !== sharing().scope) return
+      sharing().invalidate()
+      if (!document.hidden) void sharing().reload().catch(() => {})
+    }
+    const changed = () => channel?.postMessage({ scope: sharing().scope })
+    window.addEventListener(SHARING_CHANGED_EVENT, changed)
+    return () => { stop(); channel?.close(); window.removeEventListener(SHARING_CHANGED_EVENT, changed) }
   }, [])
   const supportsSidebarReorder = useSidebarReorderEnabled()
   const isReorderEnabled = actionsEnabled && supportsSidebarReorder && !isSharedWorkspaceBrowser()
