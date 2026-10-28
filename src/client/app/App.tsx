@@ -1,4 +1,4 @@
-import { isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { canOpenTranscriptFilesOnHost } from "../lib/transcriptLocalLinkPolicy"
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom"
@@ -363,6 +363,10 @@ function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope
 }
 
 export function App({ auth }: { auth: ReturnType<typeof useAppAuthState> }) {
+  const sharingScope = auth.state.status === "ready" ? auth.state.cacheScope ?? "local" : null
+  useLayoutEffect(() => {
+    if (auth.state.status !== "checking") useWorkspaceSharingStore.getState().setScope(sharingScope)
+  }, [sharingScope, auth.state.status])
   useStartupReveal(auth.state.status === "locked" || auth.state.status === "connect-unavailable")
   let fallback = null
   if (auth.state.status === "locked") {

@@ -1989,7 +1989,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       // Refresh before deciding: another owner may have invited someone since
       // the sidebar last loaded. If sharing cannot be checked, still warn.
       let sharingUnknown = false
-      try { await useWorkspaceSharingStore.getState().reload() }
+      try { await useWorkspaceSharingStore.getState().reload(true) }
       catch { sharingUnknown = true }
       const shared = useWorkspaceSharingStore.getState().view?.workspaces
         .some(workspace => workspace.workspaceId === projectId && workspace.members.length > 0)
