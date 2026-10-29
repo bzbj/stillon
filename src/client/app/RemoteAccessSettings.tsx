@@ -80,7 +80,7 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
     {remote ? <>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
         <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">Email account</h3><p className="mt-1 break-all text-sm">{remote.email || "Email unavailable"}</p></div>
-        <Button variant="destructive" className="shrink-0 text-white" disabled={busy} onClick={() => {
+        <Button variant="outline" className="shrink-0" disabled={busy} onClick={() => {
           setBusy(true); setError("")
           void onSignOut().catch(() => setError("Unable to log out. Please try again.")).finally(() => setBusy(false))
         }}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Logout</Button>
@@ -91,9 +91,9 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
           <div className="flex min-w-0 items-start gap-3"><Monitor className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><div className="min-w-0"><h3 className="break-words font-medium">{local.name}</h3><p className="mt-1 break-all text-sm text-muted-foreground">{local.email || "No email linked"}</p></div></div>
           <span role="status" className="inline-flex items-center gap-2 rounded-full bg-muted px-2.5 py-1 text-xs font-medium"><span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${local.state === "online" ? "bg-emerald-500" : local.state === "connecting" || local.state === "pending" ? "bg-amber-500" : "bg-muted-foreground/40"}`} />{labels[local.state]}</span>
         </div>
-        {local.hostId && !["revoked", "revocation-pending"].includes(local.state) && <div className="flex flex-wrap gap-2"><Button disabled={busy} variant="outline" onClick={() => void action(local.state === "paused" ? "resume" : "pause")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{local.state === "paused" ? "Resume remote access" : "Pause remote access"}</Button><Button disabled={busy} variant="destructive" className="text-white" onClick={() => setConfirmUnbind(true)}>Unlink email</Button></div>}
+        {local.hostId && !["revoked", "revocation-pending"].includes(local.state) && <div className="flex flex-wrap gap-2"><Button disabled={busy} variant="outline" onClick={() => void action(local.state === "paused" ? "resume" : "pause")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{local.state === "paused" ? "Resume remote access" : "Pause remote access"}</Button><Button disabled={busy} variant="outline" onClick={() => setConfirmUnbind(true)}>Unlink email</Button></div>}
       </div>
-      {confirmUnbind && <div className="space-y-3 rounded-xl border p-4"><p className="text-sm leading-6">Unlink this email? All remote connections to this computer will close. Local files and tasks are preserved.</p><div className="flex gap-3"><Button disabled={busy} variant="destructive" onClick={() => void action("unbind")}>Confirm unlink</Button><Button variant="ghost" onClick={() => setConfirmUnbind(false)}>Cancel</Button></div></div>}
+      {confirmUnbind && <div className="space-y-3 rounded-xl border p-4"><p className="text-sm leading-6">Unlink this email? All remote connections to this computer will close. Local files and tasks are preserved.</p><div className="flex gap-3"><Button disabled={busy} variant="outline" onClick={() => void action("unbind")}>Confirm unlink</Button><Button variant="ghost" onClick={() => setConfirmUnbind(false)}>Cancel</Button></div></div>}
       {!local.hostId && <p className="text-sm leading-6 text-muted-foreground">Link your email to access this computer from another device. Keep this computer on and StillOn running.</p>}
       {local.transport && local.transport.state !== "ready" && <div role="status" className="space-y-3 rounded-xl border p-4">
         <p className="text-sm leading-6">{local.transport.state === "preparing" ? "Preparing the Connect component…" : errors[local.transport.error ?? "CONNECTOR_NOT_INSTALLED"] ?? "The Connect component needs repair."}</p>
