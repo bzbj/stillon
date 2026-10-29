@@ -1,3 +1,4 @@
+import { decodeSidebarEnvelope } from "../../shared/sidebar-wire"
 import { receiveClaudeModelPolicy } from "../stores/claudeModelPolicyStore"
 import { ConfirmedCommandError } from "./quickCommandDelivery"
 import { ChatStreamDecoder, type ChatStreamFrame } from "../../shared/chat-stream"
@@ -125,6 +126,7 @@ export class StillOnSocket {
     eventListener?: EventListener<TEvent>
   ) {
     const id = generateUUID()
+    if (topic.type === "sidebar") topic = { ...topic, compactVersion: 1 }
     if (topic.type === "chat") topic = { ...topic, streamVersion: 1, streamId: generateUUID() }
     this.subscriptions.set(id, {
       topic,
@@ -239,7 +241,10 @@ export class StillOnSocket {
       this.lastMessageAt = this.lastOpenAt
       this.emitStatus("connected")
       this.startHeartbeat()
-      for (const [id, subscription] of this.subscriptions.entries()) {
+      // Essential small snapshots must not wait behind the sidebar's final ACK.
+      const priority = (topic: SubscriptionTopic) => topic.type === "app-settings" ? 0 : topic.type === "local-projects" ? 1 : topic.type === "sidebar" ? 3 : topic.type === "chat" || topic.type === "terminal" ? 4 : 2
+      const subscriptions = [...this.subscriptions].sort((a, b) => priority(a[1].topic) - priority(b[1].topic))
+      for (const [id, subscription] of subscriptions) {
         this.resetChatStream(subscription)
         this.sendNow({ v: 1, type: "subscribe", id, topic: subscription.topic })
       }
@@ -263,6 +268,9 @@ export class StillOnSocket {
       } catch {
         return
       }
+
+      try { payload = decodeSidebarEnvelope(payload) }
+      catch { connection.close(1013, "Invalid sidebar snapshot"); return }
 
       if (payload.claudeModelPolicy) {
         try { receiveClaudeModelPolicy(payload.claudeModelPolicy) }

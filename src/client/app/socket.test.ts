@@ -1,3 +1,4 @@
+import { encodeSidebarEnvelope } from "../../shared/sidebar-wire"
 import { BUNDLED_CODEX_MODEL_POLICY } from "../../shared/codex-model-policy"
 import { applyCodexModelPolicy, normalizeCodexModelId, getCodexModelForRole } from "../../shared/types"
 import { useCodexModelPolicyStore } from "../stores/codexModelPolicyStore"
@@ -170,6 +171,58 @@ describe("StillOnSocket", () => {
     restoreGlobalProperty("window", originalWindowDescriptor)
     restoreGlobalProperty("document", originalDocumentDescriptor)
     restoreGlobalProperty("WebSocket", originalWebSocketDescriptor)
+  })
+
+  test("startup and reconnect send essential small subscriptions before the sidebar", () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    socket.subscribe({ type: "sidebar" }, () => {})
+    socket.subscribe({ type: "chat", chatId: "chat" }, () => {})
+    socket.subscribe({ type: "local-projects" }, () => {})
+    socket.subscribe({ type: "app-settings" }, () => {})
+    socket.start()
+    const first = FakeWebSocket.instances[0]!
+    first.open()
+    const types = (ws: FakeWebSocket) => ws.sent.filter(e => e.type === "subscribe").map(e => (e.topic as { type: string }).type)
+    expect(types(first)).toEqual(["app-settings", "local-projects", "sidebar", "chat"])
+    expect(first.sent.find(e => (e.topic as { type?: string })?.type === "sidebar")?.topic).toEqual({ type: "sidebar", compactVersion: 1 })
+    first.close()
+    for (const id of [...timers.timeouts.keys()]) timers.runTimeout(id)
+    const second = FakeWebSocket.instances.at(-1)!
+    second.open()
+    expect(types(second)).toEqual(types(first))
+    socket.dispose()
+  })
+
+  test("sidebar listeners receive canonical data from compact and legacy servers", () => {
+    const socket = new StillOnSocket("ws://localhost/ws"), seen: unknown[] = []
+    socket.subscribe({ type: "sidebar" }, data => seen.push(data))
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    ws.open()
+    const request = ws.sent.find(e => e.type === "subscribe")!
+    const row = { _id: "chat", chatId: "chat", _creationTime: 1, title: "Sample", localPath: "/example/project", status: "idle" as const, unread: false, provider: null, hasAutomation: false }
+    const data = { projectGroups: [{ groupKey: "sample", title: "Sample", realTitle: "Sample", localPath: "/example/project", chats: [row], previewChats: [row], olderChats: [], defaultCollapsed: false }] }
+    const envelope = { v: 1 as const, type: "snapshot" as const, id: String(request.id), snapshot: { type: "sidebar" as const, data } }
+    ws.receiveRaw(JSON.stringify(encodeSidebarEnvelope(envelope, true)))
+    ws.receive(envelope)
+    expect(seen).toEqual([data, data])
+    socket.dispose()
+  })
+
+  test("invalid compact references reconnect without applying partial sidebar state", () => {
+    const socket = new StillOnSocket("ws://localhost/ws"), seen: unknown[] = []
+    socket.subscribe({ type: "sidebar" }, data => seen.push(data))
+    socket.start()
+    const ws = FakeWebSocket.instances[0]!
+    ws.open()
+    const request = ws.sent.find(e => e.type === "subscribe")!
+    ws.receive({ v: 1, type: "snapshot", id: request.id, sidebarEncoding: 1,
+      snapshot: { type: "sidebar", data: { projectGroups: [{ chats: [], previewIndexes: [0], olderIndexes: [] }] } } })
+    expect(seen).toEqual([])
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED)
+    for (const id of [...timers.timeouts.keys()]) timers.runTimeout(id)
+    expect(FakeWebSocket.instances.length).toBe(2)
+    socket.dispose()
   })
 
   test("negotiates large responses and resolves a complete >5 MiB command result without reconnecting", async () => {

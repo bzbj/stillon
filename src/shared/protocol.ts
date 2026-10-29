@@ -90,7 +90,7 @@ export interface ProjectQuickAction {
 }
 
 export type SubscriptionTopic =
-  | { type: "sidebar" }
+  | { type: "sidebar"; compactVersion?: 1 }
   | { type: "local-projects" }
   | { type: "keybindings" }
   | { type: "app-settings" }

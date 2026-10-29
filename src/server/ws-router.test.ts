@@ -1,3 +1,4 @@
+import { decodeSidebarEnvelope } from "../shared/sidebar-wire"
 import { defaultAppearance } from "../shared/appearance"
 import { describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -62,6 +63,34 @@ class FakeWebSocket {
     this.sent.push(JSON.parse(message))
   }
 }
+
+test("only opted-in sidebar subscriptions receive lossless compact rows, including broadcasts", async () => {
+  const state = createEmptyState()
+  state.projectsById.set("sample", { id: "sample", localPath: "/tmp/sample", title: "Sample", createdAt: 1, updatedAt: 1 })
+  state.projectIdsByPath.set("/tmp/sample", "sample")
+  state.chatsById.set("chat", { id: "chat", projectId: "sample", title: "Before", createdAt: 1, updatedAt: 1, unread: true, provider: null, planMode: false, sessionToken: null, lastTurnOutcome: null })
+  const router = createWsRouter({
+    store: { state } as never,
+    agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+    terminals: { getSnapshot: () => null, onEvent: () => () => {} } as never,
+    keybindings: { getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT, onChange: () => () => {} } as never,
+    refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Computer",
+  })
+  const legacy = new FakeWebSocket(), modern = new FakeWebSocket()
+  router.handleOpen(legacy as never); router.handleOpen(modern as never)
+  try {
+    for (const [ws, compactVersion] of [[legacy, undefined], [modern, 1]] as const) {
+      await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "subscribe", id: "sidebar", topic: { type: "sidebar", compactVersion } }))
+    }
+    expect(legacy.sent.at(-1)).not.toHaveProperty("sidebarEncoding")
+    expect(modern.sent.at(-1)).toHaveProperty("sidebarEncoding", 1)
+    expect(decodeSidebarEnvelope(modern.sent.at(-1))).toEqual(legacy.sent.at(-1) as never)
+    state.chatsById.get("chat")!.title = "After"
+    await router.broadcastSnapshots()
+    expect(decodeSidebarEnvelope(modern.sent.at(-1))).toEqual(legacy.sent.at(-1) as never)
+    expect(modern.sent.at(-1)).toHaveProperty("sidebarEncoding", 1)
+  } finally { router.handleClose(legacy as never); router.handleClose(modern as never); router.dispose() }
+})
 
 test("refuses every host file application action for external clients", async () => {
   const router=createWsRouter({

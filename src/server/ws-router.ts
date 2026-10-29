@@ -1,3 +1,4 @@
+import { encodeSidebarEnvelope } from "../shared/sidebar-wire"
 import { workspaceState, workspaceTopicAllowed, workspaceCommandAllowed } from "./workspace-access"
 import type { ClaudeModelPolicyManager } from "./claude-model-policy-manager"
 import { mergeQuickCommands } from "../shared/quick-commands"
@@ -199,7 +200,8 @@ function getSidebarProjectOrder(store: EventStore) {
 }
 
 function sendEnvelope(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
-  const payload = JSON.stringify(message)
+  const topic = message.type === "snapshot" ? ws.data.subscriptions.get(message.id) : undefined
+  const payload = JSON.stringify(encodeSidebarEnvelope(message, topic?.type === "sidebar" && topic.compactVersion === 1))
   if (ws.data.transport) ws.data.transport.send(payload)
   else ws.send(payload)
   return Buffer.byteLength(payload, "utf8")
