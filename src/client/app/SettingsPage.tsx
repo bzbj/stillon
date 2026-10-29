@@ -364,13 +364,13 @@ export function getAvailablePackageRelease(releases: GithubRelease[], currentVer
   }), currentVersion)
 }
 
-export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve customizations and data. Stage, verify and back up. Schedule an independent task to switch after conversations and terminals are idle. Verify restart and local/Connect connections; roll back on failure."
+export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve data and customizations; stage, verify and back up first. Register an independent task managed by the OS to start about 5 seconds later and survive StillOn/agent exit. Report its name, target version and status file, then end this agent turn without waiting. The task must poll StillOn's native idle check every 5 seconds for up to 12 hours. Stop StillOn only after all agent turns finish and embedded terminals close, then upgrade and restart. On timeout, leave StillOn running. Verify local/Connect connections; roll back on failure."
 
 function SourceUpgradePrompt({ release }: { release: GithubRelease }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")
   return <section className="space-y-3 rounded-xl border border-logo/30 bg-logo/5 px-5 py-4">
     <div className="text-sm font-medium">Upgrade available: {release.tag_name}</div>
-    <Textarea aria-label="Update prompt" value={STILLON_UPDATE_PROMPT} readOnly rows={4} className="text-sm" />
+    <Textarea aria-label="Update prompt" value={STILLON_UPDATE_PROMPT} readOnly rows={8} className="text-sm" />
     <Button size="sm" onClick={async () => setCopyStatus(await copyTextToClipboard(STILLON_UPDATE_PROMPT) ? "copied" : "error")}>
       <Copy className="mr-2 h-3.5 w-3.5" />{copyStatus === "copied" ? "Copied" : "Copy update prompt"}
     </Button>
