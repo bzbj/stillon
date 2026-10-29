@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises"
+import { recordApplicationExit } from "./startup-diagnostics"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { atomicJson, exists, json } from "./files"
@@ -67,6 +69,7 @@ export async function runServerController(deployment: UpdateDeployment) {
   const root = deployment.root
   const statusFile = path.join(root, "runner.json")
   let child: ReturnType<typeof Bun.spawn> | null = null
+  let stderrLog: string | undefined
   let last: UpdateRunnerStatus = await exists(statusFile)
     ? await json<UpdateRunnerStatus>(statusFile)
     : { runtime: "", stopped: true, instance: "", secret: "" }
@@ -108,15 +111,21 @@ export async function runServerController(deployment: UpdateDeployment) {
       if (control.paused || !permitted || (child && last.runtime !== control.runtime)) {
         await stopApp()
       } else {
-        if (child?.exitCode !== null) child = null
+        if (child && child.exitCode !== null) {
+          await recordApplicationExit(root, last.runtime, child.exitCode, stderrLog)
+          child = null
+        }
         if (!child) {
           last = { runtime: control.runtime, stopped: false, instance: randomUUID(), secret: randomUUID() }
           // Persist identity before spawn, so an interrupted spawn can be recovered.
           await atomicJson(statusFile, last)
           const envArgs = deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]
+          const logDirectory = path.join(root, "application-logs")
+          await mkdir(logDirectory, { recursive: true, mode: 0o700 })
+          stderrLog = path.join(logDirectory, `${last.instance}.stderr.log`)
           child = Bun.spawn([await runtimeExecutable(control.runtime, deployment.launch.executable), ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
             await verificationPending(root) ? "1" : "0"], {
-            cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: "inherit",
+            cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: Bun.file(stderrLog),
             env: { ...process.env, HOME: deployment.launch.homeDirectory, USERPROFILE: deployment.launch.homeDirectory,
               STILLON_RUNTIME_PROFILE: "prod" },
           })

@@ -35,7 +35,7 @@ export function createManagedUpdateApi(runtime: string, root = updateRoot()): Ma
       }
       return { enabled: true, channel: await exists(path.join(runtime, BUNDLE_FILE)) ? "package" : "source", platform: deployment.platform, architecture: deployment.architecture,
         ...(state ? { phase: state.phase, targetTag: state.targetTag, prepareOnly: state.prepareOnly,
-          busy: await desktopTransitionPending(root) || !FINISHED_PHASES.has(state.phase), message: state.error } : {}),
+          busy: await desktopTransitionPending(root) || !FINISHED_PHASES.has(state.phase), message: [state.error, state.recoveryError ? `Recovery: ${state.recoveryError}` : null].filter(Boolean).join(" ") || undefined } : {}),
       }
     },
     async request(targetTag, prepareOnly = false) {
