@@ -4,7 +4,7 @@ import path from "node:path"
 import { createHash } from "node:crypto"
 import { SharingCache } from "../../shared/sharing-cache"
 import { ProofQueue } from "./proof-queue"
-import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type SharedWorkspaceEntry, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type DeviceProof } from "../../shared/connect"
+import { CONNECT_HEARTBEAT_MS, CONNECT_PROTOCOL, type SharedWorkspaceEntry, type WorkspaceSharingSnapshot, type ConnectBrowserSessions, type ConnectLocalStatus, type ConnectHost, type DeviceProof } from "../../shared/connect"
 import { newDeviceKeys, randomId, signProof, validateDeviceKeys } from "./crypto"
 import { startRemoteAdapter } from "./adapter"
 import { migrateConnectState, parseConnectRuntimeConfig, type ConnectRuntimeConfig } from "./config"
@@ -397,6 +397,10 @@ export async function createConnector(options: ConnectorOptions) {
         return { ...result, ...snapshot }
       } catch (error) { sharingCache.invalidate(); throw error }
     },
+    async hosts() {
+      if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
+      return prove<{ hosts: ConnectHost[] }>("list-hosts", {})
+    },
     async sharedWorkspaces() {
       if (!state?.binding || state.pendingUnbind) throw new ConnectorError("NOT_BOUND", 409)
       return prove<{ sharedWorkspaces: SharedWorkspaceEntry[] }>("list-shared-workspaces", {})
@@ -419,7 +423,7 @@ export async function createConnector(options: ConnectorOptions) {
         lastCloudResponseAt, tunnelFailure, routing: routing?.diagnostics(), transport: componentStatus, error: error ? safeErrors.has(error) ? error : "UNCLASSIFIED_ERROR" : null }
     },
     status(): ConnectLocalStatus { return { configured: Boolean(origin), origin, state: status, name: state?.name ?? options.name(),
-      ...(state?.binding ? { email: state.binding.email.replace(/^(.).+(@.*)$/, "$1•••$2"), hostId: state.binding.hostId, url: state.binding.url } : {}),
+      ...(state?.binding ? { email: state.binding.email, hostId: state.binding.hostId, url: state.binding.url } : {}),
       ...(state?.enrollment ? { enrollment: state.enrollment } : {}), ...(error ? { error } : {}), ...(componentStatus ? { transport: { ...componentStatus } } : {}) } },
     repairTransport: () => change(async () => {
       if (componentStatus?.state !== "ready") await stopTransport()

@@ -1,3 +1,4 @@
+import { SIDEBAR_INITIAL_CHAT_LIMIT, SIDEBAR_MORE_CHAT_LIMIT, SIDEBAR_MAX_CHAT_LIMIT } from "../../shared/sidebar-view"
 import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { useWorkspaceCollapse } from "../hooks/useWorkspaceCollapse"
 import type { WorkspaceCollapsed, WorkspaceCollapseVersions } from "../../shared/workspace-collapse"
@@ -19,7 +20,7 @@ import { cn } from "../lib/utils"
 import { ChatRow } from "../components/chat-ui/sidebar/ChatRow"
 import { LocalProjectsSection } from "../components/chat-ui/sidebar/LocalProjectsSection"
 import { getResolvedKeybindings } from "../lib/keybindings"
-import type { KeybindingsSnapshot, SidebarData, SidebarChatRow } from "../../shared/types"
+import type { KeybindingsSnapshot, SidebarData, SidebarChatRow, SidebarView } from "../../shared/types"
 import type { SocketStatus } from "./socket"
 import {
   getSidebarJumpTargetIndex,
@@ -88,6 +89,7 @@ export function getConnectionStatusPresentation(
 
 interface StillOnSidebarProps {
   data: SidebarData
+  onViewChange?: (view: SidebarView) => void
   activeChatId: string | null
   machineName: string | null
   connectionStatus: SocketStatus
@@ -127,6 +129,7 @@ interface StillOnSidebarProps {
 
 function StillOnSidebarImpl({
   data,
+  onViewChange,
   activeChatId,
   machineName,
   connectionStatus,
@@ -174,14 +177,18 @@ function StillOnSidebarImpl({
   const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null)
   const { collapsedSections, setSectionCollapsed, revealSection, retry: retryCollapseSave,
     error: collapseSaveError, unsynced: collapseUnsynced } = useWorkspaceCollapse(
-    data.projectGroups, workspaceCollapsed, workspaceCollapseVersions, activeChatId, onWriteWorkspaceCollapsed,
+    data.projectGroups, workspaceCollapsed, workspaceCollapseVersions, activeChatId, onWriteWorkspaceCollapsed, ready,
   )
+  const [chatLimits, setChatLimits] = useState<Record<string, number>>({})
+  const [archivedLimit, setArchivedLimit] = useState(SIDEBAR_MORE_CHAT_LIMIT)
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [searchLimit, setSearchLimit] = useState(50)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const previouslySelectedChat = useRef(activeChatId)
   useEffect(() => {
     if (!activeChatId) { previouslySelectedChat.current = null; return }
     if (previouslySelectedChat.current === activeChatId) return
-    const group = data.projectGroups.find(g => g.chats.some(c => c.chatId === activeChatId))
+    const group = data.projectGroups.find(g => g.activeChatId === activeChatId || g.chats.some(c => c.chatId === activeChatId))
     if (!group) return
     previouslySelectedChat.current = activeChatId
     if (group.olderChats.some(c => c.chatId === activeChatId)) {
@@ -203,16 +210,29 @@ function StillOnSidebarImpl({
   const [archivedProjectId, setArchivedProjectId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  useEffect(() => {
+    setSearchLimit(50)
+    const timer = window.setTimeout(() => setDebouncedSearch(searchOpen ? searchQuery.trim().slice(0, 200) : ""), 200)
+    return () => window.clearTimeout(timer)
+  }, [searchOpen, searchQuery])
+  useEffect(() => {
+    if (!ready) return
+    onViewChange?.({ version: 1,
+      groups: data.projectGroups.filter(group => !collapsedSections.has(group.groupKey)).map(group => ({ groupKey: group.groupKey, limit: chatLimits[group.groupKey] ?? SIDEBAR_INITIAL_CHAT_LIMIT })),
+      ...(archivedProjectId ? { archived: { groupKey: archivedProjectId, limit: archivedLimit } } : {}),
+      ...(debouncedSearch ? { search: debouncedSearch, searchLimit } : {}),
+    })
+  }, [ready, onViewChange, data.projectGroups, collapsedSections, chatLimits, archivedProjectId, archivedLimit, debouncedSearch, searchLimit])
   // Once hydrated, connection changes do not remove menus or move controls.
   const actionsEnabled = ready
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
-    if (!query) return []
+    if (!query || (data.lazyVersion && data.search?.toLocaleLowerCase() !== query)) return []
     return data.projectGroups.flatMap((group) => group.chats
       .filter((chat) => `${chat.title} ${group.sidebarTitle ?? group.title}`.toLocaleLowerCase().includes(query))
       .map((chat) => ({ chat, projectTitle: group.sidebarTitle ?? group.title })))
       .sort((a, b) => (b.chat.lastMessageAt ?? b.chat._creationTime) - (a.chat.lastMessageAt ?? a.chat._creationTime))
-  }, [data.projectGroups, searchQuery])
+  }, [data.projectGroups, data.lazyVersion, data.search, searchQuery])
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const visibleChats = useMemo(
     () => getVisibleSidebarChats(data.projectGroups, collapsedSections, expandedGroups),
@@ -244,14 +264,19 @@ function StillOnSidebarImpl({
     setSectionCollapsed(key, !collapsedSections.has(key))
   }, [collapsedSections, setSectionCollapsed])
 
-  const toggleExpandedGroup = useCallback((key: string) => {
+  const toggleExpandedGroup = useCallback((key: string, less = false) => {
+    if (data.lazyVersion) {
+      setChatLimits(current => ({ ...current, [key]: less ? SIDEBAR_INITIAL_CHAT_LIMIT : Math.min(SIDEBAR_MAX_CHAT_LIMIT, (current[key] ?? SIDEBAR_INITIAL_CHAT_LIMIT) + SIDEBAR_MORE_CHAT_LIMIT) }))
+      setExpandedGroups(current => { const next = new Set(current); if (less) next.delete(key); else next.add(key); return next })
+      return
+    }
     setExpandedGroups((previous) => {
       const next = new Set(previous)
       if (next.has(key)) next.delete(key)
       else next.add(key)
       return next
     })
-  }, [])
+  }, [data.lazyVersion])
 
   const renderChatRow = useCallback((chat: SidebarChatRow) => {
     const visibleIndex = visibleIndexByChatId.get(chat.chatId)
@@ -578,7 +603,7 @@ function StillOnSidebarImpl({
 
             {searchOpen && searchQuery.trim() ? (
               <div className="space-y-1 px-1 pt-2">
-                {searchResults.length === 0 ? (
+                {data.lazyVersion && data.search?.toLocaleLowerCase() !== searchQuery.trim().toLocaleLowerCase() ? <p role="status" className="px-3 py-5 text-center text-sm text-muted-foreground">Searching conversations…</p> : searchResults.length === 0 ? (
                   <p className="px-3 py-5 text-center text-sm text-muted-foreground">No matching conversations</p>
                 ) : searchResults.map(({ chat, projectTitle }) => (
                   <button
@@ -603,6 +628,7 @@ function StillOnSidebarImpl({
                     <span className="block truncate text-xs text-muted-foreground">{projectTitle}</span>
                   </button>
                 ))}
+                {data.searchHasMore ? <button type="button" disabled={data.searchLimit !== searchLimit} onClick={() => setSearchLimit(current => current + 50)} className="px-3 py-2 text-sm text-muted-foreground">Show more results</button> : null}
               </div>
             ) : <LocalProjectsSection
               projectGroups={data.projectGroups}
@@ -610,10 +636,11 @@ function StillOnSidebarImpl({
               onReorderGroups={guest ? undefined : onReorderProjectGroups}
               collapsedSections={collapsedSections}
               expandedGroups={expandedGroups}
+              chatLimits={chatLimits}
               onToggleSection={toggleSection}
               onToggleExpandedGroup={toggleExpandedGroup}
               renderChatRow={renderChatRow}
-              onShowArchivedProject={setArchivedProjectId}
+              onShowArchivedProject={key => { setArchivedLimit(SIDEBAR_MORE_CHAT_LIMIT); setArchivedProjectId(key) }}
               onRunQuickCommand={onRunQuickCommand}
               onManageWorkspaceCommands={!guest && onWriteQuickCommands ? setCommandsProjectId : undefined}
               onNewLocalChat={(localPath) => {
@@ -727,6 +754,7 @@ function StillOnSidebarImpl({
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-1">
+            {archivedProject?.chatPage && archivedProject.chatPage.archivedLimit < archivedLimit ? <p role="status" className="px-1 py-3 text-sm text-muted-foreground">Loading archived chats…</p> : null}
             {archivedProject?.archivedChats?.length ? (
               archivedProject.archivedChats.map((chat) => (
                 <button
@@ -748,8 +776,9 @@ function StillOnSidebarImpl({
                 </button>
               ))
             ) : (
-              <p className="px-1 py-3 text-sm text-muted-foreground">No archived chats</p>
+              !archivedProject?.chatPage || archivedProject.chatPage.archivedLimit >= archivedLimit ? <p className="px-1 py-3 text-sm text-muted-foreground">No archived chats</p> : null
             )}
+            {archivedProject?.chatPage && archivedProject.chatPage.archivedTotal > archivedProject.chatPage.archivedLimit ? <button type="button" disabled={archivedProject.chatPage.archivedLimit < archivedLimit} onClick={() => setArchivedLimit(current => Math.min(SIDEBAR_MAX_CHAT_LIMIT, current + SIDEBAR_MORE_CHAT_LIMIT))} className="px-3 py-2 text-sm text-muted-foreground">Show more archived chats</button> : null}
           </DialogBody>
         </DialogContent>
       </Dialog>
