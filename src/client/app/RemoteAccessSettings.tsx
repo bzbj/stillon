@@ -2,8 +2,9 @@ import { useEffect, useState } from "react"
 import { Check, Copy, ExternalLink, LoaderCircle, Monitor } from "lucide-react"
 import { Button, buttonVariants } from "../components/ui/button"
 import { SharedWorkspacesSettings } from "./SharedWorkspacesSettings"
+import { MyComputersSettings } from "./MyComputersSettings"
 import { BrowserSessionSettings } from "./BrowserSessionSettings"
-import type { ConnectHost, ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/connect"
+import type { ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/connect"
 
 const labels: Record<ConnectLocalStatus["state"], string> = { unbound: "No email linked", pending: "Waiting for email verification", connecting: "Connecting", online: "Remote access is on", offline: "This computer is offline", paused: "Remote access is paused", revoked: "Computer unlinked", "revocation-pending": "Connection closed; unlinking pending" }
 const errors: Record<string, string> = {
@@ -20,7 +21,6 @@ const errors: Record<string, string> = {
 export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [local, setLocal] = useState<ConnectLocalStatus | null>(null)
   const [remote, setRemote] = useState<ConnectRemoteStatus | null>(null)
-  const [hosts, setHosts] = useState<ConnectHost[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [copied, setCopied] = useState(false)
@@ -32,8 +32,6 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
     const auth = await response.json()
     if (auth.mode === "connect") {
       setRemote(auth)
-      const response = await fetch("/_connect/hosts", { cache: "no-store" })
-      if (response.ok) setHosts((await response.json()).hosts)
     } else {
       const response = await fetch("/api/connect-local/status", { cache: "no-store" })
       if (!response.ok) throw new Error(response.status === 403 ? "Open StillOn at its local address on this computer to manage remote access." : "Unable to read the connection status.")
@@ -70,15 +68,33 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
       setTimeout(() => setDiagnosticsCopied(false), 2_000)
     } catch { setError("Unable to copy diagnostics. Please try again.") }
   }
-  return <section className="max-w-xl space-y-6 py-6">
+  async function copyRemoteUrl() {
+    if (!local?.origin) return
+    try {
+      await navigator.clipboard.writeText(local.origin)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2_000)
+    } catch { setError("Unable to copy the remote URL. Select the link to copy it manually.") }
+  }
+  return <section aria-label="Remote access settings" className="max-w-2xl space-y-6 py-5">
     {remote ? <>
-      <div className="flex items-center gap-3"><Monitor className="size-5" /><div><h3 className="font-medium">{remote.sharedWorkspace?.name ?? remote.host?.name ?? "Current computer"}</h3><p className="mt-1 text-sm text-muted-foreground">You are using this computer remotely. Tasks and files stay on this computer.</p></div></div>
-      {hosts.length > 1 && <div className="space-y-3"><h4 className="text-sm font-medium">Switch computers</h4>{hosts.map(host => <div key={host.id} className="flex items-center gap-4 rounded-xl border p-4"><span className="min-w-0 flex-1 truncate text-sm">{host.name} · {host.online ? "Online" : "Offline"}</span>{host.id === remote.host?.id ? <span className="text-xs text-muted-foreground">Current computer</span> : <a className="text-sm underline" href={`${host.url}/_connect/login`}>Switch</a>}</div>)}</div>}
-      <p className="text-sm leading-6 text-muted-foreground">Switching affects only this tab. Logout ends all computer connections in this browser. Tasks on your computers keep running.</p>
-      <Button variant="outline" onClick={() => void onSignOut()}>Logout</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+        <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">Email account</h3><p className="mt-1 break-all text-sm">{remote.email || "Email unavailable"}</p></div>
+        <Button variant="destructive" className="shrink-0 text-white" disabled={busy} onClick={() => {
+          setBusy(true); setError("")
+          void onSignOut().catch(() => setError("Unable to log out. Please try again.")).finally(() => setBusy(false))
+        }}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Logout</Button>
+      </div>
     </> : local ? <>
-      <div className="rounded-2xl border p-5"><div className="flex items-center gap-3"><span className={`size-2 rounded-full ${local.state === "online" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} /><h3 className="font-medium">{labels[local.state]}</h3></div><p className="mt-3 text-sm text-muted-foreground">{local.name}{local.email ? ` · ${local.email}` : ""}</p></div>
-      {!local.hostId && <p className="text-sm leading-6 text-muted-foreground">Link your email, then sign in from another device to continue tasks, view files and edit results. Keep this computer on, online and running StillOn.</p>}
+      <div className="space-y-4 rounded-xl border p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3"><Monitor className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><div className="min-w-0"><h3 className="break-words font-medium">{local.name}</h3><p className="mt-1 break-all text-sm text-muted-foreground">{local.email || "No email linked"}</p></div></div>
+          <span role="status" className="inline-flex items-center gap-2 rounded-full bg-muted px-2.5 py-1 text-xs font-medium"><span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${local.state === "online" ? "bg-emerald-500" : local.state === "connecting" || local.state === "pending" ? "bg-amber-500" : "bg-muted-foreground/40"}`} />{labels[local.state]}</span>
+        </div>
+        {local.hostId && !["revoked", "revocation-pending"].includes(local.state) && <div className="flex flex-wrap gap-2"><Button disabled={busy} variant="outline" onClick={() => void action(local.state === "paused" ? "resume" : "pause")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}{local.state === "paused" ? "Resume remote access" : "Pause remote access"}</Button><Button disabled={busy} variant="destructive" className="text-white" onClick={() => setConfirmUnbind(true)}>Unlink email</Button></div>}
+      </div>
+      {confirmUnbind && <div className="space-y-3 rounded-xl border p-4"><p className="text-sm leading-6">Unlink this email? All remote connections to this computer will close. Local files and tasks are preserved.</p><div className="flex gap-3"><Button disabled={busy} variant="destructive" onClick={() => void action("unbind")}>Confirm unlink</Button><Button variant="ghost" onClick={() => setConfirmUnbind(false)}>Cancel</Button></div></div>}
+      {!local.hostId && <p className="text-sm leading-6 text-muted-foreground">Link your email to access this computer from another device. Keep this computer on and StillOn running.</p>}
       {local.transport && local.transport.state !== "ready" && <div role="status" className="space-y-3 rounded-xl border p-4">
         <p className="text-sm leading-6">{local.transport.state === "preparing" ? "Preparing the Connect component…" : errors[local.transport.error ?? "CONNECTOR_NOT_INSTALLED"] ?? "The Connect component needs repair."}</p>
         {local.transport.state !== "preparing" && local.transport.error !== "CONNECTOR_COMPONENT_INVALID" && <Button disabled={busy} variant="outline" onClick={() => void action("repair-transport")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Repair Connect component</Button>}
@@ -95,15 +111,17 @@ export function RemoteAccessSettings({ onSignOut }: { onSignOut: () => Promise<v
           </div>
         </> : <Button disabled={busy} onClick={() => void action("enroll")}>{busy && <LoaderCircle className="mr-2 size-4 animate-spin" />}Link email</Button>}
       </div> : <>
-        <div className="space-y-2"><p className="text-sm font-medium">Remote login URL</p><div className="flex items-center gap-3"><a href={local.origin!} target="_blank" rel="noreferrer" className="min-w-0 break-all text-sm underline">{local.origin}</a><Button size="icon" variant="ghost" aria-label="Copy remote URL" onClick={() => { void navigator.clipboard.writeText(local.origin!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2_000) }) }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div></div>
-        <div className="flex flex-wrap gap-3">{!["revoked", "revocation-pending"].includes(local.state) && <Button disabled={busy} variant="outline" onClick={() => void action(local.state === "paused" ? "resume" : "pause")}>{local.state === "paused" ? "Resume remote access" : "Pause remote access"}</Button>}<Button disabled={busy} variant="ghost" onClick={() => setConfirmUnbind(true)}>Unlink email</Button></div>
-        {confirmUnbind && <div className="space-y-3 rounded-xl border p-4"><p className="text-sm leading-6">Unlinking closes all remote connections to this computer. Local files and tasks are preserved. You can link an email again later.</p><div className="flex gap-3"><Button disabled={busy} variant="destructive" onClick={() => void action("unbind")}>Confirm unlink</Button><Button variant="ghost" onClick={() => setConfirmUnbind(false)}>Cancel</Button></div></div>}
+        {local.origin && <div className="space-y-3">
+          <h3 className="text-sm font-medium">Remote login URL</h3>
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2 pl-3"><a href={local.origin} target="_blank" rel="noreferrer" className="min-w-0 flex-1 break-all text-sm underline underline-offset-4">{local.origin}</a><Button size="icon" variant="ghost" aria-label={copied ? "Remote URL copied" : "Copy remote URL"} onClick={() => void copyRemoteUrl()}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button></div>
+        </div>}
       </>}
       {local.error && local.error !== local.transport?.error && <p className="text-sm text-muted-foreground">{errors[local.error] ?? "The connection is unavailable. StillOn will try to reconnect automatically."}</p>}
     </> : !error ? <p className="text-sm text-muted-foreground">Loading connection status…</p> : null}
+    {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <MyComputersSettings remote={Boolean(remote)} currentHostId={remote?.host?.id} />}
     {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <SharedWorkspacesSettings remote={Boolean(remote)} />}
     {(remote?.authenticated || (local?.hostId && !["revoked", "revocation-pending"].includes(local.state))) && <BrowserSessionSettings remote={Boolean(remote)} logoutUrl={remote ? `${remote.portalUrl}/logout/complete` : undefined} />}
-    {(local || remote) && <div className="space-y-2 border-t pt-4"><Button variant="ghost" onClick={() => void copyDiagnostics()}>{diagnosticsCopied ? "Diagnostics copied" : "Copy connection diagnostics"}</Button><p className="text-xs text-muted-foreground">Includes connection status and version details for troubleshooting. Excludes email addresses, keys and file contents.</p></div>}
+    {(local || remote) && <div className="space-y-2 border-t pt-4"><Button variant="ghost" onClick={() => void copyDiagnostics()}>{diagnosticsCopied ? "Diagnostics copied" : "Copy connection diagnostics"}</Button><p className="text-xs text-muted-foreground">Connection status and versions, without email addresses, keys or file contents.</p></div>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </section>
 }

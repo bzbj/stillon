@@ -94,8 +94,8 @@ export function BrowserSessionSettings({ remote, logoutUrl }: { remote: boolean;
     await refresh()
   }
 
-  return <section className="space-y-4 border-t pt-6" aria-label="Signed-in browsers">
-    <div className="flex items-center justify-between gap-3"><div><h3 className="font-medium">Signed-in browsers</h3><p className="mt-1 text-sm text-muted-foreground">Browsers signed in to your linked account.</p></div><Button size="icon" variant="ghost" aria-label="Refresh browser logins" disabled={loading || busy !== null} onClick={() => void refresh()}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button></div>
+  return <section className="space-y-3 border-t pt-5" aria-label="Signed-in browsers">
+    <div className="flex items-center justify-between gap-3"><div><h3 className="font-medium">Signed-in browsers</h3></div><Button size="icon" variant="ghost" aria-label="Refresh browser logins" disabled={loading || busy !== null} onClick={() => void refresh()}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button></div>
     {data ? <BrowserSessionList data={data} busy={busy} confirming={confirming} onConfirm={setConfirming} onRemove={session => void remove(session)} /> : !error ? <p className="text-sm text-muted-foreground">Loading browser logins…</p> : null}
     {error && <p role="alert" className="text-sm text-destructive">{error}{data ? " The list may be out of date." : ""}</p>}
     {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
