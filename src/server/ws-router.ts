@@ -778,7 +778,7 @@ export function createWsRouter({
         id,
         snapshot: {
           type: "sidebar",
-          data: workspaceId ? { projectGroups: deriveSidebarData(workspaceState(store.state, workspaceId), agent.getActiveStatuses(), { drainingChatIds: agent.getDrainingChatIds() }).projectGroups.map(group => ({ ...group, title: `${getCurrentMachineDisplayName()} - ${group.title}`, sidebarTitle: undefined })) } : sidebar.data,
+          data: workspaceId ? { projectGroups: deriveSidebarData(workspaceState(store.state, workspaceId), agent.getActiveStatuses(), { drainingChatIds: agent.getDrainingChatIds() }).projectGroups } : sidebar.data,
         },
       }
     }
