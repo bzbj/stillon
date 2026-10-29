@@ -921,6 +921,30 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     if (connectionStatus === "connected") markStartupPhase("socket-open")
   }, [connectionStatus])
 
+  useEffect(() => {
+    return socket.subscribe<LocalProjectsSnapshot>({ type: "local-projects" }, (snapshot) => {
+      markStartupPhase("project-data")
+      setLocalProjects(snapshot)
+      setLocalProjectsReady(true)
+      setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
+    return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
+      setKeybindings(snapshot)
+      setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
+    return socket.subscribe<AppSettingsSnapshot>({ type: "app-settings" }, (snapshot) => {
+      markStartupPhase("preferences")
+      applyAppSettingsSnapshot(snapshot)
+      setCommandError(null)
+    })
+  }, [applyAppSettingsSnapshot, socket])
+
   useEffect(() => socket.subscribe({ type: "claude-model-policy" }, () => {}), [socket])
   useEffect(() => socket.subscribe({ type: "codex-model-policy" }, () => {}), [socket])
 
@@ -976,30 +1000,6 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       setCommandError(error instanceof Error ? error.message : String(error))
     })
   }, [attachmentDraftChatIds, connectionStatus, draftChatIds, socket])
-
-  useEffect(() => {
-    return socket.subscribe<LocalProjectsSnapshot>({ type: "local-projects" }, (snapshot) => {
-      markStartupPhase("project-data")
-      setLocalProjects(snapshot)
-      setLocalProjectsReady(true)
-      setCommandError(null)
-    })
-  }, [socket])
-
-  useEffect(() => {
-    return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
-      setKeybindings(snapshot)
-      setCommandError(null)
-    })
-  }, [socket])
-
-  useEffect(() => {
-    return socket.subscribe<AppSettingsSnapshot>({ type: "app-settings" }, (snapshot) => {
-      markStartupPhase("preferences")
-      applyAppSettingsSnapshot(snapshot)
-      setCommandError(null)
-    })
-  }, [applyAppSettingsSnapshot, socket])
 
   const handleReadAppSettings = useCallback(async () => {
     try {
