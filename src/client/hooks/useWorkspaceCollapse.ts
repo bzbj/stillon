@@ -9,11 +9,13 @@ export function useWorkspaceCollapse(
   versions: WorkspaceCollapseVersions,
   activeChatId: string | null,
   save?: SaveWorkspaceCollapse,
+  authoritative = true,
 ) {
   const [session] = useState(() => new WorkspaceCollapseSession(saved, versions))
   const initialChat = useRef(activeChatId)
   const revealedChat = useRef(activeChatId)
-  session.includeGroups(groups, initialChat.current)
+  // Saved choices apply immediately; first-use defaults need the live catalog.
+  if (authoritative) session.includeGroups(groups, initialChat.current)
   session.setSharedVersions(versions)
   const view = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot)
   useEffect(() => {

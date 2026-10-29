@@ -177,7 +177,7 @@ function StillOnSidebarImpl({
   const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null)
   const { collapsedSections, setSectionCollapsed, revealSection, retry: retryCollapseSave,
     error: collapseSaveError, unsynced: collapseUnsynced } = useWorkspaceCollapse(
-    ready ? data.projectGroups : [], workspaceCollapsed, workspaceCollapseVersions, activeChatId, onWriteWorkspaceCollapsed,
+    data.projectGroups, workspaceCollapsed, workspaceCollapseVersions, activeChatId, onWriteWorkspaceCollapsed, ready,
   )
   const [chatLimits, setChatLimits] = useState<Record<string, number>>({})
   const [archivedLimit, setArchivedLimit] = useState(SIDEBAR_MORE_CHAT_LIMIT)
