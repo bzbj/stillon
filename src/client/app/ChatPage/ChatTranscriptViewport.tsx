@@ -1,6 +1,6 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, Ban, Download, Eye, Upload } from "lucide-react"
+import { ArrowDown, Ban, Download, Eye } from "lucide-react"
 import { AnimatedShinyText } from "../../components/ui/animated-shiny-text"
 import { DrainingIndicator } from "../../components/messages/DrainingIndicator"
 import { QueuedUserMessage } from "../../components/messages/QueuedUserMessage"
@@ -57,7 +57,6 @@ interface ChatTranscriptViewportProps {
   scrollToBottom: () => void
   typedEmptyStateText: string
   isEmptyStateTypingComplete: boolean
-  isPageFileDragActive: boolean
   showEmptyState: boolean
   platform?: NodeJS.Platform
   headerOffsetPx?: number
@@ -132,7 +131,6 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   scrollToBottom,
   typedEmptyStateText,
   isEmptyStateTypingComplete,
-  isPageFileDragActive,
   showEmptyState,
   platform = "darwin",
   headerOffsetPx = CHAT_NAVBAR_OFFSET_PX,
@@ -469,20 +467,6 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
                     </span>
                   </span>
                 </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isPageFileDragActive ? (
-        <div className="pointer-events-none absolute inset-0 z-30">
-          <div className="absolute inset-0 backdrop-blur-sm" />
-          <div className="absolute inset-6 ">
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center justify-center gap-3 text-center">
-                <Upload className="mx-auto size-14 text-foreground" strokeWidth={1.75} />
-                <div className="text-xl font-medium text-foreground">Drop up to 10 files</div>
               </div>
             </div>
           </div>

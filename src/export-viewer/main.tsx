@@ -184,7 +184,6 @@ function StandaloneTranscriptApp() {
             scrollToBottom={scrollToBottom}
             typedEmptyStateText=""
             isEmptyStateTypingComplete
-            isPageFileDragActive={false}
             showEmptyState={false}
             headerOffsetPx={20}
           />
