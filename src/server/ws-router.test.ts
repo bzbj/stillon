@@ -2135,14 +2135,14 @@ test("sidebar catalog and expanded subscriptions share the local/remote router w
   const subscribe = async (view: unknown) => { await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "subscribe", id: "catalog", topic: { type: "sidebar", compactVersion: 1, view } })); return decodeSidebarEnvelope(ws.sent.at(-1)) }
   try {
     const legacy = await subscribe(undefined)
-    expect(legacy).toMatchObject({ type: "snapshot", snapshot: { type: "sidebar", data: { projectGroups: [{ title: "Workspace title", sidebarTitle: "Workspace alias" }] } } })
+    expect(legacy).toMatchObject({ type: "snapshot", snapshot: { type: "sidebar", data: { projectGroups: [{ title: "Workspace alias", realTitle: "Workspace title", sidebarTitle: "Workspace alias" }] } } })
     const catalog = await subscribe({ version: 1, groups: [] })
-    expect(catalog).toMatchObject({ type: "snapshot", snapshot: { type: "sidebar", data: { lazyVersion: 1, projectGroups: [{ groupKey: "allowed", title: "Workspace title", sidebarTitle: "Workspace alias", chats: [] }] } } })
+    expect(catalog).toMatchObject({ type: "snapshot", snapshot: { type: "sidebar", data: { lazyVersion: 1, projectGroups: [{ groupKey: "allowed", title: "Workspace alias", realTitle: "Workspace title", sidebarTitle: "Workspace alias", chats: [] }] } } })
     const expanded = await subscribe({ version: 1, groups: [{ groupKey: "allowed", limit: 5 }, { groupKey: "private", limit: 10 }], search: "private" })
     expect(expanded.type).toBe("snapshot")
     expect(JSON.stringify(expanded)).not.toContain("Name private")
     if (expanded.type !== "snapshot" || expanded.snapshot.type !== "sidebar") throw new Error("Expected sidebar")
-    expect(expanded.snapshot.data.projectGroups[0]).toMatchObject({ title: "Workspace title", sidebarTitle: "Workspace alias" })
+    expect(expanded.snapshot.data.projectGroups[0]).toMatchObject({ title: "Workspace alias", realTitle: "Workspace title", sidebarTitle: "Workspace alias" })
     expect(expanded.snapshot.data.projectGroups[0]?.chats).toHaveLength(5)
     state.chatsById.get("allowed-11")!.title = "Updated on host"
     await router.broadcastSnapshots()
