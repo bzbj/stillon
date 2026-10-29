@@ -213,3 +213,18 @@ new user work has been allowed.
 Normal beta releases now publish explicitly unsigned installers and runtime
 archives. The app checks for the update manifest and an archive for its platform;
 source-only or partially uploaded releases stay unavailable to package users.
+
+### Diagnosing an application that cannot start
+
+The managed controller writes each application instance's stderr to
+`application-logs/<instance>.stderr.log` under the managed update root and records
+its latest unexpected exit in `application-exit.json`. These files stay local;
+they may contain private paths or application output and should be redacted
+before sharing. Health-check timeouts identify known port/permission failures
+and point to that instance log instead of copying raw stderr into update status.
+
+If rollback also fails, `state.json` retains the original upgrade failure in
+`error` and stores the rollback failure separately in `recoveryError`. A later
+recovery worker preserves the original reason. These controller diagnostics
+require a newly installed controller; updating only the app does not replace
+an existing pinned controller.

@@ -3,6 +3,7 @@ import { mkdir, open, rename, stat, unlink } from "node:fs/promises"
 import path from "node:path"
 import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
 import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
+import { applicationFailure } from "./startup-diagnostics"
 import { BUNDLE_FILE, runtimeExecutable } from "../distribution/bundle"
 import { desktopTransitionPending, FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
@@ -72,7 +73,7 @@ export class UpdateEngine {
     if (FINISHED_PHASES.has(this.state.phase)) return
     try {
       if (SWITCH_PHASES.has(this.state.phase)) {
-        await this.rollback("An interrupted switch was recovered by the independent updater.")
+        await this.rollback(this.state.error ?? "An interrupted switch was recovered by the independent updater.")
         return
       }
       if (this.state.phase !== "queued") {
@@ -102,7 +103,7 @@ export class UpdateEngine {
         return
       }
       try { await this.rollback(reason) } catch (failure) {
-        await this.save("recovery-required", { error: failure instanceof Error ? failure.message : "Recovery failed; retained all backups." })
+        await this.save("recovery-required", { error: reason, recoveryError: failure instanceof Error ? failure.message : "Recovery failed; retained all backups." })
         throw failure
       }
     }
@@ -134,7 +135,7 @@ async function verifyBuildBaseline(deployment: UpdateDeployment, runtime: string
   }
 }
 
-export async function verifyRuntime(deployment: UpdateDeployment, runtime: string) {
+export async function verifyRuntime(deployment: UpdateDeployment, runtime: string, timeout = 60_000) {
   const version = (await json<{ version: string }>(path.join(runtime, "package.json"))).version
   const html = Buffer.from(await Bun.file(path.join(runtime, "dist/client/index.html")).arrayBuffer())
   const assets = [...html.toString().matchAll(/(?:src|href)="(\/assets\/[^"?#]+)/g)].map((match) => match[1])
@@ -145,7 +146,7 @@ export async function verifyRuntime(deployment: UpdateDeployment, runtime: strin
       const health = await appStatus(deployment)
       const runner = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
       if (runner.error) throw new Error(runner.error)
-      if (!health?.ok) { waiting = "application health"; return false }
+      if (!health?.ok) { waiting = await applicationFailure(deployment.root, runtime) ?? "application health"; return false }
       if (health.version !== version) { waiting = `version ${version} (received ${health.version ?? "none"})`; return false }
       if (health.updateProtocol !== 1 || health.updateInstance !== runner.instance || runner.runtime !== runtime) { waiting = "managed application identity"; return false }
       const response = await localFetch(`http://127.0.0.1:${deployment.port}/`)
@@ -157,7 +158,7 @@ export async function verifyRuntime(deployment: UpdateDeployment, runtime: strin
       }
       return true
     } catch (error) { waiting = error instanceof Error ? error.message : "application response"; return false }
-  }) } catch { throw new Error(`Timed out waiting for the managed server: ${waiting}.`) }
+  }, timeout) } catch { throw new Error(`Timed out waiting for the managed server: ${waiting}.`) }
   await Bun.sleep(2_000)
   const health = await appStatus(deployment)
   if (!health?.ok || health.version !== version) throw new Error("New runtime stopped during the stability check.")

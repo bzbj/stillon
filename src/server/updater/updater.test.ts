@@ -209,6 +209,21 @@ describe("durable update and recovery", () => {
     expect(await Bun.file(path.join(f.config.dataRoot, "new-schema.json")).exists()).toBe(false)
     expect(await readFile(path.join(path.dirname(f.config.dataRoot), `.stillon-after-failed-${f.state.id}`, "history.json"), "utf8")).toBe("migrated")
   })
+  test("failed rollback and a later recovery retain the original update failure", async () => {
+    const f = await fixture()
+    f.effects.verify = async (runtime) => {
+      throw new Error(runtime === f.state.newRuntime ? "candidate EADDRINUSE" : "old runtime health timed out")
+    }
+    await expect(f.engine.execute()).rejects.toThrow("old runtime health timed out")
+    expect(f.engine.state.phase).toBe("recovery-required")
+    expect(f.engine.state.error).toBe("candidate EADDRINUSE")
+    expect(f.engine.state.recoveryError).toBe("old runtime health timed out")
+    f.effects.verify = async () => {}
+    await new UpdateEngine(f.config, f.effects).execute()
+    const recovered = await json<UpdateState>(path.join(f.root, "state.json"))
+    expect(recovered.phase).toBe("rolled-back")
+    expect(recovered.error).toBe("candidate EADDRINUSE")
+  })
   test("new worker recovers a persisted interruption before backup", async () => {
     const f = await fixture()
     await atomicJson(path.join(f.root, "state.json"), { ...f.state, phase: "pausing" })

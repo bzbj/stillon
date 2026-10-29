@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { appStatus, pauseManagedServer } from "./control"
+import { appStatus, localFetch, pauseManagedServer } from "./control"
 import { atomicJson, exists, json } from "./files"
 import { verifyRuntime } from "./engine"
 import { updateTarget, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
@@ -119,3 +119,33 @@ await new UpdateEngine(d,effects).execute();
     await rm(root, { recursive: true, force: true })
   }
 }, 60_000)
+
+test.skipIf(!supported)("a managed bind failure reports EADDRINUSE and preserves per-instance stderr", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-bind-failure-"))
+  const blocker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied", { status: 503 }) })
+  let controller: ReturnType<typeof Bun.spawn> | undefined
+  try {
+    const runtime = path.join(root, "runtime")
+    await writeRuntime(runtime, "1.0.0")
+    const config: UpdateDeployment = { schema: 1, ...updateTarget(), root, controller: entry,
+      dataRoot: path.join(root, "home", ".stillon"), port: blocker.port!,
+      launch: { executable: process.execPath, workingDirectory: runtime, homeDirectory: path.join(root, "home"), pathEnvironment: process.env.PATH ?? "",
+        args: [path.join(runtime, "bin", "stillon"), "--port", String(blocker.port), "--strict-port", "--no-open"] } }
+    await atomicJson(path.join(root, "deployment.json"), config)
+    await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
+    controller = Bun.spawn([process.execPath, entry, "serve", root], { stdout: "ignore", stderr: "ignore" })
+    await waitFor(() => exists(path.join(root, "application-exit.json")))
+    await expect(verifyRuntime(config, runtime, 1_000)).rejects.toThrow("EADDRINUSE")
+    const exit = await json<{ stderrLog: string }>(path.join(root, "application-exit.json"))
+    expect(await Bun.file(exit.stderrLog).text()).toContain("EADDRINUSE")
+    expect((await localFetch(`http://127.0.0.1:${blocker.port}/`)).status).toBe(503)
+  } finally {
+    await atomicJson(path.join(root, "control.json"), { runtime: "", paused: true })
+    if (controller) {
+      await waitFor(async () => (await json<UpdateRunnerStatus>(path.join(root, "runner.json"))).stopped).catch(() => {})
+      controller.kill(); await controller.exited
+    }
+    await blocker.stop(true)
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)
