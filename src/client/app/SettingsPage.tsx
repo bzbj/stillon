@@ -135,7 +135,7 @@ const sidebarItems = [
     id: "remote",
     label: "Remote access",
     icon: MonitorSmartphone,
-    subtitle: "Link your email to use this computer from another device.",
+    subtitle: "",
   },
   {
     id: "about",
