@@ -23,7 +23,7 @@ export function useWorkspaceCollapse(
   useEffect(() => {
     if (!activeChatId) { revealedChat.current = null; return }
     if (revealedChat.current === activeChatId) return
-    const group = groups.find(g => g.chats.some(c => c.chatId === activeChatId))
+    const group = groups.find(g => g.activeChatId === activeChatId || g.chats.some(c => c.chatId === activeChatId))
     if (group) { revealedChat.current = activeChatId; session.reveal(group.groupKey) }
   }, [session, groups, activeChatId])
   const collapsedSections = useMemo(() => new Set(groups.filter(g => view.choices[g.groupKey] !== false).map(g => g.groupKey)), [groups, view.choices])

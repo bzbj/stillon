@@ -20,7 +20,9 @@ export function getVisibleSidebarChats(
       continue
     }
 
-    const displayChats = expandedGroups.has(group.groupKey)
+    const displayChats = group.chatPage
+      ? group.chats.filter((chat, index) => index < group.chatPage!.limit || chat.chatId === group.activeChatId)
+      : expandedGroups.has(group.groupKey)
       ? [...group.previewChats, ...group.olderChats]
       : group.previewChats
 

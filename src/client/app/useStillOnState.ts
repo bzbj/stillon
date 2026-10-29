@@ -23,7 +23,7 @@ import { useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
 import { useChatInputStore } from "../stores/chatInputStore"
 import { useAppSettingsStore } from "../stores/appSettingsStore"
 import { useChatSoundPreferencesStore } from "../stores/chatSoundPreferencesStore"
-import type { ChatSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
+import type { ChatSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData, SidebarView } from "../../shared/types"
 import type { AskUserQuestionItem } from "../components/messages/types"
 import type { OpenLocalLinkTarget } from "../components/messages/shared"
 import { useAppDialog } from "../components/ui/app-dialog"
@@ -401,7 +401,7 @@ export function reconcileOptimisticUserPrompts(
 }
 
 export function getNewestRemainingChatId(projectGroups: SidebarData["projectGroups"], activeChatId: string): string | null {
-  const projectGroup = projectGroups.find((group) => group.chats.some((chat) => chat.chatId === activeChatId))
+  const projectGroup = projectGroups.find((group) => group.activeChatId === activeChatId || group.chats.some((chat) => chat.chatId === activeChatId))
   if (!projectGroup) return null
 
   return projectGroup.chats.find((chat) => chat.chatId !== activeChatId)?.chatId ?? null
@@ -453,7 +453,7 @@ export function reconcileSidebarProjectSelection(
 
   if (activeChatId) {
     const activeProject = projectGroups.find((group) => (
-      group.chats.some((chat) => chat.chatId === activeChatId)
+      group.activeChatId === activeChatId || group.chats.some((chat) => chat.chatId === activeChatId)
     ))
     if (activeProject) return activeProject.groupKey
   }
@@ -682,6 +682,7 @@ export interface StillOnState {
   activeChatId: string | null
   activeProjectId: string | null
   sidebarData: SidebarData
+  handleSidebarViewChange: (view: SidebarView) => void
   localProjects: LocalProjectsSnapshot | null
   defaultProjectId: string | null
   chatSnapshot: ChatSnapshot | null
@@ -814,6 +815,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [sidebarData, setSidebarData] = useState<SidebarData>(
     sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
   )
+  const [sidebarLoadView, setSidebarLoadView] = useState<SidebarView>({ version: 1, groups: [] })
+  const handleSidebarViewChange = useCallback((view: SidebarView) => {
+    setSidebarLoadView(current => JSON.stringify(current) === JSON.stringify(view) ? current : view)
+  }, [])
+  const requestedSidebarView = useMemo(() => ({ ...sidebarLoadView, ...(activeChatId ? { activeChatId } : {}) }), [sidebarLoadView, activeChatId])
   const [sidebarSnapshotStatus, setSidebarSnapshotStatus] = useState<"empty" | "cached" | "authoritative">(
     sidebarBootstrap.snapshot ? "cached" : "empty"
   )
@@ -952,7 +958,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     // Re-subscription reads after the command settled, including uncertain failures.
     const freshRead = sidebarChatActions.getSnapshot().filter(change => change.settled)
     let firstSnapshot = true
-    return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
+    return socket.subscribe<SidebarData>({ type: "sidebar", view: requestedSidebarView }, (snapshot) => {
       sidebarChatActions.receive(snapshot, firstSnapshot ? freshRead : [])
       firstSnapshot = false
       markStartupPhase("sidebar-data")
@@ -970,7 +976,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       setSidebarReady(true)
       setCommandError(null)
     })
-  }, [socket, sidebarChatActions, sidebarRefreshEpoch])
+  }, [socket, sidebarChatActions, sidebarRefreshEpoch, requestedSidebarView])
 
   useEffect(() => {
     if (sidebarSnapshotStatus !== "authoritative" || !confirmedMachineName) return
@@ -1242,7 +1248,9 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     if (!activeChatId) return
     if (!sidebarReady || !chatReady) return
     // Optimistic archive owns navigation; only saved absence invalidates a route.
-    const exists = sidebarData.projectGroups.some((group) => group.chats.some((chat) => chat.chatId === activeChatId))
+    // A partial catalog is not proof that an unloaded conversation was deleted.
+    if (sidebarData.lazyVersion && sidebarData.activeChat?.chatId !== activeChatId) return
+    const exists = sidebarData.activeChat?.chatId === activeChatId && sidebarData.activeChat.projectId !== null || sidebarData.projectGroups.some((group) => group.activeChatId === activeChatId || group.chats.some((chat) => chat.chatId === activeChatId))
     if (exists) {
       if (pendingChatId === activeChatId) {
         setPendingChatId(null)
@@ -2285,6 +2293,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     activeChatId,
     activeProjectId,
     sidebarData: resolvedSidebarData,
+    handleSidebarViewChange,
     localProjects,
     defaultProjectId: validDefaultProjectId,
     chatSnapshot,
