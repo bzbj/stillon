@@ -44,6 +44,13 @@ StillOn is currently a **source-available public beta**. The supported launch sc
 Native installers are built for macOS Intel/Apple Silicon and Windows x64/ARM64. Download a DMG or Windows setup EXE from a release that includes desktop assets. These packages include Bun and the built application; no local source build is required. Beta installers are currently unsigned and labelled in filenames and release notes. Ordinary package releases publish installers and a complete prebuilt update manifest; pull-request artifacts remain temporary development builds. See [desktop installation](docs/desktop-distribution.md) and the [public-release readiness notes](docs/public-release-readiness.md).
 Versioned releases are explicit GitHub source releases; see the [release guide](docs/releasing.md).
 
+## Known bugs
+
+**Google Chrome is recommended for StillOn.** In Safari on macOS, local HTML
+Preview can remain blank because the preview hostname cannot be resolved. Open
+StillOn in Google Chrome to view these previews. This is a known bug with no
+code fix planned; see [#257](https://github.com/bzbj/stillon/issues/257).
+
 ## Before you install
 
 StillOn is the browser workspace around your local agents. Agent-provider accounts,
