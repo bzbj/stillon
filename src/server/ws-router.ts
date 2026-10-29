@@ -1,3 +1,4 @@
+import { normalizeSidebarView } from "../shared/sidebar-view"
 import { encodeSidebarEnvelope } from "../shared/sidebar-wire"
 import { workspaceState, workspaceTopicAllowed, workspaceCommandAllowed } from "./workspace-access"
 import type { ClaudeModelPolicyManager } from "./claude-model-policy-manager"
@@ -771,14 +772,16 @@ export function createWsRouter({
     }
 
     if (topic.type === "sidebar") {
-      const sidebar = getSidebarSnapshotCacheEntry(cache)
+      const sidebar = topic.view ? { data: deriveSidebarData(workspaceId ? workspaceState(store.state, workspaceId) : store.state, agent.getActiveStatuses(), {
+        view: topic.view, sidebarProjectOrder: getSidebarProjectOrder(store), drainingChatIds: agent.getDrainingChatIds(),
+      }) } : getSidebarSnapshotCacheEntry(cache)
       return {
         v: PROTOCOL_VERSION,
         type: "snapshot",
         id,
         snapshot: {
           type: "sidebar",
-          data: workspaceId ? { projectGroups: deriveSidebarData(workspaceState(store.state, workspaceId), agent.getActiveStatuses(), { drainingChatIds: agent.getDrainingChatIds() }).projectGroups.map(group => ({ ...group, title: `${getCurrentMachineDisplayName()} - ${group.title}`, sidebarTitle: undefined })) } : sidebar.data,
+          data: workspaceId && !topic.view ? { projectGroups: deriveSidebarData(workspaceState(store.state, workspaceId), agent.getActiveStatuses(), { drainingChatIds: agent.getDrainingChatIds() }).projectGroups.map(group => ({ ...group, title: `${getCurrentMachineDisplayName()} - ${group.title}`, sidebarTitle: undefined })) } : workspaceId ? { ...sidebar.data, projectGroups: sidebar.data.projectGroups.map(group => ({ ...group, title: `${getCurrentMachineDisplayName()} - ${group.title}`, sidebarTitle: undefined })) } : sidebar.data,
         },
       }
     }
@@ -926,7 +929,7 @@ export function createWsRouter({
           continue
         }
       }
-      const signature = topic.type === "sidebar" && !ws.data.workspaceId
+      const signature = topic.type === "sidebar" && !topic.view && !ws.data.workspaceId
         ? getSidebarSnapshotCacheEntry(options?.cache).signature
         : JSON.stringify(envelope.snapshot)
       const signatureReadyAt = topic.type === "sidebar" && !ws.data.workspaceId ? createdAt : performance.now()
@@ -1670,6 +1673,11 @@ export function createWsRouter({
       }
 
       if (parsed.type === "subscribe") {
+        if (parsed.topic?.type === "sidebar" && parsed.topic.view !== undefined) {
+          const view = normalizeSidebarView(parsed.topic.view)
+          if (!view) { send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Invalid sidebar view" }); return }
+          parsed.topic = { ...parsed.topic, view }
+        }
         if (ws.data.workspaceId && (!parsed.topic || !workspaceTopicAllowed(parsed.topic, ws.data.workspaceId, store.state, terminals))) {
           send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "WORKSPACE_ONLY" }); return
         }

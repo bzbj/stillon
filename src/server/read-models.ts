@@ -7,6 +7,7 @@ import type {
   SidebarChatRow,
   SidebarData,
   SidebarProjectGroup,
+  SidebarView,
 } from "../shared/types"
 import type { ChatRecord, StoreState } from "./events"
 import { resolveLocalPath } from "./paths"
@@ -65,6 +66,7 @@ export function deriveSidebarData(
     nowMs?: number
     sidebarProjectOrder?: string[]
     drainingChatIds?: Set<string>
+    view?: SidebarView
   }
 ): SidebarData {
   const nowMs = options?.nowMs ?? Date.now()
@@ -115,26 +117,71 @@ export function deriveSidebarData(
       }))
   }
 
+  const view = options?.view
+  const limits = new Map(view?.groups.map(group => [group.groupKey, group.limit]))
+  const query = view?.search?.toLocaleLowerCase()
+  let searchRemaining = view?.searchLimit ?? 50
+  let searchHasMore = false
   const projectGroups: SidebarProjectGroup[] = projects.map((project) => {
-    const chats = toSidebarChatRows(project, chatsByProjectId.get(project.id) ?? [])
-    const archivedChats = toSidebarChatRows(project, archivedChatsByProjectId.get(project.id) ?? [])
-    const { previewChats, olderChats } = getSidebarChatBuckets(chats, nowMs)
-
+    const records = chatsByProjectId.get(project.id) ?? []
+    const archivedRecords = archivedChatsByProjectId.get(project.id) ?? []
+    const limit = limits.get(project.id) ?? 0
+    const archivedLimit = view?.archived?.groupKey === project.id ? view.archived.limit : 0
+    // Scan cheap summaries for every workspace, but sort/build names only on intent.
+    const defaultCollapsed = records.every(chat => !chat.pinned && Math.max(0, nowMs - getSidebarChatSortTimestamp(chat)) >= SIDEBAR_RECENT_WINDOW_MS)
+    let selected = records
+    if (view) {
+      selected = limit > 0
+        ? [...records].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getSidebarChatSortTimestamp(b) - getSidebarChatSortTimestamp(a)).slice(0, limit)
+        : []
+      const selectedIds = new Set(selected.map(chat => chat.id))
+      // Direct links select one old conversation without downloading preceding history.
+      const active = limit > 0 && view.activeChatId ? records.find(chat => chat.id === view.activeChatId) : undefined
+      if (active && !selectedIds.has(active.id)) { selected = [...selected, active]; selectedIds.add(active.id) }
+      if (query) {
+        const matches = records.filter(chat => !selectedIds.has(chat.id) && `${chat.title} ${project.sidebarTitle ?? project.title}`.toLocaleLowerCase().includes(query))
+        searchHasMore ||= matches.length > searchRemaining
+        const visibleMatches = matches.slice(0, searchRemaining)
+        searchRemaining -= visibleMatches.length
+        selected = [...selected, ...visibleMatches]
+      }
+    }
+    const chats = toSidebarChatRows(project, selected)
+    const archivedChats = toSidebarChatRows(project, view ? archivedLimit > 0
+      ? [...archivedRecords].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getSidebarChatSortTimestamp(b) - getSidebarChatSortTimestamp(a)).slice(0, archivedLimit)
+      : [] : archivedRecords)
+    const buckets = view
+      ? { previewChats: chats.slice(0, SIDEBAR_FALLBACK_PREVIEW_LIMIT), olderChats: chats.slice(SIDEBAR_FALLBACK_PREVIEW_LIMIT) }
+      : getSidebarChatBuckets(chats, nowMs)
+    const activeChatId = view?.activeChatId && records.some(chat => chat.id === view.activeChatId) ? view.activeChatId : undefined
+    const statuses = view ? records.map(chat => ({ chat, status: deriveStatus(chat, activeStatuses.get(chat.id)) })) : []
     return {
       groupKey: project.id,
       title: project.sidebarTitle ?? project.title,
       realTitle: project.title,
       ...(project.sidebarTitle ? { sidebarTitle: project.sidebarTitle } : {}),
       localPath: project.localPath,
-      chats,
-      previewChats,
-      olderChats,
+      chats, ...buckets,
       ...(archivedChats.length ? { archivedChats } : {}),
-      defaultCollapsed: chats.every((chat) => !chat.pinned && !isSidebarChatRecent(chat, nowMs)),
+      defaultCollapsed,
+      ...(view ? {
+        lastActivityAt: records.reduce((latest, chat) => Math.max(latest, getSidebarChatSortTimestamp(chat)), 0),
+        ...(activeChatId ? { activeChatId } : {}),
+        chatPage: { limit, total: records.length, hasMore: records.length > limit, archivedLimit, archivedTotal: archivedRecords.length },
+        activity: {
+          working: statuses.some(({ status }) => ["starting", "running", "stopping"].includes(status)),
+          unreadResult: statuses.some(({ chat, status }) => chat.unread && status === "idle"),
+          attention: statuses.some(({ chat, status }) => ["waiting_for_user", "stop_failed"].includes(status) || (status === "failed" && chat.unread)),
+          unreadCount: records.filter(chat => chat.unread).length,
+          waitingChatIds: statuses.filter(({ status }) => status === "waiting_for_user").map(({ chat }) => chat.id),
+        },
+      } : {}),
     }
   })
 
-  return { projectGroups }
+  return { projectGroups, ...(view ? { lazyVersion: 1 as const, ...(view.search ? { search: view.search, searchLimit: view.searchLimit ?? 50, searchHasMore } : {}),
+    ...(view.activeChatId ? { activeChat: { chatId: view.activeChatId, projectId: projectGroups.find(group => group.activeChatId)?.groupKey ?? null } } : {}) } : {}) }
+
 }
 
 export function deriveLocalProjectsSnapshot(

@@ -32,12 +32,15 @@ export class WorkspaceCollapseSession {
     if (!groups.length) return
     let expanded: string | undefined
     if (!this.seeded) {
-      expanded = groups.find(g => g.chats.some(c => c.chatId === initialChatId))?.groupKey
+      expanded = groups.find(g => (initialChatId && g.activeChatId === initialChatId) || g.chats.some(c => c.chatId === initialChatId))?.groupKey
       if (!expanded) {
         let newest = 0
-        for (const group of groups) for (const chat of group.chats) {
-          const time = chat.lastMessageAt ?? chat._creationTime
-          if (time > newest) { newest = time; expanded = group.groupKey }
+        for (const group of groups) {
+          if ((group.lastActivityAt ?? 0) > newest) { newest = group.lastActivityAt!; expanded = group.groupKey }
+          for (const chat of group.chats) {
+            const time = chat.lastMessageAt ?? chat._creationTime
+            if (time > newest) { newest = time; expanded = group.groupKey }
+          }
         }
       }
     }

@@ -2,9 +2,9 @@ import type { SidebarData } from "../../shared/types"
 
 export function getNotificationTitleCount(sidebarData: SidebarData) {
   return sidebarData.projectGroups.reduce((count, group) => (
-    count + group.chats.reduce((chatCount, chat) => (
+    count + (group.activity ? group.activity.unreadCount + group.activity.waitingChatIds.length : group.chats.reduce((chatCount, chat) => (
       chatCount + (chat.unread ? 1 : 0) + (chat.status === "waiting_for_user" ? 1 : 0)
-    ), 0)
+    ), 0))
   ), 0)
 }
 
@@ -18,6 +18,11 @@ export function getChatNotificationSnapshot(sidebarData: SidebarData): ChatNotif
   const waitingChatIds = new Set<string>()
 
   for (const group of sidebarData.projectGroups) {
+    if (group.activity) {
+      unreadCount += group.activity.unreadCount
+      for (const id of group.activity.waitingChatIds) waitingChatIds.add(id)
+      continue
+    }
     for (const chat of group.chats) {
       if (chat.unread) unreadCount += 1
       if (chat.status === "waiting_for_user") {

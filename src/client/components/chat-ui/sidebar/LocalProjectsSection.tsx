@@ -40,8 +40,9 @@ interface Props {
   activeProjectId?: string | null
   collapsedSections: Set<string>
   expandedGroups: Set<string>
+  chatLimits?: Record<string, number>
   onToggleSection: (key: string) => void
-  onToggleExpandedGroup: (key: string) => void
+  onToggleExpandedGroup: (key: string, less?: boolean) => void
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
@@ -63,8 +64,9 @@ interface SortableProjectGroupProps {
   isReorderEnabled: boolean
   collapsedSections: Set<string>
   expandedGroups: Set<string>
+  requestedLimit?: number
   onToggleSection: (key: string) => void
-  onToggleExpandedGroup: (key: string) => void
+  onToggleExpandedGroup: (key: string, less?: boolean) => void
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
@@ -227,6 +229,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   isReorderEnabled,
   collapsedSections,
   expandedGroups,
+  requestedLimit = 5,
   onToggleSection,
   onToggleExpandedGroup,
   renderChatRow,
@@ -247,9 +250,10 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
   const projectTitle = title || getPathBasename(localPath)
   const isExpanded = expandedGroups.has(groupKey)
-  const isEmptyProject = group.chats.length === 0
-  const activity = getWorkspaceActivity(group.chats)
+  const isEmptyProject = (group.chatPage?.total ?? group.chats.length) === 0
+  const activity = group.activity ?? getWorkspaceActivity(group.chats)
   const description = activityDescription(activity, isActive)
+  const loadingChats = Boolean(group.chatPage && group.chatPage.limit < requestedLimit)
   const hasMore = group.olderChats.length > 0
   const hasProjectMenu = Boolean(onHideProject && onCopyPath)
 
@@ -327,7 +331,15 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       ) : header}
 
       {!collapsed && onNewLocalChat ? <NewConversationButton localPath={localPath} workspaceTitle={projectTitle} onNewLocalChat={onNewLocalChat} isConnected={isConnected} startingLocalPath={startingLocalPath} /> : null}
-      {!collapsed && !isEmptyProject && (group.previewChats.length > 0 || hasMore) && (
+      {!collapsed && group.chatPage && !isEmptyProject ? (
+        <div data-stillon-part="workspace-conversations" className="mb-3 ml-7 mr-2 space-y-1 border-l-2 border-border/70 pl-2">
+          {group.chats.filter((chat, index) => index < group.chatPage!.limit || chat.chatId === group.activeChatId).map(renderChatRow)}
+          {loadingChats ? <p role="status" className="px-2 py-1 text-xs text-muted-foreground">Loading conversations…</p> : null}
+          {group.chatPage.limit > 0 && group.chatPage.hasMore ? <button type="button" disabled={loadingChats || !isConnected} onClick={() => onToggleExpandedGroup(groupKey)} className="px-2.5 py-1 text-xs text-muted-foreground">Show more</button> : null}
+          {group.chatPage.limit > 5 ? <button type="button" onClick={() => onToggleExpandedGroup(groupKey, true)} className="px-2.5 py-1 text-xs text-muted-foreground">Show less</button> : null}
+        </div>
+      ) : null}
+      {!collapsed && !group.chatPage && !isEmptyProject && (group.previewChats.length > 0 || hasMore) && (
         <div data-stillon-part="workspace-conversations" className="mb-3 ml-7 mr-2 space-y-1 border-l-2 border-border/70 pl-2">
             <>
               {group.previewChats.map(renderChatRow)}
@@ -362,6 +374,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   activeProjectId,
   collapsedSections,
   expandedGroups,
+  chatLimits,
   onToggleSection,
   onToggleExpandedGroup,
   renderChatRow,
@@ -477,6 +490,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           isReorderEnabled={isReorderEnabled}
           collapsedSections={collapsedSections}
           expandedGroups={expandedGroups}
+          requestedLimit={chatLimits?.[group.groupKey]}
           onToggleSection={onToggleSection}
           onToggleExpandedGroup={onToggleExpandedGroup}
           renderChatRow={renderChatRow}

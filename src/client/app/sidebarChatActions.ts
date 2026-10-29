@@ -93,8 +93,8 @@ export function applySidebarChatChanges(data: SidebarData, changes: readonly Sid
       return {
         ...group,
         chats,
-        previewChats: buckets.collapsedChats,
-        olderChats: buckets.remainingChats,
+        previewChats: group.chatPage ? chats.slice(0, 5) : buckets.collapsedChats,
+        olderChats: group.chatPage ? chats.slice(5) : buckets.remainingChats,
         archivedChats: [...archived, ...(group.archivedChats ?? [])],
         defaultCollapsed: shouldDefaultCollapseSidebarProject(chats, now),
       }
