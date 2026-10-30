@@ -64,11 +64,11 @@ describe("upload errors", () => {
     Object.defineProperty(response, "type", { value: "opaqueredirect" })
 
     await expect(getUploadResponseError(response)).resolves.toBe(
-      "Cloudflare Access redirected this upload to sign-in. Reload this page and sign in again."
+      "The upload was redirected to sign-in. Reload this page and sign in again."
     )
   })
 
-  test("includes Cloudflare diagnostics for a blocked HTML response", async () => {
+  test("preserves request diagnostics without blaming Cloudflare for a forbidden page", async () => {
     const response = new Response("<html>blocked</html>", {
       status: 403,
       headers: {
@@ -78,7 +78,7 @@ describe("upload errors", () => {
     })
 
     await expect(getUploadResponseError(response)).resolves.toBe(
-      "Cloudflare or browser access controls blocked this upload (HTTP 403). Cloudflare Ray ID: abc123-SIN."
+      "Upload access was denied (HTTP 403). Reload this page and check your access. Request ID: abc123-SIN."
     )
   })
 
@@ -358,4 +358,14 @@ describe("ChatInput", () => {
     expect(html).toContain("absolute inset-0 cursor-pointer opacity-0")
     expect(html).not.toContain('type="file" multiple="" class="hidden"')
   })
+})
+
+
+test("fetch upload errors recognize challenges and report HTML 404 without a Cloudflare claim", async () => {
+  const missing = await getUploadResponseError(new Response("<html>Not found</html>", { status: 404, headers: { "content-type": "text/html", "cf-ray": "trace" } }))
+  expect(missing).toContain("computer is online")
+  expect(missing).not.toContain("Cloudflare")
+  expect(missing).toContain("trace")
+  const challenge = await getUploadResponseError(new Response("<html>Verify</html>", { status: 403, headers: { "content-type": "text/html", "cf-mitigated": "challenge" } }))
+  expect(challenge).toContain("Cloudflare requires verification")
 })
