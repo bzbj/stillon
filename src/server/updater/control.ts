@@ -93,7 +93,13 @@ export async function runServerController(deployment: UpdateDeployment) {
     }
     if (child) {
       if (!live && child.exitCode === null) child.kill()
-      await Promise.race([child.exited, Bun.sleep(10_000).then(() => { throw new Error("The previous server process did not exit.") })])
+      const stopped = await Promise.race([child.exited.then(() => true), Bun.sleep(5_000).then(() => false)])
+      if (!stopped) {
+        // Shutdown was acknowledged above. A lingering child must not prevent
+        // the stopped-data backup; revalidate its managed identity before kill.
+        await stopOrphanedApp(deployment, last, { force: true })
+        await Promise.race([child.exited, Bun.sleep(5_000).then(() => { throw new Error("The identified application process did not exit after forced shutdown.") })])
+      }
       child = null
     }
     if (last.secret && last.instance) await stopOrphanedApp(deployment, last)

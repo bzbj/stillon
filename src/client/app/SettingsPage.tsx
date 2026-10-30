@@ -364,7 +364,7 @@ export function getAvailablePackageRelease(releases: GithubRelease[], currentVer
   }), currentVersion)
 }
 
-export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve data and customizations; stage, verify and back up first. Register an independent task managed by the OS to start about 5 seconds later and survive StillOn/agent exit. Report its name, target version and status file, then end this agent turn without waiting. The task must poll StillOn's native idle check every 5 seconds for up to 12 hours. Stop StillOn only after all agent turns finish and embedded terminals close, then upgrade and restart. On timeout, leave StillOn running. Verify local/Connect connections; roll back on failure."
+export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve data/customizations; stage and verify first. Register an OS-owned independent task to start about 5 seconds later and survive StillOn/agent exit. Report task name, target version and status file; end this agent turn without waiting. Poll the native idle check every 5 seconds for up to 12 hours. After agent turns finish and embedded terminals close, request shutdown. If the old process remains after 5 seconds, verify its managed instance identity and force-terminate that process before backing up, upgrading and restarting. If idle wait times out, leave StillOn running. Verify local/Connect connections; roll back on failure."
 
 function SourceUpgradePrompt({ release }: { release: GithubRelease }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")
