@@ -1,3 +1,4 @@
+import { getSidebarPreviewLimit } from "../shared/sidebar-view"
 import process from "node:process"
 import type {
   ChatRuntime,
@@ -125,9 +126,10 @@ export function deriveSidebarData(
   const projectGroups: SidebarProjectGroup[] = projects.map((project) => {
     const records = chatsByProjectId.get(project.id) ?? []
     const archivedRecords = archivedChatsByProjectId.get(project.id) ?? []
-    const limit = limits.get(project.id) ?? 0
+    const previewLimit = view?.previewVersion === 1 ? getSidebarPreviewLimit(records) : undefined
+    const limit = Math.max(limits.get(project.id) ?? 0, previewLimit ?? 0)
     const archivedLimit = view?.archived?.groupKey === project.id ? view.archived.limit : 0
-    // Scan cheap summaries for every workspace, but sort/build names only on intent.
+    // Preload only the base preview. Larger windows still require explicit intent.
     const defaultCollapsed = records.every(chat => !chat.pinned && Math.max(0, nowMs - getSidebarChatSortTimestamp(chat)) >= SIDEBAR_RECENT_WINDOW_MS)
     let selected = records
     if (view) {
@@ -136,7 +138,7 @@ export function deriveSidebarData(
         : []
       const selectedIds = new Set(selected.map(chat => chat.id))
       // Direct links select one old conversation without downloading preceding history.
-      const active = limit > 0 && view.activeChatId ? records.find(chat => chat.id === view.activeChatId) : undefined
+      const active = view.previewVersion !== 1 && limit > 0 && view.activeChatId ? records.find(chat => chat.id === view.activeChatId) : undefined
       if (active && !selectedIds.has(active.id)) { selected = [...selected, active]; selectedIds.add(active.id) }
       if (query) {
         const matches = records.filter(chat => !selectedIds.has(chat.id) && `${chat.title} ${project.sidebarTitle ?? project.title}`.toLocaleLowerCase().includes(query))
@@ -151,7 +153,7 @@ export function deriveSidebarData(
       ? [...archivedRecords].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getSidebarChatSortTimestamp(b) - getSidebarChatSortTimestamp(a)).slice(0, archivedLimit)
       : [] : archivedRecords)
     const buckets = view
-      ? { previewChats: chats.slice(0, SIDEBAR_FALLBACK_PREVIEW_LIMIT), olderChats: chats.slice(SIDEBAR_FALLBACK_PREVIEW_LIMIT) }
+      ? { previewChats: chats.slice(0, previewLimit ?? SIDEBAR_FALLBACK_PREVIEW_LIMIT), olderChats: chats.slice(previewLimit ?? SIDEBAR_FALLBACK_PREVIEW_LIMIT) }
       : getSidebarChatBuckets(chats, nowMs)
     const activeChatId = view?.activeChatId && records.some(chat => chat.id === view.activeChatId) ? view.activeChatId : undefined
     const statuses = view ? records.map(chat => ({ chat, status: deriveStatus(chat, activeStatuses.get(chat.id)) })) : []
@@ -167,7 +169,7 @@ export function deriveSidebarData(
       ...(view ? {
         lastActivityAt: records.reduce((latest, chat) => Math.max(latest, getSidebarChatSortTimestamp(chat)), 0),
         ...(activeChatId ? { activeChatId } : {}),
-        chatPage: { limit, total: records.length, hasMore: records.length > limit, archivedLimit, archivedTotal: archivedRecords.length },
+        chatPage: { ...(previewLimit !== undefined ? { previewLimit } : {}), limit, total: records.length, hasMore: records.length > limit, archivedLimit, archivedTotal: archivedRecords.length },
         activity: {
           working: statuses.some(({ status }) => ["starting", "running", "stopping"].includes(status)),
           unreadResult: statuses.some(({ chat, status }) => chat.unread && status === "idle"),
@@ -179,7 +181,7 @@ export function deriveSidebarData(
     }
   })
 
-  return { projectGroups, ...(view ? { lazyVersion: 1 as const, ...(view.search ? { search: view.search, searchLimit: view.searchLimit ?? 50, searchHasMore } : {}),
+  return { projectGroups, ...(view ? { lazyVersion: 1 as const, ...(view.previewVersion === 1 ? { previewVersion: 1 as const } : {}), ...(view.search ? { search: view.search, searchLimit: view.searchLimit ?? 50, searchHasMore } : {}),
     ...(view.activeChatId ? { activeChat: { chatId: view.activeChatId, projectId: projectGroups.find(group => group.activeChatId)?.groupKey ?? null } } : {}) } : {}) }
 
 }

@@ -109,3 +109,68 @@ describe("on-demand sidebar", () => {
     expect(normalizeSidebarView(catalog)).toEqual(catalog)
   })
 })
+
+describe("preloaded pinned-first previews", () => {
+  const previewView: SidebarView = { version: 1, previewVersion: 1, groups: [] }
+
+  for (const pinCount of [0, 2, 5, 7]) test(`${pinCount} pins: all pins, then only enough recent sessions to reach five`, () => {
+    const state = fixture()
+    for (let i = 0; i < 100; i++) state.chatsById.get(`alpha-${i}`)!.pinned = i < pinCount
+    const data = deriveSidebarData(state, new Map(), { view: previewView })
+    const group = data.projectGroups.find(g => g.groupKey === "alpha")!
+    expect(data.previewVersion).toBe(1)
+    expect(group.chats).toHaveLength(Math.max(5, pinCount))
+    expect(group.previewChats).toEqual(group.chats)
+    expect(group.olderChats).toEqual([])
+    expect(group.chats.filter(chat => chat.pinned)).toHaveLength(pinCount)
+    expect(group.chats.filter(chat => !chat.pinned)).toHaveLength(Math.max(0, 5 - pinCount))
+    expect(group.chatPage?.previewLimit).toBe(Math.max(5, pinCount))
+    const expected = [...Array.from({ length: pinCount }, (_, i) => `alpha-${pinCount - i - 1}`),
+      ...Array.from({ length: Math.max(0, 5 - pinCount) }, (_, i) => `alpha-${89 - i}`)]
+    expect(group.chats.map(chat => chat.chatId)).toEqual(expected)
+    expect(group.archivedChats).toBeUndefined()
+    expect(data.projectGroups.find(g => g.groupKey === "beta")?.chats).toHaveLength(5)
+  })
+
+  test("more windows extend the pinned preview, then folding returns to the preloaded base", () => {
+    const state = fixture()
+    for (let i = 0; i < 7; i++) state.chatsById.get(`alpha-${i}`)!.pinned = true
+    const base = deriveSidebarData(state, new Map(), { view: previewView })
+    const more = deriveSidebarData(state, new Map(), { view: { ...previewView, groups: [{ groupKey: "alpha", limit: 27 }] } })
+    expect(more.projectGroups[0]?.chats).toHaveLength(27)
+    expect(more.projectGroups[0]?.previewChats).toHaveLength(7)
+    expect(more.projectGroups[0]?.olderChats).toHaveLength(20)
+    expect(deriveSidebarData(state, new Map(), { view: previewView })).toEqual(base)
+  })
+
+  test("empty and small workspaces are complete previews without fabricating five rows", () => {
+    const state = fixture()
+    for (const [id, chat] of state.chatsById) if (chat.projectId === "alpha" && !["alpha-1", "alpha-2"].includes(id)) state.chatsById.delete(id)
+    let group = deriveSidebarData(state, new Map(), { view: previewView }).projectGroups[0]!
+    expect(group.chats).toHaveLength(2)
+    expect(group.chatPage).toMatchObject({ limit: 5, previewLimit: 5, total: 2, hasMore: false })
+    state.chatsById.clear()
+    group = deriveSidebarData(state, new Map(), { view: previewView }).projectGroups[0]!
+    expect(group.chats).toEqual([])
+    expect(group.chatPage?.hasMore).toBe(false)
+  })
+
+  test("a direct old chat is addressable without adding an unpinned row beyond an all-pinned preview", () => {
+    const state = fixture()
+    for (let i = 0; i < 7; i++) state.chatsById.get(`alpha-${i}`)!.pinned = true
+    const data = deriveSidebarData(state, new Map(), { view: { ...previewView, activeChatId: "alpha-80" } })
+    expect(data.activeChat).toEqual({ chatId: "alpha-80", projectId: "alpha" })
+    expect(data.projectGroups[0]?.chats).toHaveLength(7)
+    expect(data.projectGroups[0]?.chats.every(chat => chat.pinned)).toBe(true)
+  })
+
+  test("previews and their compact representation are scoped before exposing any names", () => {
+    const data = deriveSidebarData(workspaceState(fixture(), "alpha"), new Map(), { view: previewView })
+    expect(data.projectGroups).toHaveLength(1)
+    expect(JSON.stringify(data)).not.toContain("Conversation beta")
+    const envelope = { v: 1 as const, type: "snapshot" as const, id: "previews", snapshot: { type: "sidebar" as const, data } }
+    expect(decodeSidebarEnvelope(JSON.parse(JSON.stringify(encodeSidebarEnvelope(envelope, true))))).toEqual(envelope)
+    expect(normalizeSidebarView(previewView)).toEqual(previewView)
+    expect(normalizeSidebarView({ ...previewView, previewVersion: 2 })).toBeNull()
+  })
+})

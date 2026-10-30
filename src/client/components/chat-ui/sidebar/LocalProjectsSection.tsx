@@ -333,10 +333,10 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
       {!collapsed && onNewLocalChat ? <NewConversationButton localPath={localPath} workspaceTitle={projectTitle} onNewLocalChat={onNewLocalChat} isConnected={isConnected} startingLocalPath={startingLocalPath} /> : null}
       {!collapsed && group.chatPage && !isEmptyProject ? (
         <div data-stillon-part="workspace-conversations" className="mb-3 ml-7 mr-2 space-y-1 border-l-2 border-border/70 pl-2">
-          {group.chats.filter((chat, index) => index < group.chatPage!.limit || chat.chatId === group.activeChatId).map(renderChatRow)}
-          {loadingChats ? <p role="status" className="px-2 py-1 text-xs text-muted-foreground">Loading conversations…</p> : null}
+          {group.chats.filter((chat, index) => index < group.chatPage!.limit || (group.chatPage!.previewLimit === undefined && chat.chatId === group.activeChatId)).map(renderChatRow)}
+          {loadingChats ? <p role="status" className="px-2 py-1 text-xs text-muted-foreground">{group.chatPage.previewLimit !== undefined ? "Loading more conversations…" : "Loading conversations…"}</p> : null}
           {group.chatPage.limit > 0 && group.chatPage.hasMore ? <button type="button" disabled={loadingChats || !isConnected} onClick={() => onToggleExpandedGroup(groupKey)} className="px-2.5 py-1 text-xs text-muted-foreground">Show more</button> : null}
-          {group.chatPage.limit > 5 ? <button type="button" onClick={() => onToggleExpandedGroup(groupKey, true)} className="px-2.5 py-1 text-xs text-muted-foreground">Show less</button> : null}
+          {group.chatPage.limit > (group.chatPage.previewLimit ?? 5) ? <button type="button" onClick={() => onToggleExpandedGroup(groupKey, true)} className="px-2.5 py-1 text-xs text-muted-foreground">Show less</button> : null}
         </div>
       ) : null}
       {!collapsed && !group.chatPage && !isEmptyProject && (group.previewChats.length > 0 || hasMore) && (

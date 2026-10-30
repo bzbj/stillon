@@ -204,3 +204,16 @@ describe("pin reversals without a page reload", () => {
     expect(sent).toEqual(["pin", "other-chat", "latest-pin"])
   })
 })
+
+test("optimistic changes keep every pin visible above the five-row baseline", () => {
+  const { state } = fixture()
+  for (let i = 0; i < 7; i++) state.chatsById.set(`pinned-${i}`, { ...state.chatsById.get("older")!, id: `pinned-${i}`, title: `Pinned ${i}`, pinned: true })
+  const data = deriveSidebarData(state, new Map(), { view: { version: 1, previewVersion: 1, groups: [] } })
+  const group = data.projectGroups.find(g => g.groupKey === "a")!
+  expect(group.previewChats).toHaveLength(7)
+  const unpinned = applySidebarChatChanges(data, [{ chatId: "pinned-0", action: { type: "pin", pinned: false }, settled: false }])
+  const next = unpinned.projectGroups.find(g => g.groupKey === "a")!
+  expect(next.previewChats).toHaveLength(6)
+  expect(next.previewChats.every(chat => chat.pinned)).toBe(true)
+  expect(next.chatPage).toMatchObject({ previewLimit: 6, limit: 6 })
+})
