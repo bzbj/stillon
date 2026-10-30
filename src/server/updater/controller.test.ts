@@ -4,9 +4,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { appStatus, pauseManagedServer } from "./control"
+import { appStatus, appCommand, pauseManagedServer } from "./control"
 import { atomicJson, exists, json } from "./files"
 import { verifyRuntime } from "./engine"
+import { stopOrphanedApp } from "./processes"
 import { updateTarget, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
 const supported = process.platform === "win32" || process.platform === "darwin"
@@ -18,7 +19,7 @@ async function waitFor(test: () => Promise<boolean>, timeout = 20_000) {
   throw new Error("Fixture timed out")
 }
 
-async function writeRuntime(directory: string, version: string) {
+async function writeRuntime(directory: string, version: string, linger = false) {
   await mkdir(path.join(directory, "bin"), { recursive: true })
   await mkdir(path.join(directory, "dist/client/assets"), { recursive: true })
   await writeFile(path.join(directory, "package.json"), JSON.stringify({ type: "module", version }))
@@ -27,13 +28,14 @@ async function writeRuntime(directory: string, version: string) {
   const appControl = pathToFileURL(path.join(import.meta.dir, "app-control.ts")).href
   await writeFile(path.join(directory, "bin/stillon"), `
 import path from 'node:path';
+import {existsSync} from 'node:fs';
 import {createManagedAppControl} from ${JSON.stringify(appControl)};
 const root=path.resolve(import.meta.dir,'..');
 const data=path.join(process.env.HOME,'.stillon');
 const version=${JSON.stringify(version)};
 await Bun.write(path.join(data,'history.json'),version==='1.0.0' ? 'original' : 'migrated');
 if(version!=='1.0.0') await Bun.write(path.join(data,'new-schema.json'),'new');
-const control=createManagedAppControl({instance:process.env.STILLON_UPDATE_INSTANCE,secret:process.env.STILLON_UPDATE_SECRET,verifying:process.env.STILLON_UPDATE_VERIFYING==='1',busy:()=>false,shutdown:async()=>{await server.stop(true);process.emit('SIGTERM')}});
+const control=createManagedAppControl({instance:process.env.STILLON_UPDATE_INSTANCE,secret:process.env.STILLON_UPDATE_SECRET,verifying:process.env.STILLON_UPDATE_VERIFYING==='1',busy:()=>existsSync(path.join(data,'busy')),shutdown:async()=>{await server.stop(true);process.emit('SIGTERM')}});
 const server=Bun.serve({hostname:'127.0.0.1',port:Number(process.argv[process.argv.indexOf('--port')+1]),fetch(req){
 const result=control.handle(req,'127.0.0.1');if(result)return result;
 const route=new URL(req.url).pathname;
@@ -42,6 +44,7 @@ return new Response(Bun.file(path.join(root,'dist/client',route==='/'?'index.htm
 }});
 await new Promise(resolve=>process.once('SIGTERM',resolve));
 await server.stop(true);
+${linger ? "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000);" : ""}
 `)
 }
 
@@ -116,6 +119,50 @@ await new UpdateEngine(d,effects).execute();
     }
     controller?.kill()
     await Promise.all([controller?.exited, firstWorker?.exited, recovery?.exited])
+    await rm(root, { recursive: true, force: true })
+  }
+}, 60_000)
+
+
+test.skipIf(!supported)("idle shutdown force-exits a lingering owned child, preserving busy work and sibling processes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-stalled-exit-"))
+  let controller: ReturnType<typeof Bun.spawn> | undefined
+  let sibling: ReturnType<typeof Bun.spawn> | undefined
+  let deployment: UpdateDeployment | undefined
+  try {
+    const runtime = path.join(root, "runtime"), home = path.join(root, "home")
+    await writeRuntime(runtime, "1.0.0", true)
+    await mkdir(path.join(home, ".stillon"), { recursive: true })
+    const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null) })
+    const port = reservation.port!; await reservation.stop(true)
+    deployment = { schema: 1, ...updateTarget(), root, controller: entry, dataRoot: path.join(home, ".stillon"), port,
+      launch: { executable: process.execPath, workingDirectory: runtime, homeDirectory: home, pathEnvironment: process.env.PATH ?? "",
+        args: [path.join(runtime, "bin", "stillon"), "--port", String(port), "--no-open", "--strict-port"] } }
+    await atomicJson(path.join(root, "deployment.json"), deployment)
+    await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
+    controller = Bun.spawn([process.execPath, entry, "serve", root], { stdin: "ignore", stdout: "ignore", stderr: Bun.file(path.join(root, "controller-errors.log")) })
+    sibling = Bun.spawn([process.execPath, "-e", "setInterval(()=>{},1000)"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
+    await verifyRuntime(deployment, runtime)
+    const status = await json<UpdateRunnerStatus>(path.join(root, "runner.json"))
+    const busy = path.join(home, ".stillon/busy")
+    await writeFile(busy, "active")
+    await expect(appCommand(deployment, status.secret, "pause")).rejects.toThrow("Finish active agent")
+    expect((await appStatus(deployment))?.updateInstance).toBe(status.instance)
+    expect(sibling.exitCode).toBeNull()
+    await rm(busy)
+    await pauseManagedServer(deployment)
+    expect((await json<UpdateRunnerStatus>(path.join(root, "runner.json"))).stopped).toBe(true)
+    expect(await appStatus(deployment)).toBeNull()
+    expect(controller.exitCode).toBeNull()
+    expect(sibling.exitCode).toBeNull()
+    expect(await Bun.file(path.join(home, ".stillon/history.json")).text()).toBe("original")
+  } catch (error) {
+    if (await exists(path.join(root, "controller-errors.log"))) console.error(await Bun.file(path.join(root, "controller-errors.log")).text())
+    throw error
+  } finally {
+    controller?.kill(); sibling?.kill()
+    await Promise.all([controller?.exited, sibling?.exited])
+    if (deployment && await exists(path.join(root, "runner.json"))) await stopOrphanedApp(deployment, await json<UpdateRunnerStatus>(path.join(root, "runner.json")), { force: true })
     await rm(root, { recursive: true, force: true })
   }
 }, 60_000)

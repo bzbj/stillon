@@ -72,14 +72,14 @@ async function matchingPids(deployment: UpdateDeployment, status: UpdateRunnerSt
   })
 }
 
-export async function stopOrphanedApp(deployment: UpdateDeployment, status: UpdateRunnerStatus) {
+export async function stopOrphanedApp(deployment: UpdateDeployment, status: UpdateRunnerStatus, options: { force?: boolean } = {}) {
   const deadline = Date.now() + 10_000
   for (;;) {
     const pids = await matchingPids(deployment, status)
     if (!pids.length) return
     if (pids.length !== 1) throw new Error("Multiple processes claim the application identity; recovery needs inspection.")
     // Re-discover identity on every retry, including before escalating the signal.
-    try { process.kill(pids[0], Date.now() + 2_000 >= deadline ? "SIGKILL" : "SIGTERM") } catch (error) {
+    try { process.kill(pids[0], options.force || Date.now() + 2_000 >= deadline ? "SIGKILL" : "SIGTERM") } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
     }
     if (Date.now() > deadline) throw new Error("An identified application process did not exit; data stays untouched.")
