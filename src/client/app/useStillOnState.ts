@@ -702,6 +702,7 @@ export interface StillOnState {
   localProjectsReady: boolean
   commandError: string | null
   startingLocalPath: string | null
+  pendingNewConversation: { content: string; attachments?: ChatAttachment[] } | null
   sidebarOpen: boolean
   sidebarCollapsed: boolean
   messages: ReturnType<typeof processTranscriptMessages>
@@ -855,6 +856,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [standaloneShareComplete, setStandaloneShareComplete] = useState(false)
   const [startingLocalPath, setStartingLocalPath] = useState<string | null>(null)
   const [pendingChatId, setPendingChatId] = useState<string | null>(null)
+  const newConversationSendInFlight = useRef(false)
   const [optimisticUserPrompts, setOptimisticUserPrompts] = useState<OptimisticUserPrompt[]>([])
   const [optimisticProcessing, setOptimisticProcessing] = useState<OptimisticProcessingState | null>(null)
   const [focusEpoch, setFocusEpoch] = useState(0)
@@ -1711,6 +1713,11 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       }
     }
 
+    if (!activeChatId) {
+      if (newConversationSendInFlight.current) throw new Error("A conversation is already starting.")
+      newConversationSendInFlight.current = true
+    }
+
     const optimisticId = generateUUID()
     const clientTraceId = generateUUID()
     const signature = getUserPromptSignature(content, attachments)
@@ -1829,6 +1836,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       sendToStartingProfilesRef.current.delete(clientTraceId)
       setCommandError(error instanceof Error ? error.message : String(error))
       throw error
+    } finally {
+      if (!activeChatId) newConversationSendInFlight.current = false
     }
   }, [activeChatId, fallbackLocalProjectPath, isProcessing, navigate, optimisticUserPrompts, selectedProjectId, serverTranscriptEntries, sidebarProjectGroups, sidebarReady, socket])
 
@@ -2314,6 +2323,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     localProjectsReady,
     commandError: sidebarActionError ?? commandError,
     startingLocalPath,
+    pendingNewConversation: optimisticUserPrompts.find((prompt) => prompt.scopeId === NEW_CHAT_OPTIMISTIC_SCOPE)?.entry ?? null,
     sidebarOpen,
     sidebarCollapsed,
     messages,

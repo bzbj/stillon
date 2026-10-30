@@ -1,3 +1,4 @@
+import { PendingConversation } from "./PendingConversation"
 import type { ChatInputHandle } from "./chat-ui/ChatInput"
 import { FileDropOverlay } from "./chat-ui/FileDropOverlay"
 import { usePageFileDrop } from "../lib/usePageFileDrop"
@@ -43,6 +44,7 @@ interface LocalDevProps {
   onSelectedProjectChange: (projectId: string) => void
   defaultProjectId: string | null
   onDefaultProjectChange: (projectId: string | null) => void
+  pendingPrompt?: StillOnState["pendingNewConversation"]
   onSend: StillOnState["handleSend"]
   availableProviders: StillOnState["availableProviders"]
   preferencesReady: boolean
@@ -159,6 +161,7 @@ export function LocalDev({
   defaultProjectId,
   onDefaultProjectChange,
   onSend,
+  pendingPrompt,
   availableProviders,
   preferencesReady,
   codexTransport,
@@ -180,7 +183,7 @@ export function LocalDev({
     handleTranscriptDragLeave,
     handleTranscriptDrop,
   } = usePageFileDrop({
-    hasSelectedProject: Boolean(ready && sidebarReady && selectedProject && preferencesReady && !newProjectOpen),
+    hasSelectedProject: Boolean(ready && sidebarReady && selectedProject && preferencesReady && !newProjectOpen && !pendingPrompt),
     onFilesDropped: (files) => chatInputRef.current?.enqueueFiles(files),
   })
   const isConnecting = connectionStatus === "connecting" || !ready
@@ -275,9 +278,11 @@ export function LocalDev({
       ) : (
         <div className="flex flex-1 min-h-0 items-center justify-center px-4 py-12 sm:px-8">
           <div className="w-full max-w-[740px]">
-            <div className="mb-12 px-3 text-center">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">What would you like to build?</h1>
-            </div>
+            {pendingPrompt ? <PendingConversation {...pendingPrompt} /> : (
+              <div className="mb-12 px-3 text-center">
+                <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">What would you like to build?</h1>
+              </div>
+            )}
 
             <div className="mb-1.5 flex items-center px-3">
               <Popover open={projectMenuOpen} onOpenChange={setProjectMenuOpen}>
@@ -285,7 +290,7 @@ export function LocalDev({
                   <button
                     type="button"
                     aria-label="Choose workspace"
-                    disabled={!sidebarReady || guest}
+                    disabled={!sidebarReady || guest || Boolean(pendingPrompt)}
                     className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
                   >
                     {selectedProject ? <WorkspaceAvatar workspaceId={selectedProject.groupKey} className="size-6 shrink-0" /> : <FolderOpen className="h-4 w-4 shrink-0" />}
@@ -341,7 +346,7 @@ export function LocalDev({
               <ChatInput
                 ref={chatInputRef}
                 onSubmit={(content, options) => onSend(content, options, selectedProject?.groupKey)}
-                disabled={!sidebarReady || !selectedProject || !preferencesReady}
+                disabled={!sidebarReady || !selectedProject || !preferencesReady || Boolean(pendingPrompt)}
                 projectId={selectedProject?.groupKey ?? null}
                 chatId={null}
                 activeProvider={null}
