@@ -727,8 +727,11 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     enqueueFiles,
   }), [enqueueFiles])
 
+  const newChatSubmittingRef = useRef(false)
+
   async function handleSubmit() {
-    if (!canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
+    if (disabled || (!chatId && newChatSubmittingRef.current) || !canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
+    if (!chatId) newChatSubmittingRef.current = true
 
     const nextValue = value
     const previousAttachments = attachmentsRef.current
@@ -766,6 +769,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAttachments(previousAttachments)
       setSelectedAttachmentId(previousSelectedAttachmentId)
       setUploadError(previousUploadError)
+    } finally {
+      newChatSubmittingRef.current = false
     }
   }
 
