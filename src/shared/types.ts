@@ -591,6 +591,7 @@ export interface SidebarChatRow {
 
 export interface SidebarView {
   version: 1
+  previewVersion?: 1
   groups: Array<{ groupKey: string; limit: number }>
   archived?: { groupKey: string; limit: number }
   search?: string
@@ -620,11 +621,12 @@ export interface SidebarProjectGroup {
   lastActivityAt?: number
   activity?: SidebarActivity
   activeChatId?: string
-  chatPage?: { limit: number; total: number; hasMore: boolean; archivedLimit: number; archivedTotal: number }
+  chatPage?: { previewLimit?: number; limit: number; total: number; hasMore: boolean; archivedLimit: number; archivedTotal: number }
 }
 
 export interface SidebarData {
   lazyVersion?: 1
+  previewVersion?: 1
   search?: string
   searchLimit?: number
   searchHasMore?: boolean

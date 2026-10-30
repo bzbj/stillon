@@ -815,7 +815,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const [sidebarData, setSidebarData] = useState<SidebarData>(
     sidebarBootstrap.snapshot?.data ?? { projectGroups: [] }
   )
-  const [sidebarLoadView, setSidebarLoadView] = useState<SidebarView>({ version: 1, groups: [] })
+  const [sidebarLoadView, setSidebarLoadView] = useState<SidebarView>({ version: 1, previewVersion: 1, groups: [] })
   const handleSidebarViewChange = useCallback((view: SidebarView) => {
     setSidebarLoadView(current => JSON.stringify(current) === JSON.stringify(view) ? current : view)
   }, [])

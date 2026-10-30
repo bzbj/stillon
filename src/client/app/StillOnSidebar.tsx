@@ -217,12 +217,12 @@ function StillOnSidebarImpl({
   }, [searchOpen, searchQuery])
   useEffect(() => {
     if (!ready) return
-    onViewChange?.({ version: 1,
-      groups: data.projectGroups.filter(group => !collapsedSections.has(group.groupKey)).map(group => ({ groupKey: group.groupKey, limit: chatLimits[group.groupKey] ?? SIDEBAR_INITIAL_CHAT_LIMIT })),
+    onViewChange?.({ version: 1, previewVersion: 1,
+      groups: data.projectGroups.filter(group => !collapsedSections.has(group.groupKey) && (data.previewVersion !== 1 || (chatLimits[group.groupKey] ?? 0) > (group.chatPage?.previewLimit ?? SIDEBAR_INITIAL_CHAT_LIMIT))).map(group => ({ groupKey: group.groupKey, limit: chatLimits[group.groupKey] ?? SIDEBAR_INITIAL_CHAT_LIMIT })),
       ...(archivedProjectId ? { archived: { groupKey: archivedProjectId, limit: archivedLimit } } : {}),
       ...(debouncedSearch ? { search: debouncedSearch, searchLimit } : {}),
     })
-  }, [ready, onViewChange, data.projectGroups, collapsedSections, chatLimits, archivedProjectId, archivedLimit, debouncedSearch, searchLimit])
+  }, [ready, onViewChange, data.projectGroups, collapsedSections, chatLimits, archivedProjectId, archivedLimit, debouncedSearch, searchLimit, data.previewVersion])
   // Once hydrated, connection changes do not remove menus or move controls.
   const actionsEnabled = ready
   const searchResults = useMemo(() => {
@@ -234,9 +234,17 @@ function StillOnSidebarImpl({
       .sort((a, b) => (b.chat.lastMessageAt ?? b.chat._creationTime) - (a.chat.lastMessageAt ?? a.chat._creationTime))
   }, [data.projectGroups, data.lazyVersion, data.search, searchQuery])
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
+  // Hiding extra history is immediate, even while its replacement snapshot travels.
+  const displayGroups = useMemo(() => data.projectGroups.map(group => {
+    const page = group.chatPage
+    if (page?.previewLimit === undefined) return group
+    const requested = Math.max(page.previewLimit, chatLimits[group.groupKey] ?? 0)
+    const limit = Math.min(page.limit, requested)
+    return limit === page.limit ? group : { ...group, chatPage: { ...page, limit, hasMore: page.total > limit } }
+  }), [data.projectGroups, chatLimits])
   const visibleChats = useMemo(
-    () => getVisibleSidebarChats(data.projectGroups, collapsedSections, expandedGroups),
-    [collapsedSections, data.projectGroups, expandedGroups]
+    () => getVisibleSidebarChats(displayGroups, collapsedSections, expandedGroups),
+    [collapsedSections, displayGroups, expandedGroups]
   )
   const visibleChatsRef = useRef(visibleChats)
   const visibleIndexByChatId = useMemo(
@@ -261,12 +269,18 @@ function StillOnSidebarImpl({
   }, [visibleChats])
 
   const toggleSection = useCallback((key: string) => {
-    setSectionCollapsed(key, !collapsedSections.has(key))
-  }, [collapsedSections, setSectionCollapsed])
+    const folding = !collapsedSections.has(key)
+    setSectionCollapsed(key, folding)
+    if (folding && data.previewVersion === 1) {
+      setChatLimits(current => { const next = { ...current }; delete next[key]; return next })
+      setExpandedGroups(current => { const next = new Set(current); next.delete(key); return next })
+    }
+  }, [collapsedSections, setSectionCollapsed, data.previewVersion])
 
   const toggleExpandedGroup = useCallback((key: string, less = false) => {
     if (data.lazyVersion) {
-      setChatLimits(current => ({ ...current, [key]: less ? SIDEBAR_INITIAL_CHAT_LIMIT : Math.min(SIDEBAR_MAX_CHAT_LIMIT, (current[key] ?? SIDEBAR_INITIAL_CHAT_LIMIT) + SIDEBAR_MORE_CHAT_LIMIT) }))
+      const previewLimit = data.projectGroups.find(group => group.groupKey === key)?.chatPage?.previewLimit ?? SIDEBAR_INITIAL_CHAT_LIMIT
+      setChatLimits(current => ({ ...current, [key]: less ? previewLimit : Math.min(SIDEBAR_MAX_CHAT_LIMIT, Math.max(current[key] ?? previewLimit, previewLimit) + SIDEBAR_MORE_CHAT_LIMIT) }))
       setExpandedGroups(current => { const next = new Set(current); if (less) next.delete(key); else next.add(key); return next })
       return
     }
@@ -276,7 +290,7 @@ function StillOnSidebarImpl({
       else next.add(key)
       return next
     })
-  }, [data.lazyVersion])
+  }, [data.lazyVersion, data.projectGroups])
 
   const renderChatRow = useCallback((chat: SidebarChatRow) => {
     const visibleIndex = visibleIndexByChatId.get(chat.chatId)
@@ -631,7 +645,7 @@ function StillOnSidebarImpl({
                 {data.searchHasMore ? <button type="button" disabled={data.searchLimit !== searchLimit} onClick={() => setSearchLimit(current => current + 50)} className="px-3 py-2 text-sm text-muted-foreground">Show more results</button> : null}
               </div>
             ) : <LocalProjectsSection
-              projectGroups={data.projectGroups}
+              projectGroups={displayGroups}
               activeProjectId={currentProjectId}
               onReorderGroups={guest ? undefined : onReorderProjectGroups}
               collapsedSections={collapsedSections}

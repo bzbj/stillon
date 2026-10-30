@@ -1,3 +1,4 @@
+import { getSidebarPreviewLimit } from "../../shared/sidebar-view"
 import type { SidebarChatRow, SidebarData } from "../../shared/types"
 import { getSidebarChatBuckets, getSidebarChatTimestamp, shouldDefaultCollapseSidebarProject } from "../lib/sidebarChats"
 
@@ -90,11 +91,18 @@ export function applySidebarChatChanges(data: SidebarData, changes: readonly Sid
         return action?.type === "pin" ? { ...chat, pinned: action.pinned } : chat
       }).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getSidebarChatTimestamp(b) - getSidebarChatTimestamp(a))
       const buckets = getSidebarChatBuckets(chats, now)
+      const previewLimit = group.chatPage?.previewLimit !== undefined ? getSidebarPreviewLimit(chats) : undefined
+      const page = group.chatPage
+      const chatPage = page && previewLimit !== undefined ? { ...page, previewLimit,
+        limit: page.limit === page.previewLimit ? previewLimit : Math.max(page.limit, previewLimit),
+        total: Math.max(0, page.total - archived.length),
+      } : page
       return {
         ...group,
         chats,
-        previewChats: group.chatPage ? chats.slice(0, 5) : buckets.collapsedChats,
-        olderChats: group.chatPage ? chats.slice(5) : buckets.remainingChats,
+        ...(chatPage ? { chatPage: { ...chatPage, hasMore: chatPage.total > chatPage.limit } } : {}),
+        previewChats: group.chatPage ? chats.slice(0, previewLimit ?? 5) : buckets.collapsedChats,
+        olderChats: group.chatPage ? chats.slice(previewLimit ?? 5) : buckets.remainingChats,
         archivedChats: [...archived, ...(group.archivedChats ?? [])],
         defaultCollapsed: shouldDefaultCollapseSidebarProject(chats, now),
       }
