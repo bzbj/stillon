@@ -26,7 +26,19 @@ describe("upload progress", () => {
       responseText: "<html>sign in</html>",
       requestId: "abc123-SIN",
     })).toBe(
-      "Cloudflare or browser access controls blocked this upload (HTTP 200). Request ID: abc123-SIN."
+      "The upload returned an unexpected page (HTTP 200). Reload this page and try again. Request ID: abc123-SIN."
     )
   })
+})
+
+for (const status of [200, 401, 403, 404, 413, 502]) {
+  test(`HTML ${status} does not claim Cloudflare blocked the upload`, () => {
+    const message = getUploadXhrResponseError({ status, contentType: "text/html", responseText: "<html>Error</html>" })
+    expect(message).not.toContain("Cloudflare")
+    if (status === 404) expect(message).toContain("computer is online")
+  })
+}
+
+test("identifies an explicit Cloudflare challenge", () => {
+  expect(getUploadXhrResponseError({ status: 403, contentType: "text/html", responseText: "<html>Verify</html>", challenged: true, requestId: "ray" })).toContain("Cloudflare requires verification")
 })

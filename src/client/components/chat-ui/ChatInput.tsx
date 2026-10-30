@@ -51,23 +51,16 @@ export function willExceedAttachmentLimit(args: {
 
 export async function getUploadResponseError(response: Response) {
   if (response.type === "opaqueredirect") {
-    return "Cloudflare Access redirected this upload to sign-in. Reload this page and sign in again."
+    return "The upload was redirected to sign-in. Reload this page and sign in again."
   }
 
-  const rayId = response.headers.get("cf-ray")
-  const rayIdSuffix = rayId ? ` Cloudflare Ray ID: ${rayId}.` : ""
-  const contentType = response.headers.get("content-type") ?? ""
-  const payload = await response.json().catch(() => ({})) as { error?: unknown }
-
-  if (typeof payload.error === "string") {
-    return payload.error
-  }
-
-  if (response.status === 401 || response.status === 403 || contentType.includes("text/html")) {
-    return `Cloudflare or browser access controls blocked this upload (HTTP ${response.status}).${rayIdSuffix}`
-  }
-
-  return `Upload failed (HTTP ${response.status}).${rayIdSuffix}`
+  return getUploadXhrResponseError({
+    status: response.status,
+    contentType: response.headers.get("content-type") ?? "",
+    responseText: await response.text(),
+    requestId: response.headers.get("x-request-id") ?? response.headers.get("cf-ray"),
+    challenged: response.headers.get("cf-mitigated") === "challenge",
+  })
 }
 
 export function getUploadProgress(event: { lengthComputable: boolean; loaded: number; total: number }) {
@@ -80,6 +73,7 @@ export function getUploadXhrResponseError(args: {
   contentType: string
   responseText: string
   requestId?: string | null
+  challenged?: boolean
 }) {
   const requestIdSuffix = args.requestId ? ` Request ID: ${args.requestId}.` : ""
   let payload: { error?: unknown } = {}
@@ -94,8 +88,20 @@ export function getUploadXhrResponseError(args: {
     return payload.error
   }
 
-  if (args.status === 401 || args.status === 403 || args.contentType.includes("text/html")) {
-    return `Cloudflare or browser access controls blocked this upload (HTTP ${args.status}).${requestIdSuffix}`
+  if (args.challenged) {
+    return `Cloudflare requires verification before uploading. Reload this page and try again (HTTP ${args.status}).${requestIdSuffix}`
+  }
+  if (args.status === 401) {
+    return `Your session has expired. Reload this page and sign in again.${requestIdSuffix}`
+  }
+  if (args.status === 403) {
+    return `Upload access was denied (HTTP 403). Reload this page and check your access.${requestIdSuffix}`
+  }
+  if (args.status === 404) {
+    return `The upload endpoint is unavailable (HTTP 404). Check that the computer is online, then try again.${requestIdSuffix}`
+  }
+  if (args.contentType.includes("text/html")) {
+    return `The upload returned an unexpected page (HTTP ${args.status}). Reload this page and try again.${requestIdSuffix}`
   }
 
   return `Upload failed (HTTP ${args.status}).${requestIdSuffix}`
@@ -135,6 +141,7 @@ export function uploadProjectAttachment(args: {
       reject(new Error(getUploadXhrResponseError({
         status: request.status,
         contentType,
+        challenged: request.getResponseHeader("cf-mitigated") === "challenge",
         responseText: request.responseText,
         requestId: request.getResponseHeader("x-request-id") ?? request.getResponseHeader("cf-ray"),
       })))
