@@ -702,7 +702,7 @@ export interface StillOnState {
   localProjectsReady: boolean
   commandError: string | null
   startingLocalPath: string | null
-  pendingNewConversation: { content: string; attachments?: ChatAttachment[] } | null
+  isStartingNewConversation: boolean
   sidebarOpen: boolean
   sidebarCollapsed: boolean
   messages: ReturnType<typeof processTranscriptMessages>
@@ -1716,6 +1716,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     if (!activeChatId) {
       if (newConversationSendInFlight.current) throw new Error("A conversation is already starting.")
       newConversationSendInFlight.current = true
+      setCommandError(null)
     }
 
     const optimisticId = generateUUID()
@@ -2323,7 +2324,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     localProjectsReady,
     commandError: sidebarActionError ?? commandError,
     startingLocalPath,
-    pendingNewConversation: optimisticUserPrompts.find((prompt) => prompt.scopeId === NEW_CHAT_OPTIMISTIC_SCOPE)?.entry ?? null,
+    isStartingNewConversation: optimisticUserPrompts.some((prompt) => prompt.scopeId === NEW_CHAT_OPTIMISTIC_SCOPE),
     sidebarOpen,
     sidebarCollapsed,
     messages,

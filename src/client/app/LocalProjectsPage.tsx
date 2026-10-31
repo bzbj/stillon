@@ -21,7 +21,7 @@ export function LocalProjectsPage() {
         defaultProjectId={state.defaultProjectId}
         onDefaultProjectChange={state.setDefaultProjectId}
         onSend={state.handleSend}
-        pendingPrompt={state.pendingNewConversation}
+        isStartingConversation={state.isStartingNewConversation}
         availableProviders={state.availableProviders}
         preferencesReady={state.composerPreferencesReady}
         codexTransport={state.appSettings?.codexTransport ?? "app-server"}

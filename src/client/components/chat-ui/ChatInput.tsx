@@ -710,6 +710,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [finishPendingUpload, projectId])
 
   const enqueueFiles = useCallback((files: File[]) => {
+    if (disabled) return
     if (!projectId) {
       setUploadError("Open a workspace before uploading files.")
       return
@@ -728,7 +729,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     uploadQueueRef.current.push(...files)
     setUploadError(null)
     processUploadQueue()
-  }, [beginPendingUploads, processUploadQueue, projectId])
+  }, [beginPendingUploads, disabled, processUploadQueue, projectId])
 
   useImperativeHandle(forwardedRef, () => ({
     enqueueFiles,
@@ -758,24 +759,29 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       permissionMode: providerPrefs.permissionMode,
       attachments: attachmentsForSubmit,
     }
-    setValue("")
-    if (chatId) clearDraft(chatId)
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
-    clearAttachments({ cleanupPreviews: false })
-    if (latestChatIdRef.current) {
-      clearAttachmentDrafts(latestChatIdRef.current)
+    // Existing conversations clear immediately for optimistic transcript/queue display.
+    // A new conversation keeps its composer intact until the parent navigates away.
+    if (chatId) {
+      setValue("")
+      clearDraft(chatId)
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
+      clearAttachments({ cleanupPreviews: false })
+      clearAttachmentDrafts(chatId)
     }
 
     try {
       await onSubmit(nextValue, submitOptions)
-      previousAttachments.forEach(cleanupAttachmentPreview)
+      if (chatId) previousAttachments.forEach(cleanupAttachmentPreview)
+      // New-conversation previews are released by the unmount cleanup.
     } catch (error) {
       console.error("[ChatInput] Submit failed:", error)
-      setValue(nextValue)
-      if (chatId) setDraft(chatId, nextValue)
-      setAttachments(previousAttachments)
-      setSelectedAttachmentId(previousSelectedAttachmentId)
-      setUploadError(previousUploadError)
+      if (chatId) {
+        setValue(nextValue)
+        setDraft(chatId, nextValue)
+        setAttachments(previousAttachments)
+        setSelectedAttachmentId(previousSelectedAttachmentId)
+        setUploadError(previousUploadError)
+      }
     } finally {
       newChatSubmittingRef.current = false
     }
@@ -923,7 +929,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {attachments.length > 0 ? (
             <ScrollArea className="overflow-x-auto overflow-y-hidden whitespace-nowrap px-2 pb-2">
-              <div className="flex items-end gap-2 pt-2">
+              <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0 flex items-end gap-2 pt-2">
                 {orderedAttachments.map((attachment) => (
                   <div
                     key={attachment.id}
@@ -950,7 +956,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     )}
                   </div>
                 ))}
-              </div>
+              </fieldset>
             </ScrollArea>
           ) : null}
 
@@ -1041,7 +1047,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       </div>
 
       <div data-stillon-part="composer-column" className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
-        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
+        <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
           <div className="min-w-3" />
           {preferencesReady ? <ChatPreferenceControls
             availableProviders={availableProviders}
@@ -1094,7 +1100,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             />
           )}
           <div className="min-w-3" />
-        </div>
+        </fieldset>
       </div>
 
       <AttachmentPreviewModal attachment={selectedAttachment} onOpenChange={(open) => !open && setSelectedAttachmentId(null)} />
