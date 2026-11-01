@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 if ($env:CI -ne 'true') { throw 'Installer acceptance requires a disposable CI runner' }
 $installer = @(Get-ChildItem -LiteralPath 'dist/desktop/release' -Filter '*-setup.exe')
 if ($installer.Count -ne 1) { throw 'Expected one Windows installer' }
+& "$PSScriptRoot/verify-windows-icons.ps1" -Path @('dist/desktop/windows/StillOn.exe', $installer[0].FullName)
 $directory = Join-Path $env:RUNNER_TEMP 'stillon-installer-acceptance'
 $log = Join-Path $env:RUNNER_TEMP 'stillon-installer-acceptance.log'
 $profileDirectory = Join-Path $env:RUNNER_TEMP 'stillon-installed-profile'
@@ -13,6 +14,9 @@ New-Item -ItemType Directory -Path (Split-Path $custom) -Force | Out-Null
 'personal installed skin' | Set-Content $custom
 $process = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $directory + '"'),('/LOG="' + $log + '"')) -Wait -PassThru
 if ($process.ExitCode -ne 0) { Get-Content $log; throw ('Installer failed: ' + $process.ExitCode) }
+& "$PSScriptRoot/verify-windows-icons.ps1" -Path @((Join-Path $directory 'StillOn.exe'), (Join-Path $directory 'unins000.exe'))
+$registration = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{85A34765-6311-41BB-A86D-5AB8FB4FA0A1}_is1'
+if ($registration.DisplayIcon -ne (Join-Path $directory 'StillOn.exe')) { throw 'Installed Apps does not reference the branded launcher icon' }
 & (Join-Path $directory 'payload/runtime/bun.exe') --no-env-file (Join-Path $directory 'payload/bin/desktop') --verify
 if ($LASTEXITCODE -ne 0) { throw 'Installed payload did not verify' }
 & (Join-Path $directory 'payload/runtime/bun.exe') --no-env-file (Join-Path $directory 'payload/bin/desktop') --no-open
@@ -23,4 +27,4 @@ if (Test-Path (Join-Path $directory 'StillOn.exe')) { throw 'Uninstaller left th
 if ((Get-Content $custom -Raw).Trim() -ne 'personal installed skin') { throw 'Native uninstaller changed personal skin data' }
 if (Test-Path (Join-Path $env:LOCALAPPDATA 'StillOn/ManagedUpdates/deployment.json')) { throw 'Native uninstaller left an active service deployment' }
 New-Item -ItemType Directory -Path 'dist/desktop/reports' -Force | Out-Null
-'{"status":"passed","checks":["native EXE silent install","installed runtime integrity","installed payload native service start","native EXE uninstall stops owned services","personal skin preserved"]}' | Set-Content 'dist/desktop/reports/windows-installer.json'
+'{"status":"passed","checks":["launcher, installer and uninstaller embedded StillOn icons","Installed Apps icon registration","native EXE silent install","installed runtime integrity","installed payload native service start","native EXE uninstall stops owned services","personal skin preserved"]}' | Set-Content 'dist/desktop/reports/windows-installer.json'

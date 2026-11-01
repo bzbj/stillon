@@ -155,6 +155,13 @@ bun run verify:desktop
 
 Run natively on each target architecture. Windows requires the Inno Setup compiler
 (`scripts/install-inno-setup.ps1` installs a pinned, SHA-256 verified CI version).
+The Windows launcher, installer and uninstaller embed `packaging/windows/StillOn.ico`,
+derived from `public/icon-512.png` at 16, 24, 32, 48, 64, 128 and 256 pixels.
+To regenerate it with Pillow installed, run
+`python -c "from PIL import Image; Image.open('public/icon-512.png').save('packaging/windows/StillOn.ico', sizes=[(s,s) for s in (16,24,32,48,64,128,256)])"`.
+`scripts/verify-windows-icons.ps1 -Path <exe>` checks the embedded branding without
+running the executable; native installer acceptance also checks the Installed Apps
+icon registration.
 Artifacts are in `dist/desktop/release`; runtime/installer acceptance reports are in
 `dist/desktop/reports`. `verify-desktop.ts --native` is restricted to disposable CI
 runners because it exercises real per-user native service registrations.
