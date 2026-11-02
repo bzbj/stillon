@@ -38,6 +38,7 @@ OutputBaseFilename=StillOn-{#AppVersion}-windows-{#AppArch}{#UnsignedSuffix}-set
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=StillOn.ico
 UninstallDisplayIcon={app}\StillOn.exe
 CloseApplications=no
 RestartApplications=no
