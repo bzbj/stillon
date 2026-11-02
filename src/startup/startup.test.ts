@@ -38,24 +38,26 @@ class Element extends Target {
 class Script extends Element {}
 class Link extends Element { media = "print"; rel = "stylesheet"; sheet: object | null = null }
 
-function fixture({ style = false, portal = false, reducedMotion = false } = {}) {
-  const elements = new Map(["stillon-startup", "root", "stillon-startup-status", "stillon-startup-detail", "stillon-startup-recovery"].map(id => [id, new Element()]))
+function fixture({ style = false, portal = false, reducedMotion = false, href = "http://127.0.0.1:3210/" } = {}) {
+  const elements = new Map(["stillon-startup", "root", "stillon-startup-status", "stillon-startup-detail", "stillon-startup-reload", "stillon-startup-connect"].map(id => [id, new Element()]))
   const shell = elements.get("stillon-startup")!, root = elements.get("root")!
   shell.open = true; shell.dataset.mode = portal ? "portal" : "host"
+  elements.get("stillon-startup-connect")!.hidden = true
   root.inert = true; root.setAttribute("aria-hidden", "true")
   const window = new Target() as Target & { StillOnStartup: { active: boolean; show(): void; hold(): void; fail(): void; reveal(valid?: () => boolean): void } }
   const link = new Link()
   const frames: Array<() => void> = [], timers = new Map<number, { fn: () => void; ms: number }>()
-  let timerId = 0
+  let timerId = 0, reloads = 0
   runInNewContext(source, {
     window, document: { getElementById: (id: string) => elements.get(id), querySelectorAll: () => style ? [link] : [], activeElement: shell },
-    location: { pathname: portal ? "/authorize" : "/" },
+    URL, location: { href, pathname: portal ? "/authorize" : new URL(href).pathname, reload() { reloads++ } },
     requestAnimationFrame: (fn: () => void) => frames.push(fn),
     setTimeout: (fn: () => void, ms: number) => { const id = ++timerId; timers.set(id, { fn, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
     matchMedia: () => ({ matches: reducedMotion }), performance: { mark() {} }, HTMLScriptElement: Script, HTMLLinkElement: Link,
   })
   return { window, api: window.StillOnStartup, shell, root, link, elements,
+    get reloads() { return reloads },
     async paint() {
       for (let i = 0; i < 5; i++) await Promise.resolve()
       for (const frame of frames.splice(0)) frame()
@@ -121,7 +123,9 @@ test("failed entry/style loads keep private UI isolated and expose recovery with
   f.api.reveal()
   await f.paint(); f.elapse(8000)
   expect(f.root.inert).toBe(true)
-  expect(f.elements.get("stillon-startup-recovery")!.open).toBe(true)
+  expect(f.elements.get("stillon-startup-reload")!.hidden).toBe(false)
+  f.elements.get("stillon-startup-reload")!.dispatch("click")
+  expect(f.reloads).toBe(1)
   expect(f.elements.get("stillon-startup-status")!.textContent).toContain("couldn’t open")
   let prevented = false
   f.shell.dispatch("cancel", { preventDefault() { prevented = true } })
@@ -144,13 +148,32 @@ test("portal can cover OTP verification immediately, then reveal its error/form 
   expect(f.root.inert).toBe(false)
 })
 
-test("slow loading offers recovery and keeps waiting for real ready", () => {
+test("local recovery reloads the current page immediately and keeps waiting for real ready", () => {
   const f = fixture()
+  expect(f.elements.get("stillon-startup-connect")!.hidden).toBe(true)
+  f.elements.get("stillon-startup-reload")!.dispatch("click")
+  expect(f.reloads).toBe(1)
   f.elapse(8000)
   expect(f.api.active).toBe(true)
   expect(f.root.inert).toBe(true)
-  expect(f.elements.get("stillon-startup-recovery")!.open).toBe(true)
   expect(f.elements.get("stillon-startup-status")!.textContent).not.toContain("couldn’t")
+})
+
+test.each([
+  ["computer", `https://h-${"a".repeat(32)}.connect.example.com/chat/example?retry=1#draft`, false, "https://connect.example.com/computers"],
+  ["shared workspace", `https://w-${"b".repeat(32)}.connect.example.com/`, false, "https://connect.example.com/computers"],
+  ["loopback gateway", `http://h-${"c".repeat(32)}.localhost:4321/`, false, "http://localhost:4321/computers"],
+  ["portal authorization", "https://connect.example.com/authorize?flow=example", true, "https://connect.example.com/computers"],
+] as const)("%s offers direct chooser navigation before app readiness and after failure", (_name, href, portal, expected) => {
+  const f = fixture({ href, portal })
+  const connect = f.elements.get("stillon-startup-connect")! as Element & { href: string }
+  expect(connect.href).toBe(expected)
+  expect(connect.hidden).toBe(false)
+  expect(f.elements.get("stillon-startup-reload")!.hidden).toBe(true)
+  f.api.fail()
+  expect(connect.href).toBe(expected)
+  expect(connect.hidden).toBe(false)
+  expect(f.root.inert).toBe(true)
 })
 
 test("an optional favicon/manifest failure cannot strand an otherwise ready workspace", async () => {

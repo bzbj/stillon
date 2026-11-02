@@ -22,21 +22,18 @@ html:has(#stillon-startup:not([hidden]):not([data-leaving])) #root { visibility:
 .stillon-startup-center h1 { margin: 0; font: 630 29px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -1.4px; }
 #stillon-startup-status { margin: 15px 0 0; color: var(--startup-muted); }
 #stillon-startup-recovery { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 24px; right: 24px; text-align: center; font-size: 12px; color: var(--startup-muted); }
-#stillon-startup-recovery summary {
+#stillon-startup-recovery :is(button, a) {
   display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px;
-  cursor: pointer; list-style: none; appearance: none; border: 0;
-  background: transparent; box-shadow: none; outline: none;
-  text-decoration: underline; text-underline-offset: 3px;
+  cursor: pointer; appearance: none; border: 0;
+  background: transparent; color: inherit; font: inherit; outline: none;
+  text-decoration: none; text-underline-offset: 3px;
   -webkit-tap-highlight-color: transparent;
 }
-#stillon-startup-recovery summary::-webkit-details-marker { display: none; }
-#stillon-startup-recovery summary::marker { content: ""; }
-.stillon-startup-recovery-actions { position: absolute; bottom: 100%; left: 0; right: 0; padding-bottom: 8px; }
+#stillon-startup-recovery [hidden] { display: none; }
 #stillon-startup-detail { margin: 0 0 8px; }
 #stillon-startup-detail:empty { display: none; }
-#stillon-startup-recovery a { display: inline-block; padding: 10px 4px; color: inherit; outline: none; }
-/* Keep keyboard focus visible through text, without a box around the disclosure. */
-#stillon-startup-recovery :is(summary, a):focus-visible { color: var(--startup-fg); text-decoration: underline; text-decoration-thickness: 2px; }
+#stillon-startup-recovery :is(button, a):hover { color: var(--startup-fg); text-decoration: underline; }
+#stillon-startup-recovery :is(button, a):focus-visible { color: var(--startup-fg); text-decoration: underline; text-decoration-thickness: 2px; }
 @keyframes stillon-startup-float { 0%,100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
 @keyframes stillon-startup-gaze { 0%,24%,100% { transform: translate(0,0); } 36%,56% { transform: translate(-3px,1px); } 70%,85% { transform: translate(2px,0); } }
 @keyframes stillon-startup-blink { 0%,46%,50%,78%,82%,100% { transform: scaleY(1); } 48%,80% { transform: scaleY(.12); } }
