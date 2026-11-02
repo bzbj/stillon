@@ -158,6 +158,57 @@ for (const connectionStatus of ["connecting", "disconnected"] as const) {
   })
 }
 
+describe("sidebar loading layout", () => {
+  for (const connectionStatus of ["connecting", "connected", "disconnected"] as const) {
+    for (const snapshotStatus of ["cached", "authoritative"] as const) {
+      test(`keeps folded ${snapshotStatus} workspaces free of loading placeholders while ${connectionStatus}`, () => {
+        const html = renderSidebar({
+          connectionStatus,
+          ready: snapshotStatus === "authoritative",
+          snapshotStatus,
+          workspaceCollapsed: { "project-a": true },
+        })
+        expect(html).toContain('data-stillon-part="workspace-card"')
+        expect(html).toContain('aria-expanded="false"')
+        expect(html).toContain("Synthetic Project")
+        expect(html).not.toContain("Saved conversation")
+        expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+      })
+    }
+
+    test(`keeps an authoritative empty sidebar stable while ${connectionStatus}`, () => {
+      const html = renderSidebar({
+        connectionStatus, ready: true, snapshotStatus: "authoritative",
+        snapshotData: { projectGroups: [] },
+      })
+      expect(html).toContain("No conversations yet")
+      expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+    })
+  }
+
+  test("does not prepend loading placeholders to an expanded workspace with no conversations", () => {
+    const html = renderSidebar({
+      connectionStatus: "connecting", ready: true, snapshotStatus: "authoritative",
+      workspaceCollapsed: { "project-a": false },
+      snapshotData: { projectGroups: [{ ...sidebarData.projectGroups[0]!, chats: [], previewChats: [] }] },
+    })
+    expect(html).toContain("Synthetic Project")
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+  })
+
+  for (const connectionStatus of ["connecting", "connected"] as const) {
+    test(`shows initial loading before the first sidebar snapshot while ${connectionStatus}`, () => {
+      const html = renderSidebar({
+        connectionStatus, ready: false, snapshotStatus: "empty",
+        snapshotData: { projectGroups: [] },
+      })
+      expect(html).toContain('data-stillon-part="sidebar-loading"')
+      expect(html).not.toContain("No conversations yet")
+    })
+  }
+})
+
 test("shared workspace visitors keep Settings and the existing portal link", () => {
   const initial = useWorkspaceSharingStore.getInitialState()
   const previous = initial.view
