@@ -258,7 +258,6 @@ function StillOnSidebarImpl({
     [data.projectGroups]
   )
 
-  const activeVisibleCount = visibleChats.length
   const archivedProject = useMemo(
     () => data.projectGroups.find((group) => group.groupKey === archivedProjectId) ?? null,
     [archivedProjectId, data.projectGroups]
@@ -441,9 +440,9 @@ function StillOnSidebarImpl({
     }
   }, [isResizingSidebar, onResizeSidebar])
 
-  const hasVisibleChats = activeVisibleCount > 0
   const isSettingsActive = location.pathname.startsWith("/settings")
   const isConnecting = connectionStatus === "connecting" || !ready
+  const showInitialLoading = snapshotStatus === "empty" && data.projectGroups.length === 0 && isConnecting
   const connectionPresentation = getConnectionStatusPresentation(connectionStatus, ready, snapshotStatus)
 
   return (
@@ -588,8 +587,8 @@ function StillOnSidebarImpl({
           }}
         >
           <div className="p-2">
-            {!hasVisibleChats && isConnecting ? (
-              <div className="space-y-5 px-1 pt-3">
+            {showInitialLoading ? (
+              <div data-stillon-part="sidebar-loading" className="space-y-5 px-1 pt-3">
                 {[0, 1, 2].map((section) => (
                   <div key={section} className="space-y-2 animate-pulse">
                     <div className="h-4 w-28 rounded bg-muted" />
@@ -611,7 +610,7 @@ function StillOnSidebarImpl({
               </div>
             ) : null}
 
-            {!hasVisibleChats && !isConnecting && data.projectGroups.length === 0 ? (
+            {!showInitialLoading && data.projectGroups.length === 0 ? (
               <p className="text-sm text-slate-400 p-2 mt-6 text-center">No conversations yet</p>
             ) : null}
 
