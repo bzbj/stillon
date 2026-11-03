@@ -1,6 +1,34 @@
 import assert from "node:assert/strict"
 import type { Locator, Page } from "playwright"
 
+export async function verifyHtmlPreviewRecovery(page: Page) {
+  const iframe = page.locator('iframe[title="HTML file preview"]')
+  await iframe.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
+  const url = (await iframe.getAttribute("src"))!
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const hold = async (route: import("playwright").Route) => { await gate; await route.continue() }
+  await page.route(url, hold)
+  try {
+    await page.getByRole("button", { name: "Refresh", exact: true }).click()
+    await page.getByRole("status").filter({ hasText: "Loading file preview…" }).waitFor()
+    // A message from the parent window is not a readiness receipt from the iframe.
+    await page.evaluate(() => window.postMessage({ type: "stillon:file-ready" }, "*"))
+    await page.getByRole("alert").filter({ hasText: "This file preview is taking longer than expected." }).waitFor({ timeout: 25_000 })
+    release()
+    await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
+  } finally { release(); await page.unroute(url, hold) }
+  // Error documents also fire iframe load. Only a document readiness receipt counts.
+  await page.route(url, route => route.fulfill({ status: 403, contentType: "text/html", body: "<h1>Fixture unavailable</h1>" }), { times: 1 })
+  await page.getByRole("button", { name: "Refresh", exact: true }).click()
+  await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
+  await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+  await page.getByRole("button", { name: "Retry preview", exact: true }).click()
+  await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
+  await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
+}
+
 async function displayedFileBox(page: Page, element: Locator) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
     await element.scrollIntoViewIfNeeded()

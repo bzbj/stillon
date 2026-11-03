@@ -36,6 +36,11 @@ function navigationBridge(parent: string) {
   const origin = JSON.stringify(parent).replaceAll("<", "\\u003c")
   return `<script data-stillon-file-navigation>(()=>{
     const parentOrigin=${origin};
+    const ready=()=>parent.postMessage({type:'stillon:file-ready'},parentOrigin);
+    addEventListener('DOMContentLoaded',ready);
+    addEventListener('message',event=>{
+      if(event.source===parent&&event.origin===parentOrigin&&event.data?.type==='stillon:file-ready-request'&&document.readyState!=='loading')ready();
+    });
     const dependency=label=>parent.postMessage({type:'stillon:file-dependency-error',label},parentOrigin);
     addEventListener('error',event=>{
       const target=event.target;

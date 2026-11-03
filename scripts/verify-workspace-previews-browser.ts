@@ -1,4 +1,4 @@
-import { clickDirectFileLink, verifyDirectFileInput } from "./verify-direct-file-input"
+import { clickDirectFileLink, verifyDirectFileInput, verifyHtmlPreviewRecovery } from "./verify-direct-file-input"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile, rename, stat } from "node:fs/promises"
@@ -406,6 +406,9 @@ try {
       else if (name.endsWith("html")) {
         await verifyDirectFileInput(page, type === chromium)
         if (name === "project-html") {
+          stage = entry.name + ":project-html:loading-recovery"
+          await verifyHtmlPreviewRecovery(page)
+          checks.push({ entry: entry.name, check: "HTML loading, slow response, late readiness, rejected readiness spoof and retry after an error document", result: "Pass" })
           const input = page.frameLocator('iframe[title="HTML file preview"]').getByRole("textbox", { name: "File input" })
           await input.fill("Native state survives zoom and resize")
           await page.getByRole("button", { name: "Zoom out", exact: true }).click()
