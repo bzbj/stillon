@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ChunkedUploads } from "./chunked-uploads"
@@ -21,6 +21,8 @@ test("chunks resume after lost acknowledgements and commit a complete file exact
     await expect(send(CHUNK, "another owner")).rejects.toThrow("expired")
     await expect(send(0, "owner", Buffer.alloc(CHUNK, 0x22))).rejects.toThrow("different chunk")
     await expect(send(CHUNK, "owner", undefined, "another.bin")).rejects.toThrow("another file")
+    const staged = (await readdir(path.join(root, "staging")))[0]!
+    await appendFile(path.join(root, "staging", staged), Buffer.alloc(29, 0x99))
     expect((await send(CHUNK)).upload.offset).toBe(2 * CHUNK)
     const [completed, duplicate] = await Promise.all([send(2 * CHUNK), send(2 * CHUNK)])
     expect(completed.attachments).toEqual(duplicate.attachments)

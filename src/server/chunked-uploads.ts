@@ -55,8 +55,18 @@ export class ChunkedUploads {
         if (upload.hashes.get(offset) !== digest) throw new ChunkUploadError("A different chunk was already accepted at this offset.", 409)
       } else {
         if (offset !== upload.offset) throw new ChunkUploadError("Upload chunks must arrive in order.", 409)
-        const handle = await open(upload.file, "a+", 0o600)
-        try { await handle.truncate(upload.offset); await handle.writeFile(bytes) }
+        // Windows append-only handles cannot truncate. Use explicit positions so
+        // retries can discard an unacknowledged partial write on every platform.
+        const handle = await open(upload.file, upload.offset === 0 ? "w+" : "r+", 0o600)
+        try {
+          await handle.truncate(upload.offset)
+          let written = 0
+          while (written < bytes.byteLength) {
+            const result = await handle.write(bytes, written, bytes.byteLength - written, upload.offset + written)
+            if (result.bytesWritten === 0) throw new Error("Upload chunk write made no progress")
+            written += result.bytesWritten
+          }
+        }
         finally { await handle.close() }
         upload.hashes.set(offset, digest)
         upload.offset += bytes.byteLength
