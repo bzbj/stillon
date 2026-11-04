@@ -1,4 +1,5 @@
 import { defaultQuickCommands } from "../shared/quick-commands"
+import legacyWorkspacePresets from "./test-fixtures/legacy-workspace-presets.json"
 import { defaultAppearance } from "../shared/appearance"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
@@ -395,6 +396,27 @@ test("quick commands preserve independent scope edits and survive a settings rel
     expect(snapshot.theme).toBe("dark")
     await manager.writePatch({ machineName: "Renamed computer" })
     expect((await readAppSettingsSnapshot(filePath)).quickCommands).toEqual(snapshot.quickCommands)
+  } finally { manager.dispose() }
+})
+
+test("saved stock presets migrate to AGENTS.md on startup and remain migrated after reload", async () => {
+  const filePath = await createTempFilePath()
+  const defaults = defaultQuickCommands().global
+  const legacy = legacyWorkspacePresets.find(item => item.id === "set-up-agent-workspace" && item.revision === "4578495")!
+  const saved = { ...defaults[0]!, prompt: legacy.prompt }
+  const edited = { ...defaults[2]!, prompt: "Use agent.md for my custom brief." }
+  const commands = { global: [edited, saved], workspaces: { workspace: [saved] } }
+  await writeFile(filePath, JSON.stringify({ theme: "dark", quickCommands: commands }))
+  const manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    const expected = { global: [edited, defaults[0]!], workspaces: commands.workspaces }
+    expect(manager.getSnapshot().quickCommands).toEqual(expected)
+    expect(JSON.parse(await readFile(filePath, "utf8")).quickCommands).toEqual(expected)
+    await manager.writePatch({ machineName: "Test computer" })
+    await manager.reload()
+    expect((await readAppSettingsSnapshot(filePath)).quickCommands).toEqual(expected)
+    expect(manager.getSnapshot().theme).toBe("dark")
   } finally { manager.dispose() }
 })
 

@@ -1,5 +1,6 @@
 import { applyWorkspaceCollapsePatch, normalizeWorkspaceCollapsed, normalizeWorkspaceCollapseVersions } from "../shared/workspace-collapse"
-import { mergeQuickCommands, normalizeQuickCommands } from "../shared/quick-commands"
+import { mergeQuickCommands } from "../shared/quick-commands"
+import { migrateQuickCommandDefaults } from "./quick-command-migrations"
 import { mergeAppearance, normalizeAppearance } from "../shared/appearance"
 import { watch, type FSWatcher } from "node:fs"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
@@ -284,7 +285,7 @@ function normalizeAppSettings(
     machineName,
     theme: normalizeTheme(source?.theme),
     appearance: normalizeAppearance(source?.appearance),
-    quickCommands: normalizeQuickCommands(source?.quickCommands),
+    quickCommands: migrateQuickCommandDefaults(source?.quickCommands),
     workspaceCollapsed: normalizeWorkspaceCollapsed(source?.workspaceCollapsed),
     workspaceCollapseVersions: normalizeWorkspaceCollapseVersions(source?.workspaceCollapseVersions, normalizeWorkspaceCollapsed(source?.workspaceCollapsed)),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
