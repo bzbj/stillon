@@ -1,6 +1,6 @@
 import { chmod, copyFile, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { AgentProvider } from "../src/shared/types"
+import type { UpdatableCliProvider as AgentProvider } from "../src/shared/types"
 import { cliPackages, inspectCliInstallation, npmUpdateCommand } from "../src/server/provider-cli-installation"
 import { installCli, verifyCli, type ProviderCliUpdatesOptions } from "../src/server/provider-cli-updates"
 

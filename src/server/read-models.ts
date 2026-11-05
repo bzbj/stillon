@@ -32,7 +32,7 @@ function canForkChat(
   activeStatuses: Map<string, StillOnStatus>,
   drainingChatIds: Set<string>,
 ) {
-  if (!chat.provider) return false
+  if (!chat.provider || chat.provider === "deepseek" || chat.provider === "codebuddy") return false
   if (!chat.sessionToken && !chat.pendingForkSessionToken) return false
   if (activeStatuses.has(chat.id)) return false
   if (drainingChatIds.has(chat.id)) return false
@@ -239,6 +239,7 @@ export function deriveChatSnapshot(
   steeringQueuedMessageId: string | null = null,
   asyncQuestionResponses: ChatSnapshot["asyncQuestionResponses"] = [],
   runId?: string | null,
+  addonProviders: ChatSnapshot["availableProviders"] = [],
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -271,7 +272,7 @@ export function deriveChatSnapshot(
     })),
     messages: transcript.messages,
     history: transcript.history,
-    availableProviders: [...SERVER_PROVIDERS],
+    availableProviders: [...SERVER_PROVIDERS, ...addonProviders],
     asyncQuestionResponses: asyncQuestionResponses.map((entry) => ({ ...entry })),
   }
 }

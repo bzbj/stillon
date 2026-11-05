@@ -1,3 +1,5 @@
+import { isAddonProvider } from "../shared/types"
+import type { ProviderAddons } from "./provider-addons"
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, unlink, writeFile } from "node:fs/promises"
@@ -45,6 +47,7 @@ export function providerTerminalScript(options: { platform: NodeJS.Platform; env
 
 export function createProviderSetup(options: {
   dataDir: string; getEnvironment: () => Promise<NodeJS.ProcessEnv>; platform?: NodeJS.Platform
+  addons?: ProviderAddons
   run?: Runner; launch?: (command: string, args: string[]) => Promise<void>
 }) {
   const platform = options.platform ?? process.platform
@@ -53,6 +56,10 @@ export function createProviderSetup(options: {
   const executable = (provider: AgentProvider, environment: NodeJS.ProcessEnv) => findCliExecutable(provider === "codex" ? getCodexCliCommand(platform, environment) : getClaudeCliCommand({ platform, environment }), environment, platform)
   async function status(provider: AgentProvider, canOpenTerminal: boolean): Promise<ProviderSetupStatus> {
     const environment = await options.getEnvironment()
+    if (isAddonProvider(provider)) {
+      if (options.addons) return options.addons.status(provider, canOpenTerminal)
+      return { provider, platform, canOpenTerminal: false, installed: false, state: "missing", message: "Install the provider add-on in Settings → Add-ons." }
+    }
     const cli = executable(provider, environment)
     const base = { provider, platform, canOpenTerminal: canOpenTerminal && ["win32", "darwin"].includes(platform) }
     if (!cli) return { ...base, state: "missing", installed: false }
@@ -64,6 +71,7 @@ export function createProviderSetup(options: {
     } catch (error) { return { ...base, installed: true, executable: cli, state: "error", message: error instanceof Error ? error.message : "Could not check this CLI." } }
   }
   async function openTerminal(provider: AgentProvider, action: "login" | "install") {
+    if (isAddonProvider(provider)) throw new Error("Install and configure this agent with its official CLI, then recheck here.")
     if (!["darwin", "win32"].includes(platform)) throw new Error("Open a local terminal on this computer and follow the official CLI guide.")
     const environment = await options.getEnvironment()
     const cli = executable(provider, environment)

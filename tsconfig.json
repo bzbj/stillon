@@ -18,6 +18,7 @@
     "noUncheckedSideEffectImports": false
   },
   "include": [
+    "addons/**/*.ts",
     "scripts/**/*.ts",
     "vite.config.ts",
     "vite.export-viewer.config.ts",

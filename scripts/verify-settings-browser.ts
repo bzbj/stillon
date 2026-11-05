@@ -84,7 +84,7 @@ try {
       { id: 1, name: "Older fixture release", tag_name: "v0.1.0", html_url: "https://github.com/bzbj/stillon/releases/tag/v0.1.0", published_at: "2026-01-01T00:00:00Z", body: "Older fixture notes", prerelease: false, draft: false },
     ] }))
     const page = await context.newPage()
-    page.on("pageerror", error => console.error("Browser error: " + error.message))
+    page.on("pageerror", error => console.error("Browser error: " + (error.stack ?? error.message)))
     pages.push(page); activePages.push(page)
   }
   async function settings(p: Page, entry: number, section: string) {
@@ -196,7 +196,7 @@ try {
     stage = entries[i]!.name + ": settings entry"
     await p.goto(entries[i]!.origin + "/settings")
     await p.locator("#machine-name").waitFor()
-    assert.deepEqual((await p.locator("aside button").allTextContents()).filter(name => name !== "Sign out"), ["Network", "Providers", "Usage", "Skills & Prompts", "Appearance", "Sound", "Remote access", "About"])
+    assert.deepEqual((await p.locator("aside button").allTextContents()).filter(name => name !== "Sign out"), ["Network", "Providers", "Integrations", "Usage", "Skills & Prompts", "Appearance", "Sound", "Remote access", "About"])
     await settings(p, i, "keybindings")
     assert.equal(await p.getByRole("button", { name: "Keyboard Shortcuts", exact: true }).getAttribute("aria-pressed"), "true")
     await settings(p, i, "quick-commands")

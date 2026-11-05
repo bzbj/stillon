@@ -5,7 +5,10 @@ export { CODEX_MODEL_POLICY } from "./codex-model-policy"
 export const STORE_VERSION = 2 as const
 export const PROTOCOL_VERSION = 1 as const
 
-export type AgentProvider = "claude" | "codex"
+export type AddonProvider = "deepseek" | "codebuddy"
+export type AgentProvider = "claude" | "codex" | AddonProvider
+export type UpdatableCliProvider = "claude" | "codex"
+export function isAddonProvider(value: unknown): value is AddonProvider { return value === "deepseek" || value === "codebuddy" }
 export type CodexTransport = "exec" | "app-server"
 export type LlmProviderKind = "openai" | "openrouter" | "custom"
 export type AppThemePreference = "light" | "dark" | "system"
@@ -188,6 +191,8 @@ export interface ProviderModelOption {
   supportsMaxReasoningEffort?: boolean
   supportedReasoningEfforts?: readonly CodexReasoningEffort[]
   supportsFastMode?: boolean
+  efforts?: ProviderEffortOption[]
+  defaultEffort?: string
 }
 
 export interface ProviderEffortOption {
@@ -225,6 +230,37 @@ export const CODEX_REASONING_OPTIONS = [
 
 export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_OPTIONS)[number]["id"]
 export type CodexReasoningEffort = (typeof CODEX_REASONING_OPTIONS)[number]["id"]
+export const DEEPSEEK_REASONING_OPTIONS = [
+  { id: "off", label: "Off" }, { id: "low", label: "Low" },
+  { id: "high", label: "High" }, { id: "max", label: "Max" },
+] as const
+export type DeepSeekReasoningEffort = (typeof DEEPSEEK_REASONING_OPTIONS)[number]["id"]
+export interface AddonModelOptions { reasoningEffort: string }
+export type DeepSeekModelOptions = AddonModelOptions
+export const DEEPSEEK_PERMISSION_OPTIONS = [
+  { id: "request", label: "Workspace Access", description: "Work in the workspace and ask before other operations." },
+  { id: "full", label: "Full Access", description: "Run without sandbox restrictions or approval prompts." },
+] as const
+export type DeepSeekPermissionMode = "request" | "full"
+export function normalizeAddonPreference(provider: AddonProvider, value?: {
+  model?: string; modelOptions?: Partial<AddonModelOptions>; permissionMode?: unknown; effort?: unknown
+}): ProviderPreference<AddonModelOptions, DeepSeekPermissionMode> & { permissionMode: DeepSeekPermissionMode } {
+  if (provider === "deepseek") return normalizeDeepSeekPreference(value)
+  const effort = value?.modelOptions?.reasoningEffort ?? value?.effort
+  return { model: typeof value?.model === "string" && value.model.trim() ? value.model : "default",
+    modelOptions: { reasoningEffort: typeof effort === "string" && ["default", "low", "medium", "high", "xhigh"].includes(effort) ? effort : "default" },
+    permissionMode: value?.permissionMode === "full" ? "full" : "request" }
+}
+export function normalizeDeepSeekPreference(value?: {
+  model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown; effort?: unknown
+}): ProviderPreference<DeepSeekModelOptions, DeepSeekPermissionMode> & { permissionMode: DeepSeekPermissionMode } {
+  const effort = value?.modelOptions?.reasoningEffort ?? value?.effort
+  return {
+    model: typeof value?.model === "string" && value.model.trim() ? value.model : "deepseek-flash",
+    modelOptions: { reasoningEffort: typeof effort === "string" && effort.length > 0 && effort.length <= 256 ? effort : (value?.model?.startsWith("dsh:") ? "default" : "high") },
+    permissionMode: value?.permissionMode === "full" ? "full" : "request",
+  }
+}
 export type ClaudeContextWindow = "200k" | "1m"
 export type ServiceTier = "fast"
 
@@ -259,6 +295,8 @@ export interface CodexModelOptions {
 export interface ProviderModelOptionsByProvider {
   claude: ClaudeModelOptions
   codex: CodexModelOptions
+  deepseek: DeepSeekModelOptions
+  codebuddy: AddonModelOptions
 }
 
 export interface ProviderPreference<TModelOptions, TPermissionMode extends string = string> {
@@ -270,9 +308,13 @@ export interface ProviderPreference<TModelOptions, TPermissionMode extends strin
 export type ChatProviderPreferences = {
   claude: ProviderPreference<ClaudeModelOptions, ClaudePermissionMode>
   codex: ProviderPreference<CodexModelOptions, CodexPermissionMode>
+  /** Optional on older persisted snapshots. */
+  deepseek?: ProviderPreference<DeepSeekModelOptions, DeepSeekPermissionMode>
+  codebuddy?: ProviderPreference<AddonModelOptions, DeepSeekPermissionMode>
 }
 
 export type ChatTurnPreferences =
+  | { [P in AddonProvider]: { provider: P; model: string; modelOptions: AddonModelOptions; permissionMode: DeepSeekPermissionMode } }[AddonProvider]
   | {
       provider: "claude"
       model: string
@@ -361,9 +403,11 @@ export interface ProviderCatalogEntry {
   defaultEffort?: string
   models: ProviderModelOption[]
   efforts: ProviderEffortOption[]
+  capabilities?: { resume: boolean; fork: boolean; images: boolean; streaming: boolean; questions: boolean; permissions: ("request" | "full")[]; modelManagement?: boolean }
 }
 
 export const PROVIDERS: ProviderCatalogEntry[] = [
+  // Keep the existing provider ordering for policy initialization below.
   {
     id: "claude",
     label: "Claude",
@@ -409,6 +453,19 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
     models: CODEX_MODELS,
     efforts: [...CODEX_REASONING_OPTIONS],
   },
+  {
+    id: "deepseek",
+    label: "DeepSeek Harness",
+    defaultModel: "deepseek-flash",
+    defaultEffort: "high",
+    models: [
+      { id: "deepseek-flash", label: "DeepSeek Flash", supportsEffort: true },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", supportsEffort: true },
+    ],
+    efforts: [...DEEPSEEK_REASONING_OPTIONS],
+  },
+  { id: "codebuddy", label: "CodeBuddy", defaultModel: "default", defaultEffort: "default",
+    models: [{ id: "default", label: "CLI default", supportsEffort: false }], efforts: [{ id: "default", label: "CLI default" }] },
 ]
 
 export const BUNDLED_CLAUDE_MODEL_POLICY: ClaudeModelPolicy = claudeModelPolicySchema.parse({
@@ -761,6 +818,8 @@ export interface AppSettingsPatch {
   providerDefaults?: {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>
     codex?: Partial<ProviderPreference<CodexModelOptions>>
+    deepseek?: Partial<ProviderPreference<DeepSeekModelOptions>>
+    codebuddy?: Partial<ProviderPreference<AddonModelOptions>>
   }
   network?: Partial<AgentNetworkProxySettings>
 }
