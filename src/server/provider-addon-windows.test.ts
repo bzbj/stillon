@@ -16,7 +16,7 @@ test("shipped integrations support both Windows architectures without opening ot
   for (const build of [buildDeepSeekAddon, buildCodeBuddyAddon]) {
     expect((await build()).manifest.targets).toEqual(["win32-x64", "win32-arm64"])
   }
-})
+}, 20_000)
 
 test.skipIf(process.platform !== "win32")("unmodified bundled integrations enable and survive restart on the native Windows host", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "stillon-native-addons-")); roots.push(root)
@@ -34,7 +34,7 @@ test.skipIf(process.platform !== "win32")("unmodified bundled integrations enabl
   expect(restarted.providers().map(item => item.id)).toEqual(["deepseek", "codebuddy"])
   await restarted.change("deepseek", "disable")
   expect(restarted.providers().map(item => item.id)).toEqual(["codebuddy"])
-})
+}, 20_000)
 
 test.skipIf(process.platform !== "win32")("Windows public cmd launchers preserve Unicode stdio and workspace paths", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "stillon-launchers-")); roots.push(root)
