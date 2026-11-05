@@ -16,7 +16,7 @@ export async function modelControl(executable: string, environment: NodeJS.Proce
       { insert: [{ id: "stillon-model-control", name: plugin }] }]), { mode: 0o600 })
     rpc = new DeepSeekRpc(spawnDeepSeek(executable, directory, environment, ["--patch", patch]))
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Harness model configuration did not become ready.")), 30_000)
+      const timer = setTimeout(() => reject(new Error("Harness model configuration did not become ready.")), 60_000)
       rpc!.onNotification = frame => { if (frame.method === "stillon/ready") { clearTimeout(timer); resolve() } }
       rpc!.onFailure = error => { clearTimeout(timer); reject(error) }
     })

@@ -141,7 +141,7 @@ export class ProviderAddons {
     if (method === "configure" && this.leases.get(provider)) throw new Error("Stop this Harness's chats before changing its model service configuration.")
     const acquired = await this.acquire(provider, method === "configure")
     try {
-      const result = await acquired.client.call(method, params, 100_000)
+      const result = await acquired.client.call(method, params, 130_000)
       if (method === "discover") {
         const models = harnessModelSchema.array().max(1000).parse(result)
         const candidates = this.discovered.get(provider) ?? new Map<string, HarnessModel>()

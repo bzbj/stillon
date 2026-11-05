@@ -71,8 +71,10 @@ uses a separate StillOn home as well as a separate data directory, while
 
 This is a trial integration. Session forking, native slash commands, import of
 existing Desktop history, incremental token streaming, and usage/cost reporting
-are not implemented. macOS/Linux installations and future runtime releases still
-need live qualification. Changing the user's SDK profile can change capabilities.
+are not implemented. macOS Intel and Apple Silicon previews use the same pinned
+public CLI, with real CLI/loopback model acceptance in CI. Linux installations and
+future runtime releases still need live qualification. Changing the user's SDK
+profile can change capabilities.
 Model discovery reads the installed runtime's `llm` services through its public
 plugin extension, rather than guessing a new SDK RPC. A custom endpoint's model
 listing is a separate explicit fetch; saving those IDs activates them in Harness.

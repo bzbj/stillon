@@ -46,7 +46,7 @@ export async function codeBuddyVersion(executable: string, env: NodeJS.ProcessEn
   const launch = codeBuddyCommand(executable, ["--version"], env)
   const pending = exec(launch.command, launch.args, { env: codeBuddyEnvironment(env), windowsHide: true, timeout: 15_000, maxBuffer: 128 * 1024 })
   const output = await pending.catch(async error => {
-    if (error.killed && pending.child.pid) await killCodeBuddyTree(pending.child.pid).catch(() => undefined)
+    if (error.killed && pending.child.pid) await killCodeBuddyTree(pending.child.pid, false).catch(() => undefined)
     throw new Error("CodeBuddy CLI could not report its version. Check the selected public launcher and its runtime.")
   })
   const match = output.stdout.trim().match(/^(\d+\.\d+\.\d+(?:-[\w.-]+)?)(?:\s+\(CodeBuddy(?: Code)?\))?$/iu)
@@ -66,7 +66,7 @@ export function spawnCodeBuddy(executable: string, args: string[], cwd: string, 
     detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] })
 }
 
-export async function killCodeBuddyTree(pid: number) {
+export async function killCodeBuddyTree(pid: number, processGroup = true) {
   if (process.platform === "win32") await exec("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: 10_000 })
-  else process.kill(-pid, "SIGKILL")
+  else process.kill(processGroup ? -pid : pid, "SIGKILL")
 }

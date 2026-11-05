@@ -161,7 +161,8 @@ export function startCodeBuddyTurn(args: CodeBuddyTurnArgs, dependencies = { che
           return { allowed: true, updatedInput: { ...input, answers }, tool_use_id: request.tool_use_id }
         }
         // Do not retain or forward this response: it can contain account.token.
-        await protocol.request({ subtype: "initialize", hooks: {}, capabilities: { askUserQuestion: true }, hasPrompt: true })
+        // A cold public CLI can spend over 30 seconds loading on Intel Macs.
+        await protocol.request({ subtype: "initialize", hooks: {}, capabilities: { askUserQuestion: true }, hasPrompt: true }, 60_000)
         if (cancelled) return
         protocol.write({ type: "user", session_id: "", message: { role: "user", content: args.content }, parent_tool_use_id: null })
         let terminal: any, finalText = ""
