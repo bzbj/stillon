@@ -125,6 +125,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - name: Use the Ubuntu archive for browser dependencies
+        run: |
+          for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$source" ]; then
+              sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' "$source"
+            fi
+          done
       - run: bunx playwright install --with-deps chromium firefox
       - run: bun run test:async-answer:browser
       - run: bun run test:remote-auth:browser
@@ -141,6 +148,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - name: Use the Ubuntu archive for browser dependencies
+        run: |
+          for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$source" ]; then
+              sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' "$source"
+            fi
+          done
       - run: bunx playwright install --with-deps chromium firefox
       - run: bun run check
       - name: Exercise local preview interfaces
@@ -197,6 +211,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - name: Use the Ubuntu archive for browser dependencies
+        run: |
+          for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$source" ]; then
+              sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' "$source"
+            fi
+          done
       - run: bunx playwright install --with-deps chromium
       - run: bun run build
       - run: bun run test:settings:browser

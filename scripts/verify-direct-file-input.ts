@@ -44,6 +44,9 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
 
 async function displayedFileBox(page: Page, element: Locator) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
+    // The child can be ready before the parent removes its loading bar.
+    // Wait for that layout change before measuring native mouse coordinates.
+    await frameElement.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
     await element.scrollIntoViewIfNeeded()
     await (await frameElement.elementHandle())!.waitForElementState("stable")
     const outer = await frameElement.boundingBox()
