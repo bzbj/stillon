@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, chmod } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { buildCodeBuddyAddon, buildDeepSeekAddon } from "../../scripts/build-provider-addon"
@@ -33,7 +33,7 @@ input.on('line',line=>{
   send({type:'system',subtype:'init',session_id:session,model:'configured-model',account:{token:'PRIVATE_INIT_TOKEN'}});
   const text=f.message.content;
   if(text==='hold') return;
-  if(text==='background'){send({type:'system',subtype:'task_started',task_id:'task'});finish('working');setTimeout(()=>{send({type:'system',subtype:'task_notification',task_id:'task',status:'completed'});finish('background done')},150);return}
+  if(text==='background'){send({type:'system',subtype:'task_started',task_id:'task'});finish('working');setTimeout(()=>{send({type:'system',subtype:'task_notification',task_id:'task',status:'completed'});setTimeout(()=>finish('background done'),100)},150);return}
   if(text==='permission'||text==='question') {send({type:'control_request',request_id:'tool-request',request:{subtype:'can_use_tool',tool_name:text==='question'?'AskUserQuestion':'Bash',tool_use_id:'tool-id',input:text==='question'?{questions:[{question:'Which color?',options:[{label:'Blue'}]}]}:{command:'echo approved'}}});return}
   finish(resumeIndex<0?'read '+readFileSync('note.txt','utf8'):'resumed '+session);
  }
@@ -88,7 +88,7 @@ test("packaged CodeBuddy runs at the selected workspace, resumes, and coexists w
   const events = await collect(f.manager, args(f.cwd))
   expect(events.some(e => e.entry?.kind === "assistant_text" && e.entry.text === "read workspace fixture")).toBe(true)
   expect(JSON.stringify(events)).not.toContain("PRIVATE_INIT_TOKEN")
-  expect(JSON.parse(await readFile(path.join(f.cwd, "cli-start.json"), "utf8")).cwd).toBe(f.cwd)
+  expect(await realpath(JSON.parse(await readFile(path.join(f.cwd, "cli-start.json"), "utf8")).cwd)).toBe(await realpath(f.cwd))
   await f.manager.change("deepseek", "disable")
   expect(f.manager.providers().map(p => p.id)).toEqual(["codebuddy"])
   const restarted = new ProviderAddons(f.root, () => f.environment); await restarted.initialize()

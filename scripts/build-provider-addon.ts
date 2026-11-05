@@ -23,7 +23,7 @@ export async function buildCodeBuddyAddon(): Promise<AddonPackage> {
   const build = await Bun.build({ entrypoints: [path.resolve(import.meta.dir, "../addons/codebuddy/src/entry.ts")], target: "bun", format: "esm", packages: "bundle", minify: false })
   if (!build.success || build.outputs.length !== 1) throw new Error(`Add-on build failed: ${build.logs.join("\n")}`)
   const code = await build.outputs[0]!.text()
-  const manifest = addonManifestSchema.parse({ format: 1, id: "codebuddy", name: "CodeBuddy CLI (Preview)", version: "0.1.0-preview.2", hostApi: 1,
+  const manifest = addonManifestSchema.parse({ format: 1, id: "codebuddy", name: "CodeBuddy CLI (Preview)", version: "0.1.0-preview.3", hostApi: 1,
     targets: ["win32-x64"], testedCliVersions: ["2.180.0"],
     catalog: { id: "codebuddy", label: "CodeBuddy", defaultModel: "default", defaultEffort: "default",
       models: [{ id: "default", label: "CLI default", supportsEffort: false }], efforts: [{ id: "default", label: "CLI default" }] },

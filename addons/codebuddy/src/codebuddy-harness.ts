@@ -179,7 +179,11 @@ export function startCodeBuddyTurn(args: CodeBuddyTurnArgs, dependencies = { che
             yield { type: "transcript", entry: entry({ kind: "system_init", provider: "codebuddy", model: typeof frame.model === "string" ? frame.model : args.model, tools: [], agents: [], slashCommands: [], mcpServers: [] }) }
           }
           if (frame.type === "system" && frame.subtype === "task_started" && typeof frame.task_id === "string") activeTasks.add(frame.task_id)
-          if (frame.type === "system" && frame.subtype === "task_notification") activeTasks.delete(frame.task_id)
+          if (frame.type === "system" && frame.subtype === "task_notification" && activeTasks.delete(frame.task_id)) {
+            // Completion starts a follow-up assistant turn. Its final result can
+            // arrive in a later stdout chunk; the previous result is no longer final.
+            terminal = undefined
+          }
           if (frame.type === "stillon_question") yield { type: "transcript", entry: entry({ kind: "tool_call", tool: frame.tool }) }
           for (const transcript of codeBuddyTranscript(frame)) {
             if (transcript.kind === "assistant_text") finalText = transcript.text

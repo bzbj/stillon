@@ -2408,7 +2408,7 @@ function OwnerSettingsPage() {
                     </SettingsRow>
 
                     <p className="py-3 text-sm text-muted-foreground">Looking for another agent? <Link to="/settings/integrations" className="underline">Enable integrations</Link></p>
-                    <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={state.availableProviders.map(provider => ({ value: provider.id, label: provider.label }))} /></div>
+                    <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={state.availableProviders.map(provider => ({ value: provider.id, label: provider.id === "claude" ? "Claude Code" : provider.label }))} /></div>
                     <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
                       machineName={confirmedMachineName} cliActions={(providerTab === "claude" || providerTab === "codex") ? <ProviderCliUpdatesPanel provider={providerTab} compact /> : undefined}
                       onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
