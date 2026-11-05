@@ -24,7 +24,7 @@ async function shutdown() {
 async function handle(method: string, params: any) {
   if (method === "hello") {
     if (params?.api !== 1) throw new Error("Unsupported host API.")
-    return { api: 1, id: "deepseek", version: "0.2.0-preview.2" }
+    return { api: 1, id: "deepseek", version: "0.2.0-preview.3" }
   }
   if (method === "status") {
     const base = { provider: "deepseek", platform: process.platform, canOpenTerminal: false, canSelectExecutable: Boolean(params?.local) }

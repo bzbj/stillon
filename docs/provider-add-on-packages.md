@@ -82,7 +82,7 @@ the vendor credential store. Model policies are independent of adapter versions.
 See [DeepSeek setup](../addons/deepseek/README.md) and the
 [protocol notes](deepseek-local-harness.md).
 
-Preview targets are **Windows x64 and macOS Intel / Apple Silicon**. DeepSeek uses
+Preview targets are **Windows x64 / ARM64 and macOS Intel / Apple Silicon**. DeepSeek uses
 **dsh 0.2.1-rc.5 on Windows**, **0.2.2-rc.1 on Mac**; CodeBuddy uses **CLI 2.180.0**.
 Shipping the adapters does not establish compatibility
 with other vendor versions or platforms. CodeBuddy remains Preview because real
@@ -101,9 +101,10 @@ Relevant verification commands:
 ```sh
 bun run check
 bun run audit
-bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts
+bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts src/server/provider-addon-windows.test.ts
 bun scripts/verify-deepseek-models.ts --run
 bun scripts/verify-macos-integrations.ts --run
+bun scripts/verify-provider-cli-windows.ts --run
 bun scripts/build-desktop.ts --runtime-only
 bun scripts/verify-bundled-integrations.ts
 ```
@@ -118,6 +119,19 @@ it never installs a service or touches the production port.
 
 Native installer replacement/upgrade, real authenticated managed Connect,
 authenticated CodeBuddy inference and other platforms still need acceptance.
+On Windows ARM64, the StillOn host and the vendor CLI can use different CPU
+architectures. A public CLI launched by x64 Node uses Windows emulation and
+requires x64 native dependencies. Install it with the Node/npm runtime that will
+launch it; do not omit vendor native optional dependencies or select them solely
+from the architecture of StillOn's Bun runtime. StillOn does not install or
+replace the vendor runtime.
+
+Windows ARM64 regression checks use the native Bun host and the unmodified bundled
+packages, including their version handshake. Public Windows `.cmd` launcher checks
+round-trip Unicode text and a workspace path with spaces. The opt-in Windows CLI
+check initializes both supported vendor versions in isolated homes and confirms
+shutdown; it sends no model request and does not establish authenticated inference.
+
 The development preview is not a qualified release.
 
 ### Local verification record
