@@ -2,7 +2,9 @@
  * Return fixed codes: OS errors can contain command lines, paths and secrets. */
 export function connectorLaunchError(error: unknown, platform: string = process.platform) {
   const value = error && typeof error === "object" ? error as Record<string, unknown> : {}
-  const codes = [value.code, value.errno, value.win32Error]
+  // execFile uses numeric code for an already-started child's exit status.
+  // Native numeric errors must come from errno/win32Error, not that field.
+  const codes = [typeof value.code === "string" ? value.code : undefined, value.errno, value.win32Error]
   if (platform === "win32" && codes.some(code =>
     code === 1260 || code === 4551 || code === "ERROR_ACCESS_DISABLED_BY_POLICY" || code === "ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION")) {
     return "CONNECTOR_POLICY_BLOCKED"

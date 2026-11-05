@@ -18,7 +18,7 @@ interface TransportEffects {
   probe?: (file: string, component: TransportComponent) => Promise<void>
 }
 const execute = promisify(execFile)
-const active = new Map<string, Promise<PreparedTransport>>()
+const active = new Map<string, { work: Promise<PreparedTransport>; repair: boolean }>()
 
 export function transportRoot(platform = process.platform, home = os.homedir(), localAppData = process.env.LOCALAPPDATA) {
   if (platform === "win32") return path.win32.join(localAppData || path.win32.join(home, "AppData", "Local"), "StillOn", "Transport", "frp")
@@ -140,10 +140,12 @@ export function prepareTransport(component: TransportComponent, options: Transpo
   validateTransportComponent(component)
   const files = locations(component, options), key = files.directory
   const pending = active.get(key)
-  if (pending) return pending
+  // A plain cache check cannot satisfy an explicit execution check. Coalesce
+  // matching requests, but retain repair semantics when joining ordinary work.
+  if (pending) return options.repair && !pending.repair ? pending.work.then(result => reuse(result.file)) : pending.work
   const work = install()
-  active.set(key, work)
-  void work.finally(() => { if (active.get(key) === work) active.delete(key) }).catch(() => {})
+  active.set(key, { work, repair: Boolean(options.repair) })
+  void work.finally(() => { if (active.get(key)?.work === work) active.delete(key) }).catch(() => {})
   return work
   async function reuse(file: string): Promise<PreparedTransport> {
     // Explicit repair must check executability even when the bytes still match.

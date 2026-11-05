@@ -322,3 +322,17 @@ test("a removed prepared component reports locally without discarding the bound 
     expect(f.counts().downloads).toBe(1)
   } finally { await connector.stop() }
 })
+
+
+test("explicit repair overlapping an ordinary cache check still probes execution", async () => {
+  const f = await fixture()
+  await prepareTransport(f.component, f.options)
+  const ordinary = prepareTransport(f.component, f.options)
+  const repair = prepareTransport(f.component, { ...f.options, repair: true, effects: { ...f.options.effects,
+    probe: async () => { throw new TransportError("CONNECTOR_POLICY_BLOCKED") },
+  } })
+  const outcomes = await Promise.allSettled([ordinary, repair])
+  expect(outcomes[0]).toMatchObject({ status: "fulfilled", value: { reused: true, source: "cache" } })
+  expect(outcomes[1]).toMatchObject({ status: "rejected", reason: { code: "CONNECTOR_POLICY_BLOCKED" } })
+  expect(f.counts().downloads).toBe(1)
+})
