@@ -111,6 +111,8 @@ jobs:
           STILLON_CONNECT_ORIGIN: ${{ inputs.connect-origin || (github.event_name == 'pull_request' && 'https://connect.example.invalid') || '' }}
           STILLON_CONNECT_MIGRATE_FROM_ORIGINS: ${{ inputs.connect-migrate-from-origins || '[]' }}
           STILLON_REQUIRE_CONNECT: ${{ inputs.require-connect && '1' || '0' }}
+      - name: Verify bundled integration platform gates and restart persistence
+        run: bun scripts/verify-bundled-integrations.ts
       - name: Exercise Windows installer and uninstaller
         if: runner.os == 'Windows'
         shell: pwsh

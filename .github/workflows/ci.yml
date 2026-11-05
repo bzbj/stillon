@@ -83,6 +83,40 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.architecture }}
 
+  windows-integrations:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            architecture: x64
+          - os: windows-11-arm
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.23.2
+          architecture: x64
+      - run: bun install --frozen-lockfile
+      - name: Install pinned public CLIs with matching x64 Node native dependencies
+        run: npm install --prefix test-artifacts/windows-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 @tencent-ai/codebuddy-code@2.180.0
+      - name: Verify native host and public CLI initialization without inference
+        shell: pwsh
+        run: |
+          bun -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Bun architecture mismatch')"
+          node -e "if (process.arch !== 'x64') throw new Error('Vendor Node architecture mismatch')"
+          $env:DSH_EXECUTABLE = Join-Path $PWD 'test-artifacts/windows-cli/node_modules/.bin/dsh.cmd'
+          $env:CODEBUDDY_EXECUTABLE = Join-Path $PWD 'test-artifacts/windows-cli/node_modules/.bin/codebuddy.cmd'
+          bun scripts/verify-provider-cli-windows.ts --run
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+
   async-answer-browser:
     runs-on: ubuntu-latest
     steps:

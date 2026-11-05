@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises"
+import { mkdtemp, readdir, rm, stat, symlink, utimes } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { APPLICATION_LOG_BYTES, APPLICATION_LOG_COUNT, applicationFailure, captureApplicationStderr, recordApplicationExit } from "./startup-diagnostics"
@@ -34,6 +34,10 @@ test("stderr capture retains a bounded private tail and keeps logs cited by reco
     return log.file
   }
   const original = await capture("original", "initial startup failure")
+  // Ensure this cited log falls outside the newest logs even when Windows
+  // timestamps several rapid writes identically. Its retention must be due
+  // to the recovery reference, rather than its incidental sort position.
+  await utimes(original, new Date(0), new Date(0))
   await Bun.write(path.join(root, "state.json"), JSON.stringify({ error: "see application-logs/original.stderr.log" }))
   for (let i = 0; i < APPLICATION_LOG_COUNT + 2; i++) await capture(`restart-${i}`, "retry")
   const latest = await capture("latest", "x".repeat(APPLICATION_LOG_BYTES * 2) + "\nEADDRINUSE\n")

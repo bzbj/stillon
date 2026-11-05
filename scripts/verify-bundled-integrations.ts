@@ -23,6 +23,9 @@ if (process.argv[2] === "--child") {
     const fresh = await snapshot()
     assert.deepEqual(fresh.addons.map((item: any) => [item.id, item.enabled, item.bundled]), [["deepseek", false, true], ["codebuddy", false, true]])
     assert.deepEqual(fresh.providers.map((item: any) => item.id), ["claude", "codex"])
+    if (["win32", "darwin"].includes(process.platform) && ["x64", "arm64"].includes(process.arch)) {
+      assert(fresh.addons.every((item: any) => item.compatible), "both bundled integrations must support this Windows or Mac host")
+    }
     const html = await (await fetch(`http://127.0.0.1:${app.port}/settings/integrations`)).text()
     assert(html.includes("<html"), "packaged settings shell must be served")
     if (fresh.addons.every((item: any) => item.compatible)) {
