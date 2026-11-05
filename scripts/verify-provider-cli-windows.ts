@@ -23,7 +23,8 @@ Object.assign(env, { HOME: home, USERPROFILE: home, APPDATA: path.join(home, "Ap
   LOCALAPPDATA: path.join(home, "AppData/Local"), DSH_HOME: path.join(home, "dsh"), CODEBUDDY_CONFIG_DIR: path.join(home, "codebuddy") })
 const rpc = new DeepSeekRpc(spawnDeepSeek(dsh, cwd, env))
 try {
-  const result = await rpc.request("initialize", { provider: "deepseek-official", model: "deepseek-flash", cwd })
+  const result = await rpc.request("initialize", { provider: "deepseek-official", model: "deepseek-flash", cwd,
+    approvalRequests: true, capabilities: { userQuestions: true } })
   assert.equal(result?.serverInfo?.name, "deepseek-harness-sdk-runtime")
 } finally { await rpc.close() }
 const buddyArgs = codeBuddyArgs({ cwd, content: "", model: "default", sessionToken: null, permissionMode: "request" })

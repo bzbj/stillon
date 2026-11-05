@@ -102,6 +102,7 @@ bun run check
 bun run audit
 bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts src/server/provider-addon-windows.test.ts
 bun scripts/verify-deepseek-models.ts --run
+bun scripts/verify-provider-cli-windows.ts --run
 bun scripts/build-desktop.ts --runtime-only
 bun scripts/verify-bundled-integrations.ts
 ```
@@ -116,6 +117,12 @@ it never installs a service or touches the production port.
 
 Native installer replacement/upgrade, real authenticated managed Connect,
 authenticated CodeBuddy inference and other platforms still need acceptance.
+Windows ARM64 regression checks use the native Bun host and the unmodified bundled
+packages, including their version handshake. Public Windows `.cmd` launcher checks
+round-trip Unicode text and a workspace path with spaces. The opt-in Windows CLI
+check initializes both supported vendor versions in isolated homes and confirms
+shutdown; it sends no model request and does not establish authenticated inference.
+
 The development preview is not a qualified release.
 
 ### Local verification record

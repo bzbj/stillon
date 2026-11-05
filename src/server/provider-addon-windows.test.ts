@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { buildCodeBuddyAddon, buildDeepSeekAddon } from "../../scripts/build-provider-addon"
@@ -77,7 +77,8 @@ readline.createInterface({input:process.stdin}).on('line', line => {
       })])
       const frame = JSON.parse(Buffer.concat(output).toString("utf8"))
       expect(frame.text).toBe("你好 ARM 🚀")
-      expect(frame.cwd.toLowerCase()).toBe(cwd.toLowerCase())
+      // CI's TEMP can use an 8.3 alias while the child reports the long path.
+      expect((await realpath(frame.cwd)).toLowerCase()).toBe((await realpath(cwd)).toLowerCase())
       expect(frame.args).toEqual(name === "dsh" ? ["--profile", "sdk"] : ["--print"])
     } finally {
       clearTimeout(timer)
