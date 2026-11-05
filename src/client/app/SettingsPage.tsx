@@ -2409,12 +2409,13 @@ function OwnerSettingsPage() {
 
                     <p className="py-3 text-sm text-muted-foreground">Looking for another agent? <Link to="/settings/integrations" className="underline">Enable integrations</Link></p>
                     <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={state.availableProviders.map(provider => ({ value: provider.id, label: provider.id === "claude" ? "Claude Code" : provider.label }))} /></div>
-                    <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
+                    <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady collapseWhenReady
                       machineName={confirmedMachineName} cliActions={(providerTab === "claude" || providerTab === "codex") ? <ProviderCliUpdatesPanel provider={providerTab} compact /> : undefined}
-                      onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
-                    {providerTab === "deepseek" && state.availableProviders.find(p => p.id === "deepseek")?.capabilities?.modelManagement && <HarnessModelsPanel onDefaultModel={model => { handleProviderDefaultModelChange("deepseek", model); handleProviderDefaultModelOptionsChange("deepseek", { reasoningEffort: "default" }) }} />}
+                      onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }}>
+                      {providerTab === "deepseek" && state.availableProviders.find(p => p.id === "deepseek")?.capabilities?.modelManagement && <HarnessModelsPanel onDefaultModel={model => { handleProviderDefaultModelChange("deepseek", model); handleProviderDefaultModelOptionsChange("deepseek", { reasoningEffort: "default" }) }} />}
+                    </AgentSetupPanel>
                     {isAddonProvider(providerTab) && state.availableProviders.some(provider => provider.id === providerTab) && <div>
-                      <SettingsRow title={`${providerTab === "deepseek" ? "DeepSeek Harness" : "CodeBuddy"} Defaults`} description={providerTab === "deepseek" ? "Choose an enabled Harness model and its reasoning level. Model services and API keys are configured above." : "Use the model and credentials configured in your local CodeBuddy CLI. The integration updates with StillOn."} alignStart>
+                      <SettingsRow title={`${providerTab === "deepseek" ? "DeepSeek Harness" : "CodeBuddy"} Defaults`} description={providerTab === "deepseek" ? "Choose an enabled Harness model and its reasoning level." : "Use the model and credentials configured in your local CodeBuddy CLI."} alignStart>
                         <ChatPreferenceControls availableProviders={state.availableProviders} selectedProvider={providerTab} showProviderPicker={false} providerLocked
                           model={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).model}
                           modelOptions={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).modelOptions}

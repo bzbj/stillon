@@ -1,6 +1,6 @@
 import { isAddonProvider } from "../../shared/types"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
-import { CheckCircle2, ExternalLink, Loader2, Terminal } from "lucide-react"
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { CheckCircle2, ChevronDown, ExternalLink, Loader2, Terminal } from "lucide-react"
 import type { AgentProvider } from "../../shared/types"
 import { PROVIDER_SETUP_GUIDES, type ProviderSetupStatus } from "../../shared/provider-setup"
 import { Button } from "../components/ui/button"
@@ -8,8 +8,8 @@ import { Input } from "../components/ui/input"
 import { cn } from "../lib/utils"
 import { useProviderCatalog } from "../hooks/useProviderCatalog"
 
-export function AgentSetupPanel({ initialProvider = "codex", machineName, onStatus, onUse, showProviderPicker = true, hideUseWhenReady = false, cliActions }: {
-  showProviderPicker?: boolean; hideUseWhenReady?: boolean; cliActions?: ReactNode
+export function AgentSetupPanel({ initialProvider = "codex", machineName, onStatus, onUse, showProviderPicker = true, hideUseWhenReady = false, collapseWhenReady = false, cliActions, children }: {
+  showProviderPicker?: boolean; hideUseWhenReady?: boolean; collapseWhenReady?: boolean; cliActions?: ReactNode; children?: ReactNode
   initialProvider?: AgentProvider; machineName?: string | null
   onStatus: (provider: AgentProvider, ready: boolean) => void
   onUse: (provider: AgentProvider) => Promise<void>
@@ -22,6 +22,9 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
   const [confirmInstall, setConfirmInstall] = useState(false)
   const [existing, setExisting] = useState(false), [executable, setExecutable] = useState("")
   const [complete, setComplete] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
+  const canCollapse = collapseWhenReady && status?.state === "ready" && !error && !waiting
   const request = useRef(0), callbacks = useRef({ onStatus, onUse })
   callbacks.current = { onStatus, onUse }
   const label = provider === "codebuddy" ? "CodeBuddy" : provider === "deepseek" ? "DeepSeek Harness" : provider === "codex" ? "Codex" : "Claude Code"
@@ -38,7 +41,7 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
     } catch (error) { if (request.current === id) setError(error instanceof Error ? error.message : "Check failed.") }
     finally { if (request.current === id) setBusy(false) }
   }, [provider])
-  useEffect(() => { setStatus(null); setWaiting(null); setComplete(false); setConfirmInstall(false); setExisting(false); void check(); return () => { request.current++ } }, [check])
+  useEffect(() => { setStatus(null); setWaiting(null); setComplete(false); setConfirmInstall(false); setExisting(false); setExpanded(false); void check(); return () => { request.current++ } }, [check])
   async function openTerminal(action: "login" | "install") {
     setBusy(true); setError("")
     try {
@@ -71,23 +74,32 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
         {value === "codebuddy" ? "CodeBuddy" : value === "deepseek" ? "DeepSeek Harness" : value === "codex" ? "Codex" : "Claude Code"}{value === "codex" && <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Recommended</span>}
       </button>)}</div>
     </div>}
-    <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">{showProviderPicker ? "2. " : ""}Check {label} CLI</h3>
+    {canCollapse && <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+      <p role="status" className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 aria-hidden="true" className="size-4" />Ready</p>
+      <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}>
+        {expanded ? "Hide details" : "Configure"}<ChevronDown aria-hidden="true" className={cn("ml-1 size-4 transition-transform", expanded && "rotate-180")} />
+      </Button>
+    </div>}
+    <div id={detailsId} hidden={canCollapse && !expanded} className="space-y-5">
+    <div className={cn("space-y-3", !canCollapse && "border-t border-border pt-4")}><h3 className="text-sm font-semibold">{showProviderPicker ? "2. " : ""}Check {label} CLI</h3>
       {!status ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{busy && <Loader2 className="size-4 animate-spin" />}Checking for an existing installation…</p> : status.installed ? <div className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">Existing CLI found{status.version ? ` · ${status.version}` : ""}</p><p className="mt-1 break-all font-mono text-xs text-muted-foreground">{status.executable}</p></div> : <>
         <p className="text-sm text-muted-foreground">Could not find {label} CLI on {machineName || "this computer"}. If you already installed it, recheck or choose its location.</p>
         {status.canOpenTerminal && <Button disabled={busy || Boolean(waiting)} onClick={() => setConfirmInstall(true)}>Install {label} CLI</Button>}
       </>}
       {confirmInstall && <div className="space-y-3 rounded-lg border border-border p-3"><p className="text-sm">This opens a terminal on {machineName || "this computer"} and runs the official {label} CLI installer. Continue if you want to install a new CLI.</p><div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => void openTerminal("install")}>Open terminal and install</Button><Button disabled={busy} variant="ghost" onClick={() => setConfirmInstall(false)}>Cancel</Button></div></div>}
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => void check()}>{waiting === "install" ? "I have installed it · Recheck" : "Recheck installation"}</Button>{(status?.canOpenTerminal || (isAddonProvider(provider) && status?.canSelectExecutable)) && <Button variant="ghost" disabled={busy} onClick={() => setExisting(!existing)}>Use an existing CLI</Button>}{cliActions}</div>
-      {existing && <div className="space-y-2 rounded-lg border border-border p-3"><label htmlFor="existing-agent-cli" className="text-xs font-medium">Existing CLI executable</label><Input id="existing-agent-cli" value={executable} onChange={event => setExecutable(event.target.value)} placeholder={status?.platform === "win32" ? `C:\\Users\\example\\.local\\bin\\${provider}.exe` : `~/.local/bin/${provider}`} /><div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy || !executable.trim()} onClick={() => void useExecutable(executable)}>Use this CLI</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void useExecutable(null)}>Use automatic detection</Button></div></div>}
+      {existing && <div className="space-y-2 rounded-lg border border-border p-3"><label htmlFor={`${detailsId}-executable`} className="text-xs font-medium">Existing CLI executable</label><Input id={`${detailsId}-executable`} value={executable} onChange={event => setExecutable(event.target.value)} placeholder={status?.platform === "win32" ? `C:\\Users\\example\\.local\\bin\\${provider}.exe` : `~/.local/bin/${provider}`} /><div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy || !executable.trim()} onClick={() => void useExecutable(executable)}>Use this CLI</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void useExecutable(null)}>Use automatic detection</Button></div></div>}
       <a href={PROVIDER_SETUP_GUIDES[provider]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground underline">Official CLI installation guide<ExternalLink className="size-3" /></a>
     </div>
-    <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">{showProviderPicker ? "3. " : ""}{provider === "deepseek" ? "DeepSeek Harness configuration" : `Sign in to ${label}`}</h3>
-      {status?.state === "ready" ? <><p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />{isAddonProvider(provider) ? `${label} CLI is available. Account access is checked when you send a message.` : `${label} CLI is signed in.`}</p>{!hideUseWhenReady && <Button disabled={busy || complete} onClick={() => void finish()}>{complete ? "Agent setup complete" : `Use ${label}`}</Button>}{complete && <a className="ml-3 text-sm underline" href="/">Open a workspace</a>}</> : <>
+    <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">{showProviderPicker ? "3. " : ""}{isAddonProvider(provider) ? "CLI status" : `Sign in to ${label}`}</h3>
+      {status?.state === "ready" ? <><p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />{isAddonProvider(provider) ? `${label} CLI is available.` : `${label} CLI is signed in.`}</p>{!hideUseWhenReady && <Button disabled={busy || complete} onClick={() => void finish()}>{complete ? "Agent setup complete" : `Use ${label}`}</Button>}{complete && <a className="ml-3 text-sm underline" href="/">Open a workspace</a>}</> : <>
         <p className="text-sm leading-6 text-muted-foreground">{provider === "deepseek" ? "Configure a model service and discover its models below, or use your existing Harness configuration." : "Sign in with the official CLI in a visible terminal. Complete its browser sign-in, then return here."}</p>
         {status?.canOpenTerminal ? <div className="flex flex-wrap gap-2"><Button disabled={busy || !status.installed || status.state === "error"} onClick={() => void openTerminal("login")}><Terminal className="mr-2 size-4" />{waiting === "login" ? "Reopen sign-in terminal" : "Open terminal to sign in"}</Button><Button variant="outline" disabled={busy || !status.installed} onClick={() => void check()}>Check sign-in</Button></div> : status && !isAddonProvider(provider) && <p className="text-sm text-muted-foreground">Open StillOn locally on {machineName || "the Agent computer"} to install or sign in.</p>}
       </>}
       {waiting && <p role="status" className="text-xs text-muted-foreground">Finish {waiting === "install" ? "installation" : "sign-in"} in the terminal, then recheck. Closing the terminal keeps this step unfinished.</p>}
       {status?.message && <p className="text-sm text-muted-foreground">{status.message}</p>}
+    </div>
+    {children}
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </div>
