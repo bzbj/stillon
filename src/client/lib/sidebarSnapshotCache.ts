@@ -75,7 +75,7 @@ const IDENTITY_KEYS = new Set(["origin", "authScope", "machineName"])
 const DATA_KEYS = new Set(["projectGroups"])
 const PROJECT_KEYS = new Set(["groupKey", "title", "realTitle", "sidebarTitle", "localPath", "chats"])
 const CHAT_KEYS = new Set(["chatId", "title", "createdAt", "unread", "provider", "lastMessageAt", "pinned"])
-const VALID_PROVIDERS = new Set<AgentProvider>(["claude", "codex"])
+const VALID_PROVIDERS = new Set<AgentProvider>(["claude", "codex", "deepseek", "codebuddy"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)

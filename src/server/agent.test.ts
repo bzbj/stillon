@@ -2057,7 +2057,7 @@ function createFakeStore() {
     id: "chat-1",
     projectId: "project-1",
     title: "New Chat",
-    provider: null as "claude" | "codex" | null,
+    provider: null as "claude" | "codex" | "deepseek" | "codebuddy" | null,
     lastTurnPreferences: null as ChatTurnPreferences | null,
     planMode: false,
     sessionToken: null as string | null,
@@ -2087,7 +2087,7 @@ function createFakeStore() {
     async hasMessages() {
       return this.messages.length > 0
     },
-    async setChatProvider(_chatId: string, provider: "claude" | "codex") {
+    async setChatProvider(_chatId: string, provider: "claude" | "codex" | "deepseek" | "codebuddy") {
       chat.provider = provider
     },
     async setChatTurnPreferences(_chatId: string, preferences: ChatTurnPreferences) {

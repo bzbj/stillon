@@ -37,6 +37,7 @@ export function workspaceCommandAllowed(command: ClientCommand, workspaceId: str
 /** Product data scope only: agents/terminals keep the existing host execution environment. */
 export function workspaceHttpAllowed(url: URL, method: string, workspaceId: string) {
   const route = url.pathname
+  if (route === "/api/providers") return method === "GET"
   if (["/ws", "/auth/status", "/auth/logout", "/api/sidebar-view", "/api/workspace-sharing"].includes(route)) return true
   if (route.startsWith("/api/connect-operations/")) return method === "GET"
   if (route === "/api/appearance/avatars") return method === "GET"

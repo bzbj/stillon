@@ -15,13 +15,13 @@ export class ProviderCliSettings {
     try {
       const raw = JSON.parse(readFileSync(this.filePath, "utf8"))
       if (raw.schemaVersion !== 1) return this.last
-      this.last = Object.fromEntries(["codex", "claude"].filter(key => typeof raw[key] === "string" && !/[\u0000\r\n]/u.test(raw[key])).map(key => [key, raw[key]]))
+      this.last = Object.fromEntries(["codex", "claude", "deepseek", "codebuddy"].filter(key => typeof raw[key] === "string" && !/[\u0000\r\n]/u.test(raw[key])).map(key => [key, raw[key]]))
     } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") this.last = {} }
     return this.last
   }
   environment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     const configured = this.read()
-    return { ...environment, ...(configured.codex ? { CODEX_EXECUTABLE: configured.codex } : {}), ...(configured.claude ? { CLAUDE_EXECUTABLE: configured.claude } : {}) }
+    return { ...environment, ...(configured.codebuddy ? { CODEBUDDY_EXECUTABLE: configured.codebuddy } : {}), ...(configured.deepseek ? { DSH_EXECUTABLE: configured.deepseek } : {}), ...(configured.codex ? { CODEX_EXECUTABLE: configured.codex } : {}), ...(configured.claude ? { CLAUDE_EXECUTABLE: configured.claude } : {}) }
   }
   set(provider: AgentProvider, input: string | null) {
     const operation = this.pending.then(() => this.write(provider, input))

@@ -1,4 +1,4 @@
-import type { AgentProvider } from "../shared/types"
+import type { UpdatableCliProvider as AgentProvider } from "../shared/types"
 import type { ProviderCliUpdates } from "./provider-cli-updates"
 
 export async function handleProviderCliUpdates(req: Request, url: URL, updates: ProviderCliUpdates, validateOrigin: (req: Request) => boolean) {

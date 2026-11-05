@@ -1,17 +1,22 @@
+import { claudeModelPolicySchema } from "../shared/claude-model-policy"
 import { defaultQuickCommands } from "../shared/quick-commands"
 import legacyWorkspacePresets from "./test-fixtures/legacy-workspace-presets.json"
 import { defaultAppearance } from "../shared/appearance"
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import { AppSettingsManager, readAppSettingsSnapshot } from "./app-settings"
-import { getCodexModelForRole, type AppSettingsSnapshot } from "../shared/types"
+import { applyClaudeModelPolicy, BUNDLED_CLAUDE_MODEL_POLICY, getProviderCatalog, getCodexModelForRole, type AppSettingsSnapshot } from "../shared/types"
 import { normalizeCodexPreference as normalizeClientCodexPreference } from "../client/stores/chatPreferencesStore"
 
 let tempDirs: string[] = []
+const originalClaudePolicy = claudeModelPolicySchema.parse({ models: getProviderCatalog("claude").models, defaultModel: getProviderCatalog("claude").defaultModel })
+// Match server startup explicitly; standalone runs must not depend on another test loading the policy.
+beforeEach(() => applyClaudeModelPolicy(BUNDLED_CLAUDE_MODEL_POLICY))
 
 afterEach(async () => {
+  applyClaudeModelPolicy(originalClaudePolicy)
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
   tempDirs = []
 })
@@ -21,6 +26,23 @@ async function createTempFilePath() {
   tempDirs.push(dir)
   return path.join(dir, "settings.json")
 }
+
+test("DeepSeek settings survive partial patches and reload without changing other providers", async () => {
+  const filePath = await createTempFilePath()
+  const manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    const before = manager.getSnapshot().providerDefaults.codex
+    await manager.writePatch({ defaultProvider: "deepseek", providerDefaults: { deepseek: {
+      model: "deepseek-v4-pro", modelOptions: { reasoningEffort: "max" }, permissionMode: "request",
+    } } })
+    await manager.writePatch({ providerDefaults: { deepseek: { modelOptions: { reasoningEffort: "off" } } } })
+    const reloaded = await readAppSettingsSnapshot(filePath)
+    expect(reloaded.defaultProvider).toBe("deepseek")
+    expect(reloaded.providerDefaults.deepseek).toEqual({ model: "deepseek-v4-pro", modelOptions: { reasoningEffort: "off" }, permissionMode: "request" })
+    expect(reloaded.providerDefaults.codex).toEqual(before)
+  } finally { manager.dispose() }
+})
 
 test("retires saved editor choices and executable templates without resetting other preferences", async () => {
   const filePath=await createTempFilePath()
@@ -68,6 +90,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
     defaultProvider: "last_used",
     defaultProjectId: null,
     providerDefaults: {
+      deepseek: { model: "deepseek-flash", modelOptions: { reasoningEffort: "high" }, permissionMode: "request" },
       claude: {
         model: "claude-opus-4-8",
         modelOptions: {
@@ -436,5 +459,22 @@ test("Codex HTTPS preference persists without changing proxy settings and reject
     expect(await readFile(filePath, "utf8")).toBe(saved)
     expect(manager.getSnapshot().codexApiTransport).toBe("https")
     expect((await manager.writePatch({ codexApiTransport: "auto" })).codexApiTransport).toBe("auto")
+  } finally { manager.dispose() }
+})
+
+
+test("CodeBuddy settings remain independent of DeepSeek and built-ins after patch and reload", async () => {
+  const filePath = await createTempFilePath(), manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    const before = manager.getSnapshot().providerDefaults
+    await manager.writePatch({ defaultProvider: "codebuddy", providerDefaults: { codebuddy: { model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "request" } } })
+    await manager.writePatch({ providerDefaults: { codebuddy: { permissionMode: "full" } } })
+    const reloaded = await readAppSettingsSnapshot(filePath)
+    expect(reloaded.defaultProvider).toBe("codebuddy")
+    expect(reloaded.providerDefaults.codebuddy).toEqual({ model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "full" })
+    expect(reloaded.providerDefaults.deepseek).toEqual(before.deepseek)
+    expect(reloaded.providerDefaults.claude).toEqual(before.claude)
+    expect(reloaded.providerDefaults.codex).toEqual(before.codex)
   } finally { manager.dispose() }
 })

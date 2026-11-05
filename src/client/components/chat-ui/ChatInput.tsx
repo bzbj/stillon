@@ -1,3 +1,4 @@
+import { isAddonProvider } from "../../../shared/types"
 import { downloadUrl } from "../../lib/download"
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
 import { ArrowUp, CircleAlert, CircleDashed, Paperclip } from "lucide-react"
@@ -22,7 +23,7 @@ import { ScrollArea } from "../ui/scroll-area"
 import { cn, generateUUID } from "../../lib/utils"
 import { useIsStandalone } from "../../hooks/useIsStandalone"
 import { useChatInputStore } from "../../stores/chatInputStore"
-import { NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
+import { composerFromProviderDefaults, NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { CHAT_INPUT_ATTRIBUTE, focusNextChatInput } from "../../app/chatFocusPolicy"
 import { ChatPreferenceControls } from "./ChatPreferenceControls"
 import { AttachmentFileCard, AttachmentImageCard } from "../messages/AttachmentCard"
@@ -376,6 +377,7 @@ function getEffectiveComposerState(
     return composerState
   }
 
+  if (isAddonProvider(activeProvider)) return composerFromProviderDefaults(activeProvider, providerDefaults)
   return activeProvider === "claude"
     ? {
       provider: "claude",
@@ -459,7 +461,9 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     attachmentStates: attachments,
   })
   const hasTextToSend = value.trim().length > 0
-  const canSubmit = value.trim().length > 0 || uploadedAttachments.length > 0
+  const providerAvailable = availableProviders.some(provider => provider.id === selectedProvider)
+  const addonModelAvailable = !isAddonProvider(selectedProvider) || availableProviders.find(p => p.id === selectedProvider)?.models.some(m => m.id === providerPrefs.model)
+  const canSubmit = providerAvailable && addonModelAvailable && (value.trim().length > 0 || uploadedAttachments.length > 0)
   const orderedAttachments = [...attachments].sort((left, right) => {
     if (left.kind === right.kind) return 0
     return left.kind === "image" ? -1 : 1
@@ -771,6 +775,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     let modelOptions: ModelOptions
     if (providerPrefs.provider === "claude") {
       modelOptions = { claude: { ...providerPrefs.modelOptions } }
+    } else if (providerPrefs.provider === "deepseek" || providerPrefs.provider === "codebuddy") {
+      modelOptions = { [providerPrefs.provider]: { ...providerPrefs.modelOptions } }
     } else {
       modelOptions = { codex: { ...providerPrefs.modelOptions } }
     }
@@ -926,6 +932,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     <div>
       <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
         <div data-stillon-part="composer-column" className="max-w-[840px] mx-auto rounded-[32px]">
+          {!providerAvailable && <p role="status" className="mb-3 text-sm text-muted-foreground">This provider is unavailable. Your chat history is preserved. <a href="/settings/integrations" className="underline">Enable its integration</a> to continue.</p>}
+          {providerAvailable && !addonModelAvailable && <p role="status" className="mb-3 text-sm text-muted-foreground">This chat's model is no longer enabled. Select a model below, or enable it in <a href="/settings/providers" className="underline">model settings</a>.</p>}
           {uploadActivityNotice || hasFailedUploads || uploadError ? (
             <div className="mb-2 space-y-1.5 px-1 text-sm">
               {uploadActivityNotice ? (
@@ -1107,6 +1115,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 case "claudeReasoningEffort":
                   setReasoningEffort(change.effort)
                   break
+                case "addonReasoningEffort":
+                case "deepseekReasoningEffort":
                 case "codexReasoningEffort":
                   setReasoningEffort(change.effort)
                   break
@@ -1115,7 +1125,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   break
                 case "fastMode":
                   updateComposerState(
-                    (state) => state.provider === "claude"
+                    (state) => state.provider !== "codex"
                       ? state
                       : { ...state, modelOptions: { ...state.modelOptions, fastMode: change.fastMode } }
                   )

@@ -1,3 +1,4 @@
+import { isAddonProvider, normalizeAddonPreference } from "../../shared/types"
 import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { finishSetup, rememberSettingsSection, settingsLandingPath, useSetupComplete } from "../lib/settingsNavigation"
 import { ClaudeModelPolicyPanel } from "./ClaudeModelPolicyPanel"
@@ -8,6 +9,8 @@ import { downloadText } from "../lib/download"
 import { AgentSetupPanel } from "./AgentSetupPanel"
 import { CodexModelPolicyPanel } from "./CodexModelPolicyPanel"
 import { ProviderCliUpdatesPanel } from "./ProviderCliUpdatesPanel"
+import { HarnessModelsPanel } from "./HarnessModelsPanel"
+import { ProviderAddonsPanel } from "./ProviderAddonsPanel"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
@@ -35,13 +38,12 @@ import {
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { useNavigate, useOutletContext, useParams, Link } from "react-router-dom"
+import { useNavigate, useOutletContext, useParams, useSearchParams, Link } from "react-router-dom"
 import { APP_NAME, getKeybindingsFilePathDisplay, RELEASE_EDITION, SDK_CLIENT_APP } from "../../shared/branding"
 import {
   DEFAULT_KEYBINDINGS,
   DEFAULT_OPENAI_SDK_MODEL,
   DEFAULT_OPENROUTER_SDK_MODEL,
-  PROVIDERS,
   type AgentProvider,
   type CodexTransport,
   type CodexApiTransport,
@@ -105,8 +107,9 @@ const sidebarItems = [
     id: "providers",
     label: "Providers",
     icon: MessageSquareQuote,
-    subtitle: "Manage the default chat provider and saved model defaults for Claude Code and Codex.",
+    subtitle: "Manage the default chat provider and saved model settings for your enabled agents.",
   },
+  { id: "integrations", label: "Integrations", icon: Code, subtitle: "Enable optional agents included with StillOn." },
   {
     id: "usage",
     label: "Usage",
@@ -148,6 +151,7 @@ type SidebarItem = (typeof sidebarItems)[number]
 type SidebarPageId = SidebarItem["id"]
 
 export function resolveSettingsSectionId(sectionId: string | undefined): SidebarPageId | null {
+  if (sectionId === "addons") return "integrations"
   if (sectionId === "keybindings" || sectionId === "quick-commands") return "skills"
   if (sectionId === "changelog" || sectionId === "general") return "about"
   if (!sectionId) return null
@@ -962,18 +966,19 @@ export type OnboardingProgress = {
   nameConfirmed: boolean
   codexChecked: boolean
   claudeChecked: boolean
+  deepseekChecked?: boolean
 }
 
 type OnboardingCopyStatus = "idle" | "copied" | "error"
 
 export function getOnboardingCompletedTaskCount(
   progress: OnboardingProgress,
-  readiness: { localServiceReady: boolean; codexReady: boolean; claudeReady: boolean }
+  readiness: { localServiceReady: boolean; codexReady: boolean; claudeReady: boolean; deepseekReady?: boolean }
 ) {
   return [
     progress.nameConfirmed,
     readiness.localServiceReady,
-    (progress.codexChecked && readiness.codexReady) || (progress.claudeChecked && readiness.claudeReady),
+    (progress.codexChecked && readiness.codexReady) || (progress.claudeChecked && readiness.claudeReady) || (progress.deepseekChecked && readiness.deepseekReady),
   ].filter(Boolean).length
 }
 
@@ -1120,14 +1125,14 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
     setProviderReady(false)
     if (!localServiceReady) return
     const controller = new AbortController()
-    void Promise.allSettled((["codex", "claude"] as const).map(async provider => {
+    void Promise.allSettled((state.availableProviders ?? [{ id: "codex" }, { id: "claude" }]).map(async ({ id: provider }) => {
       const response = await fetch(`/api/provider-setup/${provider}/status`, { cache: "no-store", signal: controller.signal })
       return response.ok && (await response.json()).state === "ready"
     })).then(results => {
       if (!controller.signal.aborted) setProviderReady(results.some(result => result.status === "fulfilled" && result.value))
     })
     return () => controller.abort()
-  }, [localServiceReady])
+  }, [localServiceReady, state.availableProviders])
   const completedSteps = [Boolean(state.appSettings?.machineName), localServiceReady, providerReady].filter(Boolean).length
   return <div className="mx-auto w-full max-w-4xl pb-16">
     <header className="rounded-xl border border-border bg-card px-4 py-3">
@@ -1143,7 +1148,7 @@ export function WelcomeChecklist({ state }: { state: StillOnState }) {
           {localServiceReady ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}<span>{localServiceReady ? "StillOn is connected locally." : "Waiting for a local StillOn connection…"}</span>
         </div>
       </OnboardingStep>
-      <OnboardingStep number={3} title="Set up your Agent" description="Choose Codex or Claude Code. One signed-in CLI is enough to use StillOn." complete={providerReady}>
+      <OnboardingStep number={3} title="Set up your Agent" description="Choose Codex or Claude Code. One signed-in CLI is enough to start. Enable more agents in Integrations." complete={providerReady}>
         <Link className="text-sm underline" to="/settings/providers">Open Providers</Link>
       </OnboardingStep>
       <Button onClick={() => { finishSetup(); navigate(settingsLandingPath(), { replace: true }) }}>Finish setup</Button>
@@ -1723,6 +1728,15 @@ function OwnerSettingsPage() {
   const setupComplete = useSetupComplete()
   const visibleSidebarItems = sidebarItems.filter(item => item.id !== "welcome" || !setupComplete)
   const [providerTab, setProviderTab] = useState<AgentProvider>("codex")
+  const [providerSearch] = useSearchParams()
+  const requestedProvider = providerSearch.get("provider"), appliedProvider = useRef<string | null>(null)
+  useEffect(() => {
+    if (!requestedProvider) { appliedProvider.current = null; return }
+    if (appliedProvider.current !== requestedProvider && state.availableProviders.some(provider => provider.id === requestedProvider)) {
+      setProviderTab(requestedProvider as AgentProvider); appliedProvider.current = requestedProvider
+    }
+  }, [requestedProvider, state.availableProviders])
+  useEffect(() => { if (!state.availableProviders.some(provider => provider.id === providerTab)) setProviderTab("codex") }, [state.availableProviders, providerTab])
   const selectedPage = resolveSettingsSectionId(sectionId) ?? (setupComplete ? "network" : "welcome")
   const isConnecting = state.connectionStatus === "connecting" || !state.localProjectsReady
   const appSettings = state.appSettings
@@ -1999,7 +2013,7 @@ function OwnerSettingsPage() {
 
   function handleProviderDefaultModelOptionsChange(
     provider: AgentProvider,
-    modelOptions: Partial<typeof providerDefaults[typeof provider]["modelOptions"]>
+    modelOptions: Partial<NonNullable<typeof providerDefaults[typeof provider]>["modelOptions"]>
   ) {
     setProviderDefaultModelOptions(provider, modelOptions)
     void handleWriteAppSettings({ providerDefaults: { [provider]: { modelOptions } } }).catch((error) => {
@@ -2008,6 +2022,13 @@ function OwnerSettingsPage() {
   }
 
   function handleProviderDefaultPermissionModeChange(change: PermissionModeChange) {
+    if (isAddonProvider(change.provider)) {
+      setProviderDefaultPermissionMode(change.provider, change.permissionMode)
+      void handleWriteAppSettings({ providerDefaults: { [change.provider]: { permissionMode: change.permissionMode } } }).catch((error) => {
+        setAppSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
+      })
+      return
+    }
     if (change.provider === "claude") {
       setProviderDefaultPermissionMode("claude", change.permissionMode)
       void handleWriteAppSettings({ providerDefaults: { claude: { permissionMode: change.permissionMode } } }).catch((error) => {
@@ -2355,6 +2376,8 @@ function OwnerSettingsPage() {
                   <RemoteAccessSettings onSignOut={state.handleSignOut} />
                 ) : selectedPage === "network" ? (
                   <NetworkSettingsSection state={state} />
+                ) : selectedPage === "integrations" ? (
+                  <ProviderAddonsPanel />
                 ) : selectedPage === "providers" ? (
                   <div className="border-b border-border">
                     <SettingsRow
@@ -2374,7 +2397,7 @@ function OwnerSettingsPage() {
                             <SelectItem value="last_used">
                               Last Used
                             </SelectItem>
-                            {PROVIDERS.map((provider) => (
+                            {state.availableProviders.map((provider) => (
                               <SelectItem key={provider.id} value={provider.id}>
                                 {provider.label}
                               </SelectItem>
@@ -2384,10 +2407,23 @@ function OwnerSettingsPage() {
                       </Select>
                     </SettingsRow>
 
-                    <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} /></div>
+                    <p className="py-3 text-sm text-muted-foreground">Looking for another agent? <Link to="/settings/integrations" className="underline">Enable integrations</Link></p>
+                    <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={state.availableProviders.map(provider => ({ value: provider.id, label: provider.label }))} /></div>
                     <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
-                      machineName={confirmedMachineName} cliActions={<ProviderCliUpdatesPanel provider={providerTab} compact />}
+                      machineName={confirmedMachineName} cliActions={(providerTab === "claude" || providerTab === "codex") ? <ProviderCliUpdatesPanel provider={providerTab} compact /> : undefined}
                       onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
+                    {providerTab === "deepseek" && state.availableProviders.find(p => p.id === "deepseek")?.capabilities?.modelManagement && <HarnessModelsPanel onDefaultModel={model => { handleProviderDefaultModelChange("deepseek", model); handleProviderDefaultModelOptionsChange("deepseek", { reasoningEffort: "default" }) }} />}
+                    {isAddonProvider(providerTab) && state.availableProviders.some(provider => provider.id === providerTab) && <div>
+                      <SettingsRow title={`${providerTab === "deepseek" ? "DeepSeek Harness" : "CodeBuddy"} Defaults`} description={providerTab === "deepseek" ? "Choose an enabled Harness model and its reasoning level. Model services and API keys are configured above." : "Use the model and credentials configured in your local CodeBuddy CLI. The integration updates with StillOn."} alignStart>
+                        <ChatPreferenceControls availableProviders={state.availableProviders} selectedProvider={providerTab} showProviderPicker={false} providerLocked
+                          model={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).model}
+                          modelOptions={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).modelOptions}
+                          permissionMode={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).permissionMode}
+                          onModelChange={(_, model) => handleProviderDefaultModelChange(providerTab, model)}
+                          onModelOptionChange={change => { if (change.type === "deepseekReasoningEffort" || change.type === "addonReasoningEffort") handleProviderDefaultModelOptionsChange(providerTab, { reasoningEffort: change.effort }) }}
+                          onPermissionModeChange={handleProviderDefaultPermissionModeChange} className="justify-start flex-wrap" />
+                      </SettingsRow>
+                    </div>}
                     <div hidden={providerTab !== "claude"}>
                     <SettingsRow
                       title="Claude Code Defaults"

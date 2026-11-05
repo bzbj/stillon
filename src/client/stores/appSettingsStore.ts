@@ -1,8 +1,10 @@
+import { normalizeAddonPreference } from "../../shared/types"
 import { mergeWorkspaceCollapsed } from "../../shared/workspace-collapse"
 import { mergeQuickCommands } from "../../shared/quick-commands"
 import { mergeAppearance } from "../../shared/appearance"
 import { create } from "zustand"
 import {
+  normalizeDeepSeekPreference,
   normalizeClaudePermissionMode,
   normalizeCodexPermissionMode,
   type AppSettingsPatch,
@@ -42,6 +44,8 @@ export function mergeAppSettingsPatch(
       ...patch.network,
     },
     providerDefaults: {
+      ...((settings.providerDefaults.codebuddy || patch.providerDefaults?.codebuddy) ? { codebuddy: normalizeAddonPreference("codebuddy", { ...settings.providerDefaults.codebuddy, ...patch.providerDefaults?.codebuddy, modelOptions: { ...settings.providerDefaults.codebuddy?.modelOptions, ...patch.providerDefaults?.codebuddy?.modelOptions } }) } : {}),
+      deepseek: normalizeDeepSeekPreference({ ...settings.providerDefaults.deepseek, ...patch.providerDefaults?.deepseek, modelOptions: { ...settings.providerDefaults.deepseek?.modelOptions, ...patch.providerDefaults?.deepseek?.modelOptions } }),
       claude: {
         ...settings.providerDefaults.claude,
         ...patch.providerDefaults?.claude,
