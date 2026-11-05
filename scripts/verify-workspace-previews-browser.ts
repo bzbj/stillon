@@ -384,7 +384,16 @@ try {
       await paceConnect()
       stage = entry.name + ":" + name + ":sidebar"
       const destination = config.addresses[entry.name][name]
-      const navigate = async () => { await address.fill(destination); await address.press("Enter") }
+      const navigate = async () => {
+        const previousFrame = name === "dynamic" ? null : await page.locator('iframe[title="HTML file preview"]').elementHandle()
+        await address.fill(destination); await address.press("Enter")
+        // Updating the address field precedes replacing the old preview.
+        // Retire its document before an identical fixture can satisfy readiness.
+        if (previousFrame) {
+          try { await previousFrame.waitForElementState("hidden") }
+          finally { await previousFrame.dispose() }
+        }
+      }
       if (name === "dynamic" && entry.name === "loopback") {
         await localServicePopup(navigate, destination)
         const popup = await context.newPage()
