@@ -51,6 +51,9 @@ export async function clickDirectFileLink(page: Page, element: Locator, options:
 }
 
 export async function verifyDirectFileInput(page: Page, chromium: boolean) {
+  // Removing the loading banner moves the iframe. Measure native input only
+  // after the parent has received its readiness receipt and finished that move.
+  await page.locator('iframe[title="HTML file preview"]').locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
   const frame = page.frameLocator('iframe[title="HTML file preview"]')
   await frame.getByText("ES module ready", { exact: true }).waitFor()
   const resources = await frame.locator("body").evaluate(async () => {
