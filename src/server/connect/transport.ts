@@ -1,3 +1,4 @@
+import { connectorLaunchError } from "./launch-error"
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
@@ -17,7 +18,7 @@ interface TransportEffects {
   probe?: (file: string, component: TransportComponent) => Promise<void>
 }
 const execute = promisify(execFile)
-const active = new Map<string, Promise<PreparedTransport>>()
+const active = new Map<string, { work: Promise<PreparedTransport>; repair: boolean }>()
 
 export function transportRoot(platform = process.platform, home = os.homedir(), localAppData = process.env.LOCALAPPDATA) {
   if (platform === "win32") return path.win32.join(localAppData || path.win32.join(home, "AppData", "Local"), "StillOn", "Transport", "frp")
@@ -68,8 +69,8 @@ export async function resolveTransport(component: TransportComponent, location: 
     if (error instanceof TransportError) throw error
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new TransportError("CONNECTOR_BLOCKED")
     const saved = await receipt(files.receipt, component)
-    if (saved?.phase === "ready") throw new TransportError("CONNECTOR_BLOCKED")
-    if (saved?.phase === "failed" && ["CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_BLOCKED"].includes(saved.error ?? "")) {
+    if (saved?.phase === "ready") throw new TransportError("CONNECTOR_MISSING")
+    if (saved?.phase === "failed" && ["CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_BLOCKED", "CONNECTOR_POLICY_BLOCKED", "CONNECTOR_ACCESS_DENIED"].includes(saved.error ?? "")) {
       throw new TransportError(saved.error!)
     }
     if (saved) throw new TransportError("CONNECTOR_REPAIR_REQUIRED")
@@ -85,11 +86,11 @@ export async function transportStatus(component: TransportComponent, location: T
 }
 async function probe(file: string, component: TransportComponent) {
   try {
-    // This bounded, read-only probe happens only when installing a component,
-    // never on a cache hit or on every StillOn upgrade.
+    // This bounded, read-only probe runs during installation or explicit repair,
+    // never on an ordinary cache hit or on every StillOn upgrade.
     const result = await execute(file, ["--version"], { timeout: 30_000, windowsHide: true })
     if (result.stdout.trim() !== component.version) throw new Error()
-  } catch { throw new TransportError("CONNECTOR_BLOCKED") }
+  } catch (error) { throw new TransportError(connectorLaunchError(error)) }
 }
 function alive(pid: number) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return true
@@ -139,33 +140,49 @@ export function prepareTransport(component: TransportComponent, options: Transpo
   validateTransportComponent(component)
   const files = locations(component, options), key = files.directory
   const pending = active.get(key)
-  if (pending) return pending
+  // A plain cache check cannot satisfy an explicit execution check. Coalesce
+  // matching requests, but retain repair semantics when joining ordinary work.
+  if (pending) return options.repair && !pending.repair
+    ? pending.work.then(result => reuse(result.file), () => prepareTransport(component, options))
+    : pending.work
   const work = install()
-  active.set(key, work)
-  void work.finally(() => { if (active.get(key) === work) active.delete(key) }).catch(() => {})
+  active.set(key, { work, repair: Boolean(options.repair) })
+  void work.finally(() => { if (active.get(key)?.work === work) active.delete(key) }).catch(() => {})
   return work
+  async function reuse(file: string): Promise<PreparedTransport> {
+    // Explicit repair must check executability even when the bytes still match.
+    // Never redownload valid bytes merely because the OS refuses to run them.
+    if (options.repair) {
+      try { await (options.effects?.probe ?? probe)(file, component) }
+      catch (error) { throw error instanceof TransportError ? error : new TransportError(connectorLaunchError(error)) }
+    }
+    return { file, reused: true, source: "cache" }
+  }
   async function install(): Promise<PreparedTransport> {
-    try { return { file: await resolveTransport(component, options), reused: true, source: "cache" } }
+    let cached: string | undefined
+    try { cached = await resolveTransport(component, options) }
     catch (error) {
       if (await exists(files.lock)) {
         const file = await waitForWriter(component, options)
-        if (file) return { file, reused: true, source: "cache" }
+        if (file) return reuse(file)
       }
       if (!options.repair && !(error instanceof TransportError && error.code === "CONNECTOR_NOT_INSTALLED")) throw error
     }
+    if (cached) return reuse(cached)
     await mkdir(files.root, { recursive: true, mode: 0o700 }); await assertPlainDirectory(files.root)
     let release: () => Promise<void>
     try { release = await acquire(files.lock) } catch (error) {
       if (error instanceof TransportError && error.code === "CONNECTOR_PREPARING") {
         const file = await waitForWriter(component, options)
-        if (file) return { file, reused: true, source: "cache" }
+        if (file) return reuse(file)
       }
       throw error
     }
     let stage: string | undefined
     try {
       // Another process may have completed between the first check and the lock.
-      try { return { file: await resolveTransport(component, options), reused: true, source: "cache" } } catch { /* Check the durable attempt before mutation. */ }
+      try { cached = await resolveTransport(component, options) } catch { /* Check the durable attempt before mutation. */ }
+      if (cached) return await reuse(cached)
       if (!options.repair && await receipt(files.receipt, component)) throw new TransportError("CONNECTOR_REPAIR_REQUIRED")
       await atomicJson(files.receipt, { schema: 1, sha256: component.executable.sha256, phase: "preparing" } satisfies TransportReceipt)
       let data: { binary: Uint8Array; license: Uint8Array } | undefined, source: PreparedTransport["source"] = "download"
@@ -191,12 +208,10 @@ export function prepareTransport(component: TransportComponent, options: Transpo
       await (options.effects?.probe ?? probe)(executable, component)
       if (await exists(files.directory)) {
         await assertPlainDirectory(files.directory)
-        try {
-          const file = await validBinary(files.directory, component)
-          return { file, reused: true, source: "cache" }
-        } catch (error) {
-          if (!options.repair) throw error
-        }
+        let existing: string | undefined
+        try { existing = await validBinary(files.directory, component) }
+        catch (error) { if (!options.repair) throw error }
+        if (existing) return await reuse(existing)
         // An explicit repair preserves the previous bytes for diagnosis; no
         // in-place overwrite of a running helper or removal of other versions.
         await rename(files.directory, `${files.directory}.replaced-${randomUUID()}`)
@@ -206,7 +221,7 @@ export function prepareTransport(component: TransportComponent, options: Transpo
       await atomicJson(files.receipt, { schema: 1, sha256: component.executable.sha256, phase: "ready" } satisfies TransportReceipt)
       return { file, reused: source === "legacy", source }
     } catch (caught) {
-      const error = caught instanceof TransportError ? caught : new TransportError("CONNECTOR_BLOCKED")
+      const error = caught instanceof TransportError ? caught : new TransportError(connectorLaunchError(caught))
       if (error.code !== "CONNECTOR_REPAIR_REQUIRED") await atomicJson(files.receipt, { schema: 1, sha256: component.executable.sha256,
         phase: "failed", error: error.code } satisfies TransportReceipt).catch(() => {})
       throw error

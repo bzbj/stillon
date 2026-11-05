@@ -8,6 +8,9 @@ import type { ConnectLocalStatus, ConnectRemoteStatus } from "../../shared/conne
 
 const labels: Record<ConnectLocalStatus["state"], string> = { unbound: "No email linked", pending: "Waiting for email verification", connecting: "Connecting", online: "Remote access is on", offline: "This computer is offline", paused: "Remote access is paused", revoked: "Computer unlinked", "revocation-pending": "Connection closed; unlinking pending" }
 const errors: Record<string, string> = {
+  CONNECTOR_MISSING: "The previously installed Connect component is missing. Review your security software’s quarantine or protection history before choosing Repair Connect component. Local use remains available.",
+  CONNECTOR_POLICY_BLOCKED: "Windows application control blocked the Connect component. Review Windows Security or contact your administrator for a trusted component. After the block is resolved, choose Repair Connect component. Local use remains available.",
+  CONNECTOR_ACCESS_DENIED: "The operating system denied permission to run the Connect component. Review file permissions and security notifications, then choose Repair Connect component. Local use remains available.",
   CONNECT_API_DNS_FAILED: "Connect could not resolve the service address. It will retry automatically.",
   CONNECT_API_CONNECTION_FAILED: "Connect could not reach the service. It will retry automatically.",
   CONNECT_API_TIMEOUT: "The Connect service connection timed out. It will retry automatically.",

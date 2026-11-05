@@ -14,7 +14,7 @@ export interface TransportComponent {
   executable: { sha256: string; size: number }
 }
 export type TransportErrorCode = "CONNECTOR_NOT_INSTALLED" | "CONNECTOR_INTEGRITY_FAILED" | "CONNECTOR_DOWNLOAD_FAILED"
-  | "CONNECTOR_BLOCKED" | "CONNECTOR_REPAIR_REQUIRED" | "CONNECTOR_PREPARING" | "CONNECTOR_COMPONENT_INVALID"
+  | "CONNECTOR_MISSING" | "CONNECTOR_POLICY_BLOCKED" | "CONNECTOR_ACCESS_DENIED" | "CONNECTOR_BLOCKED" | "CONNECTOR_REPAIR_REQUIRED" | "CONNECTOR_PREPARING" | "CONNECTOR_COMPONENT_INVALID"
 export class TransportError extends Error {
   constructor(public code: TransportErrorCode) { super(code) }
 }

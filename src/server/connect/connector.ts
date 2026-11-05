@@ -1,3 +1,4 @@
+import { connectorLaunchError } from "./launch-error"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { rootCertificates } from "node:tls"
 import path from "node:path"
@@ -252,9 +253,11 @@ export async function createConnector(options: ConnectorOptions) {
     let child: ReturnType<typeof Bun.spawn>
     const startedAt = now()
     try { child = Bun.spawn([binary, "-c", configPath], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: transportEnvironment(environment) }) }
-    catch {
-      if (component) componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
-      throw new ConnectorError("CONNECTOR_BLOCKED")
+    catch (caught) {
+      const code = connectorLaunchError(caught)
+      if (component) componentStatus = { state: "error", version: component.version, error: code }
+      await stopTransport()
+      throw new ConnectorError(code)
     }
     tunnelFailure = null
     async function drain(stream: ReadableStream<Uint8Array>) {
@@ -283,6 +286,7 @@ export async function createConnector(options: ConnectorOptions) {
       // endless relaunch/prompt loop. An explicit local repair retries it.
       if (component && code !== 0 && now() - startedAt < 2_000) {
         error = "CONNECTOR_BLOCKED"; componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
+        await stopTransport()
       }
       nextBeat = now() + (routing?.retryDelay ?? 5_000)
     } }).catch(() => {})
@@ -416,7 +420,7 @@ export async function createConnector(options: ConnectorOptions) {
     diagnostics() {
       // An explicit allowlist prevents new state fields, keys, URLs and private
       // server error text from silently appearing in a copied support report.
-      const safeErrors = new Set(["CONNECT_ROUTE_CHANGED", "CONNECT_TUNNEL_TIMEOUT", "CONNECT_TUNNEL_TLS_FAILED", "CONNECT_TUNNEL_DNS_FAILED", "CONNECT_TUNNEL_CONNECTION_FAILED", "CONNECT_API_DNS_FAILED", "CONNECT_API_CONNECTION_FAILED", "CONNECT_API_TIMEOUT", "CONNECT_API_TLS_FAILED", "SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "CONNECTOR_BLOCKED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_REPAIR_REQUIRED", "CONNECTOR_COMPONENT_INVALID", "CONNECTOR_PREPARING", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
+      const safeErrors = new Set(["CONNECT_ROUTE_CHANGED", "CONNECT_TUNNEL_TIMEOUT", "CONNECT_TUNNEL_TLS_FAILED", "CONNECT_TUNNEL_DNS_FAILED", "CONNECT_TUNNEL_CONNECTION_FAILED", "CONNECT_API_DNS_FAILED", "CONNECT_API_CONNECTION_FAILED", "CONNECT_API_TIMEOUT", "CONNECT_API_TLS_FAILED", "SERVICE_UNAVAILABLE", "SERVICE_NOT_CONFIGURED", "INVALID_SERVICE_ORIGIN", "DEVICE_STATE_INVALID", "CREDENTIAL_PERMISSIONS_FAILED", "CONNECTOR_NOT_INSTALLED", "CONNECTOR_MISSING", "CONNECTOR_POLICY_BLOCKED", "CONNECTOR_ACCESS_DENIED", "CONNECTOR_BLOCKED", "CONNECTOR_INTEGRITY_FAILED", "CONNECTOR_DOWNLOAD_FAILED", "CONNECTOR_REPAIR_REQUIRED", "CONNECTOR_COMPONENT_INVALID", "CONNECTOR_PREPARING", "TUNNEL_DISCONNECTED", "CONNECTION_EXPIRED", "DEVICE_ALREADY_CONNECTED", "BINDING_EXPIRED", "ACCESS_PAUSED", "CLOUD_UPDATE_PENDING", "NOT_FOUND", "RATE_LIMITED", "INVALID_PROOF"])
       return { schema: 1, reportId: randomId(), generatedAt: new Date().toISOString(), scope: "local-connector", version: pkg.version,
         protocol: CONNECT_PROTOCOL, platform: process.platform, architecture: process.arch, state: status, configured: Boolean(origin),
         bound: Boolean(state?.binding), transportRunning: Boolean(frpc), activeStreams: adapter?.activeLeases().length ?? 0,
