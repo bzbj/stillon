@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline"
 import { startDeepSeekTurn } from "./deepseek-harness"
-import { discoverDeepSeek, deepSeekVersion } from "./deepseek-cli"
+import { deepSeekCliVersion, discoverDeepSeek, deepSeekVersion } from "./deepseek-cli"
 import type { HarnessTurn } from "../../../src/server/harness-types"
 import type { AddonTurnArgs } from "../../../src/server/addon-process"
 import { modelControl } from "./model-control"
@@ -12,7 +12,7 @@ const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
 async function checkCli() {
   const executable = await discoverDeepSeek(process.env), version = await deepSeekVersion(executable, process.env)
   // New vendor releases need qualification; a similar executable name is insufficient.
-  if (version !== "0.2.1-rc.5") throw new Error(`DeepSeek CLI ${version} is not qualified by this add-on. Install a compatible add-on version.`)
+  if (version !== deepSeekCliVersion()) throw new Error(`DeepSeek CLI ${version} is not qualified by this add-on. This platform's preview requires ${deepSeekCliVersion()}.`)
   return { executable, version }
 }
 async function shutdown() {
@@ -24,7 +24,7 @@ async function shutdown() {
 async function handle(method: string, params: any) {
   if (method === "hello") {
     if (params?.api !== 1) throw new Error("Unsupported host API.")
-    return { api: 1, id: "deepseek", version: "0.2.0-preview.1" }
+    return { api: 1, id: "deepseek", version: "0.2.0-preview.2" }
   }
   if (method === "status") {
     const base = { provider: "deepseek", platform: process.platform, canOpenTerminal: false, canSelectExecutable: Boolean(params?.local) }

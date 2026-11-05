@@ -7,6 +7,9 @@ import { findCliExecutable } from "../../../src/server/cli-environment"
 const exec = promisify(execFile)
 const quote = (value: string) => `'${value.replaceAll("'", "''")}'`
 
+// The Mac preview uses the public release with SDK question/approval bridging.
+export const deepSeekCliVersion = (platform: NodeJS.Platform = process.platform) => platform === "darwin" ? "0.2.2-rc.1" : "0.2.1-rc.5"
+
 /** Launch the documented CLI, including Desktop's public Windows shim. */
 export function deepSeekCommand(executable: string, args: string[], environment: NodeJS.ProcessEnv, platform = process.platform) {
   if (platform === "win32" && /\.(cmd|bat|ps1)$/iu.test(executable)) {
@@ -58,7 +61,7 @@ export async function deepSeekVersion(executable: string, environment: NodeJS.Pr
   const launch = deepSeekCommand(executable, ["--version"], environment)
   const pending = exec(launch.command, launch.args, { env: environment, windowsHide: true, timeout: 15_000, maxBuffer: 128 * 1024 })
   const output = await pending.catch(async error => {
-    if (pending.child.pid && error.killed) await killDeepSeekTree(pending.child.pid).catch(() => undefined)
+    if (pending.child.pid && error.killed) await killDeepSeekTree(pending.child.pid, false).catch(() => undefined)
     throw new Error("The selected DeepSeek CLI could not report its version. Check or repair its installation.")
   })
   const version = output.stdout.trim()
@@ -68,10 +71,11 @@ export async function deepSeekVersion(executable: string, environment: NodeJS.Pr
 
 export function spawnDeepSeek(executable: string, cwd: string, environment: NodeJS.ProcessEnv, extra: string[] = []) {
   const launch = deepSeekCommand(executable, ["--profile", "sdk", ...extra], environment)
-  return spawn(launch.command, launch.args, { env: environment, cwd, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] })
+  return spawn(launch.command, launch.args, { env: environment, cwd, windowsHide: true,
+    detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] })
 }
 
-export async function killDeepSeekTree(pid: number) {
+export async function killDeepSeekTree(pid: number, processGroup = true) {
   if (process.platform === "win32") await exec("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: 10_000 })
-  else process.kill(pid, "SIGKILL")
+  else process.kill(processGroup ? -pid : pid, "SIGKILL")
 }

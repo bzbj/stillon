@@ -24,10 +24,23 @@ WorkBuddy Desktop is a separate product. This adapter does not extract its
 private bundled runtime or copy its account credentials. Users manage CLI
 installation, sign-in, endpoint, model, and updates outside StillOn.
 
-The initial preview targets **Windows x64 / CodeBuddy CLI 2.180.0**. Unknown CLI
+The preview targets **Windows x64 and macOS Intel / Apple Silicon**, with public
+**CodeBuddy CLI 2.180.0**. Unknown CLI
 versions fail with a compatibility message. Qualify a new version and publish a
 new adapter after a vendor update; do not assume compatible flags imply a
 compatible protocol. Other platforms are not advertised by the manifest.
+
+For the pinned macOS preview, install Node.js 24 and run:
+
+```sh
+npm install -g @tencent-ai/codebuddy-code@2.180.0
+codebuddy --version
+```
+
+Sign in and choose the model/endpoint in the public CLI. A compatible native or
+Homebrew launcher can also be selected through **Configure → Use an existing CLI**.
+StillOn searches PATH, public user launcher directories, `/usr/local/bin` and
+`/opt/homebrew/bin`; it never uses WorkBuddy's private runtime.
 
 ## Invocation and behavior
 
@@ -64,11 +77,13 @@ inside owned turns so an update cannot replace their transport mid-request.
   uninstall/reinstall, and saved permission settings after reload checked in the
   isolated development preview. Installed adapter availability is distinct from CLI
   installation and account readiness.
-- **Authenticated CodeBuddy inference, real session resume/tool execution,
-  packaged-desktop upgrades and managed Connect acceptance are outstanding.**
-  Synthetic protocol coverage does not establish those results. The machine
-  used for development has WorkBuddy Desktop but no configured public CodeBuddy
-  CLI; the downloaded test CLI remains inside ignored test artifacts.
+- macOS acceptance runs the real public CLI with isolated configuration and a
+  loopback model endpoint. It checks actual session resume, file reading, host
+  questions and cancellation on both Mac architectures in CI. Run
+  `bun scripts/verify-macos-integrations.ts --run` after installing the pinned CLIs
+  under `test-artifacts/macos-cli`.
+- **Vendor-account inference and packaged-desktop replacement/upgrades remain
+  unqualified.** Loopback endpoint acceptance does not validate a vendor account.
 
 Run `bun test src/server/codebuddy-harness.test.ts`. Start an empty, isolated
 two-provider preview with `bun scripts/dev-provider-addons.ts` (port 3218), then

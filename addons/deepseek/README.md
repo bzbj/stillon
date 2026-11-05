@@ -1,7 +1,8 @@
 # DeepSeek Harness optional integration
 
-Development package version: **0.2.0-preview.1**, StillOn add-on API **1**.
-Qualified local target: Windows x64 with public `dsh` **0.2.1-rc.5**.
+Development package version: **0.2.0-preview.2**, StillOn add-on API **1**.
+Preview targets: Windows x64 with public `dsh` **0.2.1-rc.5**, and macOS Intel /
+Apple Silicon with **0.2.2-rc.1** (including SDK questions and approvals).
 Other platforms and CLI versions are rejected until qualified.
 
 StillOn includes this adapter, disabled by default. Open **Settings -> Integrations
@@ -14,7 +15,7 @@ For standalone development fixtures, build from the repository root:
 bun scripts/build-provider-addon.ts
 ```
 
-This produces `dist/addons/deepseek-0.2.0-preview.1.stillon-addon`, a JSON envelope with
+This produces `dist/addons/deepseek-0.2.0-preview.2.stillon-addon`, a JSON envelope with
 validated manifest metadata and a self-contained JavaScript adapter. The script
 digest detects corruption; this locally imported development package is not an
 authenticated online catalog release. Only import packages from trusted sources.
@@ -23,6 +24,21 @@ Open **Providers -> DeepSeek Harness** after enabling it to check the
 user's local Harness installation. The model service panel reuses native credentials,
 can save a new API key, and supports existing provider routes or custom BYOK endpoints.
 StillOn does not install another Harness or import existing secret values.
+
+On macOS, use the public CLI from a compatible Harness Desktop installation or
+install the pinned CLI with Node.js 24:
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+dsh --version
+```
+
+The npm route works on both Intel and Apple Silicon; the vendor's Desktop download
+may only offer Apple Silicon. StillOn checks PATH, `/Applications/DeepSeek Harness.app`
+and `~/Applications/DeepSeek Harness.app`. **Configure → Use an existing CLI** can
+select another public launcher. A selected missing launcher or untested version
+reports an error. Configure account access in Harness or API access in StillOn's
+local model service panel, then discover and save the enabled models.
 
 Use **Discover loaded models**, select the models to enable, choose a default,
 and **Save chat model list**. Discovery is a draft; failed discovery leaves the
@@ -77,7 +93,8 @@ installed add-on in an isolated workspace. See
 [the add-on architecture](../../docs/provider-add-on-packages.md) for the remaining
 distribution, CodeBuddy, cross-platform and managed Connect acceptance work.
 
-Model management requires the updated host from this branch. Configuration and
-model-list writes are local-owner only; remote workspace clients consume the
-enabled list. Managed configuration UI, authenticated Connect acceptance and
-installer upgrade acceptance remain unqualified product gaps.
+Configuration and model-list writes are local-owner only; authenticated Connect
+clients consume the saved list and use chats under existing workspace permissions.
+Mac CLI acceptance uses isolated native homes and a loopback model endpoint; see
+`bun scripts/verify-macos-integrations.ts --run`. Vendor-account inference and
+Desktop-only installation/upgrade acceptance remain separate from this CLI preview.

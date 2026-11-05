@@ -93,15 +93,18 @@ export class CodeBuddyProtocol {
 }
 
 /** Deliberately ignores init account fields, raw control messages and history replay. */
-export function codeBuddyTranscript(frame: any): TranscriptEntry[] {
+export function codeBuddyTranscript(frame: any, questionToolIds?: Set<string>): TranscriptEntry[] {
   if (!record(frame) || !Array.isArray(frame.message?.content)) return []
   const entries: TranscriptEntry[] = []
   for (const block of frame.message.content) {
+    if (frame.type === "assistant" && block?.type === "tool_use" && block.name === "AskUserQuestion" && typeof block.id === "string") questionToolIds?.add(block.id)
     if (frame.type === "assistant" && block?.type === "text" && typeof block.text === "string") entries.push(entry({ kind: "assistant_text", text: block.text }))
     if (frame.type === "assistant" && block?.type === "tool_use" && typeof block.name === "string" && typeof block.id === "string" && block.name !== "AskUserQuestion") {
       entries.push(entry({ kind: "tool_call", tool: normalizeToolCall({ toolName: block.name, toolId: block.id, input: record(block.input) ? block.input : {} }) }))
     }
-    if (frame.type === "user" && block?.type === "tool_result" && typeof block.tool_use_id === "string") entries.push(entry({ kind: "tool_result", toolId: block.tool_use_id, content: contentText(block.content), isError: Boolean(block.is_error) }))
+    // Host questions/answers are already persisted by the coordinator under the
+    // host request ID. Suppress the matching native result with its different ID.
+    if (frame.type === "user" && block?.type === "tool_result" && typeof block.tool_use_id === "string" && !questionToolIds?.has(block.tool_use_id)) entries.push(entry({ kind: "tool_result", toolId: block.tool_use_id, content: contentText(block.content), isError: Boolean(block.is_error) }))
   }
   return entries
 }
@@ -127,6 +130,7 @@ export function codeBuddyArgs(args: Omit<CodeBuddyTurnArgs, "onToolRequest" | "e
 export function startCodeBuddyTurn(args: CodeBuddyTurnArgs, dependencies = { check: checkCodeBuddy, spawn: spawnCodeBuddy }): HarnessTurn {
   let protocol: CodeBuddyProtocol | undefined, cancelled = false, failure: Error | undefined, wake: (() => void) | undefined
   const frames: any[] = [], activeTasks = new Set<string>()
+  const questionToolIds = new Set<string>()
   const enqueue = (frame: any) => { frames.push(frame); wake?.(); wake = undefined }
   const close = async () => { if (protocol) await protocol.close() }
   return { provider: "codebuddy", close, interrupt: async () => { cancelled = true; wake?.(); await close() }, stream: {
@@ -161,7 +165,8 @@ export function startCodeBuddyTurn(args: CodeBuddyTurnArgs, dependencies = { che
           return { allowed: true, updatedInput: { ...input, answers }, tool_use_id: request.tool_use_id }
         }
         // Do not retain or forward this response: it can contain account.token.
-        await protocol.request({ subtype: "initialize", hooks: {}, capabilities: { askUserQuestion: true }, hasPrompt: true })
+        // A cold public CLI can spend over 30 seconds loading on Intel Macs.
+        await protocol.request({ subtype: "initialize", hooks: {}, capabilities: { askUserQuestion: true }, hasPrompt: true }, 60_000)
         if (cancelled) return
         protocol.write({ type: "user", session_id: "", message: { role: "user", content: args.content }, parent_tool_use_id: null })
         let terminal: any, finalText = ""
@@ -185,7 +190,7 @@ export function startCodeBuddyTurn(args: CodeBuddyTurnArgs, dependencies = { che
             terminal = undefined
           }
           if (frame.type === "stillon_question") yield { type: "transcript", entry: entry({ kind: "tool_call", tool: frame.tool }) }
-          for (const transcript of codeBuddyTranscript(frame)) {
+          for (const transcript of codeBuddyTranscript(frame, questionToolIds)) {
             if (transcript.kind === "assistant_text") finalText = transcript.text
             yield { type: "transcript", entry: transcript }
           }
