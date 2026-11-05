@@ -27,6 +27,7 @@ export interface UpdateState {
   newRuntime: string
   updatedAt: string
   error?: string
+  recoveryError?: string
   backupReady?: boolean
   dataExisted?: boolean
   newMayHaveStarted?: boolean
