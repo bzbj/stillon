@@ -67,7 +67,7 @@ export async function verifyDirectFileInput(page: Page, chromium: boolean) {
   const before = Number((await button.textContent())?.split(": ").at(-1))
   const buttonBox = await displayedFileBox(page, button)
   await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
-  await page.waitForTimeout(50)
+  await frame.getByRole("button", { name: "Add one: " + (before + 1), exact: true }).waitFor()
   assert.equal(await button.textContent(), "Add one: " + (before + 1))
   const input = frame.getByRole("textbox", { name: "File input" })
   await input.fill(""); await input.focus()
