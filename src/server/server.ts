@@ -15,7 +15,7 @@ import path from "node:path"
 import { realpath, stat } from "node:fs/promises"
 import { APP_VERSION, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
 import { createManagedAppControl } from "./updater/app-control"
-import { createManagedUpdateApi } from "./updater/api"
+import { createManagedUpdateApi, type ManagedUpdateApi } from "./updater/api"
 import { parseLocalFileContentUrl } from "../shared/local-file-urls"
 import type { ChatAttachment } from "../shared/types"
 import { createAuthManager } from "./auth"
@@ -104,6 +104,8 @@ export async function persistUploadedFiles(args: {
 }
 
 export interface StartStillOnServerOptions {
+  /** Explicit updater service for isolated installations and integration fixtures. */
+  managedUpdate?: ManagedUpdateApi
   providerCliUpdates?: Pick<ProviderCliUpdatesOptions, "inspect" | "release" | "install" | "verify">
   claudeModelDiscovery?: ClaudeModelDiscoveryOptions
   codexModelDiscovery?: CodexModelDiscoveryOptions
@@ -344,7 +346,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     },
     sourceUpgradePrompt,
     remoteOperations,
-    managedUpdate: createManagedUpdateApi(path.resolve(import.meta.dir, "..", "..")),
+    managedUpdate: options.managedUpdate ?? createManagedUpdateApi(path.resolve(import.meta.dir, "..", "..")),
     llmProvider: {
       read: readLlmProviderSnapshot,
       write: writeLlmProviderSnapshot,
