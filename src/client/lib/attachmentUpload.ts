@@ -1,5 +1,6 @@
 import type { ChatAttachment } from "../../shared/types"
-import { ATTACHMENT_UPLOAD_CHUNK_BYTES, ATTACHMENT_UPLOAD_MAX_BYTES, ATTACHMENT_UPLOAD_PROTOCOL, ATTACHMENT_UPLOAD_RECOVERY_THRESHOLD, UPLOAD_HEADERS } from "../../shared/attachment-upload"
+import { ATTACHMENT_UPLOAD_CHUNK_BYTES, ATTACHMENT_UPLOAD_MAX_BYTES, ATTACHMENT_UPLOAD_PROTOCOL, UPLOAD_HEADERS } from "../../shared/attachment-upload"
+import { generateUUID } from "./utils"
 
 export interface AttachmentUploadArgs {
   projectId: string; file: File; uploadId?: string; signal?: AbortSignal
@@ -59,7 +60,8 @@ function sendChunk(args: AttachmentUploadArgs, id: string, offset: number, chunk
 
 export async function uploadAttachmentWithRecovery(args: AttachmentUploadArgs, legacy: (args: AttachmentUploadArgs) => Promise<ChatAttachment>, responseError: ResponseError) {
   if (args.file.size > ATTACHMENT_UPLOAD_MAX_BYTES) throw new Error("This file exceeds the 100 MB attachment limit.")
-  if (args.file.size < ATTACHMENT_UPLOAD_RECOVERY_THRESHOLD) return legacy(args)
+  // Protocol 1 requires a positive byte count; empty files retain legacy handling.
+  if (args.file.size === 0) return legacy(args)
   let capabilities!: Response, text = ""
   for (let attempt = 0; ; attempt++) {
     try {
@@ -82,7 +84,7 @@ export async function uploadAttachmentWithRecovery(args: AttachmentUploadArgs, l
   if (support.protocol !== ATTACHMENT_UPLOAD_PROTOCOL || support.chunkBytes !== ATTACHMENT_UPLOAD_CHUNK_BYTES) return legacy(args)
   if (!Number.isSafeInteger(support.maxFileBytes) || support.maxFileBytes <= 0) throw new Error("The server returned invalid upload limits.")
   if (args.file.size > support.maxFileBytes) throw new Error(`This file exceeds the ${Math.floor(support.maxFileBytes / 1024 / 1024)} MB attachment limit.`)
-  const id = args.uploadId ?? crypto.randomUUID()
+  const id = args.uploadId ?? generateUUID()
   let offset = 0
   while (offset < args.file.size) {
     args.signal?.throwIfAborted()

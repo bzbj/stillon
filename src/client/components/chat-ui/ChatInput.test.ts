@@ -97,6 +97,7 @@ describe("attachment uploads without crypto.randomUUID", () => {
   test("creates the pending attachment and sends the upload request", async () => {
     const randomUuidDescriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, "randomUUID")
     const xhrDescriptor = Object.getOwnPropertyDescriptor(globalThis, "XMLHttpRequest")
+    const originalFetch = globalThis.fetch
 
     class FakeXMLHttpRequest {
       static latest: FakeXMLHttpRequest | null = null
@@ -118,6 +119,7 @@ describe("attachment uploads without crypto.randomUUID", () => {
         }],
       })
       upload = { addEventListener: () => undefined }
+      headers = new Headers()
       private listeners = new Map<string, () => void>()
 
       constructor() {
@@ -143,8 +145,14 @@ describe("attachment uploads without crypto.randomUUID", () => {
         return name.toLowerCase() === "content-type" ? "application/json" : null
       }
 
+      setRequestHeader(name: string, value: string) {
+        this.headers.set(name, value)
+      }
+
       send(body: XMLHttpRequestBodyInit | Document | null) {
         this.body = body
+        this.responseText = JSON.stringify({ ...JSON.parse(this.responseText),
+          upload: { id: this.headers.get("x-upload-id"), offset: 5, size: 5 } })
         queueMicrotask(() => this.listeners.get("load")?.())
       }
     }
@@ -157,6 +165,7 @@ describe("attachment uploads without crypto.randomUUID", () => {
       configurable: true,
       value: FakeXMLHttpRequest,
     })
+    globalThis.fetch = (async () => Response.json({ protocol: 1, chunkBytes: 1024 * 1024, maxFileBytes: 100 * 1024 * 1024 })) as typeof fetch
 
     try {
       const file = new File(["hello"], "notes.txt", { type: "text/plain" })
@@ -164,14 +173,16 @@ describe("attachment uploads without crypto.randomUUID", () => {
       const upload = uploadProjectAttachment({ projectId: "project-1", file })
 
       expect(pendingAttachment.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-      expect(FakeXMLHttpRequest.latest?.method).toBe("POST")
-      expect(FakeXMLHttpRequest.latest?.url).toBe("/api/projects/project-1/uploads")
-      expect(FakeXMLHttpRequest.latest?.body).toBeInstanceOf(FormData)
       await expect(upload).resolves.toMatchObject({
         id: "uploaded-attachment",
         displayName: "notes.txt",
       })
+      expect(FakeXMLHttpRequest.latest?.method).toBe("POST")
+      expect(FakeXMLHttpRequest.latest?.url).toBe("/api/projects/project-1/uploads")
+      expect(FakeXMLHttpRequest.latest?.body).toBeInstanceOf(FormData)
+      expect(FakeXMLHttpRequest.latest?.headers.get("x-upload-id")).toMatch(/^[0-9a-f-]{36}$/)
     } finally {
+      globalThis.fetch = originalFetch
       if (randomUuidDescriptor) {
         Object.defineProperty(globalThis.crypto, "randomUUID", randomUuidDescriptor)
       } else {

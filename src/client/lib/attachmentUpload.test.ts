@@ -8,7 +8,7 @@ import { startStillOnServer } from "../../server/server"
 import { UPLOAD_HEADERS, ATTACHMENT_UPLOAD_CHUNK_BYTES as CHUNK } from "../../shared/attachment-upload"
 import type { ChatAttachment } from "../../shared/types"
 
-test("large uploads recover lost chunk and final replies, resume an explicit retry and never duplicate the saved file", async () => {
+test("uploads recover lost chunk and final replies, resume an explicit retry and never duplicate the saved file", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stillon-upload-client-"))
   const server = await startStillOnServer({ dataDir: path.join(root, "state"), discoveryHome: root, port: 0, strictPort: true,
     connect: { origin: "http://127.0.0.1:9", frpcPath: process.execPath, environment: {} },
@@ -35,7 +35,8 @@ test("large uploads recover lost chunk and final replies, resume an explicit ret
           failedOnce = true; response = Response.json({ error: "Fixture failure" }, { status: 500 })
         } else response = await networkFetch(origin + this.url, { method: "POST", headers: { origin, ...Object.fromEntries(this.headers) }, body, signal: this.controller.signal })
         this.status = response.status; this.responseHeaders = new Headers(response.headers); this.responseText = await response.text()
-        if (mode === "lost-replies" && [CHUNK, 4 * CHUNK].includes(offset) && !dropped.has(offset)) {
+        const singleChunk = Number(this.headers.get(UPLOAD_HEADERS.total)) <= CHUNK
+        if (mode === "lost-replies" && (singleChunk || [CHUNK, 4 * CHUNK].includes(offset)) && !dropped.has(offset)) {
           dropped.add(offset)
           if (offset === CHUNK) this.dispatchEvent(new Event("error"))
           else {
@@ -72,8 +73,21 @@ test("large uploads recover lost chunk and final replies, resume an explicit ret
     expect(offsets).toEqual([0, CHUNK, 2 * CHUNK, 0, 2 * CHUNK, 3 * CHUNK, 4 * CHUNK])
     expect(await readFile(resumed.absolutePath)).toEqual(payload)
     expect((await readdir(path.dirname(result.absolutePath))).length).toBe(2)
+    // Screenshots and tiny files used to bypass receipts and transient retries.
+    // Lose a final reply after saving; replay must return that same attachment.
+    let savedFiles = 2
+    for (const size of [1, 373 * 1024, CHUNK, CHUNK + 1]) {
+      mode = "lost-replies"; offsets.length = 0; dropped.clear()
+      const bytes = Buffer.alloc(size, 0x71), retries: number[] = []
+      const small = await uploadAttachmentWithRecovery({ projectId: project.id,
+        file: new File([bytes], "screenshot.bin"), uploadId: randomUUID(), onRetry: attempt => retries.push(attempt) }, legacy, describe)
+      expect(await readFile(small.absolutePath)).toEqual(bytes)
+      expect(offsets).toEqual(size <= CHUNK ? [0, 0] : [0, CHUNK, CHUNK])
+      expect(retries).toEqual([1])
+      expect((await readdir(path.dirname(result.absolutePath))).length).toBe(++savedFiles)
+    }
     mode = "auth"; offsets.length = 0
-    await expect(uploadAttachmentWithRecovery({ projectId: project.id, file }, legacy, describe)).rejects.toThrow("HTTP 401")
+    await expect(uploadAttachmentWithRecovery({ projectId: project.id, file: new File(["small"], "small.txt") }, legacy, describe)).rejects.toThrow("HTTP 401")
     expect(offsets.length).toBe(1)
   } finally {
     globalThis.fetch = networkFetch; globalThis.XMLHttpRequest = originalXhr
@@ -86,12 +100,27 @@ test("older hosts receive the complete legacy upload; oversized files are refuse
   let reads = 0, calls = 0
   globalThis.fetch = (async () => { reads++; return new Response("<html>old host</html>", { headers: { "content-type": "text/html" } }) }) as typeof fetch
   try {
-    const file = new File([new Uint8Array(4 * CHUNK)], "legacy.bin")
+    const file = new File([new Uint8Array(373 * 1024)], "legacy.bin")
     const legacy = async (args: { file: File }) => { calls++; expect(args.file).toBe(file); return { id: "fixture" } as ChatAttachment }
     expect((await uploadAttachmentWithRecovery({ projectId: "workspace", file }, legacy, () => "error")).id).toBe("fixture")
     expect(calls).toBe(1); expect(reads).toBe(1)
     Object.defineProperty(file, "size", { value: 101 * CHUNK })
     await expect(uploadAttachmentWithRecovery({ projectId: "workspace", file }, legacy, () => "error")).rejects.toThrow("100 MB")
     expect(reads).toBe(1); expect(calls).toBe(1)
+  } finally { globalThis.fetch = original }
+})
+
+test("empty attachments preserve legacy handling without negotiating a positive-size protocol", async () => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => { throw new Error("Empty files must not negotiate chunk support") }) as typeof fetch
+  try {
+    const file = new File([], "empty.txt")
+    const attachment = { id: "empty", size: 0 } as ChatAttachment
+    const result = await uploadAttachmentWithRecovery({ projectId: "workspace", file }, async args => {
+      calls++; expect(args.file).toBe(file); return attachment
+    }, () => "error")
+    expect(result).toBe(attachment)
+    expect(calls).toBe(1)
   } finally { globalThis.fetch = original }
 })
