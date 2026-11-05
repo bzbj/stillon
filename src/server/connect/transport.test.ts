@@ -336,3 +336,15 @@ test("explicit repair overlapping an ordinary cache check still probes execution
   expect(outcomes[1]).toMatchObject({ status: "rejected", reason: { code: "CONNECTOR_POLICY_BLOCKED" } })
   expect(f.counts().downloads).toBe(1)
 })
+
+test("explicit repair overlapping a failed ordinary check still restores a missing component", async () => {
+  const f = await fixture(), first = await prepareTransport(f.component, f.options)
+  await rm(first.file)
+  const ordinary = prepareTransport(f.component, f.options)
+  const repair = prepareTransport(f.component, { ...f.options, repair: true })
+  const outcomes = await Promise.allSettled([ordinary, repair])
+  expect(outcomes[0]).toMatchObject({ status: "rejected", reason: { code: "CONNECTOR_MISSING" } })
+  expect(outcomes[1]).toMatchObject({ status: "fulfilled", value: { file: first.file } })
+  expect(await resolveTransport(f.component, f.options)).toBe(first.file)
+  expect(f.counts()).toEqual({ downloads: 2, probes: 2 })
+})

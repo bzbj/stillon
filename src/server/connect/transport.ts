@@ -142,7 +142,9 @@ export function prepareTransport(component: TransportComponent, options: Transpo
   const pending = active.get(key)
   // A plain cache check cannot satisfy an explicit execution check. Coalesce
   // matching requests, but retain repair semantics when joining ordinary work.
-  if (pending) return options.repair && !pending.repair ? pending.work.then(result => reuse(result.file)) : pending.work
+  if (pending) return options.repair && !pending.repair
+    ? pending.work.then(result => reuse(result.file), () => prepareTransport(component, options))
+    : pending.work
   const work = install()
   active.set(key, { work, repair: Boolean(options.repair) })
   void work.finally(() => { if (active.get(key)?.work === work) active.delete(key) }).catch(() => {})
