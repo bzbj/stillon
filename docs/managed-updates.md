@@ -227,13 +227,16 @@ source-only or partially uploaded releases stay unavailable to package users.
 
 The managed controller writes each application instance's stderr to
 `application-logs/<instance>.stderr.log` under the managed update root and records
-its latest unexpected exit in `application-exit.json`. These files stay local;
-they may contain private paths or application output and should be redacted
+its latest unexpected exit in `application-exit.json`. Each log retains at most
+64 KiB of recent stderr. The eight newest logs and logs cited by the current
+transaction's upgrade/recovery errors are retained. Log files use owner-only
+permissions on Unix; logging failures do not block application startup.
+These files stay local; they may contain private paths or application output and should be redacted
 before sharing. Health-check timeouts identify known port/permission failures
 and point to that instance log instead of copying raw stderr into update status.
 
 If rollback also fails, `state.json` retains the original upgrade failure in
 `error` and stores the rollback failure separately in `recoveryError`. A later
-recovery worker preserves the original reason. These controller diagnostics
-require a newly installed controller; updating only the app does not replace
+recovery worker preserves the original reason even if recovery fails again.
+These controller diagnostics require a newly installed controller; updating only the app does not replace
 an existing pinned controller.

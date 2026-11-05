@@ -71,11 +71,13 @@ export class UpdateEngine {
   async execute() {
     this.state = await json<UpdateState>(this.stateFile)
     if (FINISHED_PHASES.has(this.state.phase)) return
+    // Recovery has its own failure boundary: do not retry rollback in the
+    // upgrade catch block or replace the original error with a recovery error.
+    if (SWITCH_PHASES.has(this.state.phase)) {
+      await this.recover(this.state.error ?? "An interrupted switch was recovered by the independent updater.")
+      return
+    }
     try {
-      if (SWITCH_PHASES.has(this.state.phase)) {
-        await this.rollback(this.state.error ?? "An interrupted switch was recovered by the independent updater.")
-        return
-      }
       if (this.state.phase !== "queued") {
         await this.save("failed", { error: "Preparation was interrupted; the old version remains selected. Submit a new request." })
         return
@@ -102,10 +104,14 @@ export class UpdateEngine {
         await this.save("failed", { error: reason })
         return
       }
-      try { await this.rollback(reason) } catch (failure) {
-        await this.save("recovery-required", { error: reason, recoveryError: failure instanceof Error ? failure.message : "Recovery failed; retained all backups." })
-        throw failure
-      }
+      await this.recover(reason)
+    }
+  }
+
+  private async recover(reason: string) {
+    try { await this.rollback(reason) } catch (failure) {
+      await this.save("recovery-required", { error: reason, recoveryError: failure instanceof Error ? failure.message : "Recovery failed; retained all backups." })
+      throw failure
     }
   }
 }

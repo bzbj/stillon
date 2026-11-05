@@ -218,6 +218,14 @@ describe("durable update and recovery", () => {
     expect(f.engine.state.phase).toBe("recovery-required")
     expect(f.engine.state.error).toBe("candidate EADDRINUSE")
     expect(f.engine.state.recoveryError).toBe("old runtime health timed out")
+    // A fresh worker must not replace the candidate error if recovery fails again.
+    let retries = 0
+    f.effects.verify = async () => { retries++; throw new Error("recovery retry failed") }
+    await expect(new UpdateEngine(f.config, f.effects).execute()).rejects.toThrow("recovery retry failed")
+    const pending = await json<UpdateState>(path.join(f.root, "state.json"))
+    expect(pending.error).toBe("candidate EADDRINUSE")
+    expect(pending.recoveryError).toBe("recovery retry failed")
+    expect(retries).toBe(1)
     f.effects.verify = async () => {}
     await new UpdateEngine(f.config, f.effects).execute()
     const recovered = await json<UpdateState>(path.join(f.root, "state.json"))

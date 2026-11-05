@@ -1,5 +1,4 @@
-import { mkdir } from "node:fs/promises"
-import { recordApplicationExit } from "./startup-diagnostics"
+import { captureApplicationStderr, recordApplicationExit } from "./startup-diagnostics"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { atomicJson, exists, json } from "./files"
@@ -69,7 +68,7 @@ export async function runServerController(deployment: UpdateDeployment) {
   const root = deployment.root
   const statusFile = path.join(root, "runner.json")
   let child: ReturnType<typeof Bun.spawn> | null = null
-  let stderrLog: string | undefined
+  let stderr: ReturnType<typeof captureApplicationStderr> | undefined
   let last: UpdateRunnerStatus = await exists(statusFile)
     ? await json<UpdateRunnerStatus>(statusFile)
     : { runtime: "", stopped: true, instance: "", secret: "" }
@@ -103,6 +102,8 @@ export async function runServerController(deployment: UpdateDeployment) {
         await stopOrphanedApp(deployment, last, { force: true })
         await Promise.race([child.exited, Bun.sleep(5_000).then(() => { throw new Error("The identified application process did not exit after forced shutdown.") })])
       }
+      await stderr?.finish()
+      stderr = undefined
       child = null
     }
     if (last.secret && last.instance) await stopOrphanedApp(deployment, last)
@@ -118,7 +119,9 @@ export async function runServerController(deployment: UpdateDeployment) {
         await stopApp()
       } else {
         if (child && child.exitCode !== null) {
-          await recordApplicationExit(root, last.runtime, child.exitCode, stderrLog)
+          await stderr?.finish()
+          await recordApplicationExit(root, last.runtime, child.exitCode, stderr?.file)
+          stderr = undefined
           child = null
         }
         if (!child) {
@@ -126,15 +129,14 @@ export async function runServerController(deployment: UpdateDeployment) {
           // Persist identity before spawn, so an interrupted spawn can be recovered.
           await atomicJson(statusFile, last)
           const envArgs = deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]
-          const logDirectory = path.join(root, "application-logs")
-          await mkdir(logDirectory, { recursive: true, mode: 0o700 })
-          stderrLog = path.join(logDirectory, `${last.instance}.stderr.log`)
-          child = Bun.spawn([await runtimeExecutable(control.runtime, deployment.launch.executable), ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
+          const spawned = Bun.spawn([await runtimeExecutable(control.runtime, deployment.launch.executable), ...envArgs, deployment.controller, "app", root, control.runtime, last.instance, last.secret,
             await verificationPending(root) ? "1" : "0"], {
-            cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: Bun.file(stderrLog),
+            cwd: control.runtime, stdin: "ignore", stdout: "inherit", stderr: "pipe",
             env: { ...process.env, HOME: deployment.launch.homeDirectory, USERPROFILE: deployment.launch.homeDirectory,
               STILLON_RUNTIME_PROFILE: "prod" },
           })
+          child = spawned
+          stderr = captureApplicationStderr(root, last.instance, spawned.stderr)
           child.exited.catch(() => {})
         }
         if (child && !await verificationPending(root)) {
