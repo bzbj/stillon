@@ -45,7 +45,7 @@ async function displayedFileBox(page: Page, element: Locator) {
 
 export async function clickDirectFileLink(page: Page, element: Locator, options: { modifiers?: readonly ("Control" | "Meta")[]; button?: "middle" } = {}) {
   const box = await displayedFileBox(page, element)
-  if (Math.abs(box.scale - 1) < 0.001) { await element.click(options); return }
+  if (Math.abs(box.scale - 1) < 0.001) { await element.click({ button: options.button, modifiers: options.modifiers && [...options.modifiers] }); return }
   for (const key of options.modifiers ?? []) await page.keyboard.down(key)
   try { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: options.button ?? "left" }) }
   finally { for (const key of options.modifiers ?? []) await page.keyboard.up(key) }
