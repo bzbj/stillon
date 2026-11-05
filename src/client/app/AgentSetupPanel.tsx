@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
-import { CheckCircle2, ExternalLink, Loader2, Terminal } from "lucide-react"
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { CheckCircle2, ChevronDown, ExternalLink, Loader2, Terminal } from "lucide-react"
 import type { AgentProvider } from "../../shared/types"
 import { PROVIDER_SETUP_GUIDES, type ProviderSetupStatus } from "../../shared/provider-setup"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { cn } from "../lib/utils"
 
-export function AgentSetupPanel({ initialProvider = "codex", machineName, onStatus, onUse, showProviderPicker = true, hideUseWhenReady = false, cliActions }: {
-  showProviderPicker?: boolean; hideUseWhenReady?: boolean; cliActions?: ReactNode
+export function AgentSetupPanel({ initialProvider = "codex", machineName, onStatus, onUse, showProviderPicker = true, hideUseWhenReady = false, collapseWhenReady = false, cliActions }: {
+  showProviderPicker?: boolean; hideUseWhenReady?: boolean; collapseWhenReady?: boolean; cliActions?: ReactNode
   initialProvider?: AgentProvider; machineName?: string | null
   onStatus: (provider: AgentProvider, ready: boolean) => void
   onUse: (provider: AgentProvider) => Promise<void>
@@ -19,6 +19,9 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
   const [confirmInstall, setConfirmInstall] = useState(false)
   const [existing, setExisting] = useState(false), [executable, setExecutable] = useState("")
   const [complete, setComplete] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
+  const canCollapse = collapseWhenReady && status?.state === "ready" && !error && !waiting
   const request = useRef(0), callbacks = useRef({ onStatus, onUse })
   callbacks.current = { onStatus, onUse }
   const label = provider === "codex" ? "Codex" : "Claude Code"
@@ -35,7 +38,7 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
     } catch (error) { if (request.current === id) setError(error instanceof Error ? error.message : "Check failed.") }
     finally { if (request.current === id) setBusy(false) }
   }, [provider])
-  useEffect(() => { setStatus(null); setWaiting(null); setComplete(false); setConfirmInstall(false); setExisting(false); void check(); return () => { request.current++ } }, [check])
+  useEffect(() => { setStatus(null); setWaiting(null); setComplete(false); setConfirmInstall(false); setExisting(false); setExpanded(false); void check(); return () => { request.current++ } }, [check])
   async function openTerminal(action: "login" | "install") {
     setBusy(true); setError("")
     try {
@@ -68,7 +71,14 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
         {value === "codex" ? "Codex" : "Claude Code"}{value === "codex" && <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Recommended</span>}
       </button>)}</div>
     </div>}
-    <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">{showProviderPicker ? "2. " : ""}Check {label} CLI</h3>
+    {canCollapse && <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+      <p role="status" className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 aria-hidden="true" className="size-4" />Ready</p>
+      <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}>
+        {expanded ? "Hide details" : "Configure"}<ChevronDown aria-hidden="true" className={cn("ml-1 size-4 transition-transform", expanded && "rotate-180")} />
+      </Button>
+    </div>}
+    <div id={detailsId} hidden={canCollapse && !expanded} className="space-y-5">
+    <div className={cn("space-y-3", !canCollapse && "border-t border-border pt-4")}><h3 className="text-sm font-semibold">{showProviderPicker ? "2. " : ""}Check {label} CLI</h3>
       {!status ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{busy && <Loader2 className="size-4 animate-spin" />}Checking for an existing installation…</p> : status.installed ? <div className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">Existing CLI found{status.version ? ` · ${status.version}` : ""}</p><p className="mt-1 break-all font-mono text-xs text-muted-foreground">{status.executable}</p></div> : <>
         <p className="text-sm text-muted-foreground">Could not find {label} CLI on {machineName || "this computer"}. If you already installed it, recheck or choose its location.</p>
         {status.canOpenTerminal && <Button disabled={busy || Boolean(waiting)} onClick={() => setConfirmInstall(true)}>Install {label} CLI</Button>}
@@ -85,6 +95,7 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
       </>}
       {waiting && <p role="status" className="text-xs text-muted-foreground">Finish {waiting === "install" ? "installation" : "sign-in"} in the terminal, then recheck. Closing the terminal keeps this step unfinished.</p>}
       {status?.message && <p className="text-sm text-muted-foreground">{status.message}</p>}
+    </div>
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </div>

@@ -2385,7 +2385,7 @@ function OwnerSettingsPage() {
                     </SettingsRow>
 
                     <div className="py-5"><SegmentedControl value={providerTab} onValueChange={setProviderTab} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} /></div>
-                    <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady
+                    <AgentSetupPanel key={providerTab} initialProvider={providerTab} showProviderPicker={false} hideUseWhenReady collapseWhenReady
                       machineName={confirmedMachineName} cliActions={<ProviderCliUpdatesPanel provider={providerTab} compact />}
                       onStatus={() => {}} onUse={async provider => { await handleWriteAppSettings({ defaultProvider: provider }) }} />
                     <div hidden={providerTab !== "claude"}>
