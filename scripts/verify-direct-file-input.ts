@@ -20,10 +20,23 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
     await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
   } finally { release(); await page.unroute(url, hold) }
   // Error documents also fire iframe load. Only a document readiness receipt counts.
-  await page.route(url, route => route.fulfill({ status: 403, contentType: "text/html", body: "<h1>Fixture unavailable</h1>" }), { times: 1 })
-  await page.getByRole("button", { name: "Refresh", exact: true }).click()
-  await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
-  await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+  // Canceled navigations can consume a one-shot route before committing a page.
+  // Keep the resource unavailable until the explicit recovery action below.
+  let unavailableRequests = 0
+  const unavailable = async (route: import("playwright").Route) => {
+    unavailableRequests++
+    await route.fulfill({ status: 403, contentType: "text/html", body: "<h1>Fixture unavailable</h1>" })
+  }
+  await page.route(url, unavailable)
+  try {
+    await page.getByRole("button", { name: "Refresh", exact: true }).click()
+    await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+  } catch (error) {
+    console.error("HTML recovery injection", { requests: unavailableRequests,
+      sameSource: await iframe.evaluateAll((frames, source) => frames.some(frame => frame.getAttribute("src") === source), url).catch(() => false) })
+    throw error
+  } finally { await page.unroute(url, unavailable) }
   await page.getByRole("button", { name: "Retry preview", exact: true }).click()
   await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
   await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
@@ -31,6 +44,9 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
 
 async function displayedFileBox(page: Page, element: Locator) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
+    // The child can be ready before the parent removes its loading bar.
+    // Wait for that layout change before measuring native mouse coordinates.
+    await frameElement.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
     await element.scrollIntoViewIfNeeded()
     await (await frameElement.elementHandle())!.waitForElementState("stable")
     const outer = await frameElement.boundingBox()
@@ -65,10 +81,26 @@ export async function verifyDirectFileInput(page: Page, chromium: boolean) {
   assert.deepEqual(pixel, [40, 150, 180, 255])
   const button = frame.locator("#add")
   const before = Number((await button.textContent())?.split(": ").at(-1))
+  await button.evaluate(() => {
+    const state = window as Window & { fixturePointer?: { id: string; x: number; y: number } }
+    delete state.fixturePointer
+    document.addEventListener("pointerdown", event => {
+      state.fixturePointer = { id: (event.target as HTMLElement).id, x: event.clientX, y: event.clientY }
+    }, { once: true, capture: true, passive: true })
+  })
   const buttonBox = await displayedFileBox(page, button)
   await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
   await page.waitForTimeout(50)
-  assert.equal(await button.textContent(), "Add one: " + (before + 1))
+  const after = await button.textContent()
+  if (after !== "Add one: " + (before + 1)) console.error("Native file input miss", {
+    measured: buttonBox, currentFrame: await page.locator('iframe[title="HTML file preview"]').boundingBox(),
+    currentButton: await button.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return { x: box.x, y: box.y, width: box.width, height: box.height,
+        pointer: (window as Window & { fixturePointer?: unknown }).fixturePointer ?? null }
+    }),
+  })
+  assert.equal(after, "Add one: " + (before + 1))
   const input = frame.getByRole("textbox", { name: "File input" })
   await input.fill(""); await input.focus()
   if (chromium) {
