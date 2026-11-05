@@ -110,7 +110,7 @@ export class DeepSeekRpc {
 }
 
 /** Convert only user-visible committed facts; never forward request/context or request/header. */
-export function deepSeekTranscript(event: any): TranscriptEntry[] {
+export function deepSeekTranscript(event: any, questionToolIds?: Set<string>): TranscriptEntry[] {
   if (!record(event) || !record(event.data)) return []
   const data = event.data
   if (event.type === "assistant/message") {
@@ -126,13 +126,15 @@ export function deepSeekTranscript(event: any): TranscriptEntry[] {
     } catch { /* Keep the tool visible even if the model produced malformed arguments. */ }
     const aliases: Record<string, string> = { read: "Read", write: "Write", edit: "Edit", bash: "Bash", pwsh: "Bash", grep: "Grep", glob: "Glob" }
     // The blocking host request renders the interactive question with its own identity.
-    if (data.name === "ask_user_question") return []
+    if (data.name === "ask_user_question") { questionToolIds?.add(data.callId); return [] }
     return [entry({ kind: "tool_call", tool: normalizeToolCall({ toolName: aliases[data.name] ?? data.name, toolId: data.callId, input }) })]
   }
   if (event.type === "tool/result") {
     const message = data.message
     const toolId = message?.toolCallId
-    if (typeof toolId !== "string") return []
+    // The coordinator records the host question and its answer. The CLI's own
+    // result uses the suppressed native call ID and would orphan history paging.
+    if (typeof toolId !== "string" || questionToolIds?.has(toolId)) return []
     return [entry({ kind: "tool_result", toolId, content: textContent(message.content), isError: Boolean(message.isError) })]
   }
   return []
@@ -147,6 +149,7 @@ export function startDeepSeekTurn(args: {
   let cancelled = false
   let wake: (() => void) | undefined
   const frames: Frame[] = []
+  const questionToolIds = new Set<string>()
   let failure: Error | undefined
   const enqueue = (frame: Frame) => { frames.push(frame); wake?.(); wake = undefined }
   const sessionId = args.sessionToken ?? randomUUID()
@@ -229,7 +232,7 @@ export function startDeepSeekTurn(args: {
             if (event?.type === "agent/inbox/spliced" && event.data?.inserted?.some((message: any) => message.id === receipt.messageId)) admitted = true
             if (!admitted) continue
             if (event?.type === "turn/end") terminal = event.data?.reason
-            for (const transcript of deepSeekTranscript(event)) {
+            for (const transcript of deepSeekTranscript(event, questionToolIds)) {
               if (transcript.kind === "assistant_text") finalText = transcript.text
               yield { type: "transcript", entry: transcript }
             }

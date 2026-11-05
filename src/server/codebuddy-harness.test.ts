@@ -72,6 +72,16 @@ test("CodeBuddy discovery chooses public launchers; explicit missing selection n
   expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toContain("'C:\\example''s folder\\codebuddy.cmd' '$(secret); `evil`'")
 })
 
+test("CodeBuddy native question results do not orphan the coordinator's question history", () => {
+  const questions = new Set<string>()
+  expect(codeBuddyTranscript({ type: "assistant", message: { content: [{ type: "tool_use", id: "native-question", name: "AskUserQuestion", input: {} }] } }, questions)).toEqual([])
+  const projected = codeBuddyTranscript({ type: "user", message: { content: [
+    { type: "tool_result", tool_use_id: "native-question", content: "Blue" },
+    { type: "tool_result", tool_use_id: "file-read", content: "file text" },
+  ] } }, questions)
+  expect(projected).toMatchObject([{ kind: "tool_result", toolId: "file-read", content: "file text" }])
+})
+
 test("CodeBuddy keeps CLI model/config defaults and only bypasses permissions on explicit full access", () => {
   const normal = codeBuddyArgs({ cwd: "/work", content: "hi", model: "default", sessionToken: null, permissionMode: "request" })
   expect(() => codeBuddyArgs({ cwd: "/work", content: "hi", model: "default", sessionToken: "session&whoami", permissionMode: "request" })).toThrow("Invalid CodeBuddy session")

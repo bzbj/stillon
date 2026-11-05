@@ -2,6 +2,8 @@ import assert from "node:assert/strict"
 import { mkdir, rm } from "node:fs/promises"
 import path from "node:path"
 import { ProviderAddons } from "../src/server/provider-addons"
+import { AgentCoordinator } from "../src/server/agent"
+import { EventStore } from "../src/server/event-store"
 import type { HarnessEvent } from "../src/server/harness-types"
 import { buildBundledIntegrations } from "./build-integrations"
 import { createMacIntegrationCliFixture } from "./macos-integration-fixture"
@@ -53,4 +55,34 @@ try {
     }
     fixture.requests.length = 0
   }
+  const store = new EventStore(data); await store.initialize()
+  const project = await store.openProject(fixture.workspace, "Mac integration acceptance")
+  const agent = new AgentCoordinator({ store, addons: manager, onStateChange() {},
+    generateTitle: async () => ({ title: "Mac integration acceptance", usedFallback: false, failureMessage: null }) })
+  try {
+    for (const provider of ["deepseek", "codebuddy"] as const) {
+      const chat = await store.createChat(project.id), answered = new Set<string>()
+      for (const marker of ["MAC_TEXT", "MAC_QUESTION"]) {
+        await agent.send({ type: "chat.send", chatId: chat.id, provider, content: marker, permissionMode: "request" })
+        const deadline = Date.now() + 120_000
+        while (agent.getActiveStatuses().has(chat.id) || agent.getDrainingChatIds().has(chat.id)) {
+          assert(Date.now() < deadline, "coordinator must finish the real CLI question")
+          for await (const event of store.iterateMessages(chat.id)) {
+            if (event.kind !== "tool_call" || event.tool.toolKind !== "ask_user_question" || answered.has(event.tool.toolId)) continue
+            answered.add(event.tool.toolId)
+            await agent.respondTool({ type: "chat.respondTool", chatId: chat.id, toolUseId: event.tool.toolId,
+              result: { answers: Object.fromEntries(event.tool.input.questions.map(question => [question.id ?? question.question, ["Blue"]])) } })
+          }
+          await Bun.sleep(50)
+        }
+      }
+      const page = await store.getRecentChatHistory(chat.id, 40)
+      assert.equal(answered.size, 1)
+      assert.equal(page.messages.filter(event => event.kind === "result" && !event.isError).length, 2, "question results must not truncate the persisted transcript")
+      assert(page.messages.some(event => event.kind === "assistant_text" && event.text === "MAC_TEXT_OK"))
+      assert(page.messages.some(event => event.kind === "assistant_text" && event.text === "MAC_QUESTION_OK"))
+      assert.deepEqual(fixture.errors, [])
+      console.log(`PASS ${process.arch}: ${provider} coordinator questions preserve paginated chat history`)
+    }
+  } finally { await agent.shutdown() }
 } finally { fixture.stop(); await rm(root, { recursive: true, force: true }) }

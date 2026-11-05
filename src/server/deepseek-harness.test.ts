@@ -54,6 +54,12 @@ describe("DeepSeek public CLI", () => {
 })
 
 describe("DeepSeek protocol boundary", () => {
+  test("native question results do not orphan the coordinator's question history", () => {
+    const questions = new Set<string>()
+    expect(deepSeekTranscript({ type: "tool/call", data: { name: "ask_user_question", callId: "native-question" } }, questions)).toEqual([])
+    expect(deepSeekTranscript({ type: "tool/result", data: { message: { toolCallId: "native-question", content: "Blue" } } }, questions)).toEqual([])
+    expect(deepSeekTranscript({ type: "tool/result", data: { message: { toolCallId: "file-read", content: "file text" } } }, questions)).toMatchObject([{ kind: "tool_result", toolId: "file-read", content: "file text" }])
+  })
   test("correlates concurrent responses and reads split UTF-8 frames", async () => {
     const child = new FakeProcess(), rpc = new DeepSeekRpc(child.asChild())
     const a = rpc.request("first"), b = rpc.request("second")
