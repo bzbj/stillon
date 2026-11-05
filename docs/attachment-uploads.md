@@ -1,8 +1,10 @@
 # Attachment upload recovery
 
-Attachments of 4 MiB or larger use checksummed 1 MiB chunks when the host
-advertises upload protocol 1. The original bytes and 100 MiB file limit are
-preserved. Smaller files and older hosts use the existing single multipart POST.
+All nonempty attachments use checksummed chunks of up to 1 MiB when the host
+advertises upload protocol 1, including screenshots smaller than 4 MiB. A file
+of at most 1 MiB uses one chunk with the same replay-safe receipt and retries.
+The original bytes and 100 MiB file limit are preserved. Empty files and older
+hosts use the existing single multipart POST.
 The client checks support before sending any chunks, so an older host never
 mistakes a chunk for a complete attachment.
 
