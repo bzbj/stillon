@@ -1,3 +1,4 @@
+import { normalizeAddonPreference } from "../shared/types"
 import { normalizeSidebarView } from "../shared/sidebar-view"
 import { encodeSidebarEnvelope } from "../shared/sidebar-wire"
 import { workspaceState, workspaceTopicAllowed, workspaceCommandAllowed } from "./workspace-access"
@@ -10,7 +11,7 @@ import os from "node:os"
 import path from "node:path"
 import type { ServerWebSocket } from "bun"
 import { INITIAL_CHAT_HISTORY_ENTRY_LIMIT } from "../shared/transcript-history"
-import { PROTOCOL_VERSION, getCodexModelForRole, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
+import { PROTOCOL_VERSION, normalizeDeepSeekPreference, getCodexModelForRole, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import { SocketTransport, SOCKET_TRANSPORT_READY } from "../shared/socket-transport"
@@ -529,6 +530,7 @@ export function createWsRouter({
     },
     defaultProvider: "last_used",
     providerDefaults: {
+      deepseek: normalizeDeepSeekPreference(),
       claude: {
         model: "claude-opus-4-8",
         modelOptions: {
@@ -575,6 +577,8 @@ export function createWsRouter({
       ...patch.network,
     },
     providerDefaults: {
+      ...((snapshot.providerDefaults.codebuddy || patch.providerDefaults?.codebuddy) ? { codebuddy: normalizeAddonPreference("codebuddy", { ...snapshot.providerDefaults.codebuddy, ...patch.providerDefaults?.codebuddy, modelOptions: { ...snapshot.providerDefaults.codebuddy?.modelOptions, ...patch.providerDefaults?.codebuddy?.modelOptions } }) } : {}),
+      deepseek: normalizeDeepSeekPreference({ ...snapshot.providerDefaults.deepseek, ...patch.providerDefaults?.deepseek, modelOptions: { ...snapshot.providerDefaults.deepseek?.modelOptions, ...patch.providerDefaults?.deepseek?.modelOptions } }),
       claude: {
         ...snapshot.providerDefaults.claude,
         ...patch.providerDefaults?.claude,
@@ -880,6 +884,7 @@ export function createWsRouter({
           agent.getSteeringQueuedMessageId?.(topic.chatId) ?? null,
           store.listAsyncQuestionResponses?.(topic.chatId) ?? [],
           agent.getActiveRunId?.(topic.chatId),
+          agent.getAddonProviders?.(),
         ),
       },
     }
@@ -1425,7 +1430,7 @@ export function createWsRouter({
         case "chat.startQuickCommand": {
           if (typeof command.name !== "string" || !command.name.trim() || command.name.length > 100
             || typeof command.content !== "string" || !command.content.trim() || command.content.length > 50_000) throw new Error("Invalid quick command")
-          if (!command.preferences || !["claude", "codex"].includes(command.preferences.provider)
+          if (!command.preferences || !["claude", "codex", "deepseek", "codebuddy"].includes(command.preferences.provider)
             || typeof command.preferences.model !== "string" || !command.preferences.model.trim()) throw new Error("Invalid quick command preferences")
           const chat = await store.createChat(command.projectId)
           await store.renameChat(chat.id, command.name)

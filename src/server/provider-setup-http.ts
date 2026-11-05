@@ -7,7 +7,7 @@ export async function handleProviderSetupRequest(req: Request, url: URL, options
   setup: { status: (provider: AgentProvider, local: boolean) => Promise<ProviderSetupStatus>; openTerminal: (provider: AgentProvider, action: "login" | "install") => Promise<unknown> }
 }) {
   if (!url.pathname.startsWith("/api/provider-setup/")) return null
-  const match = /^\/api\/provider-setup\/(codex|claude)\/(status|login|install|executable)$/u.exec(url.pathname)
+  const match = /^\/api\/provider-setup\/(codex|claude|deepseek|codebuddy)\/(status|login|install|executable)$/u.exec(url.pathname)
   if (!match) return Response.json({ error: "Unknown Agent setup action." }, { status: 404 })
   const provider = match[1] as AgentProvider, action = match[2]!
   const method = action === "status" ? "GET" : "POST"

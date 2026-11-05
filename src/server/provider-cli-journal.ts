@@ -1,5 +1,5 @@
 import path from "node:path"
-import type { AgentProvider } from "../shared/types"
+import type { UpdatableCliProvider as AgentProvider } from "../shared/types"
 import type { CliUpdateOperation } from "../shared/provider-cli-updates"
 import type { CliInstallation } from "./provider-cli-installation"
 import { atomicJson, json } from "./updater/files"

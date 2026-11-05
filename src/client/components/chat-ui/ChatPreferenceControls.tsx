@@ -1,6 +1,12 @@
 import { useState, type ComponentType, type SVGProps } from "react"
 import { Bot, Box, Brain, Gauge, LockOpen, Shield, ShieldCheck, ShieldQuestion, ShieldX, SquareMenu, SquareMinus, Wrench } from "lucide-react"
 import {
+  DEEPSEEK_PERMISSION_OPTIONS,
+  isAddonProvider,
+  type AddonProvider,
+  type DeepSeekModelOptions,
+  type DeepSeekReasoningEffort,
+  type DeepSeekPermissionMode,
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
   CLAUDE_PERMISSION_OPTIONS,
   CLAUDE_REASONING_OPTIONS,
@@ -9,6 +15,7 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_PERMISSION_MODE,
   getCodexReasoningOptions,
+  getProviderCatalog,
   supportsCodexFastMode,
   type AgentProvider,
   type ClaudeContextWindow,
@@ -57,6 +64,8 @@ function OpenAIIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 export const PROVIDER_ICONS: Record<AgentProvider, IconComponent> = {
   claude: AnthropicIcon,
   codex: OpenAIIcon,
+  deepseek: Bot,
+  codebuddy: Bot,
 }
 
 export const INPUT_POPOVER_MENU_CLASS = "w-64 max-h-[calc(var(--radix-popover-content-available-height)-0.5rem)] overflow-y-auto overscroll-contain p-1"
@@ -146,12 +155,15 @@ export function InputPopover({
 }
 
 export type ModelOptionChange =
+  | { type: "addonReasoningEffort"; provider: AddonProvider; effort: string }
+  | { type: "deepseekReasoningEffort"; effort: DeepSeekReasoningEffort }
   | { type: "claudeReasoningEffort"; effort: ClaudeReasoningEffort }
   | { type: "contextWindow"; contextWindow: ClaudeContextWindow }
   | { type: "codexReasoningEffort"; effort: CodexReasoningEffort }
   | { type: "fastMode"; fastMode: boolean }
 
 export type PermissionModeChange =
+  | { provider: AddonProvider; permissionMode: DeepSeekPermissionMode }
   | { provider: "claude"; permissionMode: ClaudePermissionMode }
   | { provider: "codex"; permissionMode: CodexPermissionMode }
 
@@ -162,7 +174,7 @@ interface ChatPreferenceControlsProps {
   showProviderPicker?: boolean
   providerLocked?: boolean
   model: string
-  modelOptions: ClaudeModelOptions | CodexModelOptions
+  modelOptions: ClaudeModelOptions | CodexModelOptions | DeepSeekModelOptions
   onProviderChange?: (provider: AgentProvider) => void
   onModelChange: (provider: AgentProvider, model: string) => void
   onModelOptionChange: (change: ModelOptionChange) => void
@@ -186,7 +198,8 @@ export function ChatPreferenceControls({
   onPermissionModeChange,
   className,
 }: ChatPreferenceControlsProps) {
-  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
+  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? getProviderCatalog(selectedProvider)
+  const addonEfforts = providerConfig.models.find(candidate => candidate.id === model)?.efforts ?? providerConfig.efforts
   const ProviderIcon = PROVIDER_ICONS[selectedProvider]
   const ModelIcon = Box
   const claudeModelOptions = selectedProvider === "claude" ? modelOptions as ClaudeModelOptions : null
@@ -196,8 +209,8 @@ export function ChatPreferenceControls({
   const codexFastModeSupported = supportsCodexFastMode(model)
   const selectedContextWindow = claudeModelOptions?.contextWindow ?? CLAUDE_CONTEXT_WINDOW_OPTIONS[0].id
   const ContextWindowIcon = selectedContextWindow === "1m" ? SquareMenu : SquareMinus
-  const permissionOptions = selectedProvider === "claude" ? CLAUDE_PERMISSION_OPTIONS : CODEX_PERMISSION_OPTIONS
-  const defaultPermissionMode = selectedProvider === "claude" ? DEFAULT_CLAUDE_PERMISSION_MODE : DEFAULT_CODEX_PERMISSION_MODE
+  const permissionOptions = isAddonProvider(selectedProvider) ? (selectedProvider === "codebuddy" ? [{ id: "request", label: "Ask for approval", description: "Use CodeBuddy CLI permission prompts." }, { id: "full", label: "Full access", description: "Bypass CodeBuddy permission checks for trusted work." }] : DEEPSEEK_PERMISSION_OPTIONS).filter(option => !providerConfig.capabilities || providerConfig.capabilities.permissions.some(id => id === option.id)) : selectedProvider === "claude" ? CLAUDE_PERMISSION_OPTIONS : CODEX_PERMISSION_OPTIONS
+  const defaultPermissionMode = isAddonProvider(selectedProvider) ? "request" : selectedProvider === "claude" ? DEFAULT_CLAUDE_PERMISSION_MODE : DEFAULT_CODEX_PERMISSION_MODE
   const selectedPermission = permissionOptions.find((option) => option.id === (permissionMode ?? defaultPermissionMode)) ?? permissionOptions[0]
 
   function permissionIcon(id: string, className = "h-4 w-4 text-muted-foreground") {
@@ -269,6 +282,7 @@ export function ChatPreferenceControls({
               key={candidate.id}
               onClick={() => {
                 onModelChange(selectedProvider, candidate.id)
+                if (isAddonProvider(selectedProvider) && candidate.efforts) onModelOptionChange({ type: "addonReasoningEffort", provider: selectedProvider, effort: "default" })
                 close()
               }}
               selected={model === candidate.id}
@@ -280,20 +294,24 @@ export function ChatPreferenceControls({
         })}
       </InputPopover>
 
-      <InputPopover
+      {(!isAddonProvider(selectedProvider) || providerConfig.models.find(candidate => candidate.id === model)?.supportsEffort) && <InputPopover
         trigger={(
           <>
             <Brain className="h-3.5 w-3.5" />
             <span>{
               selectedProvider === "claude"
                 ? CLAUDE_REASONING_OPTIONS.find((effort) => effort.id === modelOptions.reasoningEffort)?.label ?? modelOptions.reasoningEffort
-                : CODEX_REASONING_OPTIONS.find((effort) => effort.id === modelOptions.reasoningEffort)?.label ?? modelOptions.reasoningEffort
+                : (isAddonProvider(selectedProvider) ? addonEfforts : CODEX_REASONING_OPTIONS).find((effort) => effort.id === modelOptions.reasoningEffort)?.label ?? modelOptions.reasoningEffort
             }</span>
           </>
         )}
       >
         {(close) => (
-          selectedProvider === "claude"
+          isAddonProvider(selectedProvider)
+            ? addonEfforts.map(effort => <PopoverMenuItem key={effort.id}
+                onClick={() => { onModelOptionChange({ type: "addonReasoningEffort", provider: selectedProvider, effort: effort.id }); close() }}
+                selected={modelOptions.reasoningEffort === effort.id} icon={<Brain className="h-4 w-4" />} label={effort.label} />)
+            : selectedProvider === "claude"
             ? CLAUDE_REASONING_OPTIONS.map((effort) => (
               <PopoverMenuItem
                 key={effort.id}
@@ -322,7 +340,7 @@ export function ChatPreferenceControls({
               />
             ))
         )}
-      </InputPopover>
+      </InputPopover>}
 
       {selectedProvider === "claude" && contextWindowOptions.length > 1 ? (
         <InputPopover
@@ -409,7 +427,9 @@ export function ChatPreferenceControls({
             <PopoverMenuItem
               key={option.id}
               onClick={() => {
-                if (selectedProvider === "claude") {
+                if (isAddonProvider(selectedProvider)) {
+                  onPermissionModeChange({ provider: selectedProvider, permissionMode: option.id as DeepSeekPermissionMode })
+                } else if (selectedProvider === "claude") {
                   onPermissionModeChange({ provider: "claude", permissionMode: option.id as ClaudePermissionMode })
                 } else {
                   onPermissionModeChange({ provider: "codex", permissionMode: option.id as CodexPermissionMode })

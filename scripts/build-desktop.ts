@@ -6,6 +6,7 @@ import { updateTarget } from "../src/server/updater/model"
 import transportComponents from "../src/server/connect/frp-components.json"
 import { TRANSPORT_DESCRIPTOR, validateTransportComponent } from "../src/server/connect/transport-component"
 import { desktopConnectConfig } from "../src/server/connect/config"
+import { buildBundledIntegrations } from "./build-integrations"
 
 const repository = path.resolve(import.meta.dir, "..")
 const macosSignIdentity = process.env.STILLON_REQUIRE_SIGNING === "1" ? process.env.MACOS_SIGN_IDENTITY : undefined
@@ -124,6 +125,7 @@ async function main() {
       filter: (source) => !/\.test\.tsx?$/.test(source) })
   }
   await mkdir(path.join(runtime, "runtime"), { recursive: true })
+  await buildBundledIntegrations(path.join(runtime, "dist/integrations"))
   // Seal only the independent component requirement. Normal StillOn builds do
   // not download, unpack or execute frpc; the installer prepares it once.
   const selected = transportComponents.filter(c => c.platform === target.platform && c.architecture === target.architecture)

@@ -685,8 +685,14 @@ export async function testAgentNetworkConnection(args: {
   const startedAt = performance.now()
   const environment = mergeAgentNetworkEnvironment(args.environment ?? process.env, args.settings)
   const status = getAgentNetworkStatus(args.settings, args.environment ?? process.env)
+  if (args.provider === "codebuddy") return {
+    ok: false, provider: args.provider, targetLabel: "CodeBuddy CLI", sourceLabel: status.sourceLabel, proxy: null,
+    durationMs: Math.round(performance.now() - startedAt), errorCode: "invalid_configuration",
+    message: "CodeBuddy uses the endpoint configured in its local CLI. Verify access by sending a message with the CodeBuddy add-on.",
+  }
   const target = args.provider === "claude"
     ? { label: "Claude API", url: "https://api.anthropic.com/" }
+    : args.provider === "deepseek" ? { label: "DeepSeek API", url: "https://api.deepseek.com/" }
     : { label: "Codex / ChatGPT", url: "https://chatgpt.com/" }
   const targetUrl = new URL(target.url)
   const rawProxy = resolveAgentProxyForUrl(targetUrl, environment)

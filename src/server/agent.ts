@@ -20,12 +20,13 @@ import type {
   QueuedChatMessage,
   TranscriptEntry,
 } from "../shared/types"
-import { normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
+import { isAddonProvider, normalizeAddonPreference, normalizeClaudePermissionMode, normalizeCodexPermissionMode } from "../shared/types"
 import { ASYNC_QUESTION_RESPONSE_SCHEMA_VERSION } from "../shared/types"
 import { normalizeToolCall } from "../shared/tools"
 import type { AsyncQuestionAnswerResult, ClientCommand } from "../shared/protocol"
 import { EventStore } from "./event-store"
 import { buildAsyncQuestionAnswerText, asyncQuestionKey, validateAsyncQuestionAnswers } from "./async-question"
+import type { ProviderAddons } from "./provider-addons"
 import { CodexTransportManager } from "./codex-transport"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
@@ -169,6 +170,7 @@ interface CodexManager {
 
 interface AgentCoordinatorArgs {
   store: EventStore
+  addons?: ProviderAddons
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   codexManager?: CodexManager
   getCodexTransport?: () => CodexTransport
@@ -866,6 +868,7 @@ function isConfirmedTurnSteerRejection(message: string) {
 }
 
 export class AgentCoordinator {
+  private readonly addons?: ProviderAddons
   private readonly store: EventStore
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   private readonly codexManager: CodexManager
@@ -887,6 +890,7 @@ export class AgentCoordinator {
 
   constructor(args: AgentCoordinatorArgs) {
     this.store = args.store
+    this.addons = args.addons
     this.onStateChange = args.onStateChange
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.codexManager = args.codexManager ?? createDefaultCodexManager(
@@ -921,6 +925,8 @@ export class AgentCoordinator {
     }
     return statuses
   }
+
+  getAddonProviders() { return this.addons?.providers() ?? [] }
 
   getPendingTool(chatId: string): PendingToolSnapshot | null {
     const pending = this.activeTurns.get(chatId)?.pendingTool
@@ -1025,6 +1031,12 @@ export class AgentCoordinator {
   }
 
   private getProviderSettings(provider: AgentProvider, options: SendMessageOptions) {
+    if (isAddonProvider(provider)) {
+      const catalog = this.addons?.getCatalog(provider)
+      const preference = normalizeAddonPreference(provider, { model: options.model ?? catalog?.defaultModel, modelOptions: options.modelOptions?.[provider], effort: options.effort ?? catalog?.defaultEffort, permissionMode: options.permissionMode })
+      return { model: preference.model, effort: preference.modelOptions.reasoningEffort, serviceTier: undefined, planMode: false, permissionMode: preference.permissionMode,
+        preferences: { provider, ...preference } satisfies ChatTurnPreferences }
+    }
     if (provider === "claude") {
       const model = normalizeServerModel(provider, options.model)
       const modelOptions = normalizeClaudeModelOptions(model, options.modelOptions, options.effort)
@@ -1460,7 +1472,13 @@ export class AgentCoordinator {
     }
 
     let turn: HarnessTurn
-    if (args.provider === "claude") {
+    if (isAddonProvider(args.provider)) {
+      if (chat.pendingForkSessionToken) throw new Error("Add-on session forking is not supported. Start a new chat instead.")
+      if (!this.addons) throw new Error("Install and enable the provider add-on in Settings → Add-ons.")
+      turn = await this.addons.startTurn(args.provider, { cwd: project.localPath, content: buildPromptText(args.content, args.attachments),
+        model: args.model, effort: args.effort, sessionToken: chat.sessionToken,
+        permissionMode: args.permissionMode === "full" ? "full" : "request", onToolRequest })
+    } else if (args.provider === "claude") {
       logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
         chatId: args.chatId,
         provider: args.provider,
@@ -1674,6 +1692,11 @@ export class AgentCoordinator {
   }
 
   async send(command: Extract<ClientCommand, { type: "chat.send" }>) {
+    const requestedProvider = (command.chatId ? this.store.requireChat(command.chatId).provider : null) ?? command.provider
+    if (isAddonProvider(requestedProvider)) {
+      if (!this.addons) throw new Error("Install and enable the provider add-on in Settings → Add-ons.")
+      this.addons.require(requestedProvider)
+    }
     const profile = command.clientTraceId
       ? { traceId: command.clientTraceId, startedAt: performance.now() }
       : null

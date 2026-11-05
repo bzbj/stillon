@@ -4,6 +4,19 @@ import { PROVIDERS } from "../../../shared/types"
 import { ChatPreferenceControls, INPUT_POPOVER_MENU_CLASS } from "./ChatPreferenceControls"
 
 describe("ChatPreferenceControls", () => {
+  test("Harness labels and reasoning choices come from the exact discovered model", () => {
+    const catalog = { id: "deepseek" as const, label: "DeepSeek Harness", defaultModel: "dsh:gateway:shared", efforts: [{ id: "high", label: "Wrong global level" }],
+      models: [{ id: "dsh:gateway:shared", label: "Shared model · gateway", supportsEffort: true, efforts: [{ id: "adaptive", label: "Provider adaptive reasoning" }] }] }
+    const html = renderToStaticMarkup(<ChatPreferenceControls availableProviders={[catalog]} selectedProvider="deepseek" model={catalog.defaultModel}
+      modelOptions={{ reasoningEffort: "adaptive" }} onModelChange={() => {}} onModelOptionChange={() => {}} />)
+    expect(html).toContain("DeepSeek Harness")
+    expect(html).toContain("Shared model · gateway")
+    expect(html).toContain("Provider adaptive reasoning")
+    expect(html).not.toContain("Wrong global level")
+    const plain = renderToStaticMarkup(<ChatPreferenceControls availableProviders={[{ ...catalog, models: [{ ...catalog.models[0]!, supportsEffort: false }] }]} selectedProvider="deepseek" model={catalog.defaultModel}
+      modelOptions={{ reasoningEffort: "default" }} onModelChange={() => {}} onModelOptionChange={() => {}} />)
+    expect(plain).not.toContain("Provider adaptive reasoning")
+  })
   test("renders codex-specific controls without a run or plan mode selector", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls

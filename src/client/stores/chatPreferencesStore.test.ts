@@ -76,6 +76,7 @@ describe("migrateChatPreferencesState", () => {
     expect(migrated).toEqual({
       defaultProvider: "last_used",
       providerDefaults: {
+        deepseek: { model: "deepseek-flash", modelOptions: { reasoningEffort: "high" }, permissionMode: "request" },
         claude: {
           model: "claude-opus-4-8",
           modelOptions: { reasoningEffort: "low", contextWindow: "1m" },
@@ -576,4 +577,17 @@ describe("new conversation defaults across entry points", () => {
       provider: "claude", ...INITIAL_STATE.providerDefaults.claude,
     })
   })
+})
+
+
+test("CodeBuddy preferences survive migration and edits without becoming Codex", () => {
+  const preference = { model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "request" as const }
+  const composer = { provider: "codebuddy" as const, ...preference }
+  const migrated = migrateChatPreferencesState({ defaultProvider: "codebuddy", providerDefaults: { codebuddy: preference }, chatStates: { addonChat: composer } })
+  expect(migrated.defaultProvider).toBe("codebuddy")
+  expect(migrated.providerDefaults.codebuddy).toEqual(preference)
+  expect(migrated.chatStates.addonChat).toEqual(composer)
+  useChatPreferencesStore.setState(migrated)
+  useChatPreferencesStore.getState().setChatComposerPermissionMode("addonChat", "full")
+  expect(useChatPreferencesStore.getState().chatStates.addonChat).toMatchObject({ provider: "codebuddy", permissionMode: "full", model: "default" })
 })

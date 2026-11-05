@@ -1,5 +1,6 @@
 import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { useClaudeModelPolicyStore } from "../stores/claudeModelPolicyStore"
+import { useProviderCatalog } from "../hooks/useProviderCatalog"
 import type { QuickCommand } from "../../shared/quick-commands"
 import type { SidebarViewSnapshot } from "../../shared/sidebar-view"
 import { markStartupPhase } from "../lib/startupMetrics"
@@ -15,7 +16,7 @@ import {
   CHAT_HISTORY_PAGE_ENTRY_LIMIT,
   INITIAL_CHAT_HISTORY_ENTRY_LIMIT,
 } from "../../shared/transcript-history"
-import { PROVIDERS, type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
+import { type AgentPermissionMode, type AgentProvider, type AppSettingsPatch, type AppSettingsSnapshot, type AskUserQuestionAnswerMap, type AsyncQuestionAnswerInput, type AsyncQuestionResponse, type ChatAttachment, type ChatHistoryPage, type ChatToolDetails, type KeybindingsSnapshot, type LlmProviderSnapshot, type LlmProviderValidationResult, type ModelOptions, type ProviderCatalogEntry, type QueuedChatMessage, type StandaloneTranscriptExportCommandResult, type TranscriptEntry, type UserPromptEntry } from "../../shared/types"
 import { createComposerStateForNewChat, NEW_CHAT_COMPOSER_ID, type ComposerState, useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -324,7 +325,7 @@ function readLegacyBrowserSettingsPatch(): AppSettingsPatch | null {
   }
 
   const chatPreferencesState = readPersistedZustandState(LEGACY_CHAT_PREFERENCES_STORAGE_KEY)
-  if (chatPreferencesState?.defaultProvider === "last_used" || chatPreferencesState?.defaultProvider === "claude" || chatPreferencesState?.defaultProvider === "codex") {
+  if (chatPreferencesState?.defaultProvider === "deepseek" || chatPreferencesState?.defaultProvider === "codebuddy" || chatPreferencesState?.defaultProvider === "last_used" || chatPreferencesState?.defaultProvider === "claude" || chatPreferencesState?.defaultProvider === "codex") {
     patch.defaultProvider = chatPreferencesState.defaultProvider
   }
   if (chatPreferencesState?.providerDefaults && typeof chatPreferencesState.providerDefaults === "object") {
@@ -1348,11 +1349,12 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     ? "starting"
     : null
   const effectiveRuntimeStatus = optimisticRuntimeStatus ?? runtime?.status ?? null
-  const availableProviders = useMemo(() => (activeChatSnapshot?.availableProviders ?? PROVIDERS).map((provider) => (
+  const installedProviders = useProviderCatalog()
+  const availableProviders = useMemo(() => installedProviders.map((provider) => (
     provider.id === "codex" && modelPolicy ? { ...provider, models: modelPolicy.policy.models,
       defaultModel: modelPolicy.policy.roles.conversation }
       : provider.id === "claude" && claudeModelPolicy ? { ...provider, models: claudeModelPolicy.policy.models, defaultModel: claudeModelPolicy.policy.defaultModel } : provider
-  )), [activeChatSnapshot?.availableProviders, modelPolicy, claudeModelPolicy])
+  )), [installedProviders, modelPolicy, claudeModelPolicy])
   const asyncQuestionResponses: AsyncQuestionResponse[] = activeChatSnapshot?.asyncQuestionResponses ?? []
   const isProcessing = isProcessingStatus(effectiveRuntimeStatus ?? undefined)
   const canCancel = canCancelStatus(effectiveRuntimeStatus ?? undefined)

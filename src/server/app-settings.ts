@@ -1,3 +1,4 @@
+import { normalizeAddonPreference } from "../shared/types"
 import { applyWorkspaceCollapsePatch, normalizeWorkspaceCollapsed, normalizeWorkspaceCollapseVersions } from "../shared/workspace-collapse"
 import { mergeQuickCommands } from "../shared/quick-commands"
 import { migrateQuickCommandDefaults } from "./quick-command-migrations"
@@ -10,6 +11,8 @@ import { getSettingsFilePath, LOG_PREFIX } from "../shared/branding"
 import { normalizeMachineName } from "./machine-name"
 import { applyAgentNetworkPatch, normalizeAgentNetworkSettings } from "./agent-network"
 import {
+  normalizeDeepSeekPreference,
+  type DeepSeekModelOptions,
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_MODEL_OPTIONS,
@@ -61,6 +64,8 @@ interface AppSettingsFile {
   providerDefaults?: {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
     codex?: Partial<ProviderPreference<Partial<CodexModelOptions>>> & { effort?: unknown }
+    deepseek?: Partial<ProviderPreference<Partial<DeepSeekModelOptions>>> & { effort?: unknown }
+    codebuddy?: Partial<ProviderPreference<Partial<DeepSeekModelOptions>>>
   }
   network?: unknown
 }
@@ -145,7 +150,7 @@ function normalizeChatSoundId(value: unknown): ChatSoundId {
 }
 
 function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
-  return value === "claude" || value === "codex" || value === "last_used" ? value : "last_used"
+  return value === "deepseek" || value === "codebuddy" || value === "claude" || value === "codex" || value === "last_used" ? value : "last_used"
 }
 
 function normalizeDefaultProjectId(value: unknown): string | null {
@@ -195,6 +200,8 @@ function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | 
   return {
     claude: normalizeClaudePreference(value?.claude ?? defaults.claude),
     codex: normalizeCodexPreference(value?.codex ?? defaults.codex),
+    deepseek: normalizeDeepSeekPreference(value?.deepseek),
+    ...(value?.codebuddy ? { codebuddy: normalizeAddonPreference("codebuddy", value.codebuddy) } : {}),
   }
 }
 
@@ -219,6 +226,8 @@ function toFilePayload(state: AppSettingsState) {
       ...state.providerDefaults,
       claude: normalizeClaudePreference(state.providerDefaults.claude),
       codex: normalizeCodexPreference(state.providerDefaults.codex),
+      deepseek: normalizeDeepSeekPreference(state.providerDefaults.deepseek),
+      ...(state.providerDefaults.codebuddy ? { codebuddy: normalizeAddonPreference("codebuddy", state.providerDefaults.codebuddy) } : {}),
     },
     network: state.network,
   }
@@ -245,6 +254,8 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
       ...state.providerDefaults,
       claude: normalizeClaudePreference(state.providerDefaults.claude),
       codex: normalizeCodexPreference(state.providerDefaults.codex),
+      deepseek: normalizeDeepSeekPreference(state.providerDefaults.deepseek),
+      ...(state.providerDefaults.codebuddy ? { codebuddy: normalizeAddonPreference("codebuddy", state.providerDefaults.codebuddy) } : {}),
     },
     network: state.network,
     warning: state.warning,
@@ -372,6 +383,9 @@ function applyPatch(
       ...patch.editor,
     },
     providerDefaults: {
+      ...((state.providerDefaults.codebuddy || patch.providerDefaults?.codebuddy) ? { codebuddy: normalizeAddonPreference("codebuddy", { ...state.providerDefaults.codebuddy, ...patch.providerDefaults?.codebuddy, modelOptions: { ...state.providerDefaults.codebuddy?.modelOptions, ...patch.providerDefaults?.codebuddy?.modelOptions } }) } : {}),
+      deepseek: normalizeDeepSeekPreference({ ...state.providerDefaults.deepseek, ...patch.providerDefaults?.deepseek,
+        modelOptions: { ...state.providerDefaults.deepseek?.modelOptions, ...patch.providerDefaults?.deepseek?.modelOptions } }),
       claude: {
         ...state.providerDefaults.claude,
         ...patch.providerDefaults?.claude,

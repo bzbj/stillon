@@ -401,7 +401,8 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   useEffect(() => {
     const sharing = () => useWorkspaceSharingStore.getState()
     const stop = startWorkspaceSharingRefresh({ reload: () => sharing().reload() }, {
-      document, window, setTimeout, clearTimeout, random: Math.random,
+      document, window, setTimeout: (callback, delay) => setTimeout(callback, delay),
+      clearTimeout: timer => clearTimeout(timer), random: Math.random,
     })
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("stillon-workspace-sharing")
     if (channel) channel.onmessage = event => {

@@ -32,7 +32,7 @@ export interface ClaudeSdkModelInfo {
 }
 
 function createServerProviders(): ProviderCatalogEntry[] {
-  return PROVIDERS.map((provider) => ({ ...provider }))
+  return PROVIDERS.filter(provider => provider.id === "codex" || provider.id === "claude").map((provider) => ({ ...provider }))
 }
 
 export const SERVER_PROVIDERS: ProviderCatalogEntry[] = createServerProviders()

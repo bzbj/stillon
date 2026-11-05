@@ -1,5 +1,8 @@
+import { isAddonProvider, normalizeAddonPreference } from "../../shared/types"
 import { create } from "zustand"
 import {
+  normalizeDeepSeekPreference,
+  type DeepSeekModelOptions,
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CLAUDE_PERMISSION_MODE,
   DEFAULT_CODEX_MODEL_OPTIONS,
@@ -26,19 +29,7 @@ import {
 
 export type { ChatProviderPreferences, DefaultProviderPreference, ProviderPreference }
 
-export type ComposerState =
-  | {
-    provider: "claude"
-    model: string
-    modelOptions: ClaudeModelOptions
-    permissionMode: ClaudePermissionMode
-  }
-  | {
-    provider: "codex"
-    model: string
-    modelOptions: CodexModelOptions
-    permissionMode: CodexPermissionMode
-  }
+export type ComposerState = ChatTurnPreferences
 
 export const NEW_CHAT_COMPOSER_ID = "__new__"
 
@@ -83,6 +74,7 @@ type LegacyPersistedChatPreferencesState = Partial<{
 }>
 
 type PersistedComposerState =
+  | { provider: "deepseek" | "codebuddy"; model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
   | {
     provider: "claude"
     model?: string
@@ -106,7 +98,7 @@ type PersistedChatPreferencesState = Pick<
 > & LegacyPersistedChatPreferencesState
 
 export function normalizeDefaultProvider(value?: string): DefaultProviderPreference {
-  if (value === "claude" || value === "codex") return value
+  if (isAddonProvider(value) || value === "claude" || value === "codex") return value
   return "last_used"
 }
 
@@ -139,6 +131,7 @@ export const normalizeCodexPreference = normalizeSharedCodexPreference
 
 export function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
+    deepseek: normalizeDeepSeekPreference(),
     claude: {
       model: "claude-opus-4-8",
       modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
@@ -153,6 +146,8 @@ export function createDefaultProviderDefaults(): ChatProviderPreferences {
 }
 
 export function normalizeProviderDefaults(value?: {
+  deepseek?: { model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
+  codebuddy?: { model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
   claude?: {
     model?: string
     effort?: string
@@ -169,6 +164,8 @@ export function normalizeProviderDefaults(value?: {
   return {
     claude: normalizeClaudePreference(value?.claude),
     codex: normalizeCodexPreference(value?.codex),
+    deepseek: normalizeDeepSeekPreference(value?.deepseek),
+    ...(value?.codebuddy ? { codebuddy: normalizeAddonPreference("codebuddy", value.codebuddy) } : {}),
   }
 }
 
@@ -181,10 +178,11 @@ function logChatPreferences(message: string, details?: unknown) {
   console.info(`[chat-preferences] ${message}`, details)
 }
 
-function composerFromProviderDefaults(
+export function composerFromProviderDefaults(
   provider: AgentProvider,
   providerDefaults: ChatProviderPreferences
 ): ComposerState {
+  if (isAddonProvider(provider)) return { provider, ...normalizeAddonPreference(provider, providerDefaults[provider]) }
   if (provider === "claude") {
     const preference = providerDefaults.claude
     return {
@@ -205,6 +203,7 @@ function composerFromProviderDefaults(
 }
 
 function cloneComposerState(state: ComposerState): ComposerState {
+  if (state.provider === "deepseek" || state.provider === "codebuddy") return { provider: state.provider, ...normalizeAddonPreference(state.provider, state) }
   return state.provider === "claude"
     ? {
       provider: "claude",
@@ -229,6 +228,8 @@ function sameComposerState(left: ComposerState | undefined, right: ComposerState
       && left.modelOptions.contextWindow === right.modelOptions.contextWindow
   }
 
+  if ((left.provider === "deepseek" || left.provider === "codebuddy") && (right.provider === "deepseek" || right.provider === "codebuddy")) return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
+
   if (left.provider === "codex" && right.provider === "codex") {
     return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
       && left.modelOptions.fastMode === right.modelOptions.fastMode
@@ -243,6 +244,7 @@ function normalizeComposerState(
   legacyLiveProvider?: AgentProvider,
   legacyLivePreferences?: LegacyPersistedChatPreferencesState["livePreferences"]
 ): ComposerState {
+  if (value && isAddonProvider(value.provider)) return { provider: value.provider, ...normalizeAddonPreference(value.provider, value) }
   if (value?.provider === "claude") {
     const preference = normalizeClaudePreference(value)
     return {
@@ -376,7 +378,7 @@ interface ChatPreferencesState {
   setChatComposerModel: (chatId: string, model: string) => void
   setChatComposerModelOptions: (
     chatId: string,
-    modelOptions: Partial<ClaudeModelOptions> | Partial<CodexModelOptions>
+    modelOptions: Partial<ClaudeModelOptions> | Partial<CodexModelOptions> | Partial<DeepSeekModelOptions>
   ) => void
   setChatComposerPermissionMode: (chatId: string, permissionMode: ClaudePermissionMode | CodexPermissionMode) => void
   resetChatComposerFromProvider: (chatId: string, provider: AgentProvider) => void
@@ -457,7 +459,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         const state = get()
         state.syncProviderDefaults(state.defaultProvider, {
           ...state.providerDefaults,
-          [provider]: provider === "claude"
+          [provider]: isAddonProvider(provider)
+            ? normalizeAddonPreference(provider, { ...state.providerDefaults[provider], model })
+            : provider === "claude"
             ? normalizeClaudePreference({ ...state.providerDefaults.claude, model })
             : normalizeCodexPreference({ ...state.providerDefaults.codex, model }),
         })
@@ -466,7 +470,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         const state = get()
         state.syncProviderDefaults(state.defaultProvider, {
           ...state.providerDefaults,
-          [provider]: provider === "claude"
+          [provider]: isAddonProvider(provider)
+            ? normalizeAddonPreference(provider, { ...state.providerDefaults[provider], modelOptions: { ...state.providerDefaults[provider]?.modelOptions, ...modelOptions as Partial<DeepSeekModelOptions> } })
+            : provider === "claude"
             ? normalizeClaudePreference({
               ...state.providerDefaults.claude,
               modelOptions: { ...state.providerDefaults.claude.modelOptions, ...modelOptions as Partial<ClaudeModelOptions> },
@@ -483,7 +489,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
           ...state.providerDefaults,
           [provider]: {
             ...state.providerDefaults[provider],
-            permissionMode: provider === "claude"
+            permissionMode: isAddonProvider(provider) ? normalizeAddonPreference(provider, { permissionMode }).permissionMode : provider === "claude"
               ? normalizeClaudePermissionMode(permissionMode)
               : normalizeCodexPermissionMode(permissionMode),
           },
@@ -543,7 +549,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         set((state) => ({
           chatStates: {
             ...state.chatStates,
-            [chatId]: composerState.provider === "claude"
+            [chatId]: (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+              ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, composerState) }
+              : composerState.provider === "claude"
               ? {
                 provider: "claude",
                 model: normalizeClaudePreference(composerState).model,
@@ -562,7 +570,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         set((state) => withChatComposerState(state, chatId, () => composerFromProviderDefaults(provider, state.providerDefaults))),
       setChatComposerModel: (chatId, model) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          composerState.provider === "claude"
+          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+            ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, model }) }
+            : composerState.provider === "claude"
             ? {
               provider: "claude",
               model: normalizeClaudePreference({
@@ -587,7 +597,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         ))),
       setChatComposerModelOptions: (chatId, modelOptions) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          composerState.provider === "claude"
+          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+            ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, modelOptions: { ...composerState.modelOptions, ...modelOptions as Partial<DeepSeekModelOptions> } }) }
+            : composerState.provider === "claude"
             ? {
               provider: "claude",
               model: composerState.model,
@@ -615,7 +627,9 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         ))),
       setChatComposerPermissionMode: (chatId, permissionMode) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          composerState.provider === "claude"
+          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+            ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, permissionMode }) }
+            : composerState.provider === "claude"
             ? {
               ...composerState,
               permissionMode: normalizeClaudePermissionMode(permissionMode),

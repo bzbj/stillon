@@ -3,6 +3,8 @@ import { workspaceHttpAllowed } from "./workspace-access"
 import { ClaudeModelPolicyManager, type ClaudeModelDiscoveryOptions } from "./claude-model-policy-manager"
 import { ProviderCliSettings } from "./provider-cli-settings"
 import { createProviderSetup } from "./provider-setup"
+import { ProviderAddons } from "./provider-addons"
+import { handleProviderAddons } from "./provider-addons-http"
 import { handleProviderSetupRequest } from "./provider-setup-http"
 import { ProviderCliUpdates, type ProviderCliUpdatesOptions } from "./provider-cli-updates"
 import { handleProviderCliUpdates } from "./provider-cli-updates-http"
@@ -175,7 +177,9 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     return getUpdateEnvironment()
   }
   const getCodexApiTransport = () => appSettings.getSnapshot().codexApiTransport ?? "auto"
-  const providerSetup = createProviderSetup({ dataDir: store.dataDir, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
+  const addons = new ProviderAddons(store.dataDir, getAgentEnvironment)
+  await addons.initialize(path.resolve(import.meta.dir, "../../dist/integrations"))
+  const providerSetup = createProviderSetup({ dataDir: store.dataDir, addons, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
   await store.initialize()
   await store.migrateLegacyTranscripts(options.onMigrationProgress)
   const savedDiscoveryProjects = () => store.listProjects().map((project) => ({
@@ -270,6 +274,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   })
   const agent = new AgentCoordinator({
     store,
+    addons,
     getEnvironment: getAgentEnvironment,
     getCodexTransport: () => appSettings.getSnapshot().codexTransport,
     getCodexApiTransport,
@@ -563,6 +568,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             }
           }
 
+          const addonResponse = await handleProviderAddons(req, url, addons, ingress.kind === "local")
+          if (addonResponse) return addonResponse
           const cliUpdateResponse = await handleProviderCliUpdates(req, url, providerCliUpdates,
             request => request.headers.has("origin") && (!auth || auth.validateOrigin(request)))
           if (cliUpdateResponse) return cliUpdateResponse
