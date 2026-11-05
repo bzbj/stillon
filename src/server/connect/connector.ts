@@ -286,6 +286,7 @@ export async function createConnector(options: ConnectorOptions) {
       // endless relaunch/prompt loop. An explicit local repair retries it.
       if (component && code !== 0 && now() - startedAt < 2_000) {
         error = "CONNECTOR_BLOCKED"; componentStatus = { state: "error", version: component.version, error: "CONNECTOR_BLOCKED" }
+        await stopTransport()
       }
       nextBeat = now() + (routing?.retryDelay ?? 5_000)
     } }).catch(() => {})

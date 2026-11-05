@@ -285,3 +285,17 @@ release requirements; synthetic tests cannot establish them.
 
 References: [Windows policy error 1260](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1000-1299-),
 [Smart App Control FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
+
+
+### Connector recovery regression
+
+On Windows, `bun test src/server/connect/connector-repair.test.ts` builds a small
+isolated .NET helper using the Windows Framework C# compiler. It exercises real
+process exit, explicit version probing and the connector heartbeat lifecycle
+against a loopback synthetic service. The test verifies that immediate failure
+removes temporary connection credentials, stops automatic relaunches, retains
+the binding and reconnects after an explicit local repair. It does not use
+production credentials or disable protection, and is not Smart App Control or
+hosted Connect acceptance. Maintainers must still run the authenticated private
+managed stack against the exact PR revision before completing paired-entry
+acceptance.
