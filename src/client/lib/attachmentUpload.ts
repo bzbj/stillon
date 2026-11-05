@@ -1,5 +1,6 @@
 import type { ChatAttachment } from "../../shared/types"
 import { ATTACHMENT_UPLOAD_CHUNK_BYTES, ATTACHMENT_UPLOAD_MAX_BYTES, ATTACHMENT_UPLOAD_PROTOCOL, UPLOAD_HEADERS } from "../../shared/attachment-upload"
+import { generateUUID } from "./utils"
 
 export interface AttachmentUploadArgs {
   projectId: string; file: File; uploadId?: string; signal?: AbortSignal
@@ -83,7 +84,7 @@ export async function uploadAttachmentWithRecovery(args: AttachmentUploadArgs, l
   if (support.protocol !== ATTACHMENT_UPLOAD_PROTOCOL || support.chunkBytes !== ATTACHMENT_UPLOAD_CHUNK_BYTES) return legacy(args)
   if (!Number.isSafeInteger(support.maxFileBytes) || support.maxFileBytes <= 0) throw new Error("The server returned invalid upload limits.")
   if (args.file.size > support.maxFileBytes) throw new Error(`This file exceeds the ${Math.floor(support.maxFileBytes / 1024 / 1024)} MB attachment limit.`)
-  const id = args.uploadId ?? crypto.randomUUID()
+  const id = args.uploadId ?? generateUUID()
   let offset = 0
   while (offset < args.file.size) {
     args.signal?.throwIfAborted()
