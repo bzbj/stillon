@@ -385,7 +385,7 @@ try {
       stage = entry.name + ":" + name + ":sidebar"
       const destination = config.addresses[entry.name][name]
       const navigate = async () => {
-        const previousFrame = name === "dynamic" ? null : await page.locator('iframe[title="HTML file preview"]').elementHandle()
+        const previousFrame = name === "dynamic" ? null : (await page.locator('iframe[title="HTML file preview"]').elementHandles())[0]
         await address.fill(destination); await address.press("Enter")
         // Updating the address field precedes replacing the old preview.
         // Retire its document before an identical fixture can satisfy readiness.
