@@ -20,10 +20,23 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
     await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
   } finally { release(); await page.unroute(url, hold) }
   // Error documents also fire iframe load. Only a document readiness receipt counts.
-  await page.route(url, route => route.fulfill({ status: 403, contentType: "text/html", body: "<h1>Fixture unavailable</h1>" }), { times: 1 })
-  await page.getByRole("button", { name: "Refresh", exact: true }).click()
-  await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
-  await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+  // Canceled navigations can consume a one-shot route before committing a page.
+  // Keep the resource unavailable until the explicit recovery action below.
+  let unavailableRequests = 0
+  const unavailable = async (route: import("playwright").Route) => {
+    unavailableRequests++
+    await route.fulfill({ status: 403, contentType: "text/html", body: "<h1>Fixture unavailable</h1>" })
+  }
+  await page.route(url, unavailable)
+  try {
+    await page.getByRole("button", { name: "Refresh", exact: true }).click()
+    await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+  } catch (error) {
+    console.error("HTML recovery injection", { requests: unavailableRequests,
+      sameSource: await iframe.evaluateAll((frames, source) => frames.some(frame => frame.getAttribute("src") === source), url).catch(() => false) })
+    throw error
+  } finally { await page.unroute(url, unavailable) }
   await page.getByRole("button", { name: "Retry preview", exact: true }).click()
   await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
   await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
