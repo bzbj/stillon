@@ -45,6 +45,7 @@ async function displayedFileBox(page: Page, element: Locator) {
 
 export async function clickDirectFileLink(page: Page, element: Locator, options: { modifiers?: readonly ("Control" | "Meta")[]; button?: "middle" } = {}) {
   const box = await displayedFileBox(page, element)
+  if (Math.abs(box.scale - 1) < 0.001) { await element.click(options); return }
   for (const key of options.modifiers ?? []) await page.keyboard.down(key)
   try { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: options.button ?? "left" }) }
   finally { for (const key of options.modifiers ?? []) await page.keyboard.up(key) }
@@ -69,7 +70,8 @@ export async function verifyDirectFileInput(page: Page, chromium: boolean) {
   const button = frame.locator("#add")
   const before = Number((await button.textContent())?.split(": ").at(-1))
   const buttonBox = await displayedFileBox(page, button)
-  await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
+  if (Math.abs(buttonBox.scale - 1) < 0.001) await button.click()
+  else await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
   await frame.getByRole("button", { name: "Add one: " + (before + 1), exact: true }).waitFor()
   assert.equal(await button.textContent(), "Add one: " + (before + 1))
   const input = frame.getByRole("textbox", { name: "File input" })

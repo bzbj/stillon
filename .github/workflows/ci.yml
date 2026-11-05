@@ -127,6 +127,8 @@ jobs:
             test-artifacts/workspace-previews/**/*-standalone.png
             test-artifacts/workspace-previews/**/*-outside-html.jpg
             test-artifacts/workspace-previews/**/*-recovery-*.jpg
+            test-artifacts/workspace-previews/**/failure.png
+            test-artifacts/workspace-previews/**/failure.txt
 
   workspace-preview-windows:
     runs-on: windows-latest
