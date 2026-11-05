@@ -84,8 +84,8 @@ test("a different legacy helper is never treated as the pinned component", async
 test("quarantine or tampering never triggers repeated automatic downloads; explicit repair works", async () => {
   const f = await fixture(), first = await prepareTransport(f.component, f.options)
   await rm(first.file)
-  expect(await transportStatus(f.component, f.options)).toMatchObject({ state: "error", error: "CONNECTOR_BLOCKED" })
-  for (let i = 0; i < 2; i++) await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_BLOCKED")
+  expect(await transportStatus(f.component, f.options)).toMatchObject({ state: "error", error: "CONNECTOR_MISSING" })
+  for (let i = 0; i < 2; i++) await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_MISSING")
   expect(f.counts().downloads).toBe(1)
   const repaired = await prepareTransport(f.component, { ...f.options, repair: true })
   expect(repaired.file).toBe(first.file)
@@ -266,4 +266,59 @@ test("component downloads enforce bounded streaming and redact failure details",
   expect(await downloadTransport(f.component, fetcher)).toEqual(f.archive)
   await expect(downloadTransport(f.component, async () => new Response(null, { headers: { "Content-Length": "9999999999" } }))).rejects.toThrow("CONNECTOR_DOWNLOAD_FAILED")
   await expect(downloadTransport(f.component, async () => { throw new Error("private proxy credentials") })).rejects.toThrow("CONNECTOR_DOWNLOAD_FAILED")
+})
+
+
+test("explicit repair probes cached bytes and preserves them on policy denial", async () => {
+  const f = await fixture(), first = await prepareTransport(f.component, f.options)
+  let attempts = 0
+  const denied = { ...f.options, repair: true, effects: { ...f.options.effects,
+    probe: async () => { attempts++; throw Object.assign(new Error("private command and token"), { code: "ERROR_ACCESS_DISABLED_BY_POLICY" }) },
+  } }
+  // The native Windows classifier is exercised separately on all platforms.
+  await expect(prepareTransport(f.component, denied)).rejects.toThrow(process.platform === "win32" ? "CONNECTOR_POLICY_BLOCKED" : "CONNECTOR_BLOCKED")
+  expect(attempts).toBe(1)
+  expect(f.counts().downloads).toBe(1)
+  expect(await readFile(first.file)).toEqual(Buffer.from(f.binary))
+  const repaired = await prepareTransport(f.component, { ...f.options, repair: true })
+  expect(repaired.file).toBe(first.file)
+  expect(f.counts()).toEqual({ downloads: 1, probes: 2 })
+})
+
+test("policy failure during preparation survives a subsequent automatic attempt", async () => {
+  const f = await fixture()
+  await expect(prepareTransport(f.component, { ...f.options, effects: { ...f.options.effects,
+    probe: async () => { throw new TransportError("CONNECTOR_POLICY_BLOCKED") },
+  } })).rejects.toThrow("CONNECTOR_POLICY_BLOCKED")
+  await expect(prepareTransport(f.component, f.options)).rejects.toThrow("CONNECTOR_POLICY_BLOCKED")
+  expect(f.counts().downloads).toBe(1)
+})
+
+
+test("a removed prepared component reports locally without discarding the bound identity", async () => {
+  const { newDeviceKeys } = await import("./crypto")
+  const f = await fixture(), prepared = await prepareTransport(f.component, f.options)
+  await rm(prepared.file)
+  const runtime = path.join(f.root, "runtime"), dataDir = path.join(f.root, "data"), keys = newDeviceKeys()
+  await mkdir(path.join(runtime, "runtime"), { recursive: true })
+  await mkdir(path.join(dataDir, "connect"), { recursive: true })
+  await writeFile(path.join(runtime, TRANSPORT_DESCRIPTOR), JSON.stringify(f.component))
+  const stateFile = path.join(dataDir, "connect/device.json")
+  const saved = JSON.stringify({ version: 1, origin: "https://connect.example.invalid", keys, name: "Fixture", paused: true,
+    binding: { hostId: "a".repeat(32), name: "Fixture", email: "fixture@example.com", epoch: 1, gatewayPublicKey: keys.publicKey, url: "https://host.example.invalid" } })
+  await writeFile(stateFile, saved)
+  const connector = await createConnector({ dataDir, runtimeRoot: runtime, transportLocation: f.options,
+    targetOrigin: "http://127.0.0.1:9", localSecret: "fixture-secret", name: () => "Fixture" })
+  try {
+    for (let i = 0; i < 100 && connector.status().transport?.state === "preparing"; i++) await Bun.sleep(10)
+    const request = () => new Request("http://127.0.0.1/api/connect-local/diagnostics")
+    const response = await handleConnectLocal(request(), { kind: "local" }, connector)
+    expect(response?.status).toBe(200)
+    const report = await response!.json()
+    expect(report).toMatchObject({ bound: true, transportRunning: false, transport: { state: "error", error: "CONNECTOR_MISSING" } })
+    for (const secret of [f.root, keys.privateKey, "fixture@example.com", "fixture-secret"]) expect(JSON.stringify(report)).not.toContain(secret)
+    expect(await readFile(stateFile, "utf8")).toBe(saved)
+    expect((await handleConnectLocal(request(), { kind: "external" }, connector))?.status).toBe(403)
+    expect(f.counts().downloads).toBe(1)
+  } finally { await connector.stop() }
 })

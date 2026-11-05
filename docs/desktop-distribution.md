@@ -234,7 +234,8 @@ Downloads are bounded and both archive and executable digests must match before
 execution. Archive paths and links are never extracted to disk. One writer owns
 the component preparation lock; durable attempt receipts prevent repeated
 downloads after interruption, failed verification or removal/quarantine. An
-explicit local repair can retry. Remote/external callers cannot manage the
+explicit local repair can retry. Repair probes execution even when cached bytes
+still match; an execution denial does not trigger another download of those bytes. Remote/external callers cannot manage the
 component. No operation disables Defender, Smart App Control or Gatekeeper,
 changes exclusions, removes quarantine attributes, or promises permanent trust.
 
@@ -245,3 +246,42 @@ does not use signing certificates, notarization credentials or a separate
 StillOn component build/publication workflow. When changing frp, update the
 target descriptors and verify both archive and executable hashes. Subsequent
 StillOn upgrades reuse the cache while those requirements remain unchanged.
+
+
+### Windows execution failures
+
+A healthy local application or backup ingress does not establish Connect readiness.
+Check Remote access and its copied diagnostics after an update, including a delayed
+check for security software removing the helper after setup. Keep the existing
+binding when investigating a failed transport.
+
+- `CONNECTOR_POLICY_BLOCKED`: Windows reported an application-control policy
+  refusal (Win32 1260 or 4551, when the runtime preserves that code).
+- `CONNECTOR_ACCESS_DENIED`: execution was denied, but the runtime did not establish
+  the policy responsible. Review permissions and Windows Security notifications.
+- `CONNECTOR_NOT_INSTALLED`: the executable was not found at launch. Removal alone
+  does not prove antivirus quarantine; consult Protection History.
+- `CONNECTOR_MISSING`: a previously prepared component disappeared. Review
+  Protection History; StillOn cannot establish whether it was quarantined or removed.
+- `CONNECTOR_BLOCKED`: the component failed to run
+  without a more specific supported code. Runtime error translation may lose the
+  original Windows code; this must not be reported as a confirmed policy denial.
+
+SmartScreen download warnings, Defender quarantine and Smart App Control execution
+blocks are different conditions. StillOn does not disable protections or restore
+quarantined files. Ask the publisher/administrator for a trusted component and
+review any detection with Microsoft. After resolving the blocking condition,
+choose **Repair Connect component** locally; the retained binding reconnects on
+the next connector tick. Repeated automatic execution is intentionally suppressed
+following a component failure.
+
+The current pinned unsigned component is not a supported guarantee of execution
+with Smart App Control enabled. Signing the outer installer does not sign this
+independently downloaded helper. A future trusted component publication must
+verify upstream provenance before signing, then pin the final signed executable
+and archive digests. Certificate-backed publication, Defender classification and
+physical Windows ARM64 acceptance with Smart App Control enabled remain separate
+release requirements; synthetic tests cannot establish them.
+
+References: [Windows policy error 1260](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1000-1299-),
+[Smart App Control FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
