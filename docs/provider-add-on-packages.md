@@ -82,7 +82,7 @@ the vendor credential store. Model policies are independent of adapter versions.
 See [DeepSeek setup](../addons/deepseek/README.md) and the
 [protocol notes](deepseek-local-harness.md).
 
-The initial qualified targets remain **Windows x64**, **dsh 0.2.1-rc.5** and
+The supported host targets are **Windows x64 and ARM64**, **dsh 0.2.1-rc.5** and
 **CodeBuddy CLI 2.180.0**. Shipping the adapters does not establish compatibility
 with other vendor versions or platforms. CodeBuddy remains Preview because real
 authenticated inference has not been qualified; see its
@@ -100,7 +100,7 @@ Relevant verification commands:
 ```sh
 bun run check
 bun run audit
-bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts
+bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts src/server/provider-addon-windows.test.ts
 bun scripts/verify-deepseek-models.ts --run
 bun scripts/build-desktop.ts --runtime-only
 bun scripts/verify-bundled-integrations.ts

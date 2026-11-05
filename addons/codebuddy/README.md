@@ -24,7 +24,7 @@ WorkBuddy Desktop is a separate product. This adapter does not extract its
 private bundled runtime or copy its account credentials. Users manage CLI
 installation, sign-in, endpoint, model, and updates outside StillOn.
 
-The initial preview targets **Windows x64 / CodeBuddy CLI 2.180.0**. Unknown CLI
+The preview targets **Windows x64 and ARM64 / CodeBuddy CLI 2.180.0**. Unknown CLI
 versions fail with a compatibility message. Qualify a new version and publish a
 new adapter after a vendor update; do not assume compatible flags imply a
 compatible protocol. Other platforms are not advertised by the manifest.

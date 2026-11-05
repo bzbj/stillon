@@ -1,7 +1,7 @@
 # DeepSeek Harness optional integration
 
-Development package version: **0.2.0-preview.1**, StillOn add-on API **1**.
-Qualified local target: Windows x64 with public `dsh` **0.2.1-rc.5**.
+Development package version: **0.2.0-preview.2**, StillOn add-on API **1**.
+Supported host targets: Windows x64 and ARM64 with public `dsh` **0.2.1-rc.5**.
 Other platforms and CLI versions are rejected until qualified.
 
 StillOn includes this adapter, disabled by default. Open **Settings -> Integrations
@@ -14,7 +14,7 @@ For standalone development fixtures, build from the repository root:
 bun scripts/build-provider-addon.ts
 ```
 
-This produces `dist/addons/deepseek-0.2.0-preview.1.stillon-addon`, a JSON envelope with
+This produces `dist/addons/deepseek-0.2.0-preview.2.stillon-addon`, a JSON envelope with
 validated manifest metadata and a self-contained JavaScript adapter. The script
 digest detects corruption; this locally imported development package is not an
 authenticated online catalog release. Only import packages from trusted sources.
