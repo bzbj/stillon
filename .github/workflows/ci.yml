@@ -74,7 +74,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - name: Install pinned public CLIs in an isolated directory
-        run: npm install --prefix test-artifacts/macos-cli --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.1 @tencent-ai/codebuddy-code@2.180.0
+        run: npm install --prefix test-artifacts/macos-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.1 @tencent-ai/codebuddy-code@2.180.0
       - name: Verify native Mac integrations with real CLIs and a synthetic model endpoint
         run: |
           bun -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Bun architecture mismatch')"

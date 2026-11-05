@@ -25,7 +25,9 @@ export async function createMacIntegrationCliFixture(root: string, cliDirectory 
       messages.forEach((message, index) => { if (message.role === "user" && /MAC_(TEXT|RESUME|READ|QUESTION|HOLD)/u.test(JSON.stringify(message.content))) user = index })
       assert(user >= 0, "request must contain an acceptance marker")
       const marker = JSON.stringify(messages[user].content).match(/MAC_(?:TEXT|RESUME|READ|QUESTION|HOLD)/u)![0]
-      const subsequent = messages.slice(user + 1), resultText = JSON.stringify(subsequent)
+      const subsequent = messages.slice(user + 1)
+      const toolMessages = subsequent.filter(message => message.role === "tool" || (Array.isArray(message.content) && message.content.some((block: any) => block.type === "tool_result")))
+      const resultText = JSON.stringify(toolMessages)
       const read = resultText.includes(fileContent), answer = resultText.includes("Blue")
       const resumed = JSON.stringify(messages.slice(0, user)).includes("MAC_TEXT_OK")
       requests.push({ marker, read, resumed, answer })
@@ -35,12 +37,12 @@ export async function createMacIntegrationCliFixture(root: string, cliDirectory 
         cancel() { held.clear() },
       }), { headers: { "Content-Type": "text/event-stream" } })
       let delta: any = { role: "assistant", content: `${marker}_OK` }, finish = "stop"
-      const toolResult = subsequent.some(message => message.role === "tool" || (Array.isArray(message.content) && message.content.some((block: any) => block.type === "tool_result")))
+      const toolResult = toolMessages.length > 0
       if (!toolResult && ["MAC_READ", "MAC_QUESTION"].includes(marker)) {
         const tools = body.tools as any[], question = marker === "MAC_QUESTION"
         const name = tools.find(tool => (question ? /^(ask_user_question|AskUserQuestion)$/u : /^(read|Read)$/u).test(tool.function?.name))?.function.name
         assert(name, "the public CLI must advertise the requested tool")
-        const args = question ? { questions: [{ id: "color", header: "Color", question: "Which color?", options: [{ label: "Blue" }, { label: "Red" }], multiSelect: false }] }
+        const args = question ? { questions: [{ id: "color", header: "Color", question: "Which color?", options: [{ label: "Blue", description: "Use blue." }, { label: "Red", description: "Use red." }], multiSelect: false }] }
           : { file_path: path.join(workspace, "note.txt") }
         delta = { role: "assistant", tool_calls: [{ index: 0, id: `mac-tool-${++serial}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] }
         finish = "tool_calls"
