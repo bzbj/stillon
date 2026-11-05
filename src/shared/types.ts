@@ -589,6 +589,24 @@ export interface SidebarChatRow {
   canFork?: boolean
 }
 
+export interface SidebarView {
+  version: 1
+  previewVersion?: 1
+  groups: Array<{ groupKey: string; limit: number }>
+  archived?: { groupKey: string; limit: number }
+  search?: string
+  searchLimit?: number
+  activeChatId?: string
+}
+
+export interface SidebarActivity {
+  working: boolean
+  unreadResult: boolean
+  attention: boolean
+  unreadCount: number
+  waitingChatIds: string[]
+}
+
 export interface SidebarProjectGroup {
   groupKey: string
   title: string
@@ -600,9 +618,19 @@ export interface SidebarProjectGroup {
   olderChats: SidebarChatRow[]
   archivedChats?: SidebarChatRow[]
   defaultCollapsed: boolean
+  lastActivityAt?: number
+  activity?: SidebarActivity
+  activeChatId?: string
+  chatPage?: { previewLimit?: number; limit: number; total: number; hasMore: boolean; archivedLimit: number; archivedTotal: number }
 }
 
 export interface SidebarData {
+  lazyVersion?: 1
+  previewVersion?: 1
+  search?: string
+  searchLimit?: number
+  searchHasMore?: boolean
+  activeChat?: { chatId: string; projectId: string | null }
   projectGroups: SidebarProjectGroup[]
 }
 

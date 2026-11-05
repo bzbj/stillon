@@ -16,6 +16,7 @@ import type {
   LocalProjectsSnapshot,
   ModelOptions,
   SidebarData,
+  SidebarView,
   StandaloneTranscriptAttachmentMode,
   StandaloneTranscriptExportResult,
   EditorPreset,
@@ -90,7 +91,7 @@ export interface ProjectQuickAction {
 }
 
 export type SubscriptionTopic =
-  | { type: "sidebar"; compactVersion?: 1 }
+  | { type: "sidebar"; compactVersion?: 1; view?: SidebarView }
   | { type: "local-projects" }
   | { type: "keybindings" }
   | { type: "app-settings" }

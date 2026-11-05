@@ -40,6 +40,8 @@ import { createWsRouter, type ClientState } from "./ws-router"
 import { SOCKET_TRANSPORT_QUERY } from "../shared/socket-transport"
 import { handleBrowserPreviewProxy, rewriteRootRelativeReferences } from "./browser-preview-proxy"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
+import { ChunkedUploads, ChunkUploadError } from "./chunked-uploads"
+import { ATTACHMENT_UPLOAD_CHUNK_BYTES, ATTACHMENT_UPLOAD_PROTOCOL, UPLOAD_HEADERS } from "../shared/attachment-upload"
 import { resolveProjectUploadFilePath } from "./paths"
 import { migrateLegacyBrandDataRoot } from "./brand-migration"
 import { createLocalHtmlPreviewManager, isLoopbackBindHost } from "./local-html-preview"
@@ -288,6 +290,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   })
   const localHtmlPreviews = createLocalHtmlPreviewManager()
   const previewFiles = new PreviewFiles(id => store.getProject(id)?.localPath)
+  const chunkedUploads = new ChunkedUploads(path.join(store.dataDir, "upload-staging"))
   const previewTargets = new PreviewTargets(path.join(store.dataDir, "preview-targets.json"), (address, owner) => localHtmlPreviews.resolveFile(address, owner), target => previewFiles.authorize(target))
   const previewBrowser = new PreviewBrowser({
     blockedPorts: protectedPreviewPorts,
@@ -659,7 +662,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return browserPreviewProxyResponse
           }
 
-          const uploadResponse = await handleProjectUpload(req, url, store, { maxUploadSizeBytes })
+          const uploadOwner = ingress.kind === "remote" ? remoteOperationOwner(ingress) : "local"
+          const uploadResponse = await handleProjectUpload(req, url, store, { maxUploadSizeBytes }, chunkedUploads, uploadOwner)
           if (uploadResponse) {
             return uploadResponse
           }
@@ -770,6 +774,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       // the server unwind before compacting EventStore or returning to callers
       // that may remove the data directory.
       await stopConnectListener(server)
+      await chunkedUploads.close()
       await codexModelPolicy.close()
       await claudeModelPolicy.close()
       await Promise.allSettled([...pendingServerOperations])
@@ -803,9 +808,11 @@ async function handleProjectUpload(
   req: Request,
   url: URL,
   store: EventStore,
-  limits: { maxUploadSizeBytes: number }
+  limits: { maxUploadSizeBytes: number },
+  chunks: ChunkedUploads,
+  owner: string,
 ) {
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "GET") {
     return null
   }
 
@@ -819,6 +826,9 @@ async function handleProjectUpload(
     return Response.json({ error: "Workspace not found" }, { status: 404 })
   }
 
+  if (req.method === "GET") return Response.json({ protocol: ATTACHMENT_UPLOAD_PROTOCOL,
+    chunkBytes: ATTACHMENT_UPLOAD_CHUNK_BYTES, maxFileBytes: limits.maxUploadSizeBytes }, { headers: { "Cache-Control": "no-store" } })
+
   const formData = await req.formData()
   const files = formData
     .getAll("files")
@@ -826,6 +836,12 @@ async function handleProjectUpload(
 
   if (files.length === 0) {
     return Response.json({ error: "No files uploaded" }, { status: 400 })
+  }
+
+  if (req.headers.has(UPLOAD_HEADERS.protocol)) {
+    if (req.headers.get(UPLOAD_HEADERS.protocol) !== String(ATTACHMENT_UPLOAD_PROTOCOL) || files.length !== 1) return Response.json({ error: "Unsupported upload chunk request." }, { status: 400 })
+    try { return Response.json(await chunks.upload(req, files[0]!, project, owner, limits.maxUploadSizeBytes), { headers: { "Cache-Control": "no-store" } }) }
+    catch (error) { return Response.json({ error: error instanceof ChunkUploadError ? error.message : "Upload chunk could not be saved. Retry this attachment." }, { status: error instanceof ChunkUploadError ? error.status : 500 }) }
   }
 
   if (files.length > MAX_UPLOAD_FILES) {

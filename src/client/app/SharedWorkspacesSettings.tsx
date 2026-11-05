@@ -36,8 +36,8 @@ export function SharedWorkspacesSettings({ remote }: { remote: boolean }) {
     const timer = window.setInterval(() => void refresh(controller.signal), 30_000)
     return () => { controller.abort(); window.clearInterval(timer) }
   }, [refresh])
-  return <div className="space-y-3">
-    <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-medium">Workspaces shared with me</h4><Button variant="ghost" size="icon" aria-label="Refresh shared workspaces" disabled={loading} onClick={() => void refresh()}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button></div>
+  return <section aria-label="Workspaces shared with me" className="space-y-3 border-t pt-5">
+    <div className="flex items-center justify-between gap-3"><h3 className="font-medium">Workspaces shared with me</h3><Button variant="ghost" size="icon" aria-label="Refresh shared workspaces" disabled={loading} onClick={() => void refresh()}><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button></div>
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : workspaces ? <SharedWorkspaceList workspaces={workspaces} currentOrigin={window.location.origin} /> : <p className="text-sm text-muted-foreground">Loading shared workspaces…</p>}
-  </div>
+  </section>
 }

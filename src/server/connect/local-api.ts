@@ -28,6 +28,10 @@ export async function handleConnectLocal(request: Request, ingress: Ingress, con
   if (!connector) return json({ error: "CONNECTOR_STARTING" }, 503)
   if (route === "/api/connect-local/status" && request.method === "GET") return json(connector.status())
   if (route === "/api/connect-local/diagnostics" && request.method === "GET") return json(connector.diagnostics())
+  if (route === "/api/connect-local/hosts" && request.method === "GET") {
+    try { return json(await connector.hosts()) }
+    catch (error) { return json({ error: error instanceof ConnectorError ? error.code : "SERVICE_UNAVAILABLE" }, error instanceof ConnectorError ? error.status : 503) }
+  }
   if (route === "/api/connect-local/shared-workspaces" && request.method === "GET") {
     try { return json(await connector.sharedWorkspaces()) }
     catch (error) { return json({ error: error instanceof ConnectorError ? error.code : "SERVICE_UNAVAILABLE" }, error instanceof ConnectorError ? error.status : 503) }

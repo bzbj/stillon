@@ -4,7 +4,7 @@ import type { SidebarData, SidebarProjectGroup } from "./types"
 type CompactGroup = Omit<SidebarProjectGroup, "previewChats" | "olderChats"> & { previewIndexes: number[]; olderIndexes: number[] }
 type CompactEnvelope = Omit<Extract<ServerEnvelope, { type: "snapshot" }>, "snapshot"> & {
   sidebarEncoding: 1
-  snapshot: { type: "sidebar"; data: { projectGroups: CompactGroup[] } }
+  snapshot: { type: "sidebar"; data: Omit<SidebarData, "projectGroups"> & { projectGroups: CompactGroup[] } }
 }
 
 /** Send every row once, retaining the server's exact bucket membership and order. */
@@ -25,7 +25,7 @@ export function encodeSidebarEnvelope(message: ServerEnvelope, enabled: boolean)
     if (all.length !== group.chats.length || all.includes(-1) || new Set(all).size !== group.chats.length) return message
     projectGroups.push({ ...rest, previewIndexes, olderIndexes })
   }
-  return { ...message, sidebarEncoding: 1, snapshot: { type: "sidebar", data: { projectGroups } } }
+  return { ...message, sidebarEncoding: 1, snapshot: { type: "sidebar", data: { ...message.snapshot.data, projectGroups } } }
 }
 
 /** Application listeners always receive the original SidebarData shape. */
@@ -41,5 +41,5 @@ export function decodeSidebarEnvelope(message: unknown): ServerEnvelope {
     return { ...rest, previewChats: previewIndexes.map(index => rest.chats[index]!), olderChats: olderIndexes.map(index => rest.chats[index]!) }
   })
   const { sidebarEncoding: _encoding, ...envelope } = wire
-  return { ...envelope, snapshot: { type: "sidebar", data: { projectGroups } satisfies SidebarData } }
+  return { ...envelope, snapshot: { type: "sidebar", data: { ...wire.snapshot.data, projectGroups } satisfies SidebarData } }
 }

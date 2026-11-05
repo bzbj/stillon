@@ -1,3 +1,5 @@
+import { FileDropOverlay } from "../../components/chat-ui/FileDropOverlay"
+import { usePageFileDrop } from "../../lib/usePageFileDrop"
 import { openLocalServiceInBrowser } from "../../lib/localServiceBrowser"
 import { executeResourceAction } from "../../components/ResourceLink"
 import { StartupPart } from "../StartupReadiness"
@@ -5,7 +7,7 @@ import { buildLocalFilePreviewUrl } from "../../../shared/local-file-urls"
 import { fileRenderer } from "../../../shared/file-renderers"
 import { getLinkCapabilities } from "../../lib/linkCapabilities"
 import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
@@ -37,7 +39,6 @@ import { getNextMeasuredInputHeight, getTranscriptPaddingBottom } from "../useSt
 import {
   EMPTY_STATE_TEXT,
   EMPTY_STATE_TYPING_INTERVAL_MS,
-  hasFileDragTypes,
 } from "./utils"
 
 const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
@@ -76,57 +77,6 @@ function useEmptyStateTyping(showEmptyState: boolean, activeChatId: string | nul
   }, [showEmptyState, activeChatId])
 
   return { typedEmptyStateText, isEmptyStateTypingComplete }
-}
-
-function usePageFileDrop(args: {
-  hasSelectedProject: boolean
-  onFilesDropped: (files: File[]) => void
-}) {
-  const [isPageFileDragActive, setIsPageFileDragActive] = useState(false)
-  const pageFileDragDepthRef = useRef(0)
-
-  const hasDraggedFiles = useCallback((event: DragEvent) => hasFileDragTypes(event.dataTransfer?.types ?? []), [])
-
-  const handleTranscriptDragEnter = useCallback((event: DragEvent) => {
-    if (!hasDraggedFiles(event) || !args.hasSelectedProject) return
-    event.preventDefault()
-    pageFileDragDepthRef.current += 1
-    setIsPageFileDragActive(true)
-  }, [args.hasSelectedProject, hasDraggedFiles])
-
-  const handleTranscriptDragOver = useCallback((event: DragEvent) => {
-    if (!hasDraggedFiles(event) || !args.hasSelectedProject) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = "copy"
-    if (!isPageFileDragActive) {
-      setIsPageFileDragActive(true)
-    }
-  }, [args.hasSelectedProject, hasDraggedFiles, isPageFileDragActive])
-
-  const handleTranscriptDragLeave = useCallback((event: DragEvent) => {
-    if (!hasDraggedFiles(event) || !args.hasSelectedProject) return
-    event.preventDefault()
-    pageFileDragDepthRef.current = Math.max(0, pageFileDragDepthRef.current - 1)
-    if (pageFileDragDepthRef.current === 0) {
-      setIsPageFileDragActive(false)
-    }
-  }, [args.hasSelectedProject, hasDraggedFiles])
-
-  const handleTranscriptDrop = useCallback((event: DragEvent) => {
-    if (!hasDraggedFiles(event) || !args.hasSelectedProject) return
-    event.preventDefault()
-    pageFileDragDepthRef.current = 0
-    setIsPageFileDragActive(false)
-    args.onFilesDropped([...event.dataTransfer.files])
-  }, [args, hasDraggedFiles])
-
-  return {
-    isPageFileDragActive,
-    handleTranscriptDragEnter,
-    handleTranscriptDragOver,
-    handleTranscriptDragLeave,
-    handleTranscriptDrop,
-  }
 }
 
 function useLayoutWidth(ref: RefObject<HTMLDivElement | null>) {
@@ -969,7 +919,6 @@ export function ChatPage() {
               scrollToBottom={() => scrollToTranscriptEnd(true)}
               typedEmptyStateText={typedEmptyStateText}
               isEmptyStateTypingComplete={isEmptyStateTypingComplete}
-              isPageFileDragActive={isPageFileDragActive}
               showEmptyState={showEmptyState}
             />
             <StartupPart name="transcript" />
@@ -998,6 +947,7 @@ export function ChatPage() {
         />
         <StartupPart name="composer" ready={state.composerPreferencesReady} />
       </Suspense>
+      <FileDropOverlay active={isPageFileDragActive} />
     </Card>
   )
 

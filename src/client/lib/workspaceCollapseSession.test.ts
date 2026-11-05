@@ -96,3 +96,16 @@ test("editing a second workspace preserves the retry for a failed first workspac
   expect(session.getSnapshot()).toMatchObject({ choices: { a: false, b: false }, unsynced: true })
   expect(session.getSnapshot().error).toContain("not synced")
 })
+
+test("a names-only catalog preserves first-use and direct-chat expansion without fetching history", () => {
+  const groups = [
+    { groupKey: "older", title: "Older", realTitle: "Older", localPath: "/tmp/older", chats: [], previewChats: [], olderChats: [], defaultCollapsed: true, lastActivityAt: 10 },
+    { groupKey: "newer", title: "Newer", realTitle: "Newer", localPath: "/tmp/newer", chats: [], previewChats: [], olderChats: [], defaultCollapsed: false, lastActivityAt: 20 },
+  ]
+  const first = new WorkspaceCollapseSession()
+  first.includeGroups(groups, null)
+  expect(first.getSnapshot().choices).toEqual({ older: true, newer: false })
+  const linked = new WorkspaceCollapseSession()
+  linked.includeGroups([{ ...groups[0]!, activeChatId: "old-chat" }, groups[1]!], "old-chat")
+  expect(linked.getSnapshot().choices).toEqual({ older: false, newer: true })
+})

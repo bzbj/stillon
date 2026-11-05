@@ -49,18 +49,20 @@ function renderSidebar({
   snapshotStatus,
   workspaceCollapsed,
   defaultCollapsed = false,
+  snapshotData = sidebarData,
 }: {
   connectionStatus: "connecting" | "connected" | "disconnected"
   ready: boolean
   snapshotStatus: "empty" | "cached" | "authoritative"
   workspaceCollapsed?: Record<string, boolean>
   defaultCollapsed?: boolean
+  snapshotData?: SidebarData
 }) {
   return renderToStaticMarkup(
     <MemoryRouter>
       <TooltipProvider>
         <StillOnSidebar
-          data={{ projectGroups: sidebarData.projectGroups.map(group => ({ ...group, defaultCollapsed })) }}
+          data={{ ...snapshotData, projectGroups: snapshotData.projectGroups.map(group => ({ ...group, defaultCollapsed })) }}
           workspaceCollapsed={workspaceCollapsed}
           activeChatId={null}
           machineName="Synthetic Mac"
@@ -156,6 +158,57 @@ for (const connectionStatus of ["connecting", "disconnected"] as const) {
   })
 }
 
+describe("sidebar loading layout", () => {
+  for (const connectionStatus of ["connecting", "connected", "disconnected"] as const) {
+    for (const snapshotStatus of ["cached", "authoritative"] as const) {
+      test(`keeps folded ${snapshotStatus} workspaces free of loading placeholders while ${connectionStatus}`, () => {
+        const html = renderSidebar({
+          connectionStatus,
+          ready: snapshotStatus === "authoritative",
+          snapshotStatus,
+          workspaceCollapsed: { "project-a": true },
+        })
+        expect(html).toContain('data-stillon-part="workspace-card"')
+        expect(html).toContain('aria-expanded="false"')
+        expect(html).toContain("Synthetic Project")
+        expect(html).not.toContain("Saved conversation")
+        expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+      })
+    }
+
+    test(`keeps an authoritative empty sidebar stable while ${connectionStatus}`, () => {
+      const html = renderSidebar({
+        connectionStatus, ready: true, snapshotStatus: "authoritative",
+        snapshotData: { projectGroups: [] },
+      })
+      expect(html).toContain("No conversations yet")
+      expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+    })
+  }
+
+  test("does not prepend loading placeholders to an expanded workspace with no conversations", () => {
+    const html = renderSidebar({
+      connectionStatus: "connecting", ready: true, snapshotStatus: "authoritative",
+      workspaceCollapsed: { "project-a": false },
+      snapshotData: { projectGroups: [{ ...sidebarData.projectGroups[0]!, chats: [], previewChats: [] }] },
+    })
+    expect(html).toContain("Synthetic Project")
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).not.toContain('data-stillon-part="sidebar-loading"')
+  })
+
+  for (const connectionStatus of ["connecting", "connected"] as const) {
+    test(`shows initial loading before the first sidebar snapshot while ${connectionStatus}`, () => {
+      const html = renderSidebar({
+        connectionStatus, ready: false, snapshotStatus: "empty",
+        snapshotData: { projectGroups: [] },
+      })
+      expect(html).toContain('data-stillon-part="sidebar-loading"')
+      expect(html).not.toContain("No conversations yet")
+    })
+  }
+})
+
 test("shared workspace visitors keep Settings and the existing portal link", () => {
   const initial = useWorkspaceSharingStore.getInitialState()
   const previous = initial.view
@@ -166,4 +219,18 @@ test("shared workspace visitors keep Settings and the existing portal link", () 
     expect(html).toContain("Back to Connect")
     expect(html).toContain("https://connect.example.com/computers")
   } finally { initial.view = previous }
+})
+
+for (const pinCount of [0, 2, 5, 7]) test(`preloaded ${pinCount}-pin preview renders immediately without a loading row`, () => {
+  const previewLimit = Math.max(5, pinCount)
+  const rows = Array.from({ length: previewLimit }, (_, i) => ({ ...sidebarData.projectGroups[0]!.chats[0]!,
+    _id: `row-${i}`, chatId: `row-${i}`, title: `Preview conversation ${i}`, pinned: i < pinCount }))
+  const data: SidebarData = { lazyVersion: 1, previewVersion: 1, projectGroups: [{ ...sidebarData.projectGroups[0]!,
+    chats: rows, previewChats: rows, olderChats: [], chatPage: { previewLimit, limit: previewLimit, total: 30, hasMore: true, archivedLimit: 0, archivedTotal: 0 } }] }
+  const html = renderSidebar({ connectionStatus: "connected", ready: true, snapshotStatus: "authoritative", workspaceCollapsed: { "project-a": false }, snapshotData: data })
+  for (let i = 0; i < previewLimit; i++) expect(html).toContain(`Preview conversation ${i}`)
+  expect(html).toContain("Show more")
+  expect(html).not.toContain("Show less")
+  expect(html).not.toContain("Loading conversations")
+  expect(html).not.toContain("Loading more conversations")
 })

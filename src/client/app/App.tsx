@@ -227,6 +227,7 @@ function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope
       onResizeSidebar={handleSidebarResize}
       sidebarWidth={state.sidebarWidth}
       data={state.sidebarData}
+      onViewChange={state.handleSidebarViewChange}
       activeChatId={state.activeChatId}
       machineName={machineName}
       connectionStatus={state.connectionStatus}
@@ -296,6 +297,7 @@ function StillOnLayout({ cacheScope, sidebarView, startupCheckId }: { cacheScope
     state.expandSidebar,
     state.openSidebar,
     state.sidebarData,
+    state.handleSidebarViewChange,
     state.sidebarCollapsed,
     state.sidebarOpen,
     state.sidebarReady,

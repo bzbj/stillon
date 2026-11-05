@@ -1,5 +1,10 @@
 # Workspace previews
 
+HTML previews show a loading status until the document reports that it is ready.
+After 20 seconds, a slow-preview notice offers **Retry preview**. A response that
+finishes later appears automatically. Retry requests a fresh authorized entry;
+an error page's iframe `load` event does not count as a ready document.
+
 Files render directly in the visiting browser. Markdown uses the shared renderer,
 text/code uses escaped text, images use AttachmentImage, and HTML uses a real DOM
 on an isolated file origin. None of these paths starts Chromium on the host or

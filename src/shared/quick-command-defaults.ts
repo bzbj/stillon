@@ -1,34 +1,72 @@
 // Default command text is editable in Settings. These prompts never run on load.
 import type { QuickCommand } from "./quick-commands"
 
+const WORKSPACE_ENTRY_GUIDANCE = `Use AGENTS.md as the workspace entry point. Read it first when present, and also read any existing Agent.md or agent.md for context. If only a legacy entry exists, use it in place until migration is authorized; do not create a second root entry or a redirect file. Preserve existing instructions and human-authored content.`
+
 export const DEFAULT_QUICK_COMMANDS: readonly QuickCommand[] = [
   {
     id: "set-up-agent-workspace",
     name: "Set Up Agent Workspace",
     description: "Establish the workspace's purpose, memory, and working habits.",
-    prompt: `Set up the current directory as a lasting Agent Workspace so future tasks can build on its purpose, knowledge, progress, and experience.
+    prompt: `Set up the current directory as a lasting Agent Workspace for people and agents to collaborate. Read its existing goals, materials, and instructions first. Apply the following rules during setup and persist them in the workspace's instructions for future work.
 
-Read the existing goals, materials, and instructions first. Learn how the user already names and stores files, and preserve those habits. Keep folder names short and clear, and nesting shallow. Create only what is needed for the actual work.
+## Human-facing organization
 
-Keep the top level useful to the user: its work folders should represent broad categories of the user's tasks, with specific tasks beneath the relevant category. Reuse existing categories and keep their materials and final deliverables together, so the user can see what work has been done. This also makes it easier to choose a category folder as its own Agent Workspace later. Do not prebuild a large folder taxonomy.
+Keep the workspace primarily useful to people. Organize business folders by function or responsibility first, using familiar names and established habits. Refine within a function by period, project, customer, or another dimension only when needed. Choose the structure from the actual responsibilities and materials rather than a domain-specific template.
 
-Create a concise agent.md at the workspace root if it is missing. If it already exists, preserve its instructions and user-authored content; update only clearly identified agent-maintained sections. Record the workspace's purpose, responsibilities, current work, important decisions, and where to resume. Link to the supporting records. If the ownership of existing content is unclear, leave it unchanged and save suggested additions in the support folder for review.
+Use the user's established language preference or the workspace's usual language for new filenames and folder names as well as replies and document contents. Preserve established language conventions and fixed structural names such as \`AGENTS.md\`, \`.agent/\`, and \`.agent/input/\`. Do not translate or rename existing human files without a confirmed reorganization plan.
 
-Keep all other newly created agent support material together in one top-level support folder: file and folder indexes, maintained knowledge, working methods, scripts, progress records, and temporary or intermediate outputs, including temporary HTML. Reuse an existing suitable support folder; otherwise use _agent/ as the suggested default and record its location in agent.md. Keep its internal structure shallow and add files only as needed. Place final user-facing deliverables in their existing task or category location according to the user's conventions. Preserve existing user files and folders at their current names and paths. This setup command must not move, rename, delete, overwrite, or reorganize them. Index legacy locations in place. Update only clearly agent-maintained support notes; treat uncertain ownership as user material. For new files, use an unused filename and preserve existing versions. A file being inside the support folder does not by itself make it safe to replace.
+Keep directories shallow. Store files directly in the relevant business folder when practical and add subfolders only when useful. Do not impose a fixed depth limit or prebuild an empty taxonomy. Each functional folder should form a coherent responsibility that a person, an agent, or both can own, and may later become its own workspace. Create child workspace instructions and support folders only when that independent scope is actually needed. Reference shared or upstream material by path rather than scattering copies.
 
-Preserve original materials and their sources. Maintain reusable knowledge in the support folder, updating relevant conclusions, references, and links as evidence changes. Distinguish confirmed facts, assumptions, conflicting evidence, and open questions. Capture proven steps, useful lessons, and known problems as reusable working methods, including when they apply.
+Human-facing folders primarily contain current, usable final deliverables. Give each file an unambiguous name describing its actual content and, where relevant, subject and covered period. Keep one current official version for each deliverable type, subject, and period; do not leave parallel draft, v2, final-final, or timestamped revisions there. Distinct reporting periods or intentionally required output formats are not competing revisions. This convention is not permission to clean up existing files: people may place their own materials and reports here, and their choices and paths must be respected.
 
-Establish a routine of reading relevant context before a task and writing back meaningful changes afterward. Record enough progress and output locations for someone to continue. Keep agent.md concise and use the support folder for detailed records.
+## Agent working area and entry point
 
-Keep materials and outputs within this workspace by default. Before an external write that is not already authorized, explain the path and reason and ask for confirmation. Where the approved task scope includes external or system directories, work within that scope without asking again.
+${WORKSPACE_ENTRY_GUIDANCE}
 
-Complete the necessary setup and briefly explain the main entry points and ongoing maintenance routine. Use the user's established language preference or the workspace's usual language for replies and new documents; preserve existing language conventions.`,
+Keep a concise \`AGENTS.md\` at the workspace root: purpose, responsibilities, human directory conventions, essential approval boundaries, current work, next step, and links to supporting records. Preserve existing instructions and human-authored content, and use the exact AGENTS.md filename for new entries. Update only clearly agent-maintained sections; if ownership is unclear, save proposed additions separately for review.
+
+When a legacy entry needs migration, propose its exact rename or merge into AGENTS.md, a recoverable backup under .agent/, and the affected links. Execute only an already authorized concrete migration. If AGENTS.md and a legacy entry coexist, read both and resolve conflicting instructions with the user before merging; do not replace either with a redirect. Preserve originals until the approved merge and links have been verified.
+
+Keep all newly generated agent support material under \`.agent/\`: direct request records, input references, working drafts, candidate outputs, temporary files (including HTML), scripts, indexes, knowledge, methods, progress, validation, feedback, and archived revisions. Its internal structure can follow the agent's needs and grow as needed. Reference legacy locations in place until any move is approved. Human-owned material inside \`.agent/\` is still human-owned. An output in \`.agent/\` may be ready for review without being approved for publication.
+
+## Workspace boundary and source references
+
+Writes outside the workspace require user confirmation. Before an external write, explain the target location and intended change and obtain the user's confirmation. Until confirmed, treat that outside content as read-only, including other workspaces and upstream data sources. Read access does not imply confirmation for edits, moves, renames, deletion, or other writes. An already confirmed, unchanged write does not need another confirmation. Resolve actual target locations, including links and junctions, before writing so a path inside the workspace does not silently write outside it. Publication and reorganization within the workspace still follow their respective approval rules.
+
+When outside content is a data source, save a reference note in \`.agent/input/\`, not a copy of the source file. Record its exact original path, URL, or service/resource identifier, what it supplies and how it is used, relevant version or access date, and any access limitations. Read the original in place without changing it. Apply the same reference approach to another agent's outputs, and link run records to the input reference. Direct user request text may be recorded locally; do not treat an externally stored file as a local input snapshot merely because the user supplied its path. Do not copy or import external source files unless the user explicitly requests that separately. Derived analysis and working results belong in \`.agent/\` and should retain links to their sources.
+
+## Existing files and reorganization approval
+
+Inspect the existing folder before setup and prioritize the human's conventions, even if they differ from the preferred layout. Preserve source files and provenance. If the folder is cluttered, proactively offer help organizing it into shallow functional folders.
+
+Before reorganizing existing human files or directories, inventory the affected material and submit a concrete plan and expected result in the chat. Show (1) the proposed directory structure and (2) every affected file's current path and exact destination path, including proposed renames, conflicts, replacements, or archiving. Wait for explicit human confirmation of that plan before executing any reorganization. A previous generic instruction such as "organize this" or "go ahead" does not waive this plan-review step. Before confirmation, inspect and plan only; do not move, rename, delete, overwrite, or restructure existing material.
+
+Execute only the confirmed mapping, verify sources and destinations, preserve recoverable originals, and report the outcome. If a conflict, changed file, or new scope requires a different plan, explain the change and obtain confirmation for the affected operations. Do not treat old dates, duplicates, or untidy filenames as permission to remove material. An already confirmed, unchanged concrete plan does not need another confirmation.
+
+## Publication of official deliverables
+
+Create and validate agent-generated work in \`.agent/\`. Task completion, a successful self-check, and a request to produce a report do not by themselves authorize saving it into human business folders as an official output.
+
+After completing a useful deliverable, proactively ask whether the user wants to adopt it as the final result and save it into the business folder. Link to the reviewable candidate, identify the exact proposed filename and destination, and state that it will be the official deliverable. Obtain human confirmation covering that artifact, destination, and official status before publishing. While confirmation is absent or changes are requested, keep the candidate in \`.agent/\`. Honor an explicit approval already given for the same concrete artifact and destination without asking again; do not generalize it to other outputs.
+
+If an official file already exists, include the replacement and the predecessor's archive path under \`.agent/\` in the proposal. Do not overwrite it silently or work around the conflict by creating another competing official revision. Before publishing, recheck that the approved candidate and any existing target have not changed. Preserve and verify a recoverable predecessor before an approved replacement, use a safe copy/replace operation, and verify the published file. Record the approval, source, official path, date, and archive relationship in \`.agent/\`. If publication fails, retain or restore the prior official file and report the actual state.
+
+## Continuity and learning
+
+Before each task, read the relevant entry point and supporting records. After meaningful work, record progress, important decisions, validation, output locations, pending approvals, and the next step. Maintain reusable knowledge with sources and dates; distinguish confirmed facts, assumptions, conflicting evidence, and open questions. Capture proven methods, applicability, useful lessons, and known failures. Update methods when feedback or validation supports a durable improvement, recording what changed and why. Keep detailed records in \`.agent/\` and root \`AGENTS.md\` concise.
+
+Complete the necessary additive setup: create AGENTS.md only when no canonical or legacy entry exists, and record detailed rules, relevant knowledge, a working method, validation criteria, and continuation state in .agent/. Preserve existing human instructions; put proposed changes to uncertain or human-owned sections in .agent/ for review. Create only what the actual work needs. Setup itself does not authorize reorganizing existing material or publishing deliverables. When reorganization would help, present the concrete plan in chat and wait for its confirmation while continuing independent setup work.
+
+Keep materials and outputs within this workspace by default. Writes outside the workspace require user confirmation, as described above. Briefly explain the entry points, maintenance routine, and any pending decisions. Use the user's established language preference or the workspace's usual language for replies and new documents; preserve existing language conventions.`,
   },
   {
     id: "continue-work",
     name: "Continue Work",
     description: "Pick up where this workspace left off.",
     prompt: `Continue the work in this workspace.
+
+${WORKSPACE_ENTRY_GUIDANCE}
 
 Read the workspace guide, recent task records, and outstanding work. Identify the current goal, progress, decisions, and previously agreed next step. Briefly state where you are picking up, then proceed with work that is already clearly defined and authorized.
 
@@ -44,6 +82,8 @@ Use the user's established language preference or the workspace's usual language
     description: "Get a concise work update and recommended next steps.",
     prompt: `Prepare a concise work brief for me, with practical recommendations on what to do next. Help me understand where things stand and where my attention would be most useful.
 
+${WORKSPACE_ENTRY_GUIDANCE}
+
 Use the available records and materials in this workspace to understand the work's goals, recent activity, commitments, and relevant timing. Prioritize meaningful changes since the last update when one is available. Be clear about any missing or outdated information that affects the brief.
 
 Summarize the results achieved and why they matter, the work currently in progress, and any obstacles or commitments that need attention. Bring decisions I need to make to the foreground. When a decision is needed, explain the options and recommend a course of action with a brief reason. Include dates and responsible people where these are recorded.
@@ -52,7 +92,7 @@ Recommend up to three useful next steps in priority order. Make each recommendat
 
 Write for me as the person responsible for the work. Use plain language, focus on outcomes and practical decisions, and link to key materials or results where helpful. Adapt the brief to the type of work and keep it easy to scan. Leave execution of the suggested next steps for a separate instruction.
 
-Deliver the brief as a standalone HTML file. Start with a short overview, then make work progress and results, matters needing my attention or decision, and recommended next steps easy to find. Include the date and scope of the brief. Use a clean, readable layout that works on desktop and mobile, with embedded styles so the file can be opened directly. Save this final brief in an existing appropriate task or category location according to the user's storage habits, using a descriptive, dated .html filename and preserving earlier briefs. When there is no established location for a workspace-wide brief, use the single agent support folder recorded in root agent.md, reusing a suitable existing support folder or _agent/ as the fallback. Keep temporary and intermediate HTML in that support folder as well. Create only the files and shallow folders needed for this brief, and keep existing user files at their current names and paths. Treat source materials as read-only for this briefing. Use an unused filename, adding a time or sequence suffix when needed; do not replace an existing file or revise user documents while preparing the brief. In the conversation, provide a link to the HTML file and a short takeaway.
+Deliver the brief as a standalone HTML file. Start with a short overview, then make work progress and results, matters needing my attention or decision, and recommended next steps easy to find. Include the date and scope of the brief. Use a clean, readable layout that works on desktop and mobile, with embedded styles so the file can be opened directly. Save this final brief in an existing appropriate task or category location according to the user's storage habits, using a descriptive, dated .html filename and preserving earlier briefs. When there is no established location for a workspace-wide brief, use the single agent support folder recorded in the workspace entry, reusing a suitable existing support folder or _agent/ as the fallback. Keep temporary and intermediate HTML in that support folder as well. Create only the files and shallow folders needed for this brief, and keep existing user files at their current names and paths. Treat source materials as read-only for this briefing. Use an unused filename, adding a time or sequence suffix when needed; do not replace an existing file or revise user documents while preparing the brief. In the conversation, provide a link to the HTML file and a short takeaway.
 
 Use the user's established language preference or the workspace's usual language.`,
   },
@@ -61,6 +101,8 @@ Use the user's established language preference or the workspace's usual language
     name: "Prepare Handoff",
     description: "Organize the context someone needs to take over.",
     prompt: `Prepare a handoff that lets a colleague or another agent continue the work in this workspace.
+
+${WORKSPACE_ENTRY_GUIDANCE}
 
 Read the workspace guide, task records, and existing outputs. Explain the goal and background, confirmed decisions, current progress, locations of key materials and outputs, outstanding tasks, unresolved questions, and where to start next. Distinguish work that can proceed from matters requiring the user's confirmation, and preserve the existing boundaries and authorized scope.
 
@@ -74,20 +116,49 @@ Use the user's established language preference or the workspace's usual language
     id: "organize-workspace",
     name: "Organize Workspace",
     description: "Keep things tidy and improve how this workspace works.",
-    prompt: `Organize this workspace so it is easier for me to navigate and continue using. Use the same pass to improve the knowledge and working methods future agents rely on.
+    prompt: `Organize this workspace so people can find and use its results, and future agents can continue with accurate context, maintained knowledge, and better working methods. First establish the user's chosen scope, then follow only the applicable procedures below.
 
-Read the existing workspace instructions, agent.md, index, recent task records, previous organization notes, and new materials. Focus on changes since the last pass. Check that current progress, outstanding tasks, and important conclusions match the actual results.
+Choose the scope first
+Unless the user has already explicitly selected the scope for this invocation, your first response must ask one concise scope question in the user's established language and wait for the answer before doing any maintenance, creating records, or changing files. Use a structured question tool with selectable options when available; otherwise show the numbered choices in chat. Do not treat a preselected option, silence, or merely clicking Organize Workspace as an answer.
 
-Keep user files, folder names, paths, and storage habits unchanged. This organizing command must not move, rename, delete, overwrite, or restructure user files or folders. Limit updates to clearly agent-maintained indexes, knowledge, methods, and progress records. Preserve user-authored content in shared notes and agent.md. When ownership or a safe edit boundary is unclear, leave the existing file untouched and create a separate proposed note in the support folder. Do not treat duplicates, old files, or the location of a file as permission to remove or replace it. Any suggested changes to user materials or structure remain suggestions in the final summary.
+Ask which kind of organization the user wants this time. Present exactly two options. For Chinese, use the following labels verbatim; for another established language, use equivalent labels and descriptions:
+1. "快速整理：仅维护 Agent 知识" — Update agent-maintained knowledge, methods, indexes, and progress in .agent/, plus clearly agent-maintained sections of root AGENTS.md. Keep human business files and their directory structure unchanged.
+2. "深度整理：维护知识并整理业务目录" — Maintain the Agent records, inspect human business folders, then present a shallow directory structure and exact file migration plan in chat. Execute the human-file operations only after the user confirms that concrete plan.
 
-Improve navigation through indexes, links, clear summaries, and current records. Clarify which records are current, fix stale references, and consolidate repeated content within agent-maintained notes. Keep the structure shallow and readable. Use root agent.md as the concise entry point, and keep all other new agent support records, knowledge, methods, scripts, and temporary outputs in the single support folder recorded there. Reuse an existing suitable folder; _agent/ is the suggested fallback. Index existing legacy locations without relocating their contents. Preserve the top level for the user's broad task categories.
+Allow the user to name specific folders or refine the selected scope in a free-text answer. Do not automatically add unselected work. If the user cancels, stop. This scope selection authorizes the chosen review or internal maintenance, not a concrete human-file migration or publication; those still require the later specific confirmation described below. Do not infer that the newest timestamp means a file is complete or authoritative. Check its content, validation, and recorded status, and ask when competing candidates are ambiguous.
 
-Incorporate supported findings from new materials and recent work into the relevant agent-maintained topic pages. Preserve sources and dates, revise outdated conclusions in these notes, record unresolved conflicts, and add useful cross-references. Capture successful approaches, failure causes, and recurring problems as reusable working methods with clear steps, applicability, and evidence. Keep insufficiently supported ideas as cases or open questions.
+Apply the following procedures only within the selected scope. Quick organization is limited to Agent knowledge maintenance; do not initiate human-file migration or publication. Deep organization includes knowledge maintenance and review of business folders and official deliverables; any concrete migration or publication still requires the specific confirmation below.
 
-Update agent.md, agent-maintained task status, and knowledge or method indexes so future agents can resume with accurate context and better ways of working. Follow existing authorization for external writes and ask first where authorization is missing.
+${WORKSPACE_ENTRY_GUIDANCE}
 
-Make the supported updates within this scope and save a short, dated change record in the support folder. Use unused names for new files and preserve earlier versions. Finish with a concise account of which records or navigation improved, which knowledge or methods changed, and what still needs attention.
+Read the existing workspace instructions, the applicable root entry, indexes, recent task records, previous organization notes, and new materials. Focus on changes since the last pass. Check current progress, outstanding tasks, important decisions, and conclusions against actual results and sources. Preserve pending decisions and approvals; do not infer approval from a plan recorded in a file.
 
-Use the user's established language preference or the workspace's usual language for replies and new documents.`,
+Maintain agent records (quick and deep organization)
+Directly improve clearly agent-maintained indexes, knowledge, methods, and progress records within the workspace. Fix stale links, identify current records, reconcile status with actual outcomes, and consolidate repeated content in those notes while retaining useful evidence and history. Keep root AGENTS.md concise and update only its clearly agent-maintained sections. Preserve human-authored content, including material inside .agent/. When ownership or a safe edit boundary is unclear, leave the original untouched and save proposed amendments in .agent/ for review.
+
+Keep all new agent support material in .agent/: input references, knowledge, methods, scripts, working drafts, candidate outputs, temporary files including HTML, progress, validation, and change records. Refer to legacy locations in place; this command does not automatically move them into .agent/. Existing clearly agent-maintained notes may be maintained in place, but reorganizing legacy locations that affect human paths requires the plan and confirmation below.
+
+Incorporate supported findings from new materials and recent work into relevant agent-maintained topic records. Preserve sources and dates, distinguish confirmed facts, assumptions, conflicting evidence, and open questions, and revise outdated conclusions with an explanation. Capture successful approaches, failure causes, and recurring problems as reusable methods with steps, applicability, and evidence. Keep insufficiently supported ideas as cases or questions. Do not invent lessons or create empty records merely to complete a template.
+
+Plan and confirm human-file organization (deep organization)
+Respect the human's existing folder organization, filenames, and storage habits. If clutter or inconsistent placement makes navigation difficult, proactively offer a concrete improvement. Organize proposed business folders by function or responsibility first; use additional dimensions only when the actual work needs them. Keep directories shallow without imposing a fixed depth or prebuilding a taxonomy. Each functional folder should remain a coherent responsibility that people and agents can share and may later use as an independent workspace; do not automatically create child agents or support folders everywhere.
+
+Before changing the organization of existing human files or folders, inventory the affected material and present the plan and expected result in the chat. Show the proposed directory structure and every affected file's current path and exact destination path. Identify renames, conflicts, replacements, or archiving explicitly, including the destination of any preserved predecessor. Explain any proposed deletion separately; duplicates, age, or untidy names are not permission to delete.
+
+Wait for the human to confirm this concrete plan before executing any of those changes. Selecting Organize Workspace, saying "organize this", or a generic "go ahead" does not replace confirmation of the displayed plan. Until then, do not move, rename, delete, overwrite, or restructure the affected human material, or create the proposed business-directory structure. Continue independent maintenance of clearly agent-owned records only if included in the selected scope and record the pending plan in .agent/.
+
+After confirmation, execute only the approved operations. Recheck sources, destinations, and conflicts; preserve recoverable originals and avoid unapproved overwrites. Verify files at their intended locations and update relevant agent-maintained links and indexes. If changed files or conflicts require a different destination, replacement, or scope, present the affected revision for confirmation first. An already confirmed, unchanged plan does not need another confirmation. Report actual completed changes and any failures or remaining items; do not silently expand the plan.
+
+Review official deliverables (deep organization; publication requires separate confirmation)
+Human business folders should primarily contain usable, current official deliverables with clear content-based names. Keep one current official revision per deliverable type, subject, and relevant period; distinct periods and intentionally required formats may coexist. People may place their own materials there: do not classify or relocate those files automatically. If competing revisions are found, explain the conflict and ask which is authoritative before proposing any archiving or replacement.
+
+When a completed candidate in .agent/ would be useful as a formal result, proactively ask whether the user wants to adopt it and save it in the business folder. Link to the reviewable file, give its exact proposed filename and destination, and state its official status. Human confirmation of that candidate and destination is required before publication. Reorganization approval does not automatically approve a draft as final. Disclose any replacement and the predecessor's archive path in .agent/; preserve and verify the predecessor before an approved replacement. Recheck that the candidate and target have not changed, verify publication, and record its source, approval, official path, and archive relationship. Until confirmed, keep the candidate in .agent/. Honor confirmation already given for the same unchanged operation.
+
+Respect workspace boundaries and language
+Writes outside the workspace require user confirmation. Explain the target and intended change before obtaining confirmation; an already confirmed, unchanged write does not need another confirmation. Resolve actual target locations, including links and junctions, before writing. Treat unconfirmed external targets as read-only. For external data sources and upstream agent outputs, keep reference notes in .agent/input/ with the original path, URL, or resource identifier, purpose, date/version, and access limitations; read sources in place without modifying or copying source files unless separately requested.
+
+Use the user's established language preference or the workspace's usual language for replies, new documents, filenames, and folder names. Preserve existing language conventions and fixed structural names such as AGENTS.md, .agent/, and .agent/input/. Renaming existing human files for language consistency is still subject to the organization plan and confirmation.
+
+Save a short, dated record of actual changes, supporting evidence, and pending confirmations in .agent/, using an unused filename for a new record. Update continuation state and relevant indexes. Finish with a concise account of navigation and record improvements, knowledge or method changes, human-file operations actually completed under approval, and decisions or work still pending. If a plan awaits confirmation, show it clearly in chat and do not describe it as completed.`,
   },
 ]

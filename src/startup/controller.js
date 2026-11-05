@@ -6,10 +6,23 @@
   if (!shell || !root) return
   const status = document.getElementById("stillon-startup-status")
   const detail = document.getElementById("stillon-startup-detail")
-  const recovery = document.getElementById("stillon-startup-recovery")
-  let generation = 0, done = false, failed = false, exitTimer, slowTimer
+  const reload = document.getElementById("stillon-startup-reload")
+  const connect = document.getElementById("stillon-startup-connect")
+  let generation = 0, done = false, failed = false, exitTimer
   const portal = shell.dataset.mode === "portal"
   if (portal) status.textContent = location.pathname === "/authorize" ? "Connecting to your computer…" : "Opening Still On…"
+  // Connect assigns both computer (h-) and shared-workspace (w-) subdomains.
+  // Go straight to the chooser, bypassing the portal's remembered auto-open.
+  const chooser = new URL("/computers", location.href)
+  const managedPrefix = /^[hw]-[a-f0-9]{32}\./
+  const managed = portal || managedPrefix.test(chooser.hostname)
+  if (managed) {
+    chooser.hostname = chooser.hostname.replace(managedPrefix, "")
+    connect.href = chooser.href
+    connect.hidden = false
+    reload.hidden = true
+  }
+  reload.addEventListener("click", () => location.reload())
   // Upgrade the static dialog to native modal isolation before React/portals exist.
   shell.removeAttribute("open")
   if (typeof shell.showModal === "function") shell.showModal()
@@ -21,8 +34,7 @@
     failed = true
     hold()
     status.textContent = "We couldn’t open Still On."
-    detail.textContent = "Check your connection, then reload the page."
-    recovery.open = true
+    detail.textContent = managed ? "" : "Check your connection, then reload the page."
     shell.setAttribute("aria-busy", "false")
   }
   function hold() {
@@ -39,15 +51,6 @@
     link.addEventListener("error", () => { fail(); resolve() }, { once: true })
     if (link.sheet) loaded()
   })))
-  function watch() {
-    clearTimeout(slowTimer)
-    slowTimer = setTimeout(() => {
-      if (done || failed) return
-      detail.textContent = "Taking a little longer. You can reload if the connection has stopped."
-      recovery.open = true
-    }, 8000)
-  }
-  watch()
   window.StillOnStartup = {
     version: 1,
     get active() { return !done },
@@ -61,10 +64,8 @@
       shell.setAttribute("aria-busy", "true")
       status.textContent = "Connecting to your computer…"
       detail.textContent = ""
-      recovery.open = false
       if (shell.showModal) shell.showModal()
       else shell.setAttribute("open", "")
-      watch()
     },
     hold,
     fail,
@@ -76,7 +77,6 @@
         exitTimer = setTimeout(() => {
           if (done || failed || ticket !== generation || !valid()) return
           done = true
-          clearTimeout(slowTimer)
           shell.hidden = true
           if (shell.open && shell.close) shell.close()
           root.inert = false

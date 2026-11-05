@@ -28,6 +28,7 @@ import { ChatPreferenceControls } from "./ChatPreferenceControls"
 import { AttachmentFileCard, AttachmentImageCard } from "../messages/AttachmentCard"
 import { AttachmentPreviewModal } from "../messages/DeferredAttachmentPreviewModal"
 import { classifyAttachmentPreview } from "../messages/attachmentPreview"
+import { uploadAttachmentWithRecovery, type AttachmentUploadArgs } from "../../lib/attachmentUpload"
 
 const MAX_FILES_PER_DROP = 50
 const MAX_CONCURRENT_UPLOADS = 3
@@ -51,23 +52,16 @@ export function willExceedAttachmentLimit(args: {
 
 export async function getUploadResponseError(response: Response) {
   if (response.type === "opaqueredirect") {
-    return "Cloudflare Access redirected this upload to sign-in. Reload this page and sign in again."
+    return "The upload was redirected to sign-in. Reload this page and sign in again."
   }
 
-  const rayId = response.headers.get("cf-ray")
-  const rayIdSuffix = rayId ? ` Cloudflare Ray ID: ${rayId}.` : ""
-  const contentType = response.headers.get("content-type") ?? ""
-  const payload = await response.json().catch(() => ({})) as { error?: unknown }
-
-  if (typeof payload.error === "string") {
-    return payload.error
-  }
-
-  if (response.status === 401 || response.status === 403 || contentType.includes("text/html")) {
-    return `Cloudflare or browser access controls blocked this upload (HTTP ${response.status}).${rayIdSuffix}`
-  }
-
-  return `Upload failed (HTTP ${response.status}).${rayIdSuffix}`
+  return getUploadXhrResponseError({
+    status: response.status,
+    contentType: response.headers.get("content-type") ?? "",
+    responseText: await response.text(),
+    requestId: response.headers.get("x-request-id") ?? response.headers.get("cf-ray"),
+    challenged: response.headers.get("cf-mitigated") === "challenge",
+  })
 }
 
 export function getUploadProgress(event: { lengthComputable: boolean; loaded: number; total: number }) {
@@ -80,6 +74,7 @@ export function getUploadXhrResponseError(args: {
   contentType: string
   responseText: string
   requestId?: string | null
+  challenged?: boolean
 }) {
   const requestIdSuffix = args.requestId ? ` Request ID: ${args.requestId}.` : ""
   let payload: { error?: unknown } = {}
@@ -94,20 +89,35 @@ export function getUploadXhrResponseError(args: {
     return payload.error
   }
 
-  if (args.status === 401 || args.status === 403 || args.contentType.includes("text/html")) {
-    return `Cloudflare or browser access controls blocked this upload (HTTP ${args.status}).${requestIdSuffix}`
+  if (args.challenged) {
+    return `Cloudflare requires verification before uploading. Reload this page and try again (HTTP ${args.status}).${requestIdSuffix}`
+  }
+  if (args.status === 401) {
+    return `Your session has expired. Reload this page and sign in again.${requestIdSuffix}`
+  }
+  if (args.status === 403) {
+    return `Upload access was denied (HTTP 403). Reload this page and check your access.${requestIdSuffix}`
+  }
+  if (args.status === 404) {
+    return `The upload endpoint is unavailable (HTTP 404). Check that the computer is online, then try again.${requestIdSuffix}`
+  }
+  if (args.contentType.includes("text/html")) {
+    return `The upload returned an unexpected page (HTTP ${args.status}). Reload this page and try again.${requestIdSuffix}`
   }
 
   return `Upload failed (HTTP ${args.status}).${requestIdSuffix}`
 }
 
-export function uploadProjectAttachment(args: {
-  projectId: string
-  file: File
-  onProgress?: (progress: number) => void
-}): Promise<ChatAttachment> {
+export function uploadProjectAttachment(args: AttachmentUploadArgs): Promise<ChatAttachment> {
+  return uploadAttachmentWithRecovery(args, uploadWholeProjectAttachment, getUploadXhrResponseError)
+}
+function uploadWholeProjectAttachment(args: AttachmentUploadArgs): Promise<ChatAttachment> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest()
+    args.signal?.throwIfAborted()
+    const abort = () => request.abort()
+    args.signal?.addEventListener("abort", abort, { once: true })
+    request.addEventListener("loadend", () => args.signal?.removeEventListener("abort", abort))
     const formData = new FormData()
     formData.append("files", args.file)
 
@@ -135,6 +145,7 @@ export function uploadProjectAttachment(args: {
       reject(new Error(getUploadXhrResponseError({
         status: request.status,
         contentType,
+        challenged: request.getResponseHeader("cf-mitigated") === "challenge",
         responseText: request.responseText,
         requestId: request.getResponseHeader("x-request-id") ?? request.getResponseHeader("cf-ray"),
       })))
@@ -240,6 +251,7 @@ interface ComposerAttachment extends ChatAttachment {
   status: ComposerAttachmentStatus
   previewUrl?: string
   uploadProgress?: number
+  uploadRetrying?: boolean
 }
 
 export function createPendingComposerAttachment(file: File) {
@@ -420,7 +432,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [pendingUploadCount, setPendingUploadCount] = useState(0)
-  const uploadQueueRef = useRef<File[]>([])
+  const uploadQueueRef = useRef<{ file: File; attachmentId?: string }[]>([])
+  const uploadFilesRef = useRef(new Map<string, File>())
   const activeUploadsRef = useRef(0)
   const pendingUploadCountRef = useRef(0)
   const attachmentsRef = useRef<ComposerAttachment[]>([])
@@ -491,6 +504,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return []
     })
     uploadQueueRef.current = []
+    uploadFilesRef.current.clear()
     activeUploadsRef.current = 0
     resetPendingUploads()
     setSelectedAttachmentId(null)
@@ -555,6 +569,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     uploadGenerationRef.current += 1
     uploadQueueRef.current = []
+    uploadFilesRef.current.clear()
     activeUploadsRef.current = 0
     resetPendingUploads()
     removedAttachmentIdsRef.current.clear()
@@ -633,16 +648,21 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!projectId) return
 
     while (activeUploadsRef.current < MAX_CONCURRENT_UPLOADS && uploadQueueRef.current.length > 0) {
-      const file = uploadQueueRef.current.shift()
-      if (!file) break
+      const queued = uploadQueueRef.current.shift()
+      if (!queued) break
+      const { file } = queued
 
       activeUploadsRef.current += 1
-      const pendingAttachment = createPendingComposerAttachment(file)
+      const pendingAttachment = queued.attachmentId ? attachmentsRef.current.find(item => item.id === queued.attachmentId) : createPendingComposerAttachment(file)
+      if (!pendingAttachment) { activeUploadsRef.current -= 1; finishPendingUpload(uploadGenerationRef.current); continue }
       const tempId = pendingAttachment.id
       const previewUrl = pendingAttachment.previewUrl
       const generation = uploadGenerationRef.current
 
-      setAttachments((current) => [...current, pendingAttachment])
+      uploadFilesRef.current.set(tempId, file)
+      setAttachments((current) => queued.attachmentId
+        ? current.map(item => item.id === tempId ? { ...item, status: "uploading", uploadRetrying: false } : item)
+        : [...current, pendingAttachment])
 
       void (async () => {
         try {
@@ -650,11 +670,15 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
           const uploaded = await uploadProjectAttachment({
             projectId,
             file,
+            uploadId: tempId,
+            onRetry: () => {
+              if (generation === uploadGenerationRef.current) setAttachments(current => current.map(item => item.id === tempId ? { ...item, uploadRetrying: true } : item))
+            },
             onProgress: (uploadProgress) => {
               if (uploadProgress === previousProgress || generation !== uploadGenerationRef.current) return
               previousProgress = uploadProgress
               setAttachments((current) => current.map((attachment) => (
-                attachment.id === tempId ? { ...attachment, uploadProgress } : attachment
+                attachment.id === tempId ? { ...attachment, uploadProgress, uploadRetrying: false } : attachment
               )))
             },
           })
@@ -672,6 +696,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             return
           }
 
+          uploadFilesRef.current.delete(tempId)
+
           setAttachments((current) => current.map((attachment) => (
             attachment.id !== tempId
               ? attachment
@@ -681,6 +707,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   previewUrl: attachment.previewUrl,
                   status: "uploaded",
                   uploadProgress: undefined,
+                  uploadRetrying: undefined,
                 }
           )))
           setUploadError(null)
@@ -689,11 +716,13 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             if (previewUrl) URL.revokeObjectURL(previewUrl)
             return
           }
+          if (removedAttachmentIdsRef.current.delete(tempId)) return
           setAttachments((current) => current.map((attachment) => (
             attachment.id === tempId ? { ...attachment, status: "failed" } : attachment
           )))
           setUploadError(getUploadNetworkError(error))
         } finally {
+          if (generation !== uploadGenerationRef.current) return
           activeUploadsRef.current = Math.max(0, activeUploadsRef.current - 1)
           finishPendingUpload(generation)
           processUploadQueue()
@@ -703,6 +732,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [finishPendingUpload, projectId])
 
   const enqueueFiles = useCallback((files: File[]) => {
+    if (disabled) return
     if (!projectId) {
       setUploadError("Open a workspace before uploading files.")
       return
@@ -718,17 +748,20 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
 
     beginPendingUploads(files.length)
-    uploadQueueRef.current.push(...files)
+    uploadQueueRef.current.push(...files.map(file => ({ file })))
     setUploadError(null)
     processUploadQueue()
-  }, [beginPendingUploads, processUploadQueue, projectId])
+  }, [beginPendingUploads, disabled, processUploadQueue, projectId])
 
   useImperativeHandle(forwardedRef, () => ({
     enqueueFiles,
   }), [enqueueFiles])
 
+  const newChatSubmittingRef = useRef(false)
+
   async function handleSubmit() {
-    if (!canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
+    if (disabled || (!chatId && newChatSubmittingRef.current) || !canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
+    if (!chatId) newChatSubmittingRef.current = true
 
     const nextValue = value
     const previousAttachments = attachmentsRef.current
@@ -748,24 +781,31 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       permissionMode: providerPrefs.permissionMode,
       attachments: attachmentsForSubmit,
     }
-    setValue("")
-    if (chatId) clearDraft(chatId)
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
-    clearAttachments({ cleanupPreviews: false })
-    if (latestChatIdRef.current) {
-      clearAttachmentDrafts(latestChatIdRef.current)
+    // Existing conversations clear immediately for optimistic transcript/queue display.
+    // A new conversation keeps its composer intact until the parent navigates away.
+    if (chatId) {
+      setValue("")
+      clearDraft(chatId)
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
+      clearAttachments({ cleanupPreviews: false })
+      clearAttachmentDrafts(chatId)
     }
 
     try {
       await onSubmit(nextValue, submitOptions)
-      previousAttachments.forEach(cleanupAttachmentPreview)
+      if (chatId) previousAttachments.forEach(cleanupAttachmentPreview)
+      // New-conversation previews are released by the unmount cleanup.
     } catch (error) {
       console.error("[ChatInput] Submit failed:", error)
-      setValue(nextValue)
-      if (chatId) setDraft(chatId, nextValue)
-      setAttachments(previousAttachments)
-      setSelectedAttachmentId(previousSelectedAttachmentId)
-      setUploadError(previousUploadError)
+      if (chatId) {
+        setValue(nextValue)
+        setDraft(chatId, nextValue)
+        setAttachments(previousAttachments)
+        setSelectedAttachmentId(previousSelectedAttachmentId)
+        setUploadError(previousUploadError)
+      }
+    } finally {
+      newChatSubmittingRef.current = false
     }
   }
 
@@ -851,6 +891,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }
 
   function removeAttachment(attachment: ComposerAttachment) {
+    uploadFilesRef.current.delete(attachment.id)
     removedAttachmentIdsRef.current.add(attachment.id)
     setAttachments((current) => {
       const removed = current.find((item) => item.id === attachment.id)
@@ -871,6 +912,16 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }
 
+  function retryFailedAttachments() {
+    if (disabled || pendingUploadCountRef.current > 0) return
+    const retry = attachmentsRef.current.filter(item => item.status === "failed" && uploadFilesRef.current.has(item.id))
+    for (const attachment of retry) uploadQueueRef.current.push({ file: uploadFilesRef.current.get(attachment.id)!, attachmentId: attachment.id })
+    pendingUploadCountRef.current += retry.length
+    setPendingUploadCount(pendingUploadCountRef.current)
+    setUploadError(null)
+    processUploadQueue()
+  }
+
   return (
     <div>
       <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
@@ -887,7 +938,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     aria-hidden="true"
                     className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none"
                   />
-                  <span>{uploadActivityNotice.message}</span>
+                  <span>{attachments.some(item => item.uploadRetrying) ? "Reconnecting upload… Confirmed progress is kept." : uploadActivityNotice.message}</span>
                 </div>
               ) : null}
               {hasFailedUploads || uploadError ? (
@@ -900,7 +951,9 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <div>{uploadError ?? "An attachment upload failed."}</div>
                     {hasFailedUploads ? (
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        Remove the failed attachment to re-enable sending.
+                        {attachments.some(item => item.status === "failed" && uploadFilesRef.current.has(item.id))
+                          ? <button type="button" className="underline" disabled={disabled || hasPendingUploads} onClick={retryFailedAttachments}>Retry failed uploads</button>
+                          : "Remove the failed attachment to re-enable sending."}
                       </div>
                     ) : null}
                   </div>
@@ -911,7 +964,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {attachments.length > 0 ? (
             <ScrollArea className="overflow-x-auto overflow-y-hidden whitespace-nowrap px-2 pb-2">
-              <div className="flex items-end gap-2 pt-2">
+              <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0 flex items-end gap-2 pt-2">
                 {orderedAttachments.map((attachment) => (
                   <div
                     key={attachment.id}
@@ -938,7 +991,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     )}
                   </div>
                 ))}
-              </div>
+              </fieldset>
             </ScrollArea>
           ) : null}
 
@@ -1004,7 +1057,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 hasPendingUploads
                   ? "Uploading attachments"
                   : hasFailedUploads
-                    ? "An attachment upload failed. Remove the failed attachment before sending."
+                    ? "An attachment upload failed. Retry or remove it before sending."
                     : hasTextToSend || !canCancel
                       ? "Send message"
                       : "Stop generating"
@@ -1029,7 +1082,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       </div>
 
       <div data-stillon-part="composer-column" className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
-        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
+        <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
           <div className="min-w-3" />
           {preferencesReady ? <ChatPreferenceControls
             availableProviders={availableProviders}
@@ -1082,7 +1135,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             />
           )}
           <div className="min-w-3" />
-        </div>
+        </fieldset>
       </div>
 
       <AttachmentPreviewModal attachment={selectedAttachment} onOpenChange={(open) => !open && setSelectedAttachmentId(null)} />

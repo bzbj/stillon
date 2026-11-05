@@ -4,6 +4,18 @@ import { defaultQuickCommands, mergeQuickCommands, normalizeQuickCommands } from
 const local = { id: "custom", name: "Client Update", prompt: "Summarize the client work." }
 
 describe("quick command configuration", () => {
+  test("uses AGENTS.md and avoids duplicate entries when legacy instructions exist", () => {
+    for (const { prompt } of defaultQuickCommands().global) {
+      expect(prompt).toContain("Use AGENTS.md as the workspace entry point")
+      expect(prompt).toContain("Agent.md or agent.md")
+      expect(prompt).toContain("do not create a second root entry or a redirect file")
+      expect(prompt).not.toMatch(/(?:create|keep|update|root)\s+`?(?:Agent|agent)\.md/)
+    }
+    const setup = defaultQuickCommands().global[0]!.prompt
+    expect(setup).toContain("create AGENTS.md only when no canonical or legacy entry exists")
+    expect(setup).toContain("a recoverable backup under .agent/")
+  })
+
   test("preserves explicit deletions, reordering and edits instead of restoring defaults", () => {
     const defaults = defaultQuickCommands()
     expect(normalizeQuickCommands({ global: [], workspaces: {} }).global).toEqual([])

@@ -92,7 +92,7 @@ async function buildWindowsInstaller() {
   await mkdir(app, { recursive: true })
   await cp(runtime, path.join(app, "payload"), { recursive: true })
   const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
-  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", "/reference:System.Web.Extensions.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
+  await run([compiler, "/nologo", "/target:winexe", "/platform:anycpu", `/win32icon:${path.join(repository, "packaging", "windows", "StillOn.ico")}`, "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll", "/reference:System.Web.Extensions.dll", `/out:${path.join(app, "StillOn.exe")}`, path.join(repository, "packaging", "windows", "Launcher.cs")])
   const iscc = process.env.ISCC_PATH ?? "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
   const signing: string[] = []
   if (process.env.STILLON_REQUIRE_SIGNING === "1") {

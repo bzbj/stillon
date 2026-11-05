@@ -13,18 +13,25 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
   onNavigate: (address: string, mode?: "replace" | "pop") => void
 }) {
   const [url, setUrl] = useState<string>(), [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
+  const [loading, setLoading] = useState<"loading" | "slow" | "ready">("loading")
   const [linkedAction, setLinkedAction] = useState<{ address: string; label: string; service?: boolean }>()
   const [dependencyError, setDependencyError] = useState<string>()
   const frame = useRef<HTMLIFrameElement>(null)
   const current = useRef(target.address), capabilities = useLinkCapabilities()
-  const loadedVersion = useRef(-1)
+  const loadedVersion = useRef("")
+  const requestVersion = `${refreshVersion}:${attempt}`
   const frameRoot = useRef("")
   const frameTargetId = useRef<string | undefined>(undefined)
   const latest = useRef({ target, onNavigate })
   latest.current = { target, onNavigate }
   useEffect(() => {
     let active = true
-    if (url && current.current === target.address && loadedVersion.current === refreshVersion) return
+    if (url && current.current === target.address && loadedVersion.current === requestVersion) return
+    const controller = new AbortController()
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)])
+    setUrl(undefined)
+    setLoading("loading")
     setError(undefined)
     setLinkedAction(undefined)
     setDependencyError(undefined)
@@ -32,7 +39,7 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
     void (targetId ? Promise.resolve(`/preview/${targetId}`) : registerPreviewTarget(target.address, projectId)).then(async standalone => {
       if (!active) return
       const id = standalone.split("/").pop()!
-      const response = await fetch(`/api/file-previews/${id}/entry`, { method: "POST" })
+      const response = await fetch(`/api/file-previews/${id}/entry`, { method: "POST", signal })
       const value = await response.json()
       if (!response.ok || value.protocol !== 1 || typeof value.url !== "string") throw new Error(value.error || "Update the host, adapter and Connect gateway to support direct HTML file previews.")
       const destination = new URL(value.url)
@@ -43,11 +50,16 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
         frameTargetId.current = id
         const resourceParts = destination.pathname.split("/").filter(Boolean).length
         frameRoot.current = "filePath" in target && target.filePath ? target.filePath.replaceAll("\\", "/").split("/").slice(0, -resourceParts).join("/") + "/" : ""
-        current.current = target.address; loadedVersion.current = refreshVersion; setUrl(destination.href)
+        current.current = target.address; loadedVersion.current = requestVersion; setUrl(destination.href)
       }
-    }).catch(e => { if (active) setError(e.message) })
-    return () => { active = false }
-  }, [targetId, target.address, projectId, refreshVersion])
+    }).catch(e => { if (active) setError(signal.aborted ? "Preparing the file preview timed out. Retry to reconnect." : e.message) })
+    return () => { active = false; controller.abort() }
+  }, [targetId, target.address, projectId, requestVersion])
+  useEffect(() => {
+    if (!url) return
+    const timer = setTimeout(() => setLoading(previous => previous === "ready" ? previous : "slow"), 20_000)
+    return () => clearTimeout(timer)
+  }, [url, requestVersion])
   useEffect(() => {
     if (!url) return
     let active = true
@@ -55,6 +67,7 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
       if (event.source !== frame.current?.contentWindow || event.origin !== new URL(url).origin) return
       const { target, onNavigate } = latest.current
       const data = event.data
+      if (data?.type === "stillon:file-ready") { setLoading("ready"); return }
       if (data?.type === "stillon:file-dependency-error" && typeof data.label === "string") {
         setDependencyError("A file dependency could not load: " + data.label.slice(0, 160) + ". Refresh to retry. File previews support authorized local resources.")
         return
@@ -68,6 +81,8 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
       if (!data.path.startsWith("/") || data.path.startsWith("//") || data.path.length > 16384
         || !/^(?:\?[^#\u0000-\u001f]*)?$/u.test(data.query) || !/^(?:#[^\u0000-\u001f]*)?$/u.test(data.fragment)
         || data.query.length + data.fragment.length > 32768) return
+      // Older hosts report navigation at DOMContentLoaded instead of sending ready.
+      if (data.type === "stillon:file-navigation") setLoading("ready")
       const initial = new URL(url)
       if (data.type === "stillon:file-navigation" && target.kind === "host-html" && data.path === initial.pathname && data.query === initial.search && data.fragment === initial.hash) return
       let parts: string[]
@@ -110,9 +125,14 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
     window.addEventListener("message", receive)
     return () => { active = false; window.removeEventListener("message", receive) }
   }, [url, projectId])
-  if (error) return <div role="alert" className="p-6 text-sm">{error}</div>
-  if (!url) return <p className="p-6 text-sm">Loading file preview…</p>
+  const retry = () => setAttempt(value => value + 1)
+  if (error) return <div role="alert" className="p-6 text-sm"><p>{error}</p><button className="mt-2 underline" onClick={retry}>Retry preview</button></div>
+  if (!url) return <p role="status" className="p-6 text-sm">Loading file preview…</p>
   return <div className="flex h-full flex-col">
+    {loading !== "ready" ? <div role={loading === "slow" ? "alert" : "status"} className="border-b p-3 text-sm">
+      <p>{loading === "slow" ? "This file preview is taking longer than expected." : "Loading file preview…"}</p>
+      {loading === "slow" ? <button className="mt-2 underline" onClick={retry}>Retry preview</button> : null}
+    </div> : null}
     {dependencyError ? <div role="alert" className="border-b p-3 text-sm"><p>{dependencyError}</p><button className="underline" onClick={() => setDependencyError(undefined)}>Dismiss dependency warning</button></div> : null}
     {linkedAction ? <div className="flex flex-wrap items-center gap-3 border-b p-3 text-sm"><span className="break-all">{linkedAction.label}</span>
       <button className="underline" disabled={!capabilities} onClick={() => {
@@ -122,7 +142,9 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
       }}>{linkedAction.service ? "Preview host service" : capabilities?.local ? "Open linked file" : "Download linked file"}</button>
       <button className="underline" onClick={() => setLinkedAction(undefined)}>Dismiss</button>
     </div> : null}
-    <div className="min-h-0 flex-1 overflow-hidden"><iframe key={`${url}:${refreshVersion}`} ref={frame} title="HTML file preview" src={url}
+    <div className="min-h-0 flex-1 overflow-hidden" aria-busy={loading !== "ready"}><iframe key={`${url}:${requestVersion}`} ref={frame} title="HTML file preview" src={url}
+    onLoad={() => frame.current?.contentWindow?.postMessage({ type: "stillon:file-ready-request" }, new URL(url).origin)}
+    onError={() => setLoading("slow")}
     sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer"
     className="h-full w-full border-0 bg-white" style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%`, height: `${100 / zoom}%` }} /></div>
   </div>

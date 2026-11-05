@@ -1,5 +1,8 @@
+import type { ChatInputHandle } from "./chat-ui/ChatInput"
+import { FileDropOverlay } from "./chat-ui/FileDropOverlay"
+import { usePageFileDrop } from "../lib/usePageFileDrop"
 import { useWorkspaceSharingStore, isSharedWorkspaceBrowser } from "../stores/workspaceSharingStore"
-import { lazy, Suspense, useState, type ComponentType, type ReactNode } from "react"
+import { lazy, Suspense, useState, useRef, type ComponentType, type ReactNode } from "react"
 import {
   ArrowLeftRight,
   Check,
@@ -40,6 +43,7 @@ interface LocalDevProps {
   onSelectedProjectChange: (projectId: string) => void
   defaultProjectId: string | null
   onDefaultProjectChange: (projectId: string | null) => void
+  isStartingConversation?: boolean
   onSend: StillOnState["handleSend"]
   availableProviders: StillOnState["availableProviders"]
   preferencesReady: boolean
@@ -156,6 +160,7 @@ export function LocalDev({
   defaultProjectId,
   onDefaultProjectChange,
   onSend,
+  isStartingConversation = false,
   availableProviders,
   preferencesReady,
   codexTransport,
@@ -169,10 +174,29 @@ export function LocalDev({
   const guest = useWorkspaceSharingStore(s => s.view?.mode === "guest") || isSharedWorkspaceBrowser()
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const selectedProject = resolveHomeProject(projectGroups, selectedProjectId, defaultProjectId)
+  const chatInputRef = useRef<ChatInputHandle | null>(null)
+  const {
+    isPageFileDragActive,
+    handleTranscriptDragEnter,
+    handleTranscriptDragOver,
+    handleTranscriptDragLeave,
+    handleTranscriptDrop,
+  } = usePageFileDrop({
+    hasSelectedProject: Boolean(ready && sidebarReady && selectedProject && preferencesReady && !newProjectOpen && !isStartingConversation),
+    onFilesDropped: (files) => chatInputRef.current?.enqueueFiles(files),
+  })
   const isConnecting = connectionStatus === "connecting" || !ready
 
   return (
-    <div data-stillon-part="page" className="flex-1 flex flex-col min-w-0 bg-background overflow-y-auto">
+    <div
+      data-stillon-part="page"
+      aria-busy={isStartingConversation}
+      className="relative flex-1 flex flex-col min-w-0 bg-background overflow-y-auto"
+      onDragEnter={handleTranscriptDragEnter}
+      onDragOver={handleTranscriptDragOver}
+      onDragLeave={handleTranscriptDragLeave}
+      onDrop={handleTranscriptDrop}
+    >
       {!ready ? (
         <>
           <PageHeader
@@ -264,7 +288,7 @@ export function LocalDev({
                   <button
                     type="button"
                     aria-label="Choose workspace"
-                    disabled={!sidebarReady || guest}
+                    disabled={!sidebarReady || guest || isStartingConversation}
                     className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted/70 disabled:opacity-50"
                   >
                     {selectedProject ? <WorkspaceAvatar workspaceId={selectedProject.groupKey} className="size-6 shrink-0" /> : <FolderOpen className="h-4 w-4 shrink-0" />}
@@ -318,8 +342,9 @@ export function LocalDev({
             ) : null}
             <Suspense fallback={<div className="mx-3 h-16 animate-pulse rounded-[29px] border border-border bg-card" aria-label="Loading composer" />}>
               <ChatInput
+                ref={chatInputRef}
                 onSubmit={(content, options) => onSend(content, options, selectedProject?.groupKey)}
-                disabled={!sidebarReady || !selectedProject || !preferencesReady}
+                disabled={!sidebarReady || !selectedProject || !preferencesReady || isStartingConversation}
                 projectId={selectedProject?.groupKey ?? null}
                 chatId={null}
                 activeProvider={null}
@@ -337,6 +362,8 @@ export function LocalDev({
           </div>
         </div>
       )}
+
+      <FileDropOverlay active={isPageFileDragActive} />
 
       {newProjectOpen && !guest ? <Suspense fallback={<p role="status">Loading workspace picker… <button type="button" onClick={() => onNewProjectOpenChange(false)}>Cancel</button></p>}><NewProjectModal
         machineName={machineName}

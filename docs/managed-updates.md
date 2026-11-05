@@ -74,8 +74,15 @@ reinstall either of these supervisors.
 Settings → About checks releases and offers a short, copyable coding-agent
 prompt when a newer stable release exists. The prompt asks the agent to preserve
 customizations and data, stage and verify the update, and use an independent
-system task to switch after conversations and terminals are idle. It also asks
-for restart and local/Connect connection checks with rollback on failure.
+system task that survives StillOn and agent exit, starts about five seconds after
+registration, and polls StillOn's native idle check every five seconds for up to
+twelve hours. Only after all active agent turns finish and embedded terminals
+close may that task request shutdown. If the old application is still running
+after five seconds, the task revalidates its managed instance identity and
+force-terminates that process before backing up, upgrading and restarting. An idle
+wait timeout leaves StillOn running. The initiating agent reports the task name, target version and status
+file, then ends its turn instead of waiting in the chat. The prompt also requests
+local/Connect verification and rollback on failure.
 Copying the prompt does not schedule or run an update. The managed CLI remains
 available for installations that use it.
 
@@ -107,7 +114,9 @@ a later upgrade request creates a new transaction and rechecks current files.
    a busy switch. Journal the transition before asking the stable controller
    to pause the application.
 5. Block new application work and shut down through an authenticated loopback
-   control endpoint. Wait for process exit before copying the StillOn data root.
+   control endpoint. Allow five seconds for process exit, then revalidate the old
+   application’s persisted random identity and force-terminate a lingering process.
+   Confirm exit before copying the StillOn data root.
 6. Verify the stopped-server backup, journal that new code may access data, and
    select the exact new runtime. New user work remains blocked during checks.
 7. Mark success after health/resource verification. If anything fails, pause,
