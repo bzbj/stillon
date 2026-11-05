@@ -46,7 +46,7 @@ export function ProviderAddonsPanel() {
       {addon.error && <p role="alert" className="text-sm text-destructive">{addon.error}</p>}
       {addon.busy && <p className="text-sm text-muted-foreground">Finish or stop this agent's active chats before disabling it.</p>}
       {addon.enabled && addon.compatible && isAddonProvider(addon.id) && <div className="space-y-3 border-t border-border pt-3">
-        <AgentSetupPanel initialProvider={addon.id} showProviderPicker={false} hideUseWhenReady onStatus={() => { void refresh().catch(error => setError(error.message)) }} onUse={async () => {}} />
+        <AgentSetupPanel initialProvider={addon.id} showProviderPicker={false} hideUseWhenReady collapseWhenReady onStatus={() => { void refresh().catch(error => setError(error.message)) }} onUse={async () => {}} />
         <Link className="inline-block text-sm underline" to={`/settings/providers?provider=${addon.id}`}>Configure {addon.id === "deepseek" ? "Harness models and credentials" : "CodeBuddy defaults"}</Link>
       </div>}
       <p className="text-xs text-muted-foreground">Disabling preserves your settings and chats.</p>
