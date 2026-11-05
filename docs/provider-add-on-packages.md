@@ -117,6 +117,13 @@ it never installs a service or touches the production port.
 
 Native installer replacement/upgrade, real authenticated managed Connect,
 authenticated CodeBuddy inference and other platforms still need acceptance.
+On Windows ARM64, the StillOn host and the vendor CLI can use different CPU
+architectures. A public CLI launched by x64 Node uses Windows emulation and
+requires x64 native dependencies. Install it with the Node/npm runtime that will
+launch it; do not omit vendor native optional dependencies or select them solely
+from the architecture of StillOn's Bun runtime. StillOn does not install or
+replace the vendor runtime.
+
 Windows ARM64 regression checks use the native Bun host and the unmodified bundled
 packages, including their version handshake. Public Windows `.cmd` launcher checks
 round-trip Unicode text and a workspace path with spaces. The opt-in Windows CLI
