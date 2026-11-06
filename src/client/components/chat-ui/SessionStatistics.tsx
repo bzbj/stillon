@@ -17,7 +17,7 @@ function Row({ label, children, total = false }: { label: string; children: Reac
   </div>
 }
 
-export function SessionStatistics({ statistics, onLayoutChange }: { statistics: Statistics | null; onLayoutChange: () => void }) {
+export function SessionStatistics({ statistics, timingUnavailable = false, onLayoutChange }: { statistics: Statistics | null; timingUnavailable?: boolean; onLayoutChange: () => void }) {
   const visible = useAppSettingsStore(s => s.settings?.showSessionStatistics === true)
   const [open, setOpen] = useState<"timing" | "tokens" | null>(null)
   const triggers = useRef<Partial<Record<"timing" | "tokens", HTMLButtonElement | null>>>({})
@@ -27,6 +27,7 @@ export function SessionStatistics({ statistics, onLayoutChange }: { statistics: 
   useLayoutEffect(() => { if (!show) setOpen(null); onLayoutChange() }, [show, onLayoutChange])
   if (!show || !statistics) return null
   const stats = statistics.sessionStats
+  const speedLabel = speed === null ? "—" : formatSessionSpeed(speed)
   const triggerClass = "inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring data-[state=open]:bg-muted data-[state=open]:text-foreground"
   function details(kind: "timing" | "tokens", title: string, trigger: ReactNode, body: ReactNode) {
     return <Popover open={open === kind} onOpenChange={value => setOpen(value ? kind : null)}>
@@ -38,13 +39,18 @@ export function SessionStatistics({ statistics, onLayoutChange }: { statistics: 
     </Popover>
   }
   return <div data-session-statistics className="mx-auto flex max-w-[840px] items-center gap-1 px-5 pb-1 pt-1">
-    {speed !== null ? details("timing", "Session timing", <><Gauge className="size-3.5" /><span>{formatSessionSpeed(speed)} tok/s</span></>, <>
-      <div className="text-[27px] font-medium leading-none tracking-tight tabular-nums">{formatSessionSpeed(speed)} <span className="text-xs font-normal tracking-normal text-muted-foreground">tok/s</span></div>
-      <p className="mb-5 mt-1.5 text-[11px] text-muted-foreground">Average output speed</p>
-      <dl className="space-y-3 text-xs">{stats.ttftSteps > 0 ? <Row label="First token">{duration(stats.ttftMs / stats.ttftSteps)}</Row> : null}<Row label="Model time">{duration(stats.llmMs)}</Row><Row label="Tool time">{duration(stats.toolMs)}</Row></dl>
-      <div className="mt-4 flex justify-between border-t border-border pt-3 text-[11px] text-muted-foreground"><span>{stats.turns.toLocaleString()} turns</span><span>{stats.steps.toLocaleString()} steps</span></div>
-    </>) : null}
-    {speed !== null && total > 0 ? <span className="mx-1 h-3 w-px bg-border" /> : null}
+    {details("timing", "Session timing", <><Gauge className="size-3.5" /><span>{speedLabel} tok/s</span></>, <>
+      <div className="text-[27px] font-medium leading-none tracking-tight tabular-nums">{speedLabel} <span className="text-xs font-normal tracking-normal text-muted-foreground">tok/s</span></div>
+      <p className="mb-5 mt-1.5 text-[11px] text-muted-foreground">{speed !== null
+        ? "Session average · updates after each measured model step"
+        : timingUnavailable
+          ? "Codex Exec does not report first-token timing. New chats can use App Server in Settings → Integrations → Codex."
+          : "Waiting for a completed model step with first-token timing."}</p>
+      {!timingUnavailable ? <dl className="space-y-3 text-xs">{stats.ttftSteps > 0 ? <Row label="First token">{duration(stats.ttftMs / stats.ttftSteps)}</Row> : null}<Row label="Model time">{duration(stats.llmMs)}</Row><Row label="Tool time">{duration(stats.toolMs)}</Row></dl> : null}
+      {stats.steps > stats.ttftSteps && !timingUnavailable ? <p className="mt-3 text-[11px] text-muted-foreground">Steps without first-token timing are excluded from speed.</p> : null}
+      {!timingUnavailable ? <div className="mt-4 flex justify-between border-t border-border pt-3 text-[11px] text-muted-foreground"><span>{stats.turns.toLocaleString()} turns</span><span>{stats.steps.toLocaleString()} steps</span></div> : null}
+    </>)}
+    {total > 0 ? <span className="mx-1 h-3 w-px bg-border" /> : null}
     {total > 0 ? details("tokens", "Session tokens", <><Layers className="size-3.5" /><span>{formatSessionTokens(total)} tokens</span></>, <dl className="space-y-3 text-xs">
       {statistics.recordedSince ? <p className="pb-1 text-[11px] text-muted-foreground">Recorded since {new Date(statistics.recordedSince).toLocaleString()}</p> : null}
       <Row label="Uncached input">{formatSessionTokens(statistics.tokenUsage.uncachedInputTokens)}</Row><Row label="Cache read">{formatSessionTokens(statistics.tokenUsage.cacheReadTokens)}</Row><Row label="Cache write">{formatSessionTokens(statistics.tokenUsage.cacheWriteTokens)}</Row><Row label="Output">{formatSessionTokens(statistics.tokenUsage.outputTokens)}</Row><Row label="Total" total>{total.toLocaleString("en-US")}</Row>
