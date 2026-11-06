@@ -109,7 +109,7 @@ const sidebarItems = [
     icon: MessageSquareQuote,
     subtitle: "Manage the default chat provider and saved model settings for your enabled agents.",
   },
-  { id: "integrations", label: "Integrations", icon: Code, subtitle: "Enable optional agents included with StillOn." },
+  { id: "integrations", label: "Integrations", icon: Code, subtitle: "Early access." },
   {
     id: "usage",
     label: "Usage",
