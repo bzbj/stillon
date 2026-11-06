@@ -202,7 +202,7 @@ export class EventStore {
   private readonly transcriptRevisions = new Map<string, string>()
   private replayArchivedLogs = false
 
-  constructor(dataDir = getDataDir(homedir())) {
+  constructor(dataDir = getDataDir(homedir()), private readonly statisticsEpoch: () => string | null = () => null) {
     this.dataDir = dataDir
     this.snapshotPath = path.join(this.dataDir, "snapshot.json")
     this.snapshotBackupPath = `${this.snapshotPath}.bak`
@@ -537,7 +537,8 @@ export class EventStore {
           sessionToken: null,
           codexTransport: null,
           pendingForkSessionToken: null,
-          ...(event.statisticsScope === "fork" ? { statisticsState: createForkSessionStatistics() } : {}),
+          ...(event.statisticsEpoch ? { statisticsEpoch: event.statisticsEpoch } : {}),
+          ...(event.statisticsEpoch && event.statisticsScope === "fork" ? { statisticsState: createForkSessionStatistics() } : {}),
           hasMessages: false,
           lastTurnOutcome: null,
         }
@@ -940,6 +941,7 @@ export class EventStore {
       chatId,
       projectId,
       title: "New Chat",
+      ...(this.statisticsEpoch() ? { statisticsEpoch: this.statisticsEpoch()! } : {}),
     }
     await this.append(this.chatsLogPath, event)
     return this.state.chatsById.get(chatId)!
@@ -959,6 +961,7 @@ export class EventStore {
       v: STORE_VERSION,
       type: "chat_created",
       statisticsScope: "fork",
+      ...(this.statisticsEpoch() ? { statisticsEpoch: this.statisticsEpoch()! } : {}),
       timestamp: createdAt,
       chatId,
       projectId: sourceChat.projectId,
@@ -1188,10 +1191,17 @@ export class EventStore {
     await this.append(this.chatsLogPath, event)
   }
 
+  shouldCollectStatistics(chatId: string) {
+    const epoch = this.statisticsEpoch()
+    return epoch !== null && this.requireChat(chatId).statisticsEpoch === epoch
+  }
+
   async recordStatistics(chatId: string, input: StatisticsInput) {
+    if (!this.shouldCollectStatistics(chatId)) return
     this.requireChat(chatId)
     this.writeChain = this.writeChain.then(async () => {
       const chat = this.requireChat(chatId)
+      if (!this.shouldCollectStatistics(chatId)) return
       const statisticsState = updateSessionStatistics(chat.statisticsState, input)
       if (!chat.statisticsState && !("native" in input) && !input.nativeTokenUsage && (chat.lastTurnOutcome !== null || chat.pendingForkSessionToken)) {
         statisticsState.snapshot.recordedSince = Date.now()
@@ -1308,6 +1318,7 @@ export class EventStore {
   }
 
   private async finishStatistics(chatId: string) {
+    if (!this.shouldCollectStatistics(chatId)) return
     await this.waitForPendingWrites()
     const state = this.requireChat(chatId).statisticsState
     if (state?.runId && (state.stats.openStep || Object.keys(state.stats.pendingCalls).length)) {

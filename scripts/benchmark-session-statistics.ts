@@ -10,7 +10,7 @@ const results: { enabled: boolean; millisecondsPerTurn: number; logBytesPerTurn:
 for (let round = 0; round < rounds; round++) for (const enabled of round % 2 ? [true, false] : [false, true]) {
   const root = await mkdtemp(path.join(tmpdir(), "stillon-statistics-bench-"))
   try {
-    const store = new EventStore(root); await store.initialize()
+    const store = new EventStore(root, () => enabled ? "benchmark" : null); await store.initialize()
     const project = await store.openProject(path.join(root, "workspace"), "Benchmark"), chat = await store.createChat(project.id)
     const beforeSize = (await stat(path.join(root, "chats.jsonl"))).size
     const start = performance.now()

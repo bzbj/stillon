@@ -35,7 +35,7 @@ test.skipIf(!["win32", "darwin"].includes(process.platform))("bundled Windows AR
   if (supportedBefore) await before.change("deepseek", "enable")
   const after = new ProviderAddons(root, environment); await after.initialize(current)
   expect(after.snapshot().map(item => [item.id, item.version, item.compatible, item.enabled])).toEqual([
-    ["deepseek", "0.2.0-preview.4", true, supportedBefore],
+    ["deepseek", "0.2.0-preview.5", true, supportedBefore],
   ])
   await after.change("deepseek", "enable")
   const restarted = new ProviderAddons(root, environment); await restarted.initialize(current)

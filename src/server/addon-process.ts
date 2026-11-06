@@ -4,6 +4,7 @@ import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-ty
 import type { AgentProvider } from "../shared/types"
 
 export interface AddonTurnArgs {
+  collectStatistics?: boolean
   cwd: string; content: string; model: string; effort?: string; sessionToken: string | null;
   permissionMode: string; onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }

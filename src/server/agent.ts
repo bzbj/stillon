@@ -140,6 +140,7 @@ interface CodexManager {
   }): Promise<string | undefined>
   startTurn(args: {
     chatId: string
+    collectStatistics?: () => boolean
     model: string
     effort?: CodexReasoningEffort
     serviceTier?: "fast"
@@ -188,6 +189,7 @@ interface AgentCoordinatorArgs {
     sessionToken: string | null
     forkSession: boolean
     environment: NodeJS.ProcessEnv
+    collectStatistics?: () => boolean
     claudeExecutable?: string
     onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   }) => Promise<ClaudeSessionHandle>
@@ -562,14 +564,20 @@ export function normalizeClaudeStreamMessage(message: any): TranscriptEntry[] {
   return []
 }
 
-async function* createClaudeHarnessStream(q: Query, promptStarts: number[]): AsyncGenerator<HarnessEvent> {
-  const statistics = new ClaudeStatistics(promptStarts)
+async function* createClaudeHarnessStream(q: Query, promptStarts: number[], collectStatistics: () => boolean): AsyncGenerator<HarnessEvent> {
+  let statistics: ClaudeStatistics | null = null
   let seenAssistantUsageIds = new Set<string>()
   let latestUsageSnapshot: ContextWindowUsageSnapshot | null = null
   let lastKnownContextWindow: number | undefined
 
   for await (const sdkMessage of q as AsyncIterable<any>) {
-    for (const event of statistics.observe(sdkMessage)) yield event
+    if (collectStatistics()) {
+      statistics ??= new ClaudeStatistics(promptStarts)
+      for (const event of statistics.observe(sdkMessage)) yield event
+    } else {
+      statistics = null
+      promptStarts.length = 0
+    }
     const sessionToken = typeof sdkMessage.session_id === "string" ? sdkMessage.session_id : null
     if (sessionToken) {
       yield { type: "session_token", sessionToken }
@@ -689,6 +697,7 @@ async function startClaudeSession(args: {
   sessionToken: string | null
   forkSession: boolean
   environment: NodeJS.ProcessEnv
+  collectStatistics?: () => boolean
   claudeExecutable?: string
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }): Promise<ClaudeSessionHandle> {
@@ -771,7 +780,7 @@ async function startClaudeSession(args: {
 
   return {
     provider: "claude",
-    stream: createClaudeHarnessStream(q, promptStarts),
+    stream: createClaudeHarnessStream(q, promptStarts, args.collectStatistics ?? (() => false)),
     getAccountInfo: async () => {
       try {
         return await q.accountInfo()
@@ -783,7 +792,7 @@ async function startClaudeSession(args: {
       await q.interrupt()
     },
     sendPrompt: async (content: string) => {
-      promptStarts.push(Date.now())
+      if (args.collectStatistics?.()) promptStarts.push(Date.now())
       promptQueue.push({
         type: "user",
         message: {
@@ -1520,6 +1529,7 @@ export class AgentCoordinator {
       if (!this.addons) throw new Error("Install and enable the provider add-on in Settings → Add-ons.")
       turn = await this.addons.startTurn(args.provider, { cwd: project.localPath, content: buildPromptText(args.content, args.attachments),
         model: args.model, effort: args.effort, sessionToken: chat.sessionToken,
+        collectStatistics: this.store.shouldCollectStatistics(args.chatId),
         permissionMode: args.permissionMode === "full" ? "full" : "request", onToolRequest })
     } else if (args.provider === "claude") {
       logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
@@ -1568,6 +1578,7 @@ export class AgentCoordinator {
       })
       turn = await this.codexManager.startTurn({
         chatId: args.chatId,
+        collectStatistics: () => this.store.shouldCollectStatistics(args.chatId),
         content: buildPromptText(args.content, args.attachments),
         model: args.model,
         effort: args.effort as any,
@@ -1691,6 +1702,7 @@ export class AgentCoordinator {
         sessionToken: args.sessionToken,
         forkSession: args.forkSession,
         environment,
+        collectStatistics: () => this.store.shouldCollectStatistics(args.chatId),
         claudeExecutable: resolveClaudeCodeExecutable({ environment }),
         onToolRequest: args.onToolRequest,
       })
@@ -1952,6 +1964,7 @@ export class AgentCoordinator {
         if (event.type === "statistics" && event.statistics) {
           const active = this.activeTurns.get(session.chatId)
           if (!active || active.cancelRequested) continue
+          if (!this.store.shouldCollectStatistics(session.chatId)) continue
           await this.store.recordStatistics(session.chatId, event.statistics)
           this.emitStateChange(session.chatId)
           continue
@@ -2080,6 +2093,7 @@ export class AgentCoordinator {
         }
 
         if (event.type === "statistics" && event.statistics) {
+          if (!this.store.shouldCollectStatistics(active.chatId)) continue
           await this.store.recordStatistics(active.chatId, event.statistics)
           this.emitStateChange(active.chatId)
           continue

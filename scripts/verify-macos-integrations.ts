@@ -20,9 +20,19 @@ try {
   for (const provider of ["deepseek"] as const) {
     let token: string | null = null
     const model = manager.providers().find(item => item.id === provider)!.defaultModel
+    const disabled = await manager.startTurn(provider, { cwd: fixture.workspace, content: "MAC_TEXT", model,
+      sessionToken: null, permissionMode: "request", onToolRequest: async () => null })
+    const disabledEvents: HarnessEvent[] = []
+    try { for await (const event of disabled.stream) disabledEvents.push(event) }
+    finally { await disabled.close() }
+    assert(disabledEvents.some(event => event.entry?.kind === "result" && !event.entry.isError))
+    assert(!disabledEvents.some(event => event.type === "statistics"), "default-off native turns must not relay statistics")
+    assert.deepEqual(fixture.errors, [])
+    fixture.requests.length = 0
+    console.log(`PASS ${process.arch}: ${provider} real public CLI runs without debug statistics`)
     for (const marker of ["MAC_TEXT", "MAC_RESUME", "MAC_READ", "MAC_QUESTION", "MAC_HOLD"]) {
       let questions = 0
-      const turn = await manager.startTurn(provider, { cwd: fixture.workspace, content: marker, model, sessionToken: token, permissionMode: "request",
+      const turn = await manager.startTurn(provider, { collectStatistics: true, cwd: fixture.workspace, content: marker, model, sessionToken: token, permissionMode: "request",
         onToolRequest: async request => {
           questions++
           assert.equal(request.tool.toolKind, "ask_user_question")
@@ -65,7 +75,7 @@ try {
     }
     fixture.requests.length = 0
   }
-  const store = new EventStore(data); await store.initialize()
+  const store = new EventStore(data, () => "integration-debug"); await store.initialize()
   const project = await store.openProject(fixture.workspace, "Mac integration acceptance")
   const agent = new AgentCoordinator({ store, addons: manager, onStateChange() {},
     generateTitle: async () => ({ title: "Mac integration acceptance", usedFallback: false, failureMessage: null }) })
@@ -98,7 +108,7 @@ try {
         assert.equal(stats.sessionStats.steps, 3)
         assert.equal(stats.sessionStats.turns, 2)
         await store.compact()
-        const restored = new EventStore(data); await restored.initialize()
+        const restored = new EventStore(data, () => "integration-debug"); await restored.initialize()
         assert.deepEqual(restored.requireChat(chat.id).statisticsState?.snapshot, stats)
       }
       assert.deepEqual(fixture.errors, [])
