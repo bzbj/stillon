@@ -109,7 +109,6 @@ const sidebarItems = [
     icon: MessageSquareQuote,
     subtitle: "Manage the default chat provider and saved model settings for your enabled agents.",
   },
-  { id: "integrations", label: "Integrations", icon: Code, subtitle: "Early access." },
   {
     id: "usage",
     label: "Usage",
@@ -140,6 +139,7 @@ const sidebarItems = [
     icon: MonitorSmartphone,
     subtitle: "",
   },
+  { id: "integrations", label: "Integrations", icon: Code, subtitle: "Early access." },
   {
     id: "about",
     label: "About",
