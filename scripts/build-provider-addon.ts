@@ -12,7 +12,7 @@ export async function buildDeepSeekAddon(): Promise<AddonPackage> {
     define: { STILLON_DSH_STATISTICS_SOURCE: JSON.stringify(await statistics.outputs[0]!.text()), STILLON_DSH_CONTROL_SOURCE: JSON.stringify(await control.outputs[0]!.text()) } })
   if (!build.success || build.outputs.length !== 1) throw new Error(`Add-on build failed: ${build.logs.join("\n")}`)
   const code = await build.outputs[0]!.text()
-  const manifest = addonManifestSchema.parse({ format: 1, id: "deepseek", name: "DeepSeek Harness", version: "0.2.0-preview.4", hostApi: 1,
+  const manifest = addonManifestSchema.parse({ format: 1, id: "deepseek", name: "DeepSeek Harness", version: "0.2.0-preview.5", hostApi: 1,
     targets: ["win32-x64", "win32-arm64", "darwin-x64", "darwin-arm64"], testedCliVersions: ["0.2.1-rc.5", "0.2.2-rc.1"],
     catalog: { id: "deepseek", label: "DeepSeek Harness", defaultModel: "deepseek-flash", defaultEffort: "high",
       models: [{ id: "deepseek-flash", label: "DeepSeek Flash", supportsEffort: true }, { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", supportsEffort: true }],

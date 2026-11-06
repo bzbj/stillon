@@ -39,6 +39,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  statisticsEpoch?: unknown
   showSessionStatistics?: unknown
   workspaceCollapseVersions?: unknown
   workspaceCollapsed?: unknown
@@ -69,7 +70,7 @@ interface AppSettingsFile {
   network?: unknown
 }
 
-type AppSettingsState = AppSettingsSnapshot
+type AppSettingsState = AppSettingsSnapshot & { statisticsEpoch: string | null }
 
 interface NormalizedAppSettings {
   payload: AppSettingsState
@@ -205,6 +206,7 @@ function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | 
 
 function toFilePayload(state: AppSettingsState) {
   return {
+    statisticsEpoch: state.statisticsEpoch,
     showSessionStatistics: state.showSessionStatistics === true,
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
@@ -290,6 +292,9 @@ function normalizeAppSettings(
   const normalizedNetwork = normalizeAgentNetworkSettings(source?.network)
   warnings.push(...normalizedNetwork.warnings)
   const state: AppSettingsState = {
+    statisticsEpoch: source?.showSessionStatistics === true
+      ? (typeof source.statisticsEpoch === "string" && source.statisticsEpoch ? source.statisticsEpoch : crypto.randomUUID())
+      : null,
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     machineName,
     showSessionStatistics: source?.showSessionStatistics === true,
@@ -333,6 +338,7 @@ function normalizeAppSettings(
 
 function toComparablePayload(source: AppSettingsFile) {
   return {
+    statisticsEpoch: source.statisticsEpoch ?? null,
     browserSettingsMigrated: source.browserSettingsMigrated,
     machineName: source.machineName,
     showSessionStatistics: source.showSessionStatistics === true,
@@ -456,6 +462,11 @@ export class AppSettingsManager {
     this.watcher?.close()
     this.watcher = null
     this.listeners.clear()
+  }
+
+  /** A fresh enablement never enrolls sessions from an earlier debug window. */
+  getStatisticsEpoch() {
+    return this.state.showSessionStatistics === true ? this.state.statisticsEpoch : null
   }
 
   getSnapshot() {

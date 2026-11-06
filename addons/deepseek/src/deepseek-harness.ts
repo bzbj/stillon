@@ -144,6 +144,7 @@ export function deepSeekTranscript(event: any, questionToolIds?: Set<string>): T
 }
 
 export function startDeepSeekTurn(args: {
+  collectStatistics?: boolean
   cwd: string; content: string; model: string; effort?: string; sessionToken: string | null
   permissionMode: DeepSeekPermissionMode; environment: NodeJS.ProcessEnv
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
@@ -170,13 +171,13 @@ export function startDeepSeekTurn(args: {
           const executable = await dependencies.discover(args.environment)
           const version = await dependencies.version(executable, args.environment)
           if (cancelled) return
-          const stats = await statisticsPatch()
-          statisticsDirectory = stats.directory
+          const stats = args.collectStatistics === true ? await statisticsPatch() : undefined
+          statisticsDirectory = stats?.directory
           if (cancelled) return
           rpc = new DeepSeekRpc(dependencies.spawn(executable, args.cwd, { ...args.environment,
-            STILLON_DSH_STATISTICS_SESSION_ID: sessionId,
+            ...(stats ? { STILLON_DSH_STATISTICS_SESSION_ID: sessionId } : {}),
             DSH_PERMISSION_MODE: args.permissionMode === "full" ? "danger-full-access" : "workspace-write",
-          }, ["--patch", stats.patch]))
+          }, stats ? ["--patch", stats.patch] : []))
           rpc.onNotification = enqueue
           rpc.onFailure = error => { failure = error; wake?.(); wake = undefined }
           rpc.onRequest = async frame => {
@@ -232,6 +233,7 @@ export function startDeepSeekTurn(args: {
             if (frame.method === "stillon.tool") { yield { type: "transcript", entry: entry({ kind: "tool_call", tool: frame.params }) }; continue }
             if (frame.params?.sessionId !== sessionId) continue
             if (frame.method === "stillon.statistics") {
+              if (!args.collectStatistics) continue
               const parsed = sessionStatisticsSchema.safeParse(frame.params.statistics)
               if (parsed.success) yield { type: "statistics", statistics: { native: parsed.data } }
               continue

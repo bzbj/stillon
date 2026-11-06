@@ -86,9 +86,10 @@ describe("DeepSeek protocol boundary", () => {
   })
 })
 
-test("turn uses official API, resumes, sets boot permissions and ignores idle before its receipt", async () => {
+test.each([false, true])("turn uses official API without injecting statistics unless enabled (debug=%s)", async enabled => {
   const child = new FakeProcess()
   let environment: NodeJS.ProcessEnv = {}
+  let patches: string[] = []
   child.handler = frame => {
     if (frame.method === "initialize") child.reply(frame, { serverInfo: { name: "deepseek-harness-sdk-runtime" } })
     if (frame.method === "session/resume") child.reply(frame, {})
@@ -103,14 +104,16 @@ test("turn uses official API, resumes, sets boot permissions and ignores idle be
       child.reply(frame, { messageId: "message-1" })
     }
   }
-  const turn = startDeepSeekTurn({ cwd: "/workspace", content: "hello", model: "deepseek-flash", effort: "off", sessionToken: "existing-session", permissionMode: "request", environment: { DSH_PERMISSION_MODE: "danger-full-access" }, onToolRequest: async () => null }, {
-    discover: async () => "dsh", version: async () => "0.2.1-rc.5", spawn: (_cli, _cwd, env) => { environment = env; return child.asChild() },
+  const turn = startDeepSeekTurn({ collectStatistics: enabled, cwd: "/workspace", content: "hello", model: "deepseek-flash", effort: "off", sessionToken: "existing-session", permissionMode: "request", environment: { DSH_PERMISSION_MODE: "danger-full-access" }, onToolRequest: async () => null }, {
+    discover: async () => "dsh", version: async () => "0.2.1-rc.5", spawn: (_cli, _cwd, env, extraArgs) => { patches = extraArgs ?? []; environment = env; return child.asChild() },
   })
   const events: HarnessEvent[] = []
   for await (const event of turn.stream) events.push(event)
   expect(child.requests.find(frame => frame.method === "initialize").params.provider).toBe("deepseek-official")
   expect(child.requests.some(frame => frame.method === "session/resume")).toBe(true)
   expect(environment.DSH_PERMISSION_MODE).toBe("workspace-write")
+  expect(patches.includes("--patch")).toBe(enabled)
+  expect(Boolean(environment.STILLON_DSH_STATISTICS_SESSION_ID)).toBe(enabled)
   expect(events.filter(event => event.entry?.kind === "assistant_text")).toHaveLength(1)
   expect(events.at(-1)?.entry).toMatchObject({ kind: "result", isError: false, result: "answer" })
   expect(child.requests.at(-1).method).toBe("shutdown")

@@ -1,9 +1,6 @@
-# Session statistics
+# Debug session statistics
 
-Enable **Settings → Usage → Show session statistics** to show output speed and
-cumulative tokens above the conversation composer. Both controls open detailed
-popovers. The preference defaults to off and follows the host across local and
-Connect entries. Hiding the controls does not stop collection.
+Statistics are off by default. Enable **Settings → Usage → Debug session statistics** before creating a session to collect tokens, speed and timing. Existing sessions are not enrolled or backfilled. Disabling the switch stops collection and hides the controls; recorded data is retained. Re-enabling starts a new debug window for new sessions only. The preference follows the host across local and Connect entries.
 
 Token totals sum four disjoint buckets: uncached input, cache reads, cache
 writes and output. Reasoning tokens are already included in output. **B** means
@@ -27,8 +24,7 @@ usage feeds the original DSH fold instead of inheriting Codex thread totals.
 DeepSeek Harness forking is currently unsupported.
 
 Codex App Server's native cumulative counters also cover ordinary resumed threads.
-Older Claude sessions without recorded usage show their recording start time;
-missing historical usage is not estimated. Codex exec supplies aggregate tokens
+Sessions created before enabling debug statistics remain uninstrumented. Codex exec supplies aggregate tokens
 but lacks model-step stream timing, so it shows tokens without a speed control.
 Native DSH's session projection has no separate cumulative reasoning counter.
 

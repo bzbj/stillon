@@ -479,3 +479,26 @@ test("statistics default off, survive unrelated patches/reload, and reject inval
     expect((await manager.writePatch({ showSessionStatistics: false })).showSessionStatistics).toBe(false)
   } finally { manager.dispose() }
 })
+
+
+test("debug enrollment epoch persists across reload and rotates only after disabling", async () => {
+  const filePath = await createTempFilePath(), manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    expect(manager.getStatisticsEpoch()).toBeNull()
+    await manager.writePatch({ showSessionStatistics: true })
+    const epoch = manager.getStatisticsEpoch()
+    expect(epoch).toBeString()
+    await manager.writePatch({ showSessionStatistics: true })
+    expect(manager.getStatisticsEpoch()).toBe(epoch)
+    const reloaded = new AppSettingsManager(filePath)
+    try {
+      await reloaded.initialize()
+      expect(reloaded.getStatisticsEpoch()).toBe(epoch)
+    } finally { reloaded.dispose() }
+    await manager.writePatch({ showSessionStatistics: false })
+    expect(manager.getStatisticsEpoch()).toBeNull()
+    await manager.writePatch({ showSessionStatistics: true })
+    expect(manager.getStatisticsEpoch()).not.toBe(epoch)
+  } finally { manager.dispose() }
+})

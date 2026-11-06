@@ -227,7 +227,7 @@ describe("CodexAppServerManager", () => {
     expect(turnStart?.params.collaborationMode?.settings?.reasoning_effort).toBeNull()
   })
 
-  test("maps thread token usage updates into context window transcript entries", async () => {
+  test.each([false, true])("maps context usage independently of debug collection (enabled=%s)", async enabled => {
     const process = new FakeCodexProcess((message, child) => {
       if (message.method === "initialize") {
         child.writeServerMessage({ id: message.id, result: { userAgent: "codex-test" } })
@@ -287,6 +287,7 @@ describe("CodexAppServerManager", () => {
     })
 
     const turn = await manager.startTurn({
+      collectStatistics: () => enabled,
       chatId: "chat-1",
       model: "gpt-5.4",
       content: "Hello",
@@ -298,8 +299,13 @@ describe("CodexAppServerManager", () => {
     const usageEvent = events.find((event) => event.type === "transcript" && event.entry.kind === "context_window_updated")
 
     const statistics = events.reduce<StatisticsRecord | undefined>((state, event) => event.statistics ? updateSessionStatistics(state, event.statistics) : state, undefined)
-    expect(statistics?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 8377, cacheReadTokens: 3456, cacheWriteTokens: 0, outputTokens: 6 })
-    expect(statistics?.snapshot.sessionStats.steps).toBe(1)
+    if (enabled) {
+      expect(statistics?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 8377, cacheReadTokens: 3456, cacheWriteTokens: 0, outputTokens: 6 })
+      expect(statistics?.snapshot.sessionStats.steps).toBe(1)
+    } else {
+      expect(statistics).toBeUndefined()
+      expect(events.some(event => event.type === "statistics")).toBe(false)
+    }
     expect(usageEvent).toBeDefined()
     if (!usageEvent || usageEvent.type !== "transcript" || usageEvent.entry.kind !== "context_window_updated") {
       throw new Error("missing usage event")
@@ -1963,7 +1969,7 @@ test.each([[true, ""], [false, ""], [true, "old-turn"], [false, "old-turn"]] as 
   const manager = new CodexAppServerManager({ spawnProcess: () => child as never })
   try {
     await manager.startSession({ chatId: "fork", cwd: "/tmp/example", model: "gpt-5.4", sessionToken: null, pendingForkSessionToken: "parent" })
-    const turn = await manager.startTurn({ chatId: "fork", model: "gpt-5.4", content: "Continue", planMode: false, onToolRequest: async () => ({}) })
+    const turn = await manager.startTurn({ collectStatistics: () => true, chatId: "fork", model: "gpt-5.4", content: "Continue", planMode: false, onToolRequest: async () => ({}) })
     let state = createForkSessionStatistics()
     for await (const event of turn.stream) if (event.statistics) state = updateSessionStatistics(state, event.statistics)
     expect(state.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 80, cacheReadTokens: 20, cacheWriteTokens: 0, outputTokens: 10 })

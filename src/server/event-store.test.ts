@@ -989,7 +989,7 @@ test("chat pins survive log replay and compaction, stay workspace scoped and rej
 })
 
 test("statistics serialize concurrent observations and survive paging, compaction, reload and cancellation", async () => {
-  const dataDir = await createTempDataDir(), store = new EventStore(dataDir)
+  const dataDir = await createTempDataDir(), store = new EventStore(dataDir, () => "test")
   await store.initialize()
   const project = await store.openProject("/tmp/statistics-example", "Statistics example")
   const chat = await store.createChat(project.id)
@@ -1008,7 +1008,7 @@ test("statistics serialize concurrent observations and survive paging, compactio
   expect(before.snapshot.tokenUsage.outputTokens).toBe(4)
   await store.getRecentChatHistory(chat.id, 1)
   await store.compact()
-  const restored = new EventStore(dataDir); await restored.initialize()
+  const restored = new EventStore(dataDir, () => "test"); await restored.initialize()
   expect(restored.requireChat(chat.id).statisticsState).toEqual(before)
   await restored.recordStatistics(chat.id, { runId: "c", usageOnly: true, events: [e("assistant/message", 800, { stream: [], usage: { inputTokens: 20, outputTokens: 6 } })] })
   expect(restored.requireChat(chat.id).statisticsState!.snapshot.tokenUsage.outputTokens).toBe(10)
@@ -1016,18 +1016,18 @@ test("statistics serialize concurrent observations and survive paging, compactio
 })
 
 test("restart closes an abandoned model step once without inventing elapsed time", async () => {
-  const root = await createTempDataDir(), store = new EventStore(root)
+  const root = await createTempDataDir(), store = new EventStore(root, () => "test")
   await store.initialize()
   const project = await store.openProject("/tmp/crash-statistics", "Example"), chat = await store.createChat(project.id)
   await store.recordStatistics(chat.id, { runId: "interrupted-process", events: [{ type: "step/start", time: 100, data: { step: 1 } }] })
-  const restored = new EventStore(root); await restored.initialize()
+  const restored = new EventStore(root, () => "test"); await restored.initialize()
   expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats).toMatchObject({ steps: 1, turns: 1, llmMs: 0, decodeMs: 0 })
-  const again = new EventStore(root); await again.initialize()
+  const again = new EventStore(root, () => "test"); await again.initialize()
   expect(again.requireChat(chat.id).statisticsState).toEqual(restored.requireChat(chat.id).statisticsState)
 })
 
 test("older sessions identify incomplete recorded usage until authoritative native counters arrive", async () => {
-  const root = await createTempDataDir(), store = new EventStore(root)
+  const root = await createTempDataDir(), store = new EventStore(root, () => "test")
   await store.initialize()
   const project = await store.openProject("/tmp/older-statistics", "Example"), chat = await store.createChat(project.id)
   await store.recordTurnFinished(chat.id)
@@ -1038,7 +1038,7 @@ test("older sessions identify incomplete recorded usage until authoritative nati
 })
 
 test.each(["claude", "codex"] as const)("%s forks keep context but reset tokens and timing across reload and nested forks", async provider => {
-  const root = await createTempDataDir(), store = new EventStore(root)
+  const root = await createTempDataDir(), store = new EventStore(root, () => "test")
   await store.initialize()
   const project = await store.openProject("/tmp/fork-statistics", "Example"), source = await store.createChat(project.id)
   await store.setChatProvider(source.id, provider)
@@ -1064,7 +1064,7 @@ test.each(["claude", "codex"] as const)("%s forks keep context but reset tokens 
   await store.setPendingForkSessionToken(fork.id, null)
   await store.recordStatistics(fork.id, observation("branch-first", 10, 10010))
   await store.compact()
-  const restored = new EventStore(root); await restored.initialize()
+  const restored = new EventStore(root, () => "test"); await restored.initialize()
   expect(restored.requireChat(fork.id).statisticsState?.scope).toBe("fork")
   await restored.recordStatistics(fork.id, observation("branch-second", 20, 10030))
   expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 30, cacheReadTokens: 6, cacheWriteTokens: 4, outputTokens: 8 })
@@ -1075,4 +1075,51 @@ test.each(["claude", "codex"] as const)("%s forks keep context but reset tokens 
   expect(restored.requireChat(nested.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(5)
   expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(30)
   expect(restored.requireChat(source.id).statisticsState).toEqual(parentBefore)
+})
+
+test("debug statistics enroll only sessions created while enabled and never write while off", async () => {
+  const root = await createTempDataDir()
+  let enabled = false
+  const store = new EventStore(root, () => enabled ? "test" : null)
+  await store.initialize()
+  const project = await store.openProject("/tmp/debug-statistics", "Debug statistics")
+  const old = await store.createChat(project.id)
+  const observation = { runId: "debug", events: [{ type: "assistant/message", time: 100, data: { turn: 1, step: 1, stream: [], usage: { inputTokens: 10, outputTokens: 4 } } }] }
+  const log = () => readFile(join(root, "chats.jsonl"), "utf8")
+  let before = await log()
+  await store.recordStatistics(old.id, observation)
+  expect(await log()).toBe(before)
+  enabled = true
+  await store.recordStatistics(old.id, observation)
+  expect(await log()).toBe(before)
+  expect(store.requireChat(old.id).statisticsState).toBeUndefined()
+  const fresh = await store.createChat(project.id)
+  await store.recordStatistics(fresh.id, observation)
+  expect(store.requireChat(fresh.id).statisticsState?.snapshot.tokenUsage.outputTokens).toBe(4)
+  enabled = false
+  before = await log()
+  await store.recordStatistics(fresh.id, { ...observation, runId: "disabled" })
+  expect(await log()).toBe(before)
+  expect(store.requireChat(fresh.id).statisticsState?.snapshot.tokenUsage.outputTokens).toBe(4)
+  const disabled = await store.createChat(project.id)
+  await store.compact()
+  enabled = true
+  const restored = new EventStore(root, () => enabled ? "test" : null)
+  await restored.initialize()
+  expect(restored.shouldCollectStatistics(old.id)).toBe(false)
+  expect(restored.shouldCollectStatistics(disabled.id)).toBe(false)
+  expect(restored.shouldCollectStatistics(fresh.id)).toBe(true)
+  const nextEpoch = new EventStore(root, () => "new-enablement")
+  await nextEpoch.initialize()
+  expect(nextEpoch.shouldCollectStatistics(fresh.id)).toBe(false)
+  await restored.recordStatistics(disabled.id, observation)
+  expect(restored.requireChat(disabled.id).statisticsState).toBeUndefined()
+  await restored.setChatProvider(old.id, "codex")
+  await restored.setSessionToken(old.id, "synthetic-thread")
+  const fork = await restored.forkChat(old.id)
+  expect(restored.shouldCollectStatistics(fork.id)).toBe(true)
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage.outputTokens).toBe(0)
+  enabled = false
+  const untrackedFork = await restored.forkChat(old.id)
+  expect(restored.requireChat(untrackedFork.id).statisticsState).toBeUndefined()
 })

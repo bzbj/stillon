@@ -154,7 +154,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
     }
   }
   const cliEnvironment = createCliEnvironment()
-  const store = new EventStore(options.dataDir)
+  const store = new EventStore(options.dataDir, () => appSettings.getStatisticsEpoch())
   const providerCliSettings = new ProviderCliSettings(store.dataDir)
   const remoteOperations = new RemoteOperations(store.dataDir)
   const codexModelPolicy = new CodexModelPolicyManager(store.dataDir, {
@@ -180,6 +180,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   const addons = new ProviderAddons(store.dataDir, getAgentEnvironment)
   await addons.initialize(path.resolve(import.meta.dir, "../../dist/integrations"))
   const providerSetup = createProviderSetup({ dataDir: store.dataDir, addons, getEnvironment: async () => { await cliEnvironment.refresh(); return getAgentEnvironment() } })
+  await appSettings.initialize()
   await store.initialize()
   await store.migrateLegacyTranscripts(options.onMigrationProgress)
   const savedDiscoveryProjects = () => store.listProjects().map((project) => ({
@@ -260,7 +261,6 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   let server: ReturnType<typeof Bun.serve<ClientState>>
   const terminals = new TerminalManager()
   const keybindings = new KeybindingsManager()
-  await appSettings.initialize()
   await keybindings.initialize()
   const sourceUpgradePrompt = createSourceUpgradePromptGenerator({
     getContext: () => ({

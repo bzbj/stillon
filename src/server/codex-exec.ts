@@ -90,6 +90,7 @@ export interface StartCodexExecSessionArgs {
 }
 
 export interface StartCodexExecTurnArgs {
+  collectStatistics?: () => boolean
   chatId: string
   model: string
   effort?: CodexReasoningEffort
@@ -143,6 +144,7 @@ interface SessionContext {
 }
 
 interface PendingTurn {
+  collectStatistics: () => boolean
   chatId: string
   child: CodexExecProcess
   queue: AsyncQueue<HarnessEvent>
@@ -448,6 +450,7 @@ export class CodexExecManager {
     commandArgs.splice(commandArgs[1] === "resume" || commandArgs[1] === "fork" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment))
     const child = this.spawnProcess(commandArgs, context.cwd, environment)
     const pendingTurn: PendingTurn = {
+      collectStatistics: args.collectStatistics ?? (() => false),
       chatId: context.chatId,
       child,
       queue,
@@ -743,7 +746,7 @@ export class CodexExecManager {
     }
 
     if (type === "turn.completed") {
-      const tokenUsage = providerUsage(event.usage, "codex")
+      const tokenUsage = pendingTurn.collectStatistics() ? providerUsage(event.usage, "codex") : null
       if (tokenUsage) pendingTurn.queue.push({ type: "statistics", statistics: { runId: pendingTurn.localTurnId, usageOnly: true, events: [{ type: "assistant/message", time: Date.now(), data: { turn: 1, step: 0, stream: [], usage: tokenUsage } }] } })
       const usage = normalizeExecUsage(event.usage)
       if (usage) {

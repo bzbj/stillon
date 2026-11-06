@@ -25,6 +25,8 @@ export interface ChatRecord {
   lastMessageAt?: number
   /** Bytes already reflected in the persisted transcript metadata. */
   transcriptMetadataOffset?: number
+  /** Matches only the debug window in which this session was created. */
+  statisticsEpoch?: string
   statisticsState?: import("../shared/session-statistics").StatisticsRecord
   lastTurnOutcome: "success" | "failed" | "cancelled" | null
 }
@@ -80,6 +82,7 @@ export type ChatEvent =
   | {
       v: 2
       type: "chat_created"
+      statisticsEpoch?: string
       statisticsScope?: "fork"
       timestamp: number
       chatId: string
