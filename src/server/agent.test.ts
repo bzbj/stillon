@@ -109,6 +109,49 @@ describe("normalizeClaudeStreamMessage", () => {
     expect(entries[0].durationMs).toBe(3210)
   })
 
+  test("normalizes an interrupted Claude turn to a hidden interrupt marker, not an error", () => {
+    for (const terminalReason of ["aborted_streaming", "aborted_tools"]) {
+      const entries = normalizeClaudeStreamMessage({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        duration_ms: 354864,
+        stop_reason: "tool_use",
+        terminal_reason: terminalReason,
+        errors: ["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"],
+      })
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0]?.kind).toBe("interrupted")
+      expect(entries[0]?.hidden).toBe(true)
+    }
+  })
+
+  test("uses SDK error details for Claude error results without result text", () => {
+    const [withErrors] = normalizeClaudeStreamMessage({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      duration_ms: 10,
+      terminal_reason: "model_error",
+      errors: ["[ede_diagnostic] internal", "Model request failed"],
+    })
+    if (withErrors?.kind !== "result") throw new Error("unexpected entry")
+    expect(withErrors.isError).toBe(true)
+    expect(withErrors.result).toBe("Model request failed")
+
+    const [maxTurns] = normalizeClaudeStreamMessage({
+      type: "result",
+      subtype: "error_max_turns",
+      is_error: true,
+      duration_ms: 10,
+      terminal_reason: "max_turns",
+      errors: [],
+    })
+    if (maxTurns?.kind !== "result") throw new Error("unexpected entry")
+    expect(maxTurns.result).toBe("Claude stopped after reaching the maximum number of turns.")
+  })
+
   test("normalizes Claude usage snapshots from SDK usage payloads", () => {
     const snapshot = normalizeClaudeUsageSnapshot({
       input_tokens: 4,
