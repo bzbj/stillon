@@ -46,12 +46,17 @@ export const ChatInputDock = memo(function ChatInputDock({
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
       <div className="bg-gradient-to-t from-background via-background pointer-events-auto" ref={inputRef}>
-        <SessionStatistics key={activeChatId ?? "new-chat"} statistics={statistics ?? null} onLayoutChange={onLayoutChange} />
+        <SessionStatistics
+          key={`statistics:${activeChatId ?? "new-chat"}`}
+          statistics={statistics ?? null}
+          timingUnavailable={activeProvider === "codex" && codexTransport === "exec"}
+          onLayoutChange={onLayoutChange}
+        />
         <ChatInput
           ref={chatInputRef}
           inputElementRef={chatInputElementRef}
           onLayoutChange={onLayoutChange}
-          key={activeChatId ?? "new-chat"}
+          key={`input:${activeChatId ?? "new-chat"}`}
           onSubmit={onSubmit}
           onCancel={onCancel}
           disabled={!hasSelectedProject || !preferencesReady}
