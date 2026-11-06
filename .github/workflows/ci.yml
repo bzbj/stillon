@@ -220,6 +220,7 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - run: bun run build
       - run: bun run test:settings:browser
+      - run: bun run test:statistics:browser
 
   artifact-roundtrip:
     runs-on: ubuntu-latest
