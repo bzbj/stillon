@@ -46,8 +46,12 @@ buckets are added to storage; token text is not duplicated into statistics.
 
 Run the synthetic observation/storage benchmark with
 `bun scripts/benchmark-session-statistics.ts`. It compares collection and
-checkpoint writes against the same transcript writes without collection; it
-does not measure real provider throughput or network latency.
+checkpoint writes against the same transcript writes without collection. Results
+include process CPU time, sampled RSS/heap peaks, the p95 assistant-transcript
+append duration and final statistics-drain time. Memory samples include earlier
+rounds in the same process; they are not isolated per-session allocations. The
+benchmark does not measure real provider throughput, first-token latency or
+network latency. Coalesced log sizes depend on the synthetic run duration.
 
 ## Background collection and persistence
 

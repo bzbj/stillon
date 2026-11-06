@@ -187,7 +187,18 @@ export class PreviewBrowser {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const result = await Promise.race([
-        cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 70, captureBeyondViewport: false, fromSurface: true }),
+        (async () => {
+          for (let attempt = 0; ; attempt++) {
+            try { return await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 70, captureBeyondViewport: false, fromSurface: true }) }
+            catch (error) {
+              // Chrome can briefly lack a compositor surface after navigation
+              // or a failed service load. Retry capture only, never user input.
+              if (!(error instanceof Error) || !error.message.includes("Protocol error (Page.captureScreenshot): Unable to capture screenshot")) throw error
+              if (attempt >= 2) throw new PreviewFramePendingError("The preview is still rendering. Retry shortly.")
+              await Bun.sleep(100)
+            }
+          }
+        })(),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new PreviewFramePendingError("The preview is still rendering. Retry shortly.")), 5_000) }),
       ])
       return result.data

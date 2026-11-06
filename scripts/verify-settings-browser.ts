@@ -223,12 +223,40 @@ try {
     checks.push("Sound settings: local/remote saves, reciprocal reloads and returning destination")
     checks.push("Remote save to local reload; local save to remote reload")
   }
+  // Statistics opt-in is a host setting: both entries must agree after reload.
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]!
+    await settings(p, i, "usage")
+    const toggle = p.getByRole("switch", { name: "Debug session statistics", exact: true })
+    assert.equal(await toggle.getAttribute("aria-checked"), "false")
+    await toggle.click()
+    await eventually(() => toggle.getAttribute("aria-checked"), value => value === "true")
+    for (let j = 0; j < pages.length; j++) {
+      await settings(pages[j]!, j, "usage")
+      await pages[j]!.reload()
+      await eventually(() => pages[j]!.getByRole("switch", { name: "Debug session statistics", exact: true }).getAttribute("aria-checked"), value => value === "true")
+    }
+    await toggle.click()
+    await eventually(() => toggle.getAttribute("aria-checked"), value => value === "false")
+    for (let j = 0; j < pages.length; j++) {
+      await settings(pages[j]!, j, "usage")
+      await pages[j]!.reload()
+      await eventually(() => pages[j]!.getByRole("switch", { name: "Debug session statistics", exact: true }).getAttribute("aria-checked"), value => value === "false")
+    }
+  }
+  checks.push("Debug statistics opt-in: saves in each entry survive reciprocal reloads")
   const settingsFile = path.join(server.store.dataDir, "settings.json")
   await rename(settingsFile, settingsFile + ".backup")
   await mkdir(settingsFile)
   try {
     for (let i = 0; i < pages.length; i++) {
       const p = pages[i]!
+      await settings(p, i, "usage")
+      const toggle = p.getByRole("switch", { name: "Debug session statistics", exact: true })
+      await toggle.click()
+      await p.getByRole("alert").filter({ hasText: "Unable to save. Try again." }).waitFor()
+      assert.equal(await toggle.getAttribute("aria-checked"), "false", "Failed save must preserve the confirmed statistics preference")
+      assert.equal(await toggle.isEnabled(), true, "A failed save must allow retry")
       await settings(p, i, "about")
       await editName(p, "Uncommitted draft " + entries[i]!.name)
       await p.getByRole("button", { name: "Save name", exact: true }).click()
