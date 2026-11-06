@@ -13,7 +13,8 @@ const fakeCli = resolve(import.meta.dir, "../../test-fixtures/fake-claude-cli.mj
 const roots: string[] = []
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  // On Windows the stand-in CLI can still hold its working directory briefly after shutdown.
+  await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 })))
 })
 
 async function tempRoot() {
