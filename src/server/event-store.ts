@@ -1,4 +1,4 @@
-import { createForkSessionStatistics, updateSessionStatistics, type StatisticsInput } from "../shared/session-statistics"
+import { createForkSessionStatistics, updateSessionStatistics, type StatisticsInput, type SessionStatistics } from "../shared/session-statistics"
 import { isAddonProvider } from "../shared/types"
 import { createReadStream } from "node:fs"
 import { appendFile, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -179,6 +179,19 @@ function getForkedChatTitle(title: string) {
 export class EventStore {
   readonly dataDir: string
   readonly state: StoreState = createEmptyState()
+  private statisticsWriteChain = Promise.resolve()
+  private statisticsWriting = false
+  private statisticsTimer: ReturnType<typeof setTimeout> | null = null
+  private statisticsPublishTimer: ReturnType<typeof setTimeout> | null = null
+  private statisticsInputs: Array<{ chatId: string; epoch: string; input: StatisticsInput }> = []
+  private statisticsInputBytes = 0
+  private readonly statisticsDirty = new Set<string>()
+  private readonly statisticsUnpublished = new Set<string>()
+  private readonly publishedStatistics = new Map<string, SessionStatistics | null>()
+  private readonly statisticsStopped = new Set<string>()
+  private statisticsWindow: string | null = null
+  private statisticsListener: ((chatId: string) => void) | null = null
+  private readonly statisticsLogPath: string
   private writeChain = Promise.resolve()
   private readonly snapshotPath: string
   private readonly snapshotBackupPath: string
@@ -207,6 +220,7 @@ export class EventStore {
     this.snapshotPath = path.join(this.dataDir, "snapshot.json")
     this.snapshotBackupPath = `${this.snapshotPath}.bak`
     this.projectsLogPath = path.join(this.dataDir, "projects.jsonl")
+    this.statisticsLogPath = path.join(this.dataDir, "statistics.jsonl")
     this.chatsLogPath = path.join(this.dataDir, "chats.jsonl")
     this.messagesLogPath = path.join(this.dataDir, "messages.jsonl")
     this.queuedMessagesLogPath = path.join(this.dataDir, "queued-messages.jsonl")
@@ -221,6 +235,7 @@ export class EventStore {
     await mkdir(this.transcriptsDir, { recursive: true })
     await this.ensureFile(this.projectsLogPath)
     await this.ensureFile(this.chatsLogPath)
+    await this.ensureFile(this.statisticsLogPath)
     await this.ensureFile(this.messagesLogPath)
     await this.ensureFile(this.queuedMessagesLogPath)
     await this.ensureFile(this.turnsLogPath)
@@ -231,6 +246,7 @@ export class EventStore {
       const stats = chat.statisticsState?.stats
       if (!chat.deletedAt && stats && (stats.openStep || Object.keys(stats.pendingCalls).length)) await this.finishStatistics(chat.id)
     }
+    await this.flushStatistics()
     await this.restoreTranscriptMetadata()
     await this.loadSidebarProjectOrder()
     if (!(await this.hasLegacyTranscriptData()) && await this.shouldCompact()) {
@@ -1191,26 +1207,162 @@ export class EventStore {
     await this.append(this.chatsLogPath, event)
   }
 
-  shouldCollectStatistics(chatId: string) {
+  /** Settings changes invalidate queued work before a new enrollment window can start. */
+  syncStatisticsSettings() {
     const epoch = this.statisticsEpoch()
-    return epoch !== null && this.requireChat(chatId).statisticsEpoch === epoch
+    if (epoch === this.statisticsWindow) return
+    this.statisticsWindow = epoch
+    this.statisticsInputs = []
+    this.statisticsInputBytes = 0
+    this.statisticsDirty.clear()
+    this.statisticsUnpublished.clear()
+    this.statisticsStopped.clear()
+    if (this.statisticsTimer) clearTimeout(this.statisticsTimer)
+    if (this.statisticsPublishTimer) clearTimeout(this.statisticsPublishTimer)
+    this.statisticsTimer = this.statisticsPublishTimer = null
   }
 
-  async recordStatistics(chatId: string, input: StatisticsInput) {
+  setStatisticsListener(listener: ((chatId: string) => void) | null) {
+    this.statisticsListener = listener
+  }
+
+  getPublishedStatistics(chatId: string) {
+    return this.publishedStatistics.has(chatId)
+      ? this.publishedStatistics.get(chatId)!
+      : this.requireChat(chatId).statisticsState?.snapshot ?? null
+  }
+
+  shouldCollectStatistics(chatId: string) {
+    const epoch = this.statisticsEpoch()
+    const chat = this.requireChat(chatId)
+    return epoch !== null && !chat.deletedAt && chat.statisticsEpoch === epoch && !chat.statisticsState?.snapshot.incomplete && !this.statisticsStopped.has(chatId)
+  }
+
+  /** Response consumption only enqueues; it never waits for statistics I/O. */
+  enqueueStatistics(chatId: string, input: StatisticsInput) {
+    this.syncStatisticsSettings()
     if (!this.shouldCollectStatistics(chatId)) return
-    this.requireChat(chatId)
-    this.writeChain = this.writeChain.then(async () => {
-      const chat = this.requireChat(chatId)
-      if (!this.shouldCollectStatistics(chatId)) return
-      const statisticsState = updateSessionStatistics(chat.statisticsState, input)
-      if (!chat.statisticsState && !("native" in input) && !input.nativeTokenUsage && (chat.lastTurnOutcome !== null || chat.pendingForkSessionToken)) {
-        statisticsState.snapshot.recordedSince = Date.now()
+    if (!this.publishedStatistics.has(chatId)) this.publishedStatistics.set(chatId, this.requireChat(chatId).statisticsState?.snapshot ?? null)
+    let bytes: number
+    try { bytes = JSON.stringify(input).length * 2 }
+    catch { this.stopStatistics(chatId, "invalid statistics observation"); return }
+    if (this.statisticsInputs.length >= 4096 || this.statisticsInputBytes + bytes > 4 * 1024 * 1024) {
+      this.stopStatistics(chatId, "pending statistics limit exceeded")
+      return
+    }
+    this.statisticsInputs.push({ chatId, epoch: this.statisticsEpoch()!, input })
+    this.statisticsInputBytes += bytes
+    if (!this.statisticsTimer) {
+      this.scheduleStatisticsFlush()
+    }
+    if (!this.statisticsPublishTimer) {
+      this.statisticsPublishTimer = setTimeout(() => {
+        this.statisticsPublishTimer = null
+        this.foldStatisticsInputs()
+        for (const id of [...this.statisticsUnpublished]) this.publishStatistics(id)
+      }, 10_000)
+      this.statisticsPublishTimer.unref?.()
+    }
+  }
+
+  private scheduleStatisticsFlush() {
+    if (this.statisticsTimer) return
+    this.statisticsTimer = setTimeout(() => {
+      this.statisticsTimer = null
+      void this.flushStatistics()
+    }, 1000)
+    this.statisticsTimer.unref?.()
+  }
+
+  private stopStatistics(chatId: string, reason: string) {
+    this.statisticsStopped.add(chatId)
+    this.statisticsInputs = this.statisticsInputs.filter(item => item.chatId !== chatId)
+    this.statisticsInputBytes = this.statisticsInputs.reduce((sum, item) => sum + JSON.stringify(item.input).length * 2, 0)
+    const chat = this.state.chatsById.get(chatId)
+    if (chat && !chat.deletedAt) {
+      const previous = chat.statisticsState ?? { ...createForkSessionStatistics(), scope: undefined }
+      chat.statisticsState = { ...previous, snapshot: { ...previous.snapshot, incomplete: true } }
+      this.statisticsDirty.add(chatId)
+      this.statisticsUnpublished.add(chatId)
+      this.publishStatistics(chatId)
+      if (!this.statisticsWriting) this.scheduleStatisticsFlush()
+    }
+    console.warn(`${LOG_PREFIX} Debug statistics stopped: ${reason}`)
+  }
+
+  private foldStatisticsInputs() {
+    this.syncStatisticsSettings()
+    const inputs = this.statisticsInputs
+    this.statisticsInputs = []
+    this.statisticsInputBytes = 0
+    for (const { chatId, epoch, input } of inputs) {
+      const chat = this.state.chatsById.get(chatId)
+      if (!chat || chat.deletedAt || epoch !== this.statisticsEpoch() || !this.shouldCollectStatistics(chatId)) continue
+      try {
+        const state = updateSessionStatistics(chat.statisticsState, input)
+        if (!chat.statisticsState && !("native" in input) && !input.nativeTokenUsage && (chat.lastTurnOutcome !== null || chat.pendingForkSessionToken)) state.snapshot.recordedSince = Date.now()
+        chat.statisticsState = state
+        this.statisticsDirty.add(chatId)
+        this.statisticsUnpublished.add(chatId)
+      } catch {
+        this.stopStatistics(chatId, "invalid statistics observation")
       }
-      const event: ChatEvent = { v: STORE_VERSION, type: "chat_statistics_set", timestamp: Date.now(), chatId, statisticsState }
-      await appendFile(this.chatsLogPath, `${JSON.stringify(event)}\n`, "utf8")
-      this.applyEvent(event)
+    }
+  }
+
+  private publishStatistics(chatId: string) {
+    if (!this.statisticsUnpublished.delete(chatId)) return
+    const chat = this.state.chatsById.get(chatId)
+    if (!chat || chat.deletedAt) return
+    this.publishedStatistics.set(chatId, chat.statisticsState?.snapshot ?? null)
+    this.statisticsListener?.(chatId)
+  }
+
+  /** One append per batch, on a queue independent of transcript/turn writes. */
+  async flushStatistics() {
+    this.foldStatisticsInputs()
+    if (this.statisticsWriting) return this.statisticsWriteChain
+    if (!this.statisticsDirty.size) return
+    const epoch = this.statisticsEpoch()
+    const ids = [...this.statisticsDirty]
+    this.statisticsDirty.clear()
+    const events = ids.flatMap(chatId => {
+      const chat = this.state.chatsById.get(chatId)
+      return chat && !chat.deletedAt && chat.statisticsState ? [{ v: STORE_VERSION, type: "chat_statistics_set" as const, timestamp: Date.now(), chatId, statisticsState: chat.statisticsState }] : []
     })
-    return this.writeChain
+    this.statisticsWriting = true
+    this.statisticsWriteChain = this.statisticsWriteChain.then(async () => {
+      if (epoch === null || epoch !== this.statisticsEpoch()) return
+      await this.appendStatistics(events.map(event => JSON.stringify(event) + "\n").join(""))
+    }).catch(() => {
+      if (epoch !== this.statisticsEpoch()) return
+      for (const id of ids) this.stopStatistics(id, "statistics storage unavailable")
+      // Avoid unbounded retries. The transcript write queue remains healthy.
+      for (const id of ids) this.statisticsDirty.delete(id)
+    }).finally(() => {
+      this.statisticsWriting = false
+      if (this.statisticsDirty.size) this.scheduleStatisticsFlush()
+    })
+    return this.statisticsWriteChain
+  }
+
+  private appendStatistics(payload: string) {
+    return appendFile(this.statisticsLogPath, payload, "utf8")
+  }
+
+  /** Explicit durable API for recovery/import callers; streaming uses enqueueStatistics. */
+  async recordStatistics(chatId: string, input: StatisticsInput) {
+    this.enqueueStatistics(chatId, input)
+    await this.flushStatistics()
+    if (this.statisticsDirty.has(chatId)) await this.flushStatistics()
+    await this.statisticsWriteChain
+  }
+
+  /** Publish the final view immediately without waiting for disk. */
+  private completeStatistics(chatId: string) {
+    this.foldStatisticsInputs()
+    this.publishStatistics(chatId)
+    void this.flushStatistics()
   }
 
   async appendMessage(chatId: string, entry: TranscriptEntry) {
@@ -1295,6 +1447,7 @@ export class EventStore {
   }
 
   async recordTurnFinished(chatId: string) {
+    this.finishStatistics(chatId)
     this.requireChat(chatId)
     const event: TurnEvent = {
       v: STORE_VERSION,
@@ -1306,7 +1459,7 @@ export class EventStore {
   }
 
   async recordTurnFailed(chatId: string, error: string) {
-    await this.finishStatistics(chatId)
+    this.finishStatistics(chatId)
     const event: TurnEvent = {
       v: STORE_VERSION,
       type: "turn_failed",
@@ -1317,20 +1470,21 @@ export class EventStore {
     await this.append(this.turnsLogPath, event)
   }
 
-  private async finishStatistics(chatId: string) {
+  private finishStatistics(chatId: string) {
+    this.foldStatisticsInputs()
     if (!this.shouldCollectStatistics(chatId)) return
-    await this.waitForPendingWrites()
     const state = this.requireChat(chatId).statisticsState
     if (state?.runId && (state.stats.openStep || Object.keys(state.stats.pendingCalls).length)) {
-      await this.recordStatistics(chatId, { runId: state.runId, events: [
+      this.enqueueStatistics(chatId, { runId: state.runId, events: [
         ...(state.stats.openStep ? [{ type: "step/end", time: Date.now(), data: { step: state.stats.openStep.step } }] : []),
         { type: "turn/end", time: Date.now(), data: {} },
       ] })
     }
+    this.completeStatistics(chatId)
   }
 
   async recordTurnCancelled(chatId: string) {
-    await this.finishStatistics(chatId)
+    this.finishStatistics(chatId)
     const event: TurnEvent = {
       v: STORE_VERSION,
       type: "turn_cancelled",
@@ -1702,7 +1856,9 @@ export class EventStore {
   }
 
   async compact() {
-    this.writeChain = this.writeChain.then(async () => {
+    this.foldStatisticsInputs()
+    const statisticsBarrier = this.statisticsWriteChain
+    this.writeChain = Promise.all([this.writeChain, statisticsBarrier]).then(async () => {
       const snapshot = this.createSnapshot()
       const logPaths = this.getEventLogPaths()
 
@@ -1717,7 +1873,19 @@ export class EventStore {
       await this.writeFileAtomically(this.snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`)
       await Promise.all(logPaths.map(([filePath]) => this.writeFileAtomically(filePath, "")))
     })
+    // Statistics appends started during compaction wait until log rotation completes.
+    this.statisticsWriteChain = this.writeChain.catch(() => {})
     return this.writeChain
+  }
+
+  async closeStatistics() {
+    this.foldStatisticsInputs()
+    await this.statisticsWriteChain
+    await this.flushStatistics()
+    if (this.statisticsTimer) clearTimeout(this.statisticsTimer)
+    if (this.statisticsPublishTimer) clearTimeout(this.statisticsPublishTimer)
+    this.statisticsTimer = this.statisticsPublishTimer = null
+    this.statisticsListener = null
   }
 
   private getEventLogPaths(): Array<[string, number]> {
@@ -1728,6 +1896,7 @@ export class EventStore {
       [this.queuedMessagesLogPath, 3],
       [this.turnsLogPath, 4],
       [this.asyncResponsesLogPath, 5],
+      [this.statisticsLogPath, 6],
     ]
   }
 
@@ -1798,6 +1967,7 @@ export class EventStore {
     const sizes = await Promise.all([
       Bun.file(this.projectsLogPath).size,
       Bun.file(this.chatsLogPath).size,
+      Bun.file(this.statisticsLogPath).size,
       Bun.file(this.messagesLogPath).size,
       Bun.file(this.queuedMessagesLogPath).size,
       Bun.file(this.turnsLogPath).size,

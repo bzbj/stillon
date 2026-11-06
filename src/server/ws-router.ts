@@ -883,6 +883,7 @@ export function createWsRouter({
           store.listAsyncQuestionResponses?.(topic.chatId) ?? [],
           agent.getActiveRunId?.(topic.chatId),
           agent.getAddonProviders?.(),
+          store.getPublishedStatistics?.(topic.chatId),
         ),
       },
     }

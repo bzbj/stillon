@@ -23,7 +23,7 @@ export function SessionStatistics({ statistics, timingUnavailable = false, onLay
   const triggers = useRef<Partial<Record<"timing" | "tokens", HTMLButtonElement | null>>>({})
   const total = statistics ? sessionTokenTotal(statistics.tokenUsage) : 0
   const speed = statistics ? sessionTokensPerSecond(statistics) : null
-  const show = visible && statistics !== null && (total > 0 || statistics.sessionStats.steps > 0)
+  const show = visible && statistics !== null && (total > 0 || statistics.sessionStats.steps > 0 || statistics.incomplete === true)
   useLayoutEffect(() => { if (!show) setOpen(null); onLayoutChange() }, [show, onLayoutChange])
   if (!show || !statistics) return null
   const stats = statistics.sessionStats
@@ -52,6 +52,7 @@ export function SessionStatistics({ statistics, timingUnavailable = false, onLay
     </>)}
     {total > 0 ? <span className="mx-1 h-3 w-px bg-border" /> : null}
     {total > 0 ? details("tokens", "Session tokens", <><Layers className="size-3.5" /><span>{formatSessionTokens(total)} tokens</span></>, <dl className="space-y-3 text-xs">
+      {statistics.incomplete ? <p className="pb-1 text-[11px] text-muted-foreground">Statistics incomplete</p> : null}
       {statistics.recordedSince ? <p className="pb-1 text-[11px] text-muted-foreground">Recorded since {new Date(statistics.recordedSince).toLocaleString()}</p> : null}
       <Row label="Uncached input">{formatSessionTokens(statistics.tokenUsage.uncachedInputTokens)}</Row><Row label="Cache read">{formatSessionTokens(statistics.tokenUsage.cacheReadTokens)}</Row><Row label="Cache write">{formatSessionTokens(statistics.tokenUsage.cacheWriteTokens)}</Row><Row label="Output">{formatSessionTokens(statistics.tokenUsage.outputTokens)}</Row><Row label="Total" total>{total.toLocaleString("en-US")}</Row>
     </dl>) : null}

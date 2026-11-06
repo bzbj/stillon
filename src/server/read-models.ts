@@ -240,6 +240,7 @@ export function deriveChatSnapshot(
   asyncQuestionResponses: ChatSnapshot["asyncQuestionResponses"] = [],
   runId?: string | null,
   addonProviders: ChatSnapshot["availableProviders"] = [],
+  publishedStatistics?: ChatSnapshot["statistics"],
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -270,7 +271,7 @@ export function deriveChatSnapshot(
       attachments: [...entry.attachments],
       ...(entry.id === steeringQueuedMessageId ? { sendingNow: true } : {}),
     })),
-    statistics: chat.statisticsState?.snapshot ?? null,
+    statistics: publishedStatistics === undefined ? chat.statisticsState?.snapshot ?? null : publishedStatistics,
     messages: transcript.messages,
     history: transcript.history,
     availableProviders: [...SERVER_PROVIDERS, ...addonProviders],

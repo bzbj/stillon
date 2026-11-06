@@ -12,7 +12,8 @@ for (let round = 0; round < rounds; round++) for (const enabled of round % 2 ? [
   try {
     const store = new EventStore(root, () => enabled ? "benchmark" : null); await store.initialize()
     const project = await store.openProject(path.join(root, "workspace"), "Benchmark"), chat = await store.createChat(project.id)
-    const beforeSize = (await stat(path.join(root, "chats.jsonl"))).size
+    const logSize = async () => (await stat(path.join(root, "chats.jsonl"))).size + (await stat(path.join(root, "statistics.jsonl"))).size
+    const beforeSize = await logSize()
     const start = performance.now()
     for (let turn = 0; turn < turns; turn++) {
       await store.appendMessage(chat.id, { _id: crypto.randomUUID(), createdAt: Date.now(), kind: "user_prompt", content: "Synthetic benchmark" })
@@ -21,10 +22,11 @@ for (let round = 0; round < rounds; round++) for (const enabled of round % 2 ? [
       for (let chunk = 0; chunk < chunks; chunk++) c?.delta({ type: "text-delta", text: "x" }, 200 + chunk)
       c?.complete({ inputTokens: 10000, outputTokens: 1000, cacheReadTokens: 5000 }, 2200)
       c?.end(2200)
-      for (const event of events) if (event.statistics) await store.recordStatistics(chat.id, event.statistics)
+      for (const event of events) if (event.statistics) store.enqueueStatistics(chat.id, event.statistics)
       await store.appendMessage(chat.id, { _id: crypto.randomUUID(), createdAt: Date.now(), kind: "assistant_text", text: "x".repeat(chunks) })
     }
-    results.push({ enabled, millisecondsPerTurn: (performance.now() - start) / turns, logBytesPerTurn: ((await stat(path.join(root, "chats.jsonl"))).size - beforeSize) / turns })
+    await store.closeStatistics()
+    results.push({ enabled, millisecondsPerTurn: (performance.now() - start) / turns, logBytesPerTurn: ((await logSize()) - beforeSize) / turns })
   } finally { await rm(root, { recursive: true, force: true }) }
 }
 const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]!

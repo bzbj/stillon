@@ -4,6 +4,7 @@ import { tokenUsageProjectionDefinition, type TokenBuckets, type TokenUsageState
 import type { DshEvent } from "./vendor/dsh/types"
 
 export const sessionStatisticsSchema = z.object({
+  incomplete: z.boolean().optional(),
   recordedSince: z.number().nonnegative().optional(),
   tokenUsage: tokenUsageProjectionDefinition.wire.viewSchema,
   sessionStats: sessionStatsProjectionDefinition.wire.viewSchema,
