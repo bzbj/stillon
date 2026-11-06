@@ -44,6 +44,8 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
 
 async function displayedFileBox(page: Page, element: Locator) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
+  const deadline = Date.now() + 5_000
+  for (;;) {
     // The child can be ready before the parent removes its loading bar.
     // Wait for that layout change before measuring native mouse coordinates.
     await frameElement.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
@@ -56,7 +58,14 @@ async function displayedFileBox(page: Page, element: Locator) {
     const scale = outer.width / size.width, scaleY = outer.height / size.height
     // Locator coordinates across scaled frames can omit the frame's scale.
     // Native mouse input uses the actual visiting viewport, as a person does.
-    return { x: outer.x + inner.x * scale, y: outer.y + inner.y * scaleY, width: inner.width * scale, height: inner.height * scaleY, scale }
+    const box = { x: outer.x + inner.x * scale, y: outer.y + inner.y * scaleY, width: inner.width * scale, height: inner.height * scaleY, scale }
+    // Chromium can still route input through the iframe's old position after
+    // its loading bar disappears. Confirm the native pointer reaches the
+    // intended element before sending the single click or starting a drag.
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    if (await element.evaluate(element => element.matches(":hover"))) return box
+    assert(Date.now() < deadline, "Native pointer did not reach the HTML preview element")
+  }
 }
 
 export async function clickDirectFileLink(page: Page, element: Locator, options: { modifiers?: readonly ("Control" | "Meta")[]; button?: "middle" } = {}) {
