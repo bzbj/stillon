@@ -86,7 +86,7 @@ test("CLI overrides are saved once for checks/conversations and support manual e
 
 test("setup HTTP rejects remote terminal/config actions, wrong methods and cross-origin writes", async () => {
   let launches = 0
-  const setup = { status: async (provider: "codex" | "claude" | "deepseek" | "codebuddy", local: boolean) => ({ provider, state: "missing" as const, installed: false, platform: "darwin", canOpenTerminal: local }), openTerminal: async () => { launches++; return { opened: true } } }
+  const setup = { status: async (provider: "codex" | "claude" | "deepseek", local: boolean) => ({ provider, state: "missing" as const, installed: false, platform: "darwin", canOpenTerminal: local }), openTerminal: async () => { launches++; return { opened: true } } }
   const url = new URL("http://localhost/api/provider-setup/codex/login")
   const options = { local: false, validateOrigin: () => true, settings: { set: async () => {} }, setup }
   expect((await handleProviderSetupRequest(new Request(url, { method: "POST" }), url, options))!.status).toBe(403)

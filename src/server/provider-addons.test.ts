@@ -17,7 +17,7 @@ async function fixture() {
   const manager = new ProviderAddons(root, () => ({ SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, TEMP: process.env.TEMP }))
   await manager.initialize(); return { root, manager }
 }
-function bundle(version = "0.1.0", identityVersion = version, modelManagement = false, provider: "deepseek" | "codebuddy" = "deepseek") {
+function bundle(version = "0.1.0", identityVersion = version, modelManagement = false, provider = "deepseek") {
   const code = `import { createInterface } from 'node:readline';
 const send = x => process.stdout.write(JSON.stringify(x)+'\\n');
 const input = createInterface({input:process.stdin});
@@ -55,16 +55,15 @@ async function bundledRuntime(root: string, version = "0.2.0") {
   const directory = path.join(root, `runtime-${version}`, "dist/integrations")
   await mkdir(directory, { recursive: true })
   await writeFile(path.join(directory, "deepseek.stillon-addon"), JSON.stringify(bundle(version, version, true)))
-  await writeFile(path.join(directory, "codebuddy.stillon-addon"), JSON.stringify(bundle(version, version, false, "codebuddy")))
   return directory
 }
 
-test("bundled integrations are visible but disabled on first launch; no adapter environment or process is needed", async () => {
+test("the bundled integration is visible but disabled on first launch; no adapter environment or process is needed", async () => {
   const { root } = await fixture(), directory = await bundledRuntime(root)
   const manager = new ProviderAddons(root, () => { throw new Error("Disabled adapters must not launch") })
   await manager.initialize(directory)
   expect(manager.snapshot().map(({ id, enabled, bundled }) => ({ id, enabled, bundled }))).toEqual([
-    { id: "deepseek", enabled: false, bundled: true }, { id: "codebuddy", enabled: false, bundled: true },
+    { id: "deepseek", enabled: false, bundled: true },
   ])
   expect(manager.providers()).toEqual([])
   await expect(manager.startTurn("deepseek", turnArgs(root))).rejects.toThrow("Enable")
@@ -77,7 +76,7 @@ test("bundled integrations are visible but disabled on first launch; no adapter 
   expect(restarted.providers()).toEqual([])
 })
 
-test("bundled toggles are independent, persist, enforce owner origin and refuse disabling active chats", async () => {
+test("bundled toggle persists, enforces owner origin and refuses disabling active chats", async () => {
   const { root } = await fixture(), directory = await bundledRuntime(root), manager = new ProviderAddons(root)
   await manager.initialize(directory)
   const url = new URL("http://localhost:3220/api/addons")
@@ -88,17 +87,16 @@ test("bundled toggles are independent, persist, enforce owner origin and refuse 
   expect(manager.providers()).toEqual([])
   expect((await toggle("deepseek", "enable"))?.status).toBe(200)
   expect(manager.providers().map(p => p.id)).toEqual(["deepseek"])
-  await manager.change("codebuddy", "enable")
   const turn = await manager.startTurn("deepseek", turnArgs(root, "hold")), stream = turn.stream[Symbol.asyncIterator]()
   await stream.next()
   expect((await toggle("deepseek", "disable"))?.status).toBe(400)
-  expect(manager.providers()).toHaveLength(2)
+  expect(manager.providers()).toHaveLength(1)
   await turn.interrupt(); await stream.return?.()
   expect((await toggle("deepseek", "disable"))?.status).toBe(200)
   const restarted = new ProviderAddons(root); await restarted.initialize(directory)
-  expect(restarted.providers().map(p => p.id)).toEqual(["codebuddy"])
+  expect(restarted.providers()).toEqual([])
   await expect(restarted.install(bundle("0.3.0"))).rejects.toThrow("included with StillOn")
-  for (const action of ["uninstall", "rollback"] as const) await expect(restarted.change("codebuddy", action)).rejects.toThrow("update with StillOn")
+  for (const action of ["uninstall", "rollback"] as const) await expect(restarted.change("deepseek", action)).rejects.toThrow("update with StillOn")
 }, 15_000)
 
 test("app updates and rollback select their bundled versions while retaining enabled state, models and history", async () => {
@@ -110,13 +108,13 @@ test("app updates and rollback select their bundled versions while retaining ena
   const policyFile = path.join(root, "addons/deepseek/models.json"), policy = await readFile(policyFile, "utf8")
   const history = path.join(root, "synthetic-history.json"); await writeFile(history, JSON.stringify({ sessionToken: "synthetic-session" }))
   const firstDirectory = await bundledRuntime(root), first = new ProviderAddons(root); await first.initialize(firstDirectory)
-  expect(first.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.2.0", true], ["0.2.0", false]])
+  expect(first.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.2.0", true]])
   expect(first.getCatalog("deepseek").defaultModel).toBe(id)
-  await first.change("deepseek", "disable"); await first.change("codebuddy", "enable")
+  await first.change("deepseek", "disable")
   const secondDirectory = await bundledRuntime(root, "0.3.0"), second = new ProviderAddons(root); await second.initialize(secondDirectory)
-  expect(second.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.3.0", false], ["0.3.0", true]])
+  expect(second.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.3.0", false]])
   const rolledBack = new ProviderAddons(root); await rolledBack.initialize(firstDirectory)
-  expect(rolledBack.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.2.0", false], ["0.2.0", true]])
+  expect(rolledBack.snapshot().map(p => [p.version, p.enabled])).toEqual([["0.2.0", false]])
   await rolledBack.change("deepseek", "enable")
   expect(rolledBack.getCatalog("deepseek").defaultModel).toBe(id)
   const turn = await rolledBack.startTurn("deepseek", { ...turnArgs(root, "hello", "synthetic-session"), model: id, effort: "medium" })
@@ -126,14 +124,13 @@ test("app updates and rollback select their bundled versions while retaining ena
   expect(JSON.parse(await readFile(history, "utf8")).sessionToken).toBe("synthetic-session")
 }, 20_000)
 
-test("a damaged bundled update fails closed without changing preferences or the other integration", async () => {
+test("a damaged bundled update fails closed without changing preferences", async () => {
   const { root } = await fixture(), initial = await bundledRuntime(root), manager = new ProviderAddons(root)
   await manager.initialize(initial); await manager.change("deepseek", "enable")
   const damaged = await bundledRuntime(root, "0.3.0"), bad = bundle("0.3.0"); bad.code += "//tampered"
   await writeFile(path.join(damaged, "deepseek.stillon-addon"), JSON.stringify(bad))
   const updated = new ProviderAddons(root); await updated.initialize(damaged)
   expect(updated.snapshot().find(p => p.id === "deepseek")).toMatchObject({ version: "0.2.0", enabled: true, compatible: false })
-  expect(updated.snapshot().find(p => p.id === "codebuddy")).toMatchObject({ version: "0.3.0", enabled: false, compatible: true })
   expect(updated.providers()).toEqual([])
   await expect(updated.startTurn("deepseek", turnArgs(root))).rejects.toThrow("missing or damaged")
   await updated.change("deepseek", "disable")
@@ -151,8 +148,18 @@ test("unsupported bundled platform is shown unavailable and never activated; cor
   const registry = path.join(root, "addons/installed.json"); await writeFile(registry, "damaged-registry")
   const restarted = new ProviderAddons(root); await restarted.initialize(directory)
   expect(restarted.providers()).toEqual([])
-  await expect(restarted.change("codebuddy", "enable")).rejects.toThrow("registry is damaged")
+  await expect(restarted.change("deepseek", "enable")).rejects.toThrow("registry is damaged")
   expect(await readFile(registry, "utf8")).toBe("damaged-registry")
+})
+
+test("a registry written by builds that bundled CodeBuddy still loads DeepSeek", async () => {
+  const { root } = await fixture(), directory = await bundledRuntime(root)
+  await mkdir(path.join(root, "addons"), { recursive: true })
+  await writeFile(path.join(root, "addons/installed.json"), JSON.stringify({ schema: 1, installations: {
+    deepseek: { version: "0.2.0", enabled: true }, codebuddy: { version: "0.1.0-preview.5", enabled: true } } }))
+  const manager = new ProviderAddons(root); await manager.initialize(directory)
+  expect(manager.snapshot().map(({ id, enabled, compatible }) => ({ id, enabled, compatible }))).toEqual([{ id: "deepseek", enabled: true, compatible: true }])
+  expect(manager.providers().map(p => p.id)).toEqual(["deepseek"])
 })
 
 test("Harness discovery is a draft; selected routes and per-model efforts persist without conflating model IDs", async () => {

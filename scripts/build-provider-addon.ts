@@ -19,22 +19,10 @@ export async function buildDeepSeekAddon(): Promise<AddonPackage> {
     sha256: createHash("sha256").update(code).digest("hex") })
   return { manifest, code }
 }
-export async function buildCodeBuddyAddon(): Promise<AddonPackage> {
-  const build = await Bun.build({ entrypoints: [path.resolve(import.meta.dir, "../addons/codebuddy/src/entry.ts")], target: "bun", format: "esm", packages: "bundle", minify: false })
-  if (!build.success || build.outputs.length !== 1) throw new Error(`Add-on build failed: ${build.logs.join("\n")}`)
-  const code = await build.outputs[0]!.text()
-  const manifest = addonManifestSchema.parse({ format: 1, id: "codebuddy", name: "CodeBuddy CLI (Preview)", version: "0.1.0-preview.5", hostApi: 1,
-    targets: ["win32-x64", "win32-arm64", "darwin-x64", "darwin-arm64"], testedCliVersions: ["2.180.0"],
-    catalog: { id: "codebuddy", label: "CodeBuddy", defaultModel: "default", defaultEffort: "default",
-      models: [{ id: "default", label: "CLI default", supportsEffort: false }], efforts: [{ id: "default", label: "CLI default" }] },
-    capabilities: { resume: true, fork: false, images: false, streaming: false, questions: true, permissions: ["request", "full"] },
-    sha256: createHash("sha256").update(code).digest("hex") })
-  return { manifest, code }
-}
 if (import.meta.main) {
   const provider = process.argv[2] ?? "deepseek"
-  if (!["deepseek", "codebuddy"].includes(provider)) throw new Error("Usage: bun scripts/build-provider-addon.ts [deepseek|codebuddy]")
-  const bundle = await (provider === "codebuddy" ? buildCodeBuddyAddon() : buildDeepSeekAddon())
+  if (provider !== "deepseek") throw new Error("Usage: bun scripts/build-provider-addon.ts [deepseek]")
+  const bundle = await buildDeepSeekAddon()
   const directory = path.resolve(import.meta.dir, "../dist/addons")
   await mkdir(directory, { recursive: true })
   const file = path.join(directory, `${bundle.manifest.id}-${bundle.manifest.version}.stillon-addon`)

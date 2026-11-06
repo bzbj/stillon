@@ -17,9 +17,9 @@ try {
   let manager = new ProviderAddons(data, () => fixture.environment); await manager.initialize(bundles)
   assert(manager.snapshot().every(addon => addon.compatible && !addon.enabled))
   await fixture.configure(manager)
-  for (const provider of ["deepseek", "codebuddy"] as const) {
+  for (const provider of ["deepseek"] as const) {
     let token: string | null = null
-    const model = provider === "deepseek" ? manager.providers().find(item => item.id === provider)!.defaultModel : "default"
+    const model = manager.providers().find(item => item.id === provider)!.defaultModel
     for (const marker of ["MAC_TEXT", "MAC_RESUME", "MAC_READ", "MAC_QUESTION", "MAC_HOLD"]) {
       let questions = 0
       const turn = await manager.startTurn(provider, { cwd: fixture.workspace, content: marker, model, sessionToken: token, permissionMode: "request",
@@ -60,7 +60,7 @@ try {
   const agent = new AgentCoordinator({ store, addons: manager, onStateChange() {},
     generateTitle: async () => ({ title: "Mac integration acceptance", usedFallback: false, failureMessage: null }) })
   try {
-    for (const provider of ["deepseek", "codebuddy"] as const) {
+    for (const provider of ["deepseek"] as const) {
       const chat = await store.createChat(project.id), answered = new Set<string>()
       for (const marker of ["MAC_TEXT", "MAC_QUESTION"]) {
         await agent.send({ type: "chat.send", chatId: chat.id, provider, content: marker, permissionMode: "request" })

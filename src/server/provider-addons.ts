@@ -39,6 +39,7 @@ export class ProviderAddons {
       const saved = JSON.parse(await readFile(path.join(this.root, "installed.json"), "utf8"))
       if (saved.schema !== 1 || !saved.installations || typeof saved.installations !== "object") throw new Error("Invalid add-on registry.")
       for (const [id, installation] of Object.entries(saved.installations) as [string, Installation][]) {
+        if (id === "codebuddy") continue
         if (!isAddonProvider(id) || !installation || !safeVersion(installation.version) || typeof installation.enabled !== "boolean"
           || (installation.previousVersion !== undefined && !safeVersion(installation.previousVersion))) throw new Error("Invalid add-on registry entry.")
         const record: RecordEntry = { installation }
@@ -178,7 +179,7 @@ export class ProviderAddons {
   require(provider: AgentProvider) {
     const record = this.records.get(provider)
     if (!record?.manifest || !record.installation.enabled || record.error || this.loadError || this.bundleErrors.has(provider)) {
-      throw new Error(this.bundleErrors.get(provider) ?? record?.error ?? this.loadError ?? `Enable ${provider === "deepseek" ? "DeepSeek Harness" : "CodeBuddy"} in Settings → Integrations to continue this chat.`)
+      throw new Error(this.bundleErrors.get(provider) ?? record?.error ?? this.loadError ?? "Enable DeepSeek Harness in Settings → Integrations to continue this chat.")
     }
     return record.manifest
   }

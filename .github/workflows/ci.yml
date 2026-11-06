@@ -74,7 +74,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - name: Install pinned public CLIs in an isolated directory
-        run: npm install --prefix test-artifacts/macos-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.1 @tencent-ai/codebuddy-code@2.180.0
+        run: npm install --prefix test-artifacts/macos-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.1
       - name: Verify native Mac integrations with real CLIs and a synthetic model endpoint
         run: |
           bun -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Bun architecture mismatch')"
@@ -105,14 +105,13 @@ jobs:
           architecture: x64
       - run: bun install --frozen-lockfile
       - name: Install pinned public CLIs with matching x64 Node native dependencies
-        run: npm install --prefix test-artifacts/windows-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5 @tencent-ai/codebuddy-code@2.180.0
+        run: npm install --prefix test-artifacts/windows-cli --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5
       - name: Verify native host and public CLI initialization without inference
         shell: pwsh
         run: |
           bun -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Bun architecture mismatch')"
           node -e "if (process.arch !== 'x64') throw new Error('Vendor Node architecture mismatch')"
           $env:DSH_EXECUTABLE = Join-Path $PWD 'test-artifacts/windows-cli/node_modules/.bin/dsh.cmd'
-          $env:CODEBUDDY_EXECUTABLE = Join-Path $PWD 'test-artifacts/windows-cli/node_modules/.bin/codebuddy.cmd'
           bun scripts/verify-provider-cli-windows.ts --run
         env:
           EXPECTED_ARCH: ${{ matrix.architecture }}

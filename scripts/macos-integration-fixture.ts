@@ -63,16 +63,12 @@ export async function createMacIntegrationCliFixture(root: string, cliDirectory 
     PATH: process.env.PATH, HOME: home, USERPROFILE: home, SHELL: "/bin/sh",
     XDG_CONFIG_HOME: path.join(home, ".config"), XDG_CACHE_HOME: path.join(home, ".cache"),
     DSH_HOME: path.join(home, "dsh"), DSH_EXECUTABLE: path.join(cliDirectory, "dsh"),
-    CODEBUDDY_CONFIG_DIR: path.join(home, "codebuddy"), CODEBUDDY_EXECUTABLE: path.join(cliDirectory, "codebuddy"),
-    CODEBUDDY_API_KEY: secret, CODEBUDDY_BASE_URL: `http://127.0.0.1:${endpoint.port}/v1`, CODEBUDDY_MODEL: "mac-test",
     DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", DISABLE_AUTOUPDATER: "1", NO_PROXY: "127.0.0.1,localhost",
   }
   return { environment, workspace, requests, errors,
     async configure(manager: ProviderAddons) {
-      for (const provider of ["deepseek", "codebuddy"] as const) {
-        await manager.change(provider, "enable")
-        assert.equal((await manager.status(provider, true)).state, "ready", `${provider} must use the real installed CLI`)
-      }
+      await manager.change("deepseek", "enable")
+      assert.equal((await manager.status("deepseek", true)).state, "ready", "deepseek must use the real installed CLI")
       await manager.modelOperation("deepseek", "configure", { provider: "mac-local", revision: "", baseURL: `http://127.0.0.1:${endpoint.port}/v1`,
         api: "openai-completions", apiKey: secret, models: ["mac-test"] })
       await manager.modelOperation("deepseek", "discover", { provider: "mac-local" })

@@ -65,7 +65,6 @@ export const PROVIDER_ICONS: Record<AgentProvider, IconComponent> = {
   claude: AnthropicIcon,
   codex: OpenAIIcon,
   deepseek: Bot,
-  codebuddy: Bot,
 }
 
 export const INPUT_POPOVER_MENU_CLASS = "w-64 max-h-[calc(var(--radix-popover-content-available-height)-0.5rem)] overflow-y-auto overscroll-contain p-1"
@@ -209,7 +208,7 @@ export function ChatPreferenceControls({
   const codexFastModeSupported = supportsCodexFastMode(model)
   const selectedContextWindow = claudeModelOptions?.contextWindow ?? CLAUDE_CONTEXT_WINDOW_OPTIONS[0].id
   const ContextWindowIcon = selectedContextWindow === "1m" ? SquareMenu : SquareMinus
-  const permissionOptions = isAddonProvider(selectedProvider) ? (selectedProvider === "codebuddy" ? [{ id: "request", label: "Ask for approval", description: "Use CodeBuddy CLI permission prompts." }, { id: "full", label: "Full access", description: "Bypass CodeBuddy permission checks for trusted work." }] : DEEPSEEK_PERMISSION_OPTIONS).filter(option => !providerConfig.capabilities || providerConfig.capabilities.permissions.some(id => id === option.id)) : selectedProvider === "claude" ? CLAUDE_PERMISSION_OPTIONS : CODEX_PERMISSION_OPTIONS
+  const permissionOptions = isAddonProvider(selectedProvider) ? DEEPSEEK_PERMISSION_OPTIONS.filter(option => !providerConfig.capabilities || providerConfig.capabilities.permissions.some(id => id === option.id)) : selectedProvider === "claude" ? CLAUDE_PERMISSION_OPTIONS : CODEX_PERMISSION_OPTIONS
   const defaultPermissionMode = isAddonProvider(selectedProvider) ? "request" : selectedProvider === "claude" ? DEFAULT_CLAUDE_PERMISSION_MODE : DEFAULT_CODEX_PERMISSION_MODE
   const selectedPermission = permissionOptions.find((option) => option.id === (permissionMode ?? defaultPermissionMode)) ?? permissionOptions[0]
 

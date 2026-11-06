@@ -56,7 +56,7 @@ function normalizeSidebarProjectOrder(value: unknown) {
 }
 
 function cloneChatTurnPreferences(preferences: ChatTurnPreferences): ChatTurnPreferences {
-  if (preferences.provider === "deepseek" || preferences.provider === "codebuddy") return { ...preferences, modelOptions: { ...preferences.modelOptions } }
+  if (preferences.provider === "deepseek") return { ...preferences, modelOptions: { ...preferences.modelOptions } }
   return preferences.provider === "claude"
     ? { ...preferences, modelOptions: { ...preferences.modelOptions } }
     : { ...preferences, modelOptions: { ...preferences.modelOptions } }
@@ -67,7 +67,7 @@ function sameChatTurnPreferences(left: ChatTurnPreferences | null | undefined, r
     && left.model === right.model
     && left.permissionMode === right.permissionMode
     && left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
-    && ((left.provider === "deepseek" || left.provider === "codebuddy") ? (right.provider === "deepseek" || right.provider === "codebuddy") : left.provider === "claude"
+    && (left.provider === "deepseek" ? right.provider === "deepseek" : left.provider === "claude"
       ? right.provider === "claude" && left.modelOptions.contextWindow === right.modelOptions.contextWindow
       : right.provider === "codex" && left.modelOptions.fastMode === right.modelOptions.fastMode)
 }

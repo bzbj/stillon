@@ -579,15 +579,3 @@ describe("new conversation defaults across entry points", () => {
   })
 })
 
-
-test("CodeBuddy preferences survive migration and edits without becoming Codex", () => {
-  const preference = { model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "request" as const }
-  const composer = { provider: "codebuddy" as const, ...preference }
-  const migrated = migrateChatPreferencesState({ defaultProvider: "codebuddy", providerDefaults: { codebuddy: preference }, chatStates: { addonChat: composer } })
-  expect(migrated.defaultProvider).toBe("codebuddy")
-  expect(migrated.providerDefaults.codebuddy).toEqual(preference)
-  expect(migrated.chatStates.addonChat).toEqual(composer)
-  useChatPreferencesStore.setState(migrated)
-  useChatPreferencesStore.getState().setChatComposerPermissionMode("addonChat", "full")
-  expect(useChatPreferencesStore.getState().chatStates.addonChat).toMatchObject({ provider: "codebuddy", permissionMode: "full", model: "default" })
-})

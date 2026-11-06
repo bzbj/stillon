@@ -21,22 +21,22 @@ if (process.argv[2] === "--child") {
   }
   try {
     const fresh = await snapshot()
-    assert.deepEqual(fresh.addons.map((item: any) => [item.id, item.enabled, item.bundled]), [["deepseek", false, true], ["codebuddy", false, true]])
+    assert.deepEqual(fresh.addons.map((item: any) => [item.id, item.enabled, item.bundled]), [["deepseek", false, true]])
     assert.deepEqual(fresh.providers.map((item: any) => item.id), ["claude", "codex"])
     if (["win32", "darwin"].includes(process.platform) && ["x64", "arm64"].includes(process.arch)) {
-      assert(fresh.addons.every((item: any) => item.compatible), "both bundled integrations must support this Windows or Mac host")
+      assert(fresh.addons.every((item: any) => item.compatible), "the bundled integration must support this Windows or Mac host")
     }
     const html = await (await fetch(`http://127.0.0.1:${app.port}/settings/integrations`)).text()
     assert(html.includes("<html"), "packaged settings shell must be served")
     if (fresh.addons.every((item: any) => item.compatible)) {
-      await change("deepseek", "enable"); await change("codebuddy", "enable"); await change("deepseek", "disable")
-      assert.deepEqual((await snapshot()).providers.map((item: any) => item.id), ["claude", "codex", "codebuddy"])
+      await change("deepseek", "enable")
+      assert.deepEqual((await snapshot()).providers.map((item: any) => item.id), ["claude", "codex", "deepseek"])
       // Real host restart with the same isolated data. No vendor process is needed.
       await app.stop(); app = await startStillOnServer(options)
-      assert.deepEqual((await snapshot()).addons.map((item: any) => [item.id, item.enabled]), [["deepseek", false], ["codebuddy", true]])
-      await change("codebuddy", "disable")
+      assert.deepEqual((await snapshot()).addons.map((item: any) => [item.id, item.enabled]), [["deepseek", true]])
+      await change("deepseek", "disable")
     }
-    console.log("PASS: packaged server includes both disabled integrations; owner toggles and restart persistence work without source builds or vendor CLIs.")
+    console.log("PASS: packaged server includes the disabled DeepSeek integration; owner toggles and restart persistence work without source builds or vendor CLIs.")
   } finally { await app.stop() }
   process.exit(0)
 } else {
@@ -49,14 +49,14 @@ if (process.argv[2] === "--child") {
   // Exercise the archive's regular files, not Bun install's staging hardlinks.
   const manifest = process.argv[2] ? await verifyBundle(runtime, target) : await unpackBundle(
     await Bun.file(path.resolve("dist/desktop/release", artifactName(pkg.version, target.platform, target.architecture))).bytes(), runtime, target)
-  for (const id of ["deepseek", "codebuddy"]) {
+  for (const id of ["deepseek"]) {
     const file = `dist/integrations/${id}.stillon-addon`
     assert(file in manifest.files, "adapter must be sealed in desktop runtime manifest")
     const bundle = JSON.parse(await readFile(path.join(runtime, file), "utf8"))
     assert.equal(bundle.manifest.id, id)
   }
   const environment: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, LOCALAPPDATA: path.join(home, "AppData/Local") }
-  for (const key of Object.keys(environment)) if (/^(STILLON_|OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|DSH_|DEEPSEEK_|CODEBUDDY_|NODE_OPTIONS$|BUN_OPTIONS$)/iu.test(key)) delete environment[key]
+  for (const key of Object.keys(environment)) if (/^(STILLON_|OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|DSH_|DEEPSEEK_|NODE_OPTIONS$|BUN_OPTIONS$)/iu.test(key)) delete environment[key]
   environment.PATH = process.platform === "win32" ? `${process.env.SystemRoot}\\System32` : "/usr/bin:/bin"
   const child = Bun.spawn([path.join(runtime, bunRelativePath(target.platform)), "--no-env-file", import.meta.path, "--child", runtime, root], {
     cwd: root, env: environment, stdin: "ignore", stdout: "inherit", stderr: "inherit",

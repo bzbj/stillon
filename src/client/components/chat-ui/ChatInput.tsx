@@ -775,7 +775,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     let modelOptions: ModelOptions
     if (providerPrefs.provider === "claude") {
       modelOptions = { claude: { ...providerPrefs.modelOptions } }
-    } else if (providerPrefs.provider === "deepseek" || providerPrefs.provider === "codebuddy") {
+    } else if (providerPrefs.provider === "deepseek") {
       modelOptions = { [providerPrefs.provider]: { ...providerPrefs.modelOptions } }
     } else {
       modelOptions = { codex: { ...providerPrefs.modelOptions } }

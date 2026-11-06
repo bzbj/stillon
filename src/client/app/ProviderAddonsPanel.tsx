@@ -34,7 +34,7 @@ export function ProviderAddonsPanel() {
     {!snapshot && !error && <p role="status" className="text-sm text-muted-foreground">Loading integrations…</p>}
     {snapshot?.addons.length === 0 && <p className="text-sm text-muted-foreground">No optional integrations are included in this build.</p>}
     {snapshot?.addons.map(addon => {
-      const name = addon.id === "codebuddy" ? "Workbuddy (Codebuddy CLI)" : addon.name
+      const name = addon.name
       return <article key={addon.id} aria-label={name} className="rounded-xl border border-border p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0"><h3 className="font-medium leading-snug">{name} <span className="inline-block rounded border border-border bg-muted/50 px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none text-muted-foreground">Preview</span></h3><p className="mt-1 text-xs text-muted-foreground">{addon.error ? "Unavailable" : addon.enabled ? "Enabled" : "Disabled"}</p></div>
@@ -45,7 +45,7 @@ export function ProviderAddonsPanel() {
       {addon.busy && <p className="text-sm text-muted-foreground">Finish or stop this agent's active chats before disabling it.</p>}
       {addon.enabled && addon.compatible && isAddonProvider(addon.id) && <div className="space-y-3 border-t border-border pt-3">
         <AgentSetupPanel initialProvider={addon.id} showProviderPicker={false} hideUseWhenReady collapseWhenReady onStatus={() => { void refresh().catch(error => setError(error.message)) }} onUse={async () => {}} />
-        <Link className="inline-block text-sm underline" to={`/settings/providers?provider=${addon.id}`}>Configure {addon.id === "deepseek" ? "Harness models and credentials" : "CodeBuddy defaults"}</Link>
+        <Link className="inline-block text-sm underline" to={`/settings/providers?provider=${addon.id}`}>Configure Harness models and credentials</Link>
       </div>}
     </article>})}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

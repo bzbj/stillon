@@ -21,7 +21,7 @@ if (!process.argv.includes("--isolated-child")) {
     CODEX_HOME: path.join(isolatedHome, ".codex"), CLAUDE_CONFIG_DIR: path.join(isolatedHome, ".claude"),
     DSH_HOME: process.env.DSH_HOME ?? path.join(homedir(), ".dsh"),
   }
-  for (const key of Object.keys(environment)) if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|CODEBUDDY_)/u.test(key)) delete environment[key]
+  for (const key of Object.keys(environment)) if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_)/u.test(key)) delete environment[key]
   try { environment.DSH_EXECUTABLE = await discoverDeepSeek(process.env) } catch { /* CLI absence remains visible in setup. */ }
   const child = Bun.spawn([process.execPath, import.meta.path, "--isolated-child"], { env: environment, stdin: "inherit", stdout: "inherit", stderr: "inherit" })
   process.exit(await child.exited)

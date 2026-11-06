@@ -27,7 +27,7 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
   const canCollapse = collapseWhenReady && status?.state === "ready" && !error && !waiting
   const request = useRef(0), callbacks = useRef({ onStatus, onUse })
   callbacks.current = { onStatus, onUse }
-  const label = provider === "codebuddy" ? "CodeBuddy" : provider === "deepseek" ? "DeepSeek Harness" : provider === "codex" ? "Codex" : "Claude Code"
+  const label = provider === "deepseek" ? "DeepSeek Harness" : provider === "codex" ? "Codex" : "Claude Code"
   const check = useCallback(async () => {
     const id = ++request.current
     setBusy(true); setError("")
@@ -71,7 +71,7 @@ export function AgentSetupPanel({ initialProvider = "codex", machineName, onStat
   return <div className="space-y-5">
     {showProviderPicker && <div><h3 className="text-sm font-semibold">1. Choose one Agent</h3><p className="mt-1 text-xs text-muted-foreground">You only need one to get started. You can add another later.</p>
       <div className="mt-3 grid grid-cols-2 gap-3">{providers.map(({ id: value }) => <button key={value} type="button" aria-pressed={provider === value} disabled={busy} onClick={() => setProvider(value)} className={cn("rounded-xl border p-3 text-left text-sm transition-colors disabled:opacity-60", provider === value ? "border-primary bg-primary/5 font-semibold" : "border-border hover:bg-muted")}>
-        {value === "codebuddy" ? "CodeBuddy" : value === "deepseek" ? "DeepSeek Harness" : value === "codex" ? "Codex" : "Claude Code"}{value === "codex" && <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Recommended</span>}
+        {value === "deepseek" ? "DeepSeek Harness" : value === "codex" ? "Codex" : "Claude Code"}{value === "codex" && <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Recommended</span>}
       </button>)}</div>
     </div>}
     {canCollapse && <div className="flex items-center justify-between gap-3 border-t border-border pt-4">

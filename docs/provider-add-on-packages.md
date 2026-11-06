@@ -1,16 +1,17 @@
 # Bundled optional integrations
 
 Status: development preview. Production installations have not been upgraded.
-The product now ships DeepSeek Harness and CodeBuddy adapters with StillOn,
-disabled by default. This replaces the earlier user-installed add-on proposal.
+The product ships the DeepSeek Harness adapter with StillOn, disabled by
+default. This replaces the earlier user-installed add-on proposal. The CodeBuddy
+CLI adapter that previously shipped beside it has been removed.
 The internal add-on protocol and isolated adapter modules remain in use.
 
 ## User experience
 
 - Codex and Claude Code retain their built-in setup and chat behavior.
-- **Settings -> Integrations** always lists DeepSeek Harness and CodeBuddy CLI
-  (Preview), each with an independent Enable/Disable switch.
-- New installations start with both integrations disabled. Only enabled,
+- **Settings -> Integrations** always lists DeepSeek Harness (Preview) with an
+  Enable/Disable switch.
+- New installations start with the integration disabled. Only enabled,
   compatible integrations appear in Providers and new-chat menus.
 - Enabling shows the local CLI check and a link directly to that provider's
   configuration. Missing CLI, missing authentication and incompatible versions
@@ -25,21 +26,19 @@ The internal add-on protocol and isolated adapter modules remain in use.
   Integrations page. Ordinary users no longer import, uninstall or roll back
   individual package files.
 
-Only the StillOn adapters are included. Users install and update the public
-vendor CLIs and manage native login separately. No DeepSeek Harness, CodeBuddy
-CLI, vendor desktop app or matching vendor SDK/runtime is embedded. CodeBuddy
-CLI and WorkBuddy Desktop are separate products; this is a CodeBuddy CLI adapter.
+Only the StillOn adapter is included. Users install and update the public
+vendor CLI and manage native login separately. No DeepSeek Harness, vendor
+desktop app or matching vendor SDK/runtime is embedded.
 
 ## Build and runtime boundary
 
-`bun run build` builds both adapters and both browser clients. `bun run dev` and
+`bun run build` builds the adapter and both browser clients. `bun run dev` and
 `bun run dev:server` prepare adapters before starting development servers.
 `bun scripts/build-desktop.ts` builds fresh adapters directly into the staged
 desktop payload before sealing its runtime manifest and archive.
 
 ```text
 <runtime>/dist/integrations/deepseek.stillon-addon
-<runtime>/dist/integrations/codebuddy.stillon-addon
 <data-root>/addons/<provider>/<version>/manifest.json
 <data-root>/addons/<provider>/<version>/adapter.js
 <data-root>/addons/<provider>/models.json
@@ -83,11 +82,9 @@ See [DeepSeek setup](../addons/deepseek/README.md) and the
 [protocol notes](deepseek-local-harness.md).
 
 Preview targets are **Windows x64 / ARM64 and macOS Intel / Apple Silicon**. DeepSeek uses
-**dsh 0.2.1-rc.5 on Windows**, **0.2.2-rc.1 on Mac**; CodeBuddy uses **CLI 2.180.0**.
-Shipping the adapters does not establish compatibility
-with other vendor versions or platforms. CodeBuddy remains Preview because real
-authenticated inference has not been qualified; see its
-[qualification record](../addons/codebuddy/README.md).
+**dsh 0.2.1-rc.5 on Windows**, **0.2.2-rc.1 on Mac**.
+Shipping the adapter does not establish compatibility
+with other vendor versions or platforms.
 
 ## Access and qualification
 
@@ -101,7 +98,7 @@ Relevant verification commands:
 ```sh
 bun run check
 bun run audit
-bun test src/server/provider-addons.test.ts src/server/codebuddy-harness.test.ts src/server/provider-addon-windows.test.ts
+bun test src/server/provider-addons.test.ts src/server/provider-addon-windows.test.ts
 bun scripts/verify-deepseek-models.ts --run
 bun scripts/verify-macos-integrations.ts --run
 bun scripts/verify-provider-cli-windows.ts --run
@@ -118,7 +115,7 @@ actual archive and uses embedded Bun with an isolated home and data directory;
 it never installs a service or touches the production port.
 
 Native installer replacement/upgrade, real authenticated managed Connect,
-authenticated CodeBuddy inference and other platforms still need acceptance.
+and other platforms still need acceptance.
 On Windows ARM64, the StillOn host and the vendor CLI can use different CPU
 architectures. A public CLI launched by x64 Node uses Windows emulation and
 requires x64 native dependencies. Install it with the Node/npm runtime that will
@@ -129,7 +126,7 @@ replace the vendor runtime.
 Windows ARM64 regression checks use the native Bun host and the unmodified bundled
 packages, including their version handshake. Public Windows `.cmd` launcher checks
 round-trip Unicode text and a workspace path with spaces. The opt-in Windows CLI
-check initializes both supported vendor versions in isolated homes and confirms
+check initializes the supported dsh version in an isolated home and confirms
 shutdown; it sends no model request and does not establish authenticated inference.
 
 The development preview is not a qualified release.
