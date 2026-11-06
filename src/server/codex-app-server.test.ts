@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
-import { createForkSessionStatistics, updateSessionStatistics, type StatisticsRecord } from "../shared/session-statistics"
+import { createForkSessionStatistics, sessionTokensPerSecond, updateSessionStatistics, type StatisticsRecord } from "../shared/session-statistics"
 import { APP_VERSION } from "../shared/branding"
 import { getCodexModelForRole } from "../shared/types"
 import { CodexAppServerManager } from "./codex-app-server"
@@ -48,6 +48,48 @@ class FakeCodexProcess extends EventEmitter {
     this.emit("close", code)
   }
 }
+
+test("Codex TPS keeps updating after later measured settlements and excludes untimed steps", async () => {
+  let now = 1000
+  const clock = spyOn(Date, "now").mockImplementation(() => now)
+  const child = new FakeCodexProcess((message, process) => {
+    if (message.method === "initialize") process.writeServerMessage({ id: message.id, result: {} })
+    if (message.method === "thread/start") process.writeServerMessage({ id: message.id, result: { thread: { id: "timing-thread" } } })
+    if (message.method === "turn/start") process.writeServerMessage({ id: message.id, result: { turn: { id: "timing-turn", status: "inProgress", error: null } } })
+  })
+  const manager = new CodexAppServerManager({ spawnProcess: () => child as never })
+  const notify = async (method: string, params: object) => {
+    child.writeServerMessage({ method, params: { threadId: "timing-thread", turnId: "timing-turn", ...params } })
+    // PassThrough delivery is asynchronous in Bun; drain it before advancing
+    // the synthetic observation clock to the next protocol event.
+    await Bun.sleep(0)
+  }
+  const usage = (inputTokens: number, outputTokens: number, totalOutput: number) => notify("thread/tokenUsage/updated", { tokenUsage: {
+    total: { inputTokens, outputTokens: totalOutput, cachedInputTokens: 0 },
+    last: { inputTokens: 100, outputTokens, cachedInputTokens: 0 },
+  } })
+  try {
+    await manager.startSession({ chatId: "timing", cwd: "/tmp/example", model: "gpt-5.4", sessionToken: null })
+    const turn = await manager.startTurn({ collectStatistics: () => true, chatId: "timing", model: "gpt-5.4", content: "Synthetic timing", planMode: false, onToolRequest: async () => ({}) })
+    now = 1200; await notify("item/agentMessage/delta", { itemId: "first", delta: "First" })
+    now = 2200; await usage(100, 27, 27); await usage(100, 27, 27) // Duplicate settlement is ignored.
+    now = 3000; await usage(200, 5, 32) // Tool-only response: usage but no streaming first token.
+    now = 4000; await notify("item/reasoning/textDelta", { itemId: "next", delta: "Next" })
+    now = 5000; await usage(300, 200, 232)
+    await notify("turn/completed", { turn: { id: "timing-turn", status: "completed", error: null } })
+    let state: StatisticsRecord | undefined
+    const settled: number[] = []
+    for await (const event of turn.stream) {
+      if (!event.statistics) continue
+      const previousSteps = state?.snapshot.sessionStats.steps ?? 0
+      state = updateSessionStatistics(state, event.statistics)
+      if (state.snapshot.sessionStats.steps > previousSteps) settled.push(sessionTokensPerSecond(state.snapshot)!)
+    }
+    expect(settled).toEqual([27, 27, 113.5])
+    expect(state?.snapshot.sessionStats).toMatchObject({ turns: 1, steps: 3, ttftSteps: 2, decodeTokens: 227, decodeMs: 2000 })
+    expect(state?.snapshot.tokenUsage.outputTokens).toBe(232)
+  } finally { manager.stopAll(); clock.mockRestore() }
+})
 
 async function collectStream(stream: AsyncIterable<any>) {
   const items: any[] = []
