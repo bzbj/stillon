@@ -62,9 +62,12 @@ try {
   await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 1)
   assert.equal((await state()).checking, false, "Socket revalidation must leave the workspace visible")
   await page.locator("#draft").focus()
-  assert.equal(await page.locator("#draft").evaluate(element => element === document.activeElement), true)
+  // Firefox can commit focus after the protocol's focus command returns.
+  // Observe the actual focused element instead of sampling it in that gap.
+  await page.waitForFunction(() => document.activeElement === document.querySelector("#draft"))
   await page.evaluate(() => { const fixture = (window as any).remoteAuthFixture; fixture.hold = false; fixture.release() })
   await page.waitForFunction(() => (window as any).remoteAuthFixture.pending.length === 0)
+  await page.waitForFunction(() => document.activeElement === document.querySelector("#draft"))
   await focus("valid", "stillon:check-session")
   assert.equal((await state()).mounts, before.mounts)
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))

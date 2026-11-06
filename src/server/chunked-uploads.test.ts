@@ -53,3 +53,37 @@ test("chunks reject invalid checksums and limits; expired partial uploads releas
     expect(await readdir(path.join(root, "staging"))).toEqual([])
   } finally { await manager.close(); await rm(root, { recursive: true, force: true }) }
 })
+
+test("restart rejects stale offsets without exposing partial files and retains completed attachments", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-upload-restart-"))
+  let clock = Date.now()
+  const staging = path.join(root, "staging"), project = { id: "workspace", localPath: path.join(root, "project") }
+  const previous = new ChunkedUploads(staging, () => clock), restarted = new ChunkedUploads(staging, () => clock)
+  const pendingId = randomUUID()
+  const send = (manager: ChunkedUploads, id: string, offset: number, size: number) => {
+    const bytes = Buffer.alloc(Math.min(CHUNK, size - offset), 0x63)
+    return manager.upload(new Request("http://localhost/uploads", { headers: {
+      [UPLOAD_HEADERS.id]: id, [UPLOAD_HEADERS.offset]: String(offset), [UPLOAD_HEADERS.total]: String(size),
+      [UPLOAD_HEADERS.digest]: createHash("sha256").update(bytes).digest("hex"),
+    } }), new File([bytes], "restart.bin"), project, "owner", 100 * CHUNK)
+  }
+  try {
+    await mkdir(project.localPath)
+    await send(previous, pendingId, 0, 2 * CHUNK)
+    const complete = (await send(previous, randomUUID(), 0, 1)).attachments![0]!
+    // Reconstruct without close(), as after a crash: the partial file survives,
+    // but the in-memory receipt and offset do not. It must not become an attachment.
+    await expect(send(restarted, pendingId, CHUNK, 2 * CHUNK)).rejects.toMatchObject({ status: 409 })
+    expect(await readFile(complete.absolutePath)).toEqual(Buffer.from([0x63]))
+    expect((await readdir(path.dirname(complete.absolutePath))).length).toBe(1)
+    expect((await readdir(staging)).length).toBe(1)
+    clock += 31 * 60_000
+    await expect(send(restarted, pendingId, CHUNK, 2 * CHUNK)).rejects.toMatchObject({ status: 409 })
+    expect(await readdir(staging)).toEqual([])
+    const retryId = randomUUID()
+    expect((await send(restarted, retryId, 0, 2 * CHUNK)).upload.offset).toBe(CHUNK)
+    const retried = (await send(restarted, retryId, CHUNK, 2 * CHUNK)).attachments![0]!
+    expect(await readFile(retried.absolutePath)).toEqual(Buffer.alloc(2 * CHUNK, 0x63))
+    expect((await readdir(path.dirname(complete.absolutePath))).length).toBe(2)
+  } finally { await previous.close(); await restarted.close(); await rm(root, { recursive: true, force: true }) }
+})
