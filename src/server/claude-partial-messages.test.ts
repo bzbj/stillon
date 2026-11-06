@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { AgentCoordinator, shouldIncludeClaudePartialMessages, startClaudeSession } from "./agent"
@@ -13,9 +13,21 @@ const fakeCli = resolve(import.meta.dir, "../../test-fixtures/fake-claude-cli.mj
 const roots: string[] = []
 
 afterEach(async () => {
-  // On Windows the stand-in CLI can still hold its working directory briefly after shutdown.
-  await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 })))
+  await Promise.all(roots.splice(0).map(removeWhenReleased))
 })
+
+/** On Windows the stand-in CLI can hold files or its working directory briefly after shutdown. */
+async function removeWhenReleased(dir: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt >= 100 || (error as NodeJS.ErrnoException).code !== "EBUSY") throw error
+      await new Promise((done) => setTimeout(done, 100))
+    }
+  }
+}
 
 async function tempRoot() {
   const dir = await mkdtemp(join(tmpdir(), "stillon-claude-partial-"))
@@ -194,9 +206,8 @@ describe("AgentCoordinator applies partial-message delivery at query creation", 
     let epoch: string | null = null
     const store = new EventStore(join(root, "data"), () => epoch)
     await store.initialize()
-    const projectPath = join(root, "project")
-    await mkdir(projectPath)
-    const project = await store.openProject(projectPath, "Partial messages")
+    // The CLI's working directory is the shared system temp directory, never a directory the test removes.
+    const project = await store.openProject(tmpdir(), "Partial messages")
     const coordinator = new AgentCoordinator({
       store,
       onStateChange: () => {},
