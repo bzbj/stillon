@@ -25,6 +25,7 @@ export interface ChatRecord {
   lastMessageAt?: number
   /** Bytes already reflected in the persisted transcript metadata. */
   transcriptMetadataOffset?: number
+  statisticsState?: import("../shared/session-statistics").StatisticsRecord
   lastTurnOutcome: "success" | "failed" | "cancelled" | null
 }
 
@@ -66,6 +67,7 @@ export type ProjectEvent = {
 }
 
 export type ChatEvent =
+  | { v: 2; type: "chat_statistics_set"; timestamp: number; chatId: string; statisticsState: import("../shared/session-statistics").StatisticsRecord }
   | {
       v: 2
       type: "chat_transcript_metadata_set"

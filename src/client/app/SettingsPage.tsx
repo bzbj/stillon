@@ -1,3 +1,4 @@
+import { SessionStatisticsSetting } from "./SessionStatisticsSetting"
 import { isAddonProvider, normalizeAddonPreference } from "../../shared/types"
 import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { finishSetup, rememberSettingsSection, settingsLandingPath, useSetupComplete } from "../lib/settingsNavigation"
@@ -2575,6 +2576,7 @@ function OwnerSettingsPage() {
                     </SettingsRow>
                   </div>
                 ) : selectedPage === "usage" ? (
+                  <div><SessionStatisticsSetting checked={appSettings?.showSessionStatistics === true} disabled={!appSettings || state.connectionStatus !== "connected"} onSave={value => handleWriteAppSettings({ showSessionStatistics: value })} />
                   <SubscriptionUsageSection
                     snapshot={subscriptionUsage}
                     status={subscriptionUsageStatus}
@@ -2582,7 +2584,7 @@ function OwnerSettingsPage() {
                     onRetry={() => {
                       void readSubscriptionUsage()
                     }}
-                  />
+                  /></div>
                 ) : selectedPage === "skills" ? (
                   <div className="space-y-5">
                     <SegmentedControl value={commandsTab} onValueChange={setCommandsTab} options={[{ value: "skills", label: "Skills" }, { value: "prompts", label: "Preset Prompts" }, { value: "shortcuts", label: "Keyboard Shortcuts" }]} />

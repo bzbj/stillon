@@ -1,7 +1,8 @@
 import type { AccountInfo, AgentProvider, NormalizedToolCall, TranscriptEntry } from "../shared/types"
 
 export interface HarnessEvent {
-  type: "transcript" | "session_token"
+  type: "transcript" | "session_token" | "statistics"
+  statistics?: import("../shared/session-statistics").StatisticsInput
   entry?: TranscriptEntry
   sessionToken?: string
 }

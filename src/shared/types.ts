@@ -759,6 +759,7 @@ export interface AgentNetworkConnectionTestResult {
 }
 
 export interface AppSettingsSnapshot {
+  showSessionStatistics?: boolean
   workspaceCollapseVersions?: import("./workspace-collapse").WorkspaceCollapseVersions
   workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsSettings
@@ -792,6 +793,7 @@ export interface AppSettingsSnapshot {
 }
 
 export interface AppSettingsPatch {
+  showSessionStatistics?: boolean
   workspaceCollapseExpectedVersions?: import("./workspace-collapse").WorkspaceCollapseVersions
   workspaceCollapsed?: import("./workspace-collapse").WorkspaceCollapsed
   quickCommands?: import("./quick-commands").QuickCommandsPatch
@@ -1309,6 +1311,7 @@ export interface ChatHistorySnapshot {
 }
 
 export interface ChatSnapshot {
+  statistics?: import("./session-statistics").SessionStatistics | null
   runtime: ChatRuntime
   queuedMessages: QueuedChatMessage[]
   messages: TranscriptEntry[]

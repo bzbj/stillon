@@ -190,6 +190,8 @@ export interface TokenUsageCounter {
   inputTokens?: number
   cached_input_tokens?: number
   cachedInputTokens?: number
+  cacheWriteInputTokens?: number
+  cache_write_input_tokens?: number
   output_tokens?: number
   outputTokens?: number
   reasoning_output_tokens?: number
@@ -478,6 +480,7 @@ export interface ErrorNotification {
 }
 
 export type ServerNotification =
+  | { method: "item/agentMessage/delta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta"; params: { threadId: string; turnId: string; itemId: string; delta: string } }
   | { method: "thread/started"; params: ThreadStartedNotification }
   | { method: "thread/tokenUsage/updated"; params: ThreadTokenUsageUpdatedNotification }
   | { method: "turn/started"; params: TurnStartedNotification }
@@ -511,6 +514,9 @@ export function isServerNotification(value: unknown): value is ServerNotificatio
   if (typeof candidate.method !== "string" || "id" in candidate) return false
   return candidate.method === "thread/started"
     || candidate.method === "thread/tokenUsage/updated"
+    || candidate.method === "item/agentMessage/delta"
+    || candidate.method === "item/reasoning/summaryTextDelta"
+    || candidate.method === "item/reasoning/textDelta"
     || candidate.method === "turn/started"
     || candidate.method === "turn/completed"
     || candidate.method === "turn/plan/updated"

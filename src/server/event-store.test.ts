@@ -987,3 +987,30 @@ test("chat pins survive log replay and compaction, stay workspace scoped and rej
   expect(unpinned.getChat(pinned.id)!.pinned).toBe(false)
   expect(deriveSidebarData(unpinned.state, new Map()).projectGroups.find(group => group.groupKey === project.id)!.chats[0]!.chatId).toBe(newer.id)
 })
+
+test("statistics serialize concurrent observations and survive paging, compaction, reload and cancellation", async () => {
+  const dataDir = await createTempDataDir(), store = new EventStore(dataDir)
+  await store.initialize()
+  const project = await store.openProject("/tmp/statistics-example", "Statistics example")
+  const chat = await store.createChat(project.id)
+  const e = (type: string, time: number, data = {}) => ({ type, time, data: { step: 1, ...data } })
+  await Promise.all([
+    store.recordStatistics(chat.id, { runId: "a", events: [e("step/start", 100)] }),
+    store.recordStatistics(chat.id, { runId: "a", events: [e("assistant/message", 600, { stream: [{ type: "chunk", time: 200, chunk: { type: "text-delta", text: "a" } }], usage: { inputTokens: 10, outputTokens: 4 } }), e("step/end", 600)] }),
+  ])
+  await store.recordStatistics(chat.id, { runId: "b", events: [e("step/start", 700), e("tool/call", 710, { callId: "unfinished" })] })
+  await store.recordTurnCancelled(chat.id)
+  await store.recordTurnCancelled(chat.id) // repeated stop cannot count another step
+  const before = structuredClone(store.requireChat(chat.id).statisticsState!)
+  expect(before.snapshot.sessionStats).toMatchObject({ turns: 2, steps: 2, llmMs: 500, toolMs: 0 })
+  expect(before.stats.openStep).toBeNull()
+  expect(before.stats.pendingCalls).toEqual({})
+  expect(before.snapshot.tokenUsage.outputTokens).toBe(4)
+  await store.getRecentChatHistory(chat.id, 1)
+  await store.compact()
+  const restored = new EventStore(dataDir); await restored.initialize()
+  expect(restored.requireChat(chat.id).statisticsState).toEqual(before)
+  await restored.recordStatistics(chat.id, { runId: "c", usageOnly: true, events: [e("assistant/message", 800, { stream: [], usage: { inputTokens: 20, outputTokens: 6 } })] })
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.tokenUsage.outputTokens).toBe(10)
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats.steps).toBe(2)
+})

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
+import { updateSessionStatistics, type StatisticsRecord } from "../shared/session-statistics"
 import { APP_VERSION } from "../shared/branding"
 import { getCodexModelForRole } from "../shared/types"
 import { CodexAppServerManager } from "./codex-app-server"
@@ -296,6 +297,9 @@ describe("CodexAppServerManager", () => {
     const events = await collectStream(turn.stream)
     const usageEvent = events.find((event) => event.type === "transcript" && event.entry.kind === "context_window_updated")
 
+    const statistics = events.reduce<StatisticsRecord | undefined>((state, event) => event.statistics ? updateSessionStatistics(state, event.statistics) : state, undefined)
+    expect(statistics?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 8377, cacheReadTokens: 3456, cacheWriteTokens: 0, outputTokens: 6 })
+    expect(statistics?.snapshot.sessionStats.steps).toBe(1)
     expect(usageEvent).toBeDefined()
     if (!usageEvent || usageEvent.type !== "transcript" || usageEvent.entry.kind !== "context_window_updated") {
       throw new Error("missing usage event")

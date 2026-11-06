@@ -1,3 +1,4 @@
+import { providerUsage } from "./provider-statistics"
 import { spawn } from "node:child_process"
 import type { SpawnOptions } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -742,6 +743,8 @@ export class CodexExecManager {
     }
 
     if (type === "turn.completed") {
+      const tokenUsage = providerUsage(event.usage, "codex")
+      if (tokenUsage) pendingTurn.queue.push({ type: "statistics", statistics: { runId: pendingTurn.localTurnId, usageOnly: true, events: [{ type: "assistant/message", time: Date.now(), data: { turn: 1, step: 0, stream: [], usage: tokenUsage } }] } })
       const usage = normalizeExecUsage(event.usage)
       if (usage) {
         pendingTurn.queue.push({

@@ -928,6 +928,7 @@ export function ChatPage() {
 
       <Suspense fallback={<ChatInputLoadingFallback />}>
         <ChatInputDock
+          statistics={state.statistics}
           inputRef={inputRef}
           onLayoutChange={syncInputHeight}
           chatInputRef={chatInputRef}

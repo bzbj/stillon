@@ -325,7 +325,7 @@ and independent-machine acceptance are tracked in the
 - **Remote continuation** — reach the same local coding-agent workspace from a laptop, tablet, or phone
 - **Local execution** — agents run against the workspaces and credentials already on your computer
 - **Claude and Codex** — switch providers, models, reasoning effort, permissions, and plan mode per chat
-- **Usage visibility** — view Codex and Claude Code plan limits when the authenticated CLI exposes them
+- **Usage visibility** — view Codex and Claude Code plan limits when the authenticated CLI exposes them; optionally show [session tokens, speed and timing](docs/session-statistics.md)
 - **Persistent sessions** — resume chats with event-backed history, snapshots, and hydrated tool results
 - **Workspaces** — organize conversations by folder, work with documents, run terminals, preview local apps, and attach files
 - **Operator-managed ingress** — keep the local origin on loopback or connect it through your own proxy, tunnel, or network listener

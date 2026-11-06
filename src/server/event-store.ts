@@ -1,3 +1,4 @@
+import { updateSessionStatistics, type StatisticsInput } from "../shared/session-statistics"
 import { isAddonProvider } from "../shared/types"
 import { createReadStream } from "node:fs"
 import { appendFile, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -115,6 +116,7 @@ function getReplayEventPriority(event: StoreEvent) {
     case "chat_plan_mode_set":
       return 2
     case "message_appended":
+    case "chat_statistics_set":
     case "chat_transcript_metadata_set":
       return 3
     case "queued_message_enqueued":
@@ -535,6 +537,11 @@ export class EventStore {
           lastTurnOutcome: null,
         }
         this.state.chatsById.set(chat.id, chat)
+        break
+      }
+      case "chat_statistics_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (chat) chat.statisticsState = event.statisticsState
         break
       }
       case "chat_transcript_metadata_set": {
@@ -1175,6 +1182,21 @@ export class EventStore {
     await this.append(this.chatsLogPath, event)
   }
 
+  async recordStatistics(chatId: string, input: StatisticsInput) {
+    this.requireChat(chatId)
+    this.writeChain = this.writeChain.then(async () => {
+      const chat = this.requireChat(chatId)
+      const statisticsState = updateSessionStatistics(chat.statisticsState, input)
+      if (!chat.statisticsState && !("native" in input) && !input.nativeTokenUsage && (chat.lastTurnOutcome !== null || chat.pendingForkSessionToken)) {
+        statisticsState.snapshot.recordedSince = Date.now()
+      }
+      const event: ChatEvent = { v: STORE_VERSION, type: "chat_statistics_set", timestamp: Date.now(), chatId, statisticsState }
+      await appendFile(this.chatsLogPath, `${JSON.stringify(event)}\n`, "utf8")
+      this.applyEvent(event)
+    })
+    return this.writeChain
+  }
+
   async appendMessage(chatId: string, entry: TranscriptEntry) {
     this.requireChat(chatId)
     const payload = `${JSON.stringify(entry)}\n`
@@ -1268,7 +1290,7 @@ export class EventStore {
   }
 
   async recordTurnFailed(chatId: string, error: string) {
-    this.requireChat(chatId)
+    await this.finishStatistics(chatId)
     const event: TurnEvent = {
       v: STORE_VERSION,
       type: "turn_failed",
@@ -1279,8 +1301,19 @@ export class EventStore {
     await this.append(this.turnsLogPath, event)
   }
 
+  private async finishStatistics(chatId: string) {
+    await this.waitForPendingWrites()
+    const state = this.requireChat(chatId).statisticsState
+    if (state?.runId && (state.stats.openStep || Object.keys(state.stats.pendingCalls).length)) {
+      await this.recordStatistics(chatId, { runId: state.runId, events: [
+        ...(state.stats.openStep ? [{ type: "step/end", time: Date.now(), data: { step: state.stats.openStep.step } }] : []),
+        { type: "turn/end", time: Date.now(), data: {} },
+      ] })
+    }
+  }
+
   async recordTurnCancelled(chatId: string) {
-    this.requireChat(chatId)
+    await this.finishStatistics(chatId)
     const event: TurnEvent = {
       v: STORE_VERSION,
       type: "turn_cancelled",
