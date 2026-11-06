@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import type { AddonList } from "../../shared/provider-addons"
 import { isAddonProvider } from "../../shared/types"
@@ -7,7 +7,6 @@ import { Button } from "../components/ui/button"
 import { AgentSetupPanel } from "./AgentSetupPanel"
 
 export function ProviderAddonsPanel() {
-  const localAccessHintId = useId()
   const [snapshot, setSnapshot] = useState<AddonList | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("")
   const refresh = useCallback(async () => {
     const response = await fetch("/api/addons", { cache: "no-store" }), data = await response.json()
@@ -32,15 +31,14 @@ export function ProviderAddonsPanel() {
     finally { setBusy(false) }
   }
   return <section aria-label="Optional integrations" className="space-y-3">
-    {snapshot && !snapshot.canManage && <p id={localAccessHintId} className="text-sm text-muted-foreground">Local access required. Open StillOn on the agent computer to enable or disable integrations.</p>}
     {!snapshot && !error && <p role="status" className="text-sm text-muted-foreground">Loading integrations…</p>}
     {snapshot?.addons.length === 0 && <p className="text-sm text-muted-foreground">No optional integrations are included in this build.</p>}
     {snapshot?.addons.map(addon => {
-      const name = addon.id === "codebuddy" ? "CodeBuddy CLI" : addon.name
+      const name = addon.id === "codebuddy" ? "Workbuddy (Codebuddy CLI)" : addon.name
       return <article key={addon.id} aria-label={name} className="rounded-xl border border-border p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0"><h3 className="font-medium leading-snug">{name} <span className="inline-block rounded border border-border bg-muted/50 px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none text-muted-foreground">Preview</span></h3><p className="mt-1 text-xs text-muted-foreground">{addon.error ? "Unavailable" : addon.enabled ? "Enabled" : "Disabled"}</p></div>
-        <Button className="shrink-0" size="sm" variant={addon.enabled ? "default" : "outline"} role="switch" aria-label={name} aria-checked={addon.enabled} aria-describedby={!snapshot.canManage ? localAccessHintId : undefined}
+        <Button className="shrink-0" size="sm" variant={addon.enabled ? "default" : "outline"} role="switch" aria-label={name} aria-checked={addon.enabled}
           disabled={busy || addon.busy || !snapshot.canManage || (!addon.enabled && !addon.compatible)} onClick={() => void toggle(addon.id, addon.enabled)}>{addon.enabled ? "Disable" : "Enable"}</Button>
       </div>
       {addon.error && <p role="alert" className="text-sm text-destructive">{addon.error}</p>}
