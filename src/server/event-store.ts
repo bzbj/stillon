@@ -1,4 +1,4 @@
-import { updateSessionStatistics, type StatisticsInput } from "../shared/session-statistics"
+import { createForkSessionStatistics, updateSessionStatistics, type StatisticsInput } from "../shared/session-statistics"
 import { isAddonProvider } from "../shared/types"
 import { createReadStream } from "node:fs"
 import { appendFile, copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -537,6 +537,7 @@ export class EventStore {
           sessionToken: null,
           codexTransport: null,
           pendingForkSessionToken: null,
+          ...(event.statisticsScope === "fork" ? { statisticsState: createForkSessionStatistics() } : {}),
           hasMessages: false,
           lastTurnOutcome: null,
         }
@@ -957,6 +958,7 @@ export class EventStore {
     const createEvent: ChatEvent = {
       v: STORE_VERSION,
       type: "chat_created",
+      statisticsScope: "fork",
       timestamp: createdAt,
       chatId,
       projectId: sourceChat.projectId,

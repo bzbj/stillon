@@ -80,6 +80,7 @@ export type ChatEvent =
   | {
       v: 2
       type: "chat_created"
+      statisticsScope?: "fork"
       timestamp: number
       chatId: string
       projectId: string

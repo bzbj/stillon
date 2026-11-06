@@ -91,6 +91,7 @@ interface PendingRequest<TResult> {
 interface PendingTurn {
   statistics: ProviderStatistics
   lastUsageSignature?: string
+  usageBeforeStart: Array<{ notification: ThreadTokenUsageUpdatedNotification; receivedAt: number }>
   turnId: string | null
   model: string
   planMode: boolean
@@ -890,6 +891,7 @@ export class CodexAppServerManager {
 
     const pendingTurn: PendingTurn = {
       statistics: new ProviderStatistics(event => queue.push(event)),
+      usageBeforeStart: [],
       turnId: null,
       model: args.model,
       planMode: args.planMode,
@@ -940,6 +942,9 @@ export class CodexAppServerManager {
         context.pendingTurn.turnId = response.turn.id
       } else {
         pendingTurn.turnId = response.turn.id
+      }
+      for (const usage of pendingTurn.usageBeforeStart.splice(0)) {
+        if (usage.notification.turnId === response.turn.id) this.handleTokenUsageUpdated(pendingTurn, usage.notification, usage.receivedAt)
       }
     } catch (error) {
       context.pendingTurn = null
@@ -1384,6 +1389,13 @@ export class CodexAppServerManager {
         pendingTurn.statistics.delta({ type: notification.method === "item/agentMessage/delta" ? "text-delta" : "reasoning-delta", text: notification.params.delta })
         return
       case "thread/tokenUsage/updated":
+        // Fork/resume hydration has no turn: it describes inherited history,
+        // not a new assistant settlement, even if it arrives during turn/start.
+        if (notification.params.turnId === "") return
+        if (!pendingTurn.turnId) {
+          pendingTurn.usageBeforeStart.push({ notification: notification.params, receivedAt: Date.now() })
+          return
+        }
         this.handleTokenUsageUpdated(pendingTurn, notification.params)
         return
       case "turn/plan/updated":
@@ -1563,6 +1575,7 @@ export class CodexAppServerManager {
   private handleTokenUsageUpdated(
     pendingTurn: PendingTurn,
     notification: ThreadTokenUsageUpdatedNotification,
+    receivedAt = Date.now(),
   ) {
     const counters = notification.tokenUsage
     const raw = counters.last_token_usage ?? counters.last
@@ -1570,7 +1583,7 @@ export class CodexAppServerManager {
     const signature = JSON.stringify(counters.total_token_usage ?? counters.total ?? raw)
     if (mapped && pendingTurn.lastUsageSignature !== signature) {
       const total = providerUsage(counters.total_token_usage ?? counters.total, "codex")
-      pendingTurn.statistics.complete(mapped, Date.now(), total ? {
+      pendingTurn.statistics.complete(mapped, receivedAt, total ? {
         uncachedInputTokens: total.inputTokens, outputTokens: total.outputTokens,
         cacheReadTokens: total.cacheReadTokens ?? 0, cacheWriteTokens: total.cacheWriteTokens ?? 0,
       } : undefined)

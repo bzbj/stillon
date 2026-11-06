@@ -18,7 +18,15 @@ decode time runs from the first qualifying text, reasoning or tool delta to the
 assembled assistant message. The original retry, replacement, cancellation,
 overlapping-tool and short-window behavior is preserved. There is no smoothing.
 
-Codex App Server's native cumulative counters also cover resumed threads.
+Forked conversations keep their copied context and start statistics at zero.
+Each branch counts only its own subsequent input, cache and output usage, plus
+its own timing. Reusing inherited context in a new request still counts as
+input/cache usage for that request. Parent statistics remain unchanged.
+Forks retain this scope across restart and nested forks; their per-step native
+usage feeds the original DSH fold instead of inheriting Codex thread totals.
+DeepSeek Harness forking is currently unsupported.
+
+Codex App Server's native cumulative counters also cover ordinary resumed threads.
 Older Claude sessions without recorded usage show their recording start time;
 missing historical usage is not estimated. Codex exec supplies aggregate tokens
 but lacks model-step stream timing, so it shows tokens without a speed control.

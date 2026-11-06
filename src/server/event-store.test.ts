@@ -1036,3 +1036,43 @@ test("older sessions identify incomplete recorded usage until authoritative nati
   await store.recordStatistics(chat.id, { runId: "new-observation", events: [], nativeTokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 10 } })
   expect(store.requireChat(chat.id).statisticsState?.snapshot.recordedSince).toBeUndefined()
 })
+
+test.each(["claude", "codex"] as const)("%s forks keep context but reset tokens and timing across reload and nested forks", async provider => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/fork-statistics", "Example"), source = await store.createChat(project.id)
+  await store.setChatProvider(source.id, provider)
+  await store.setSessionToken(source.id, "source-session")
+  await store.appendMessage(source.id, entry("user_prompt", 100, { content: "Inherited context" }))
+  await store.appendMessage(source.id, entry("assistant_text", 200, { text: "Inherited answer" }))
+  const observation = (runId: string, inputTokens: number, native: number) => ({ runId,
+    ...(provider === "codex" ? { nativeTokenUsage: { uncachedInputTokens: native, cacheReadTokens: native, cacheWriteTokens: 0, outputTokens: native } } : {}),
+    events: [
+      { type: "step/start", time: 100, data: { step: 1 } },
+      { type: "assistant/message", time: 400, data: { step: 1, stream: [{ type: "chunk", time: 200, chunk: { type: "text-delta", text: "x" } }], usage: { inputTokens, cacheReadTokens: 3, cacheWriteTokens: 2, outputTokens: 4 } } },
+      { type: "step/end", time: 400, data: { step: 1 } },
+    ] })
+  await store.recordStatistics(source.id, observation("parent", 1000, 10000))
+  const parentBefore = structuredClone(store.requireChat(source.id).statisticsState)
+  const fork = await store.forkChat(source.id)
+  expect(fork.statisticsState?.scope).toBe("fork")
+  expect(fork.statisticsState?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 })
+  expect(fork.statisticsState?.snapshot.sessionStats).toMatchObject({ turns: 0, steps: 0, llmMs: 0, decodeMs: 0 })
+  expect(await store.readAllMessages(fork.id)).toEqual(await store.readAllMessages(source.id))
+  expect(store.requireChat(source.id).statisticsState).toEqual(parentBefore)
+  await store.setSessionToken(fork.id, "branch-session")
+  await store.setPendingForkSessionToken(fork.id, null)
+  await store.recordStatistics(fork.id, observation("branch-first", 10, 10010))
+  await store.compact()
+  const restored = new EventStore(root); await restored.initialize()
+  expect(restored.requireChat(fork.id).statisticsState?.scope).toBe("fork")
+  await restored.recordStatistics(fork.id, observation("branch-second", 20, 10030))
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 30, cacheReadTokens: 6, cacheWriteTokens: 4, outputTokens: 8 })
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.sessionStats.steps).toBe(2)
+  const nested = await restored.forkChat(fork.id)
+  expect(nested.statisticsState?.snapshot.tokenUsage.outputTokens).toBe(0)
+  await restored.recordStatistics(nested.id, observation("nested-first", 5, 10035))
+  expect(restored.requireChat(nested.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(5)
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(30)
+  expect(restored.requireChat(source.id).statisticsState).toEqual(parentBefore)
+})

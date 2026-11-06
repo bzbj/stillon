@@ -13,6 +13,8 @@ export type StatisticsInput =
   | { runId: string; events: DshEvent[]; usageOnly?: boolean; nativeTokenUsage?: TokenBuckets }
   | { native: SessionStatistics }
 export interface StatisticsRecord {
+  /** Forks count observed settlements, never inherited native thread totals. */
+  scope?: "fork"
   version: 1
   runId: string | null
   turn: number
@@ -21,7 +23,16 @@ export interface StatisticsRecord {
   snapshot: SessionStatistics
 }
 
-/** The only adaptation here is assigning durable per-chat turn coordinates. */
+export function createForkSessionStatistics(): StatisticsRecord {
+  const stats = sessionStatsProjectionDefinition.init()
+  const usage = tokenUsageProjectionDefinition.init()
+  return { version: 1, scope: "fork", runId: null, turn: 0, stats, usage, snapshot: {
+    sessionStats: sessionStatsProjectionDefinition.wire.view(stats),
+    tokenUsage: tokenUsageProjectionDefinition.wire.view(usage),
+  } }
+}
+
+/** Assign durable turn coordinates and select native or branch-local usage. */
 export function updateSessionStatistics(previous: StatisticsRecord | undefined, input: StatisticsInput): StatisticsRecord {
   let stats = previous?.stats ?? sessionStatsProjectionDefinition.init()
   let usage = previous?.usage ?? tokenUsageProjectionDefinition.init()
@@ -37,7 +48,7 @@ export function updateSessionStatistics(previous: StatisticsRecord | undefined, 
     if (!input.usageOnly) stats = sessionStatsProjectionDefinition.apply(stats, event)
     usage = tokenUsageProjectionDefinition.apply(usage, event)
   }
-  if (input.nativeTokenUsage) {
+  if (input.nativeTokenUsage && previous?.scope !== "fork") {
     usage = { ...usage, totals: tokenUsageProjectionDefinition.wire.viewSchema.parse(input.nativeTokenUsage) }
   }
   const snapshot = sessionStatisticsSchema.parse({
@@ -45,7 +56,7 @@ export function updateSessionStatistics(previous: StatisticsRecord | undefined, 
     sessionStats: sessionStatsProjectionDefinition.wire.view(stats),
     tokenUsage: tokenUsageProjectionDefinition.wire.view(usage),
   })
-  return { version: 1, runId, turn, stats, usage, snapshot }
+  return { version: 1, ...(previous?.scope ? { scope: previous.scope } : {}), runId, turn, stats, usage, snapshot }
 }
 
 export function sessionTokenTotal(usage: TokenBuckets) {
