@@ -295,6 +295,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       router.scheduleBroadcast()
     },
   })
+  store.setStatisticsListener(chatId => router.scheduleChatStateBroadcast(chatId))
+  const disposeStatisticsSettings = appSettings.onChange(() => store.syncStatisticsSettings())
   const localHtmlPreviews = createLocalHtmlPreviewManager()
   const previewFiles = new PreviewFiles(id => store.getProject(id)?.localPath)
   const chunkedUploads = new ChunkedUploads(path.join(store.dataDir, "upload-staging"))
@@ -800,6 +802,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       appSettings.dispose()
       keybindings.dispose()
       terminals.closeAll()
+      disposeStatisticsSettings()
+      await store.closeStatistics()
       await store.compact()
     })()
 

@@ -1965,8 +1965,7 @@ export class AgentCoordinator {
           const active = this.activeTurns.get(session.chatId)
           if (!active || active.cancelRequested) continue
           if (!this.store.shouldCollectStatistics(session.chatId)) continue
-          await this.store.recordStatistics(session.chatId, event.statistics)
-          this.emitStateChange(session.chatId)
+          this.store.enqueueStatistics(session.chatId, event.statistics)
           continue
         }
         if (!event.entry) continue
@@ -2094,8 +2093,7 @@ export class AgentCoordinator {
 
         if (event.type === "statistics" && event.statistics) {
           if (!this.store.shouldCollectStatistics(active.chatId)) continue
-          await this.store.recordStatistics(active.chatId, event.statistics)
-          this.emitStateChange(active.chatId)
+          this.store.enqueueStatistics(active.chatId, event.statistics)
           continue
         }
         if (!event.entry) continue

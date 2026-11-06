@@ -36,3 +36,31 @@ Run the synthetic observation/storage benchmark with
 `bun scripts/benchmark-session-statistics.ts`. It compares collection and
 checkpoint writes against the same transcript writes without collection; it
 does not measure real provider throughput or network latency.
+
+## Background collection and persistence
+
+Response processing queues statistics without waiting for statistics storage.
+A background task folds observations in order and coalesces checkpoints once per
+second, with at most one append in flight. Checkpoints use `statistics.jsonl`
+and a write queue independent of transcripts and turn state. Compaction and
+recovery include both old statistics in `chats.jsonl` and the new journal.
+
+The local and Connect chat streams publish statistics at most once every ten
+seconds while a turn runs. Ordinary text and tool updates keep the last published
+statistics view. Completion, cancellation and errors publish the final view
+immediately and request a background checkpoint; they do not wait for its disk
+write. Normal shutdown drains pending statistics. A crash can lose the last
+unflushed batch, or more if storage is stalled.
+
+Disabling debug statistics discards pending observations, checkpoints that have
+not started writing, and scheduled statistics publications. An append already
+in progress may finish. Earlier saved statistics are retained; re-enabling
+still enrolls only newly created chats.
+
+Pending observations are limited to 4,096 entries and approximately 4 MiB of
+serialized text. Overflow, malformed observations or statistics storage failure
+stop collection for the affected chat and mark its statistics incomplete.
+Statistics failures do not reject ordinary transcript or turn writes. Background
+folding and storage still consume local resources; this removes the direct
+statistics I/O dependency from response consumption, rather than eliminating all
+instrumentation overhead.
