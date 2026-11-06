@@ -578,6 +578,11 @@ async function* createClaudeHarnessStream(q: Query, promptStarts: number[], coll
       statistics = null
       promptStarts.length = 0
     }
+    // Partial-message frames only feed statistics. They carry no transcript entry
+    // and repeat the session id, so a query that began with them enabled (see
+    // startClaudeSession) must not turn each frame into a state broadcast after
+    // collection stops.
+    if (sdkMessage?.type === "stream_event") continue
     const sessionToken = typeof sdkMessage.session_id === "string" ? sdkMessage.session_id : null
     if (sessionToken) {
       yield { type: "session_token", sessionToken }
@@ -688,7 +693,18 @@ class AsyncMessageQueue<T> implements AsyncIterable<T> {
   }
 }
 
-async function startClaudeSession(args: {
+/**
+ * Claude partial-message frames are consumed only by session statistics. The SDK
+ * hands the choice to the Claude CLI when the process starts (`--include-partial-messages`);
+ * it has no control request to change it for a running query. The decision is
+ * therefore made once, from the chat's persisted enrollment, each time a query is
+ * created, and later enrollment changes only close the collection gate.
+ */
+export function shouldIncludeClaudePartialMessages(collectStatistics?: () => boolean) {
+  return collectStatistics?.() === true
+}
+
+export async function startClaudeSession(args: {
   localPath: string
   model: string
   effort?: string
@@ -758,11 +774,15 @@ async function startClaudeSession(args: {
 
   const promptQueue = new AsyncMessageQueue<SDKUserMessage>()
   const promptStarts: number[] = []
+  const includePartialMessages = shouldIncludeClaudePartialMessages(args.collectStatistics)
+  // A query started without partial frames has no step timing, so it is never
+  // observed later; one started with them stops being observed when the gate closes.
+  const collectStatistics = () => includePartialMessages && args.collectStatistics?.() === true
 
   const q = query({
     prompt: promptQueue,
     options: {
-      includePartialMessages: true,
+      includePartialMessages,
       cwd: args.localPath,
       model: args.model,
       effort: args.effort as EffortLevel | undefined,
@@ -780,7 +800,7 @@ async function startClaudeSession(args: {
 
   return {
     provider: "claude",
-    stream: createClaudeHarnessStream(q, promptStarts, args.collectStatistics ?? (() => false)),
+    stream: createClaudeHarnessStream(q, promptStarts, collectStatistics),
     getAccountInfo: async () => {
       try {
         return await q.accountInfo()
@@ -792,7 +812,7 @@ async function startClaudeSession(args: {
       await q.interrupt()
     },
     sendPrompt: async (content: string) => {
-      if (args.collectStatistics?.()) promptStarts.push(Date.now())
+      if (collectStatistics()) promptStarts.push(Date.now())
       promptQueue.push({
         type: "user",
         message: {
