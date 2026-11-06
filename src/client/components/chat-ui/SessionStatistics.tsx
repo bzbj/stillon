@@ -23,7 +23,7 @@ export function SessionStatistics({ statistics, onLayoutChange }: { statistics: 
   const triggers = useRef<Partial<Record<"timing" | "tokens", HTMLButtonElement | null>>>({})
   const total = statistics ? sessionTokenTotal(statistics.tokenUsage) : 0
   const speed = statistics ? sessionTokensPerSecond(statistics) : null
-  const show = visible && statistics !== null && (total > 0 || statistics.sessionStats.steps > 0)
+  const show = visible && statistics !== null && (total > 0 || statistics.sessionStats.steps > 0 || statistics.incomplete === true)
   useLayoutEffect(() => { if (!show) setOpen(null); onLayoutChange() }, [show, onLayoutChange])
   if (!show || !statistics) return null
   const stats = statistics.sessionStats
