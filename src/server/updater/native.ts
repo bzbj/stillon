@@ -2,6 +2,7 @@ import { windowsUserPathScript } from "../cli-environment"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { runServiceCommand } from "../service"
+import { waitForServiceToUnload } from "../service/macos"
 import { assertCommandSucceeded, type ServiceCommandRunner } from "../service/types"
 import { encodeWindowsPowerShell, encodeWindowsTaskXml, escapeWindowsTaskXml } from "../service/windows"
 import type { UpdateDeployment } from "./model"
@@ -67,7 +68,18 @@ export async function installUpdateWorker(deployment: UpdateDeployment, run: Ser
   await writeFile(file, macosUpdaterPlist(deployment, worker), { mode: 0o600 })
   const domain = `gui/${process.getuid!()}`
   const loaded = await run("/bin/launchctl", ["print", `${domain}/${worker.agent}`])
-  if (loaded.code === 0) assertCommandSucceeded("Unload updater", await run("/bin/launchctl", ["bootout", `${domain}/${worker.agent}`]))
+  if (loaded.code === 0 && loaded.signal === null) {
+    const service = `${domain}/${worker.agent}`
+    assertCommandSucceeded("Unload updater", await run("/bin/launchctl", ["bootout", service]))
+    // bootout can return before launchd removes the registration. Bootstrapping
+    // in that interval fails with EIO, even though the old worker has exited.
+    await waitForServiceToUnload(run, service, {
+      now: Date.now,
+      sleep: (milliseconds) => Bun.sleep(milliseconds),
+      pollIntervalMs: 100,
+      timeoutMs: 5_000,
+    })
+  }
   else if (![3, 113].includes(loaded.code ?? -1)) assertCommandSucceeded("Inspect updater", loaded)
   assertCommandSucceeded("Register updater", await run("/bin/launchctl", ["bootstrap", domain, file]))
 }
