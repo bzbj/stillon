@@ -196,7 +196,7 @@ try {
     stage = entries[i]!.name + ": settings entry"
     await p.goto(entries[i]!.origin + "/settings")
     await p.locator("#machine-name").waitFor()
-    assert.deepEqual((await p.locator("aside button").allTextContents()).filter(name => name !== "Sign out"), ["Network", "Providers", "Integrations", "Usage", "Skills & Prompts", "Appearance", "Sound", "Remote access", "About"])
+    assert.deepEqual((await p.locator("aside button").allTextContents()).filter(name => name !== "Sign out"), ["Network", "Providers", "Usage", "Skills & Prompts", "Appearance", "Sound", "Remote access", "Integrations", "About"])
     await settings(p, i, "keybindings")
     assert.equal(await p.getByRole("button", { name: "Keyboard Shortcuts", exact: true }).getAttribute("aria-pressed"), "true")
     await settings(p, i, "quick-commands")
