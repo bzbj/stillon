@@ -987,3 +987,92 @@ test("chat pins survive log replay and compaction, stay workspace scoped and rej
   expect(unpinned.getChat(pinned.id)!.pinned).toBe(false)
   expect(deriveSidebarData(unpinned.state, new Map()).projectGroups.find(group => group.groupKey === project.id)!.chats[0]!.chatId).toBe(newer.id)
 })
+
+test("statistics serialize concurrent observations and survive paging, compaction, reload and cancellation", async () => {
+  const dataDir = await createTempDataDir(), store = new EventStore(dataDir)
+  await store.initialize()
+  const project = await store.openProject("/tmp/statistics-example", "Statistics example")
+  const chat = await store.createChat(project.id)
+  const e = (type: string, time: number, data = {}) => ({ type, time, data: { step: 1, ...data } })
+  await Promise.all([
+    store.recordStatistics(chat.id, { runId: "a", events: [e("step/start", 100)] }),
+    store.recordStatistics(chat.id, { runId: "a", events: [e("assistant/message", 600, { stream: [{ type: "chunk", time: 200, chunk: { type: "text-delta", text: "a" } }], usage: { inputTokens: 10, outputTokens: 4 } }), e("step/end", 600)] }),
+  ])
+  await store.recordStatistics(chat.id, { runId: "b", events: [e("step/start", 700), e("tool/call", 710, { callId: "unfinished" })] })
+  await store.recordTurnCancelled(chat.id)
+  await store.recordTurnCancelled(chat.id) // repeated stop cannot count another step
+  const before = structuredClone(store.requireChat(chat.id).statisticsState!)
+  expect(before.snapshot.sessionStats).toMatchObject({ turns: 2, steps: 2, llmMs: 500, toolMs: 0 })
+  expect(before.stats.openStep).toBeNull()
+  expect(before.stats.pendingCalls).toEqual({})
+  expect(before.snapshot.tokenUsage.outputTokens).toBe(4)
+  await store.getRecentChatHistory(chat.id, 1)
+  await store.compact()
+  const restored = new EventStore(dataDir); await restored.initialize()
+  expect(restored.requireChat(chat.id).statisticsState).toEqual(before)
+  await restored.recordStatistics(chat.id, { runId: "c", usageOnly: true, events: [e("assistant/message", 800, { stream: [], usage: { inputTokens: 20, outputTokens: 6 } })] })
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.tokenUsage.outputTokens).toBe(10)
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats.steps).toBe(2)
+})
+
+test("restart closes an abandoned model step once without inventing elapsed time", async () => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/crash-statistics", "Example"), chat = await store.createChat(project.id)
+  await store.recordStatistics(chat.id, { runId: "interrupted-process", events: [{ type: "step/start", time: 100, data: { step: 1 } }] })
+  const restored = new EventStore(root); await restored.initialize()
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats).toMatchObject({ steps: 1, turns: 1, llmMs: 0, decodeMs: 0 })
+  const again = new EventStore(root); await again.initialize()
+  expect(again.requireChat(chat.id).statisticsState).toEqual(restored.requireChat(chat.id).statisticsState)
+})
+
+test("older sessions identify incomplete recorded usage until authoritative native counters arrive", async () => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/older-statistics", "Example"), chat = await store.createChat(project.id)
+  await store.recordTurnFinished(chat.id)
+  await store.recordStatistics(chat.id, { runId: "new-observation", events: [] })
+  expect(store.requireChat(chat.id).statisticsState?.snapshot.recordedSince).toBeNumber()
+  await store.recordStatistics(chat.id, { runId: "new-observation", events: [], nativeTokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 10 } })
+  expect(store.requireChat(chat.id).statisticsState?.snapshot.recordedSince).toBeUndefined()
+})
+
+test.each(["claude", "codex"] as const)("%s forks keep context but reset tokens and timing across reload and nested forks", async provider => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/fork-statistics", "Example"), source = await store.createChat(project.id)
+  await store.setChatProvider(source.id, provider)
+  await store.setSessionToken(source.id, "source-session")
+  await store.appendMessage(source.id, entry("user_prompt", 100, { content: "Inherited context" }))
+  await store.appendMessage(source.id, entry("assistant_text", 200, { text: "Inherited answer" }))
+  const observation = (runId: string, inputTokens: number, native: number) => ({ runId,
+    ...(provider === "codex" ? { nativeTokenUsage: { uncachedInputTokens: native, cacheReadTokens: native, cacheWriteTokens: 0, outputTokens: native } } : {}),
+    events: [
+      { type: "step/start", time: 100, data: { step: 1 } },
+      { type: "assistant/message", time: 400, data: { step: 1, stream: [{ type: "chunk", time: 200, chunk: { type: "text-delta", text: "x" } }], usage: { inputTokens, cacheReadTokens: 3, cacheWriteTokens: 2, outputTokens: 4 } } },
+      { type: "step/end", time: 400, data: { step: 1 } },
+    ] })
+  await store.recordStatistics(source.id, observation("parent", 1000, 10000))
+  const parentBefore = structuredClone(store.requireChat(source.id).statisticsState)
+  const fork = await store.forkChat(source.id)
+  expect(fork.statisticsState?.scope).toBe("fork")
+  expect(fork.statisticsState?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 })
+  expect(fork.statisticsState?.snapshot.sessionStats).toMatchObject({ turns: 0, steps: 0, llmMs: 0, decodeMs: 0 })
+  expect(await store.readAllMessages(fork.id)).toEqual(await store.readAllMessages(source.id))
+  expect(store.requireChat(source.id).statisticsState).toEqual(parentBefore)
+  await store.setSessionToken(fork.id, "branch-session")
+  await store.setPendingForkSessionToken(fork.id, null)
+  await store.recordStatistics(fork.id, observation("branch-first", 10, 10010))
+  await store.compact()
+  const restored = new EventStore(root); await restored.initialize()
+  expect(restored.requireChat(fork.id).statisticsState?.scope).toBe("fork")
+  await restored.recordStatistics(fork.id, observation("branch-second", 20, 10030))
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 30, cacheReadTokens: 6, cacheWriteTokens: 4, outputTokens: 8 })
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.sessionStats.steps).toBe(2)
+  const nested = await restored.forkChat(fork.id)
+  expect(nested.statisticsState?.snapshot.tokenUsage.outputTokens).toBe(0)
+  await restored.recordStatistics(nested.id, observation("nested-first", 5, 10035))
+  expect(restored.requireChat(nested.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(5)
+  expect(restored.requireChat(fork.id).statisticsState?.snapshot.tokenUsage.uncachedInputTokens).toBe(30)
+  expect(restored.requireChat(source.id).statisticsState).toEqual(parentBefore)
+})

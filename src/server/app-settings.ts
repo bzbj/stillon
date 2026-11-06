@@ -39,6 +39,7 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
+  showSessionStatistics?: unknown
   workspaceCollapseVersions?: unknown
   workspaceCollapsed?: unknown
   quickCommands?: unknown
@@ -204,6 +205,7 @@ function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | 
 
 function toFilePayload(state: AppSettingsState) {
   return {
+    showSessionStatistics: state.showSessionStatistics === true,
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
@@ -231,6 +233,7 @@ function toFilePayload(state: AppSettingsState) {
 
 function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
   return {
+    showSessionStatistics: state.showSessionStatistics === true,
     browserSettingsMigrated: state.browserSettingsMigrated,
     machineName: state.machineName,
     theme: state.theme,
@@ -289,6 +292,7 @@ function normalizeAppSettings(
   const state: AppSettingsState = {
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     machineName,
+    showSessionStatistics: source?.showSessionStatistics === true,
     theme: normalizeTheme(source?.theme),
     appearance: normalizeAppearance(source?.appearance),
     quickCommands: migrateQuickCommandDefaults(source?.quickCommands),
@@ -331,6 +335,7 @@ function toComparablePayload(source: AppSettingsFile) {
   return {
     browserSettingsMigrated: source.browserSettingsMigrated,
     machineName: source.machineName,
+    showSessionStatistics: source.showSessionStatistics === true,
     theme: source.theme,
     appearance: source.appearance,
     quickCommands: source.quickCommands,
@@ -480,6 +485,7 @@ export class AppSettingsManager {
   }
 
   private async persistPatch(patch: AppSettingsPatch) {
+    if (patch.showSessionStatistics !== undefined && typeof patch.showSessionStatistics !== "boolean") throw new Error("Session statistics must be a boolean.")
     const nextState = {
       ...applyPatch(this.state, patch, this.defaultMachineName),
       warning: null,

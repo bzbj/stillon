@@ -65,3 +65,15 @@ test("malformed deltas cannot publish a partial snapshot", () => {
   expect(() => applyChatDelta(initial, { set: {}, upsert: [], order: ["a", "a"] })).toThrow()
   expect(initial.messages).toHaveLength(1)
 })
+
+test("statistics are metadata deltas independent of transcript paging and replay", () => {
+  const encoder = new ChatStreamEncoder("stats"), decoder = new ChatStreamDecoder("stats")
+  const before = snapshot([entry("a")])
+  decoder.receive(encoder.encode(prepareChatSnapshot(before))!)
+  const statistics = { tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 20, cacheWriteTokens: 5, outputTokens: 10 }, sessionStats: { turns: 1, steps: 1, llmMs: 1000, toolMs: 0, ttftMs: 200, ttftSteps: 1, decodeMs: 800, decodeTokens: 10 } }
+  const delta = encoder.encode(prepareChatSnapshot({ ...before, statistics }))!
+  const result = decoder.receive(delta)
+  expect(result.kind === "apply" && result.snapshot?.statistics).toEqual(statistics)
+  expect(result.kind === "apply" && result.snapshot?.messages[0]).toBe(before.messages[0])
+  expect(decoder.receive(delta).kind).toBe("ignore")
+})

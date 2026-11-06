@@ -1,3 +1,4 @@
+import { ProviderStatistics, providerUsage } from "./provider-statistics"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createInterface } from "node:readline"
@@ -88,6 +89,9 @@ interface PendingRequest<TResult> {
 }
 
 interface PendingTurn {
+  statistics: ProviderStatistics
+  lastUsageSignature?: string
+  usageBeforeStart: Array<{ notification: ThreadTokenUsageUpdatedNotification; receivedAt: number }>
   turnId: string | null
   model: string
   planMode: boolean
@@ -886,6 +890,8 @@ export class CodexAppServerManager {
     queue.push({ type: "transcript", entry: codexSystemInitEntry(args.model) })
 
     const pendingTurn: PendingTurn = {
+      statistics: new ProviderStatistics(event => queue.push(event)),
+      usageBeforeStart: [],
       turnId: null,
       model: args.model,
       planMode: args.planMode,
@@ -904,6 +910,7 @@ export class CodexAppServerManager {
       onApprovalRequest: args.onApprovalRequest,
     }
     context.pendingTurn = pendingTurn
+    pendingTurn.statistics.start()
 
     const permissions = codexAppServerPermissions(args.permissionMode)
     try {
@@ -935,6 +942,9 @@ export class CodexAppServerManager {
         context.pendingTurn.turnId = response.turn.id
       } else {
         pendingTurn.turnId = response.turn.id
+      }
+      for (const usage of pendingTurn.usageBeforeStart.splice(0)) {
+        if (usage.notification.turnId === response.turn.id) this.handleTokenUsageUpdated(pendingTurn, usage.notification, usage.receivedAt)
       }
     } catch (error) {
       context.pendingTurn = null
@@ -1368,9 +1378,24 @@ export class CodexAppServerManager {
 
     const pendingTurn = context.pendingTurn
     if (!pendingTurn) return
+    const scope = notification.params as { threadId?: string; turnId?: string }
+    if (scope.threadId && scope.threadId !== context.sessionToken) return
+    if (scope.turnId && pendingTurn.turnId && scope.turnId !== pendingTurn.turnId) return
 
     switch (notification.method) {
+      case "item/agentMessage/delta":
+      case "item/reasoning/summaryTextDelta":
+      case "item/reasoning/textDelta":
+        pendingTurn.statistics.delta({ type: notification.method === "item/agentMessage/delta" ? "text-delta" : "reasoning-delta", text: notification.params.delta })
+        return
       case "thread/tokenUsage/updated":
+        // Fork/resume hydration has no turn: it describes inherited history,
+        // not a new assistant settlement, even if it arrives during turn/start.
+        if (notification.params.turnId === "") return
+        if (!pendingTurn.turnId) {
+          pendingTurn.usageBeforeStart.push({ notification: notification.params, receivedAt: Date.now() })
+          return
+        }
         this.handleTokenUsageUpdated(pendingTurn, notification.params)
         return
       case "turn/plan/updated":
@@ -1396,6 +1421,7 @@ export class CodexAppServerManager {
         if (threadId && threadId !== context.sessionToken) return
         if (turnId && pendingTurn.turnId && turnId !== pendingTurn.turnId) return
         if (willRetry) {
+          pendingTurn.statistics.retry()
           // Even "Reconnecting... 5/5" is progress while the last retry runs.
           // Keep the turn and pending RPCs alive for recovery or terminal events.
           pendingTurn.queue.push({
@@ -1439,6 +1465,7 @@ export class CodexAppServerManager {
     const entries = itemToToolCalls(notification.item)
     for (const entry of entries) {
       if (entry.kind === "tool_call") {
+        pendingTurn.statistics.toolCall(entry.tool.toolId)
         pendingTurn.startedToolIds.add(entry.tool.toolId)
       }
       pendingTurn.queue.push({ type: "transcript", entry })
@@ -1507,6 +1534,7 @@ export class CodexAppServerManager {
 
     const resultEntries = itemToToolResults(notification.item)
     for (const entry of resultEntries) {
+      if (entry.kind === "tool_result") pendingTurn.statistics.toolResult(entry.toolId)
       pendingTurn.queue.push({ type: "transcript", entry })
       if (notification.item.type === "webSearch" && entry.kind === "tool_result" && !entry.isError) {
         pendingTurn.pendingWebSearchResultToolId = notification.item.id
@@ -1547,7 +1575,20 @@ export class CodexAppServerManager {
   private handleTokenUsageUpdated(
     pendingTurn: PendingTurn,
     notification: ThreadTokenUsageUpdatedNotification,
+    receivedAt = Date.now(),
   ) {
+    const counters = notification.tokenUsage
+    const raw = counters.last_token_usage ?? counters.last
+    const mapped = providerUsage(raw, "codex")
+    const signature = JSON.stringify(counters.total_token_usage ?? counters.total ?? raw)
+    if (mapped && pendingTurn.lastUsageSignature !== signature) {
+      const total = providerUsage(counters.total_token_usage ?? counters.total, "codex")
+      pendingTurn.statistics.complete(mapped, receivedAt, total ? {
+        uncachedInputTokens: total.inputTokens, outputTokens: total.outputTokens,
+        cacheReadTokens: total.cacheReadTokens ?? 0, cacheWriteTokens: total.cacheWriteTokens ?? 0,
+      } : undefined)
+      pendingTurn.lastUsageSignature = signature
+    }
     const usage = normalizeCodexTokenUsage(notification)
     if (!usage) {
       return
@@ -1565,6 +1606,7 @@ export class CodexAppServerManager {
   private async handleTurnCompleted(context: SessionContext, notification: TurnCompletedNotification) {
     const pendingTurn = context.pendingTurn
     if (!pendingTurn) return
+    pendingTurn.statistics.end()
     const status = notification.turn.status
     const isCancelled = status === "interrupted"
     const isError = status === "failed"

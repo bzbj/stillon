@@ -1,0 +1,17 @@
+{
+  "dsh-session-stats": {
+    "version": "0.2.2-rc.1",
+    "source": "lib/types/projection.js",
+    "sha256": "37be74beae672da6facc5269a8a4ce7e2cf81b26a1e2823cf5972fd405d18b1e"
+  },
+  "dsh-token-meter": {
+    "version": "0.2.2-rc.1",
+    "source": "lib/types/usage-projection.js",
+    "sha256": "a91e1aa1c8f96bf5008380d477c523b2d0885509035505adf769796424ae2fdd"
+  },
+  "dsh-llm": {
+    "version": "0.2.2-rc.1",
+    "source": "lib/types/assistant-stream.js",
+    "sha256": "7e0cc96a4d60aed34381b552f9cb4549d70df36dbd28c0630da4cd93fa44b7a1"
+  }
+}

@@ -1,3 +1,4 @@
+import { ClaudeStatistics } from "./claude-statistics"
 import { query, type CanUseTool, type EffortLevel, type PermissionResult, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
 import type {
   AgentPermissionMode,
@@ -561,12 +562,14 @@ export function normalizeClaudeStreamMessage(message: any): TranscriptEntry[] {
   return []
 }
 
-async function* createClaudeHarnessStream(q: Query): AsyncGenerator<HarnessEvent> {
+async function* createClaudeHarnessStream(q: Query, promptStarts: number[]): AsyncGenerator<HarnessEvent> {
+  const statistics = new ClaudeStatistics(promptStarts)
   let seenAssistantUsageIds = new Set<string>()
   let latestUsageSnapshot: ContextWindowUsageSnapshot | null = null
   let lastKnownContextWindow: number | undefined
 
   for await (const sdkMessage of q as AsyncIterable<any>) {
+    for (const event of statistics.observe(sdkMessage)) yield event
     const sessionToken = typeof sdkMessage.session_id === "string" ? sdkMessage.session_id : null
     if (sessionToken) {
       yield { type: "session_token", sessionToken }
@@ -574,7 +577,7 @@ async function* createClaudeHarnessStream(q: Query): AsyncGenerator<HarnessEvent
 
     if (sdkMessage?.type === "assistant") {
       const usageId = getClaudeAssistantMessageUsageId(sdkMessage)
-      const usageSnapshot = normalizeClaudeUsageSnapshot(sdkMessage.usage, lastKnownContextWindow)
+      const usageSnapshot = normalizeClaudeUsageSnapshot(sdkMessage.message?.usage ?? sdkMessage.usage, lastKnownContextWindow)
       if (usageId && usageSnapshot && !seenAssistantUsageIds.has(usageId)) {
         seenAssistantUsageIds.add(usageId)
         latestUsageSnapshot = usageSnapshot
@@ -745,10 +748,12 @@ async function startClaudeSession(args: {
   }
 
   const promptQueue = new AsyncMessageQueue<SDKUserMessage>()
+  const promptStarts: number[] = []
 
   const q = query({
     prompt: promptQueue,
     options: {
+      includePartialMessages: true,
       cwd: args.localPath,
       model: args.model,
       effort: args.effort as EffortLevel | undefined,
@@ -766,7 +771,7 @@ async function startClaudeSession(args: {
 
   return {
     provider: "claude",
-    stream: createClaudeHarnessStream(q),
+    stream: createClaudeHarnessStream(q, promptStarts),
     getAccountInfo: async () => {
       try {
         return await q.accountInfo()
@@ -778,6 +783,7 @@ async function startClaudeSession(args: {
       await q.interrupt()
     },
     sendPrompt: async (content: string) => {
+      promptStarts.push(Date.now())
       promptQueue.push({
         type: "user",
         message: {
@@ -1943,6 +1949,13 @@ export class AgentCoordinator {
           continue
         }
 
+        if (event.type === "statistics" && event.statistics) {
+          const active = this.activeTurns.get(session.chatId)
+          if (!active || active.cancelRequested) continue
+          await this.store.recordStatistics(session.chatId, event.statistics)
+          this.emitStateChange(session.chatId)
+          continue
+        }
         if (!event.entry) continue
         await this.store.appendMessage(session.chatId, event.entry)
         const active = this.activeTurns.get(session.chatId)
@@ -2066,6 +2079,11 @@ export class AgentCoordinator {
           continue
         }
 
+        if (event.type === "statistics" && event.statistics) {
+          await this.store.recordStatistics(active.chatId, event.statistics)
+          this.emitStateChange(active.chatId)
+          continue
+        }
         if (!event.entry) continue
         await this.store.appendMessage(active.chatId, event.entry)
 

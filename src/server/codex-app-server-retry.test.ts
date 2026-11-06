@@ -84,7 +84,8 @@ async function startRetryTurn() {
     chatId: "chat-1", cwd: "/tmp/project", model: "gpt-6.1-sol", sessionToken: null,
   })
   const turn = await manager.startTurn(turnArgs)
-  const iterator = turn.stream[Symbol.asyncIterator]()
+  const observable = async function* (): AsyncGenerator<any> { for await (const event of turn.stream) if (event.type !== "statistics") yield event }
+  const iterator = observable()[Symbol.asyncIterator]()
   await iterator.next() // session token
   await iterator.next() // system initialization
   return { child, manager, turn, iterator }

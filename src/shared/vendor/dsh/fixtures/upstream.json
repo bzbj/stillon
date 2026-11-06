@@ -1,0 +1,1815 @@
+[
+  {
+    "name": "weighted multi-step and overlapping tools",
+    "events": [
+      {
+        "type": "step/start",
+        "time": 100,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 900,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 300,
+              "chunk": {
+                "type": "text-delta",
+                "text": "a"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 900,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "tool/call",
+        "time": 910,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "a"
+        }
+      },
+      {
+        "type": "tool/call",
+        "time": 920,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "b"
+        }
+      },
+      {
+        "type": "tool/result",
+        "time": 1200,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "source": {
+              "callId": "a"
+            }
+          }
+        }
+      },
+      {
+        "type": "tool/result",
+        "time": 1300,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "source": {
+              "callId": "b"
+            }
+          }
+        }
+      },
+      {
+        "type": "step/start",
+        "time": 1300,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 1900,
+        "data": {
+          "turn": 1,
+          "step": 2,
+          "usage": {
+            "inputTokens": 20,
+            "outputTokens": 12,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 1500,
+              "chunk": {
+                "type": "reasoning-delta",
+                "text": "think"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 1900,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "turn/end",
+        "time": 1900,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      }
+    ],
+    "states": [
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 800,
+          "toolMs": 0,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": null,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 0,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 0,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {
+            "a": 910
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 0,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {
+            "a": 910,
+            "b": 920
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 290,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {
+            "b": 920
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 670,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 800,
+          "toolMs": 670,
+          "ttftMs": 200,
+          "ttftSteps": 1,
+          "decodeMs": 600,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": {
+            "turn": 1,
+            "step": 2,
+            "startTime": 1300,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 1400,
+          "toolMs": 670,
+          "ttftMs": 400,
+          "ttftSteps": 2,
+          "decodeMs": 1000,
+          "decodeTokens": 16,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 30,
+            "outputTokens": 16,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 2,
+            "buckets": {
+              "uncachedInputTokens": 20,
+              "outputTokens": 12,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 2,
+          "llmMs": 1400,
+          "toolMs": 670,
+          "ttftMs": 400,
+          "ttftSteps": 2,
+          "decodeMs": 1000,
+          "decodeTokens": 16,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 30,
+            "outputTokens": 16,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 2,
+            "buckets": {
+              "uncachedInputTokens": 20,
+              "outputTokens": 12,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 2,
+          "llmMs": 1400,
+          "toolMs": 670,
+          "ttftMs": 400,
+          "ttftSteps": 2,
+          "decodeMs": 1000,
+          "decodeTokens": 16,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 30,
+            "outputTokens": 16,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 2,
+            "buckets": {
+              "uncachedInputTokens": 20,
+              "outputTokens": 12,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "attempt replacement, retry billing and surviving first token",
+    "events": [
+      {
+        "type": "step/start",
+        "time": 100,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/attempt",
+        "time": 400,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 200,
+              "chunk": {
+                "type": "text-delta",
+                "text": "x"
+              }
+            },
+            {
+              "type": "chunk",
+              "time": 400,
+              "chunk": {
+                "type": "usage",
+                "usage": {
+                  "inputTokens": 10,
+                  "outputTokens": 4,
+                  "cacheReadTokens": 3,
+                  "cacheWriteTokens": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant/attempt",
+        "time": 410,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 410,
+              "chunk": {
+                "type": "usage",
+                "usage": {
+                  "inputTokens": 11,
+                  "outputTokens": 5,
+                  "cacheReadTokens": 3,
+                  "cacheWriteTokens": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "llm/retry-started",
+        "time": 420,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 700,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 30,
+            "outputTokens": 6,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 600,
+              "chunk": {
+                "type": "text-delta",
+                "text": "second"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 710,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 30,
+            "outputTokens": 6,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": []
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 720,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "turn/end",
+        "time": 720,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      }
+    ],
+    "states": [
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 200
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 200
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 11,
+            "outputTokens": 5,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 11,
+              "outputTokens": 5,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 200
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 11,
+            "outputTokens": 5,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 500,
+          "decodeTokens": 6,
+          "lastTurn": null,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 41,
+            "outputTokens": 11,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 30,
+              "outputTokens": 6,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 500,
+          "decodeTokens": 6,
+          "lastTurn": null,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 41,
+            "outputTokens": 11,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 30,
+              "outputTokens": 6,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 500,
+          "decodeTokens": 6,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 41,
+            "outputTokens": 11,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 30,
+              "outputTokens": 6,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 500,
+          "decodeTokens": 6,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 41,
+            "outputTokens": 11,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 30,
+              "outputTokens": 6,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "packed stream, empty deltas and named tool first token",
+    "events": [
+      {
+        "type": "step/start",
+        "time": 100,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 500,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 110,
+              "chunk": {
+                "type": "text-delta",
+                "text": ""
+              }
+            },
+            {
+              "type": "text-chunks",
+              "time0": 120,
+              "texts": [
+                "",
+                "a"
+              ],
+              "dt": [
+                80
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 500,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "time": 600,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 800,
+        "data": {
+          "turn": 1,
+          "step": 2,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "tool-call-chunks",
+              "time0": 620,
+              "name": "read",
+              "args": [
+                ""
+              ],
+              "dt": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 800,
+        "data": {
+          "turn": 1,
+          "step": 2
+        }
+      }
+    ],
+    "states": [
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 400,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 300,
+          "decodeTokens": 4,
+          "lastTurn": null,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 400,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 300,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 400,
+          "toolMs": 0,
+          "ttftMs": 100,
+          "ttftSteps": 1,
+          "decodeMs": 300,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": {
+            "turn": 1,
+            "step": 2,
+            "startTime": 600,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 120,
+          "ttftSteps": 2,
+          "decodeMs": 480,
+          "decodeTokens": 8,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 20,
+            "outputTokens": 8,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 2,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 2,
+          "llmMs": 600,
+          "toolMs": 0,
+          "ttftMs": 120,
+          "ttftSteps": 2,
+          "decodeMs": 480,
+          "decodeTokens": 8,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 20,
+            "outputTokens": 8,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 1,
+            "step": 2,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "cancelled, unmatched prototype call and cleared pending state",
+    "events": [
+      {
+        "type": "step/start",
+        "time": 100,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/attempt",
+        "time": 200,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 150,
+              "chunk": {
+                "type": "reasoning-delta",
+                "text": "x"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "tool/result",
+        "time": 210,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "source": {
+              "callId": "constructor"
+            }
+          }
+        }
+      },
+      {
+        "type": "tool/call",
+        "time": 220,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "constructor"
+        }
+      },
+      {
+        "type": "tool/result",
+        "time": 230,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "source": {
+              "callId": "constructor"
+            }
+          }
+        }
+      },
+      {
+        "type": "tool/call",
+        "time": 240,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "unresolved"
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 250,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "turn/end",
+        "time": 250,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      }
+    ],
+    "states": [
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 150
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 150
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 150
+          },
+          "pendingCalls": {
+            "constructor": 220
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 10,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 150
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 10,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": 150
+          },
+          "pendingCalls": {
+            "unresolved": 240
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 0,
+          "toolMs": 10,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {
+            "unresolved": 240
+          }
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 0,
+          "toolMs": 10,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "zero and one millisecond decode windows stay unfiltered",
+    "events": [
+      {
+        "type": "step/start",
+        "time": 100,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 110,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 110,
+              "chunk": {
+                "type": "text-delta",
+                "text": "x"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 110,
+        "data": {
+          "turn": 1,
+          "step": 1
+        }
+      },
+      {
+        "type": "step/start",
+        "time": 120,
+        "data": {
+          "turn": 2,
+          "step": 1
+        }
+      },
+      {
+        "type": "assistant/message",
+        "time": 131,
+        "data": {
+          "turn": 2,
+          "step": 1,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 100,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "stream": [
+            {
+              "type": "chunk",
+              "time": 130,
+              "chunk": {
+                "type": "text-delta",
+                "text": "x"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "step/end",
+        "time": 131,
+        "data": {
+          "turn": 2,
+          "step": 1
+        }
+      }
+    ],
+    "states": [
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 0,
+          "toolMs": 0,
+          "ttftMs": 0,
+          "ttftSteps": 0,
+          "decodeMs": 0,
+          "decodeTokens": 0,
+          "lastTurn": null,
+          "openStep": {
+            "turn": 1,
+            "step": 1,
+            "startTime": 100,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": null
+        }
+      },
+      {
+        "stats": {
+          "turns": 0,
+          "steps": 0,
+          "llmMs": 10,
+          "toolMs": 0,
+          "ttftMs": 10,
+          "ttftSteps": 1,
+          "decodeMs": 0,
+          "decodeTokens": 4,
+          "lastTurn": null,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 10,
+          "toolMs": 0,
+          "ttftMs": 10,
+          "ttftSteps": 1,
+          "decodeMs": 0,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 10,
+          "toolMs": 0,
+          "ttftMs": 10,
+          "ttftSteps": 1,
+          "decodeMs": 0,
+          "decodeTokens": 4,
+          "lastTurn": 1,
+          "openStep": {
+            "turn": 2,
+            "step": 1,
+            "startTime": 120,
+            "firstTokenTime": null
+          },
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 2
+          },
+          "last": {
+            "turn": 1,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 4,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 1,
+          "steps": 1,
+          "llmMs": 21,
+          "toolMs": 0,
+          "ttftMs": 20,
+          "ttftSteps": 2,
+          "decodeMs": 1,
+          "decodeTokens": 104,
+          "lastTurn": 1,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 20,
+            "outputTokens": 104,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 2,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 100,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      },
+      {
+        "stats": {
+          "turns": 2,
+          "steps": 2,
+          "llmMs": 21,
+          "toolMs": 0,
+          "ttftMs": 20,
+          "ttftSteps": 2,
+          "decodeMs": 1,
+          "decodeTokens": 104,
+          "lastTurn": 2,
+          "openStep": null,
+          "pendingCalls": {}
+        },
+        "usage": {
+          "totals": {
+            "uncachedInputTokens": 20,
+            "outputTokens": 104,
+            "cacheReadTokens": 6,
+            "cacheWriteTokens": 4
+          },
+          "last": {
+            "turn": 2,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 10,
+              "outputTokens": 100,
+              "cacheReadTokens": 3,
+              "cacheWriteTokens": 2
+            }
+          }
+        }
+      }
+    ]
+  }
+]

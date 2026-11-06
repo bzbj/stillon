@@ -68,6 +68,7 @@ function expectedDisplayPath(filePath: string) {
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
+    showSessionStatistics: false,
     codexTransport: "app-server",
     codexApiTransport: "auto",
     quickCommands: defaultQuickCommands(),
@@ -462,3 +463,19 @@ test("Codex HTTPS preference persists without changing proxy settings and reject
   } finally { manager.dispose() }
 })
 
+test("statistics default off, survive unrelated patches/reload, and reject invalid writes atomically", async () => {
+  const filePath = await createTempFilePath(), manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    expect(manager.getSnapshot().showSessionStatistics).toBe(false)
+    expect((await manager.writePatch({ showSessionStatistics: true })).showSessionStatistics).toBe(true)
+    await manager.writePatch({ theme: "dark" })
+    await manager.reload()
+    expect((await readAppSettingsSnapshot(filePath)).showSessionStatistics).toBe(true)
+    const saved = await readFile(filePath, "utf8")
+    await expect(manager.writePatch({ showSessionStatistics: "yes" } as never)).rejects.toThrow("boolean")
+    expect(await readFile(filePath, "utf8")).toBe(saved)
+    expect(manager.getSnapshot().showSessionStatistics).toBe(true)
+    expect((await manager.writePatch({ showSessionStatistics: false })).showSessionStatistics).toBe(false)
+  } finally { manager.dispose() }
+})

@@ -270,6 +270,7 @@ export function deriveChatSnapshot(
       attachments: [...entry.attachments],
       ...(entry.id === steeringQueuedMessageId ? { sendingNow: true } : {}),
     })),
+    statistics: chat.statisticsState?.snapshot ?? null,
     messages: transcript.messages,
     history: transcript.history,
     availableProviders: [...SERVER_PROVIDERS, ...addonProviders],

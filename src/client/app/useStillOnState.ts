@@ -141,7 +141,8 @@ function sameQueuedMessages(left: ChatSnapshot["queuedMessages"] | null | undefi
 function sameChatSnapshotCore(left: ChatSnapshot | null, right: ChatSnapshot | null) {
   if (left === right) return true
   if (!left || !right) return false
-  return sameRuntime(left.runtime, right.runtime)
+  return JSON.stringify(left.statistics) === JSON.stringify(right.statistics)
+    && sameRuntime(left.runtime, right.runtime)
     && sameQueuedMessages(left.queuedMessages, right.queuedMessages)
     && sameTranscriptEntries(left.messages, right.messages)
     && sameHistory(left.history, right.history)
@@ -679,6 +680,7 @@ export function getActiveChatSnapshot(chatSnapshot: ChatSnapshot | null, activeC
 }
 
 export interface StillOnState {
+  statistics?: import("../../shared/session-statistics").SessionStatistics | null
   socket: StillOnSocket
   activeChatId: string | null
   activeProjectId: string | null
@@ -1335,6 +1337,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
   const messages = useMemo(() => processMessages(transcriptEntries), [processMessages, transcriptEntries])
   const previousPrompt = useMemo(() => getPreviousPrompt(messages), [messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
+  const statistics = activeChatSnapshot?.statistics ?? null
   const runtime = activeChatSnapshot?.runtime ?? null
   const composerPreferencesReady = activeChatId
     ? chatReady && Boolean(runtime?.lastTurnPreferences || appSettings)
@@ -2333,6 +2336,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     queuedMessages,
     previousPrompt,
     latestToolIds,
+    statistics,
     runtime,
     runtimeStatus: effectiveRuntimeStatus,
     isHistoryLoading,

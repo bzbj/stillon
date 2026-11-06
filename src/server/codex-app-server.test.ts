@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
+import { createForkSessionStatistics, updateSessionStatistics, type StatisticsRecord } from "../shared/session-statistics"
 import { APP_VERSION } from "../shared/branding"
 import { getCodexModelForRole } from "../shared/types"
 import { CodexAppServerManager } from "./codex-app-server"
@@ -296,6 +297,9 @@ describe("CodexAppServerManager", () => {
     const events = await collectStream(turn.stream)
     const usageEvent = events.find((event) => event.type === "transcript" && event.entry.kind === "context_window_updated")
 
+    const statistics = events.reduce<StatisticsRecord | undefined>((state, event) => event.statistics ? updateSessionStatistics(state, event.statistics) : state, undefined)
+    expect(statistics?.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 8377, cacheReadTokens: 3456, cacheWriteTokens: 0, outputTokens: 6 })
+    expect(statistics?.snapshot.sessionStats.steps).toBe(1)
     expect(usageEvent).toBeDefined()
     if (!usageEvent || usageEvent.type !== "transcript" || usageEvent.entry.kind !== "context_window_updated") {
       throw new Error("missing usage event")
@@ -1934,4 +1938,35 @@ test("stopAll confirms the npm launcher and native server are gone without stopp
   await manager.stopAll()
   expect(signaled).toEqual([123, 124])
   expect(processes.map(item => item.pid)).toEqual([125])
+})
+
+test.each([[true, ""], [false, ""], [true, "old-turn"], [false, "old-turn"]] as const)("fork/resume hydration during turn/start cannot count inherited usage (before response=%s, old turn=%s)", async (beforeResponse, oldTurn) => {
+  const inherited = { totalTokens: 1100, inputTokens: 1000, cachedInputTokens: 200, outputTokens: 100 }
+  const child = new FakeCodexProcess((message, process) => {
+    if (message.method === "initialize") process.writeServerMessage({ id: message.id, result: {} })
+    if (message.method === "thread/fork") process.writeServerMessage({ id: message.id, result: { thread: { id: "fork-thread" } } })
+    if (message.method === "turn/start") {
+      const bootstrap = { method: "thread/tokenUsage/updated", params: { threadId: "fork-thread", turnId: oldTurn, tokenUsage: { total: inherited, last: inherited } } }
+      const delta = { method: "item/agentMessage/delta", params: { threadId: "fork-thread", turnId: "new-turn", itemId: "answer", delta: "new" } }
+      const usage = { method: "thread/tokenUsage/updated", params: { threadId: "fork-thread", turnId: "new-turn", tokenUsage: { total: { inputTokens: 1100, cachedInputTokens: 220, outputTokens: 110 }, last: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 } } } }
+      if (beforeResponse) {
+        process.writeServerMessage(bootstrap); process.writeServerMessage(delta); process.writeServerMessage(usage)
+      }
+      process.writeServerMessage({ id: message.id, result: { turn: { id: "new-turn", status: "inProgress", error: null } } })
+      if (!beforeResponse) {
+        process.writeServerMessage(bootstrap); process.writeServerMessage(delta); process.writeServerMessage(usage)
+      }
+      process.writeServerMessage(usage)
+      process.writeServerMessage({ method: "turn/completed", params: { threadId: "fork-thread", turn: { id: "new-turn", status: "completed", error: null } } })
+    }
+  })
+  const manager = new CodexAppServerManager({ spawnProcess: () => child as never })
+  try {
+    await manager.startSession({ chatId: "fork", cwd: "/tmp/example", model: "gpt-5.4", sessionToken: null, pendingForkSessionToken: "parent" })
+    const turn = await manager.startTurn({ chatId: "fork", model: "gpt-5.4", content: "Continue", planMode: false, onToolRequest: async () => ({}) })
+    let state = createForkSessionStatistics()
+    for await (const event of turn.stream) if (event.statistics) state = updateSessionStatistics(state, event.statistics)
+    expect(state.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 80, cacheReadTokens: 20, cacheWriteTokens: 0, outputTokens: 10 })
+    expect(state.snapshot.sessionStats.steps).toBe(1)
+  } finally { manager.stopAll() }
 })

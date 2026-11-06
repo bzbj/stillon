@@ -50,6 +50,16 @@ try {
         token = session!
         if (marker === "MAC_QUESTION") assert.equal(questions, 1)
       }
+      if (provider === "deepseek" && marker !== "MAC_HOLD") {
+        const native = events.flatMap(event => event.statistics && "native" in event.statistics ? [event.statistics.native] : []).at(-1)
+        assert(native, "native session projections must be relayed by the SDK bridge")
+        const completed = fixture.requests.filter(request => request.marker !== "MAC_HOLD").length
+        assert.equal(native.tokenUsage.uncachedInputTokens, completed * 10)
+        assert.equal(native.tokenUsage.outputTokens, completed * 3)
+        assert.equal(native.sessionStats.steps, completed)
+        assert(native.sessionStats.llmMs > 0)
+        assert.equal(native.sessionStats.turns, ["MAC_TEXT", "MAC_RESUME", "MAC_READ", "MAC_QUESTION"].indexOf(marker) + 1)
+      }
       manager = new ProviderAddons(data, () => fixture.environment); await manager.initialize(bundles)
       console.log(`PASS ${process.arch}: ${provider} ${marker}, bundled adapter and real public CLI`)
     }
@@ -81,6 +91,16 @@ try {
       assert.equal(page.messages.filter(event => event.kind === "result" && !event.isError).length, 2, "question results must not truncate the persisted transcript")
       assert(page.messages.some(event => event.kind === "assistant_text" && event.text === "MAC_TEXT_OK"))
       assert(page.messages.some(event => event.kind === "assistant_text" && event.text === "MAC_QUESTION_OK"))
+      if (provider === "deepseek") {
+        const stats = store.requireChat(chat.id).statisticsState?.snapshot
+        assert(stats, "native statistics survive coordinator persistence")
+        assert.equal(stats.tokenUsage.outputTokens, 9)
+        assert.equal(stats.sessionStats.steps, 3)
+        assert.equal(stats.sessionStats.turns, 2)
+        await store.compact()
+        const restored = new EventStore(data); await restored.initialize()
+        assert.deepEqual(restored.requireChat(chat.id).statisticsState?.snapshot, stats)
+      }
       assert.deepEqual(fixture.errors, [])
       console.log(`PASS ${process.arch}: ${provider} coordinator questions preserve paginated chat history`)
     }

@@ -12,7 +12,7 @@ export type ChatStreamFrame =
   | { type: "snapshot"; data: ChatSnapshot | null; stream: ChatStreamStamp }
   | { type: "chat-delta"; delta: ChatDelta; stream: ChatStreamStamp; baseRevision: number }
 
-const metadataKeys = ["runtime", "queuedMessages", "history", "availableProviders", "asyncQuestionResponses"] as const
+const metadataKeys = ["statistics", "runtime", "queuedMessages", "history", "availableProviders", "asyncQuestionResponses"] as const
 // Only one bounded recent window, never an unbounded delta log or full history.
 export const MAX_CHAT_STREAM_CACHE_CHARACTERS = 2 * 1024 * 1024
 export interface PreparedChatSnapshot {
@@ -33,7 +33,7 @@ export function prepareChatSnapshot(snapshot: ChatSnapshot | null): PreparedChat
     entries.set(entry._id, json)
   }
   if (snapshot) for (const key of metadataKeys) {
-    const json = JSON.stringify(snapshot[key])
+    const json = JSON.stringify(snapshot[key] ?? null)
     metadata.set(key, json)
     size += json.length
   }

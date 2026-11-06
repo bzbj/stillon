@@ -1,3 +1,6 @@
+import { rm } from "node:fs/promises"
+import { statisticsPatch } from "./statistics-patch"
+import { sessionStatisticsSchema } from "../../../src/shared/session-statistics"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { normalizeToolCall } from "../../../src/shared/tools"
@@ -146,6 +149,7 @@ export function startDeepSeekTurn(args: {
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
 }, dependencies = { discover: discoverDeepSeek, version: deepSeekVersion, spawn: spawnDeepSeek }): HarnessTurn {
   let rpc: DeepSeekRpc | undefined
+  let statisticsDirectory: string | undefined
   let cancelled = false
   let wake: (() => void) | undefined
   const frames: Frame[] = []
@@ -153,7 +157,7 @@ export function startDeepSeekTurn(args: {
   let failure: Error | undefined
   const enqueue = (frame: Frame) => { frames.push(frame); wake?.(); wake = undefined }
   const sessionId = args.sessionToken ?? randomUUID()
-  const close = async () => { if (rpc) await rpc.close() }
+  const close = async () => { try { if (rpc) await rpc.close() } finally { if (statisticsDirectory) await rm(statisticsDirectory, { recursive: true, force: true }) } }
   return {
     provider: "deepseek",
     interrupt: async () => { cancelled = true; await close(); wake?.() },
@@ -166,9 +170,13 @@ export function startDeepSeekTurn(args: {
           const executable = await dependencies.discover(args.environment)
           const version = await dependencies.version(executable, args.environment)
           if (cancelled) return
+          const stats = await statisticsPatch()
+          statisticsDirectory = stats.directory
+          if (cancelled) return
           rpc = new DeepSeekRpc(dependencies.spawn(executable, args.cwd, { ...args.environment,
+            STILLON_DSH_STATISTICS_SESSION_ID: sessionId,
             DSH_PERMISSION_MODE: args.permissionMode === "full" ? "danger-full-access" : "workspace-write",
-          }))
+          }, ["--patch", stats.patch]))
           rpc.onNotification = enqueue
           rpc.onFailure = error => { failure = error; wake?.(); wake = undefined }
           rpc.onRequest = async frame => {
@@ -207,7 +215,7 @@ export function startDeepSeekTurn(args: {
           if (args.sessionToken) await rpc.request("session/resume", { sessionId })
           // The shipped SDK profile consumes DSH_PERMISSION_MODE at boot. This works
           // with Desktop 0.2.1-rc.5, which predates the session/query RPC.
-          frames.length = 0
+          for (let i = frames.length - 1; i >= 0; i--) if (frames[i]?.method !== "stillon.statistics") frames.splice(i, 1)
           yield { type: "session_token", sessionToken: sessionId }
           yield { type: "transcript", entry: entry({ kind: "system_init", provider: "deepseek", model: args.model, tools: [], agents: [], slashCommands: [], mcpServers: [] }) }
           const receipt = await rpc.request("session/prompt", { sessionId, contentBlocks: [{ type: "text", text: args.content }] })
@@ -223,6 +231,11 @@ export function startDeepSeekTurn(args: {
             const frame = frames.shift()!
             if (frame.method === "stillon.tool") { yield { type: "transcript", entry: entry({ kind: "tool_call", tool: frame.params }) }; continue }
             if (frame.params?.sessionId !== sessionId) continue
+            if (frame.method === "stillon.statistics") {
+              const parsed = sessionStatisticsSchema.safeParse(frame.params.statistics)
+              if (parsed.success) yield { type: "statistics", statistics: { native: parsed.data } }
+              continue
+            }
             if (frame.method === "session.status") {
               if (admitted && frame.params.status === "idle") finished = true
               continue
