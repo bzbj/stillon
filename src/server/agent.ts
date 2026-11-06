@@ -408,6 +408,37 @@ function getClaudeAssistantMessageUsageId(message: any): string | null {
   return null
 }
 
+const CLAUDE_ABORTED_TERMINAL_REASONS = new Set(["aborted_streaming", "aborted_tools"])
+
+const CLAUDE_ERROR_SUBTYPE_TEXT: Record<string, string> = {
+  error_max_turns: "Claude stopped after reaching the maximum number of turns.",
+  error_max_budget_usd: "Claude stopped after reaching the spending limit.",
+  error_max_structured_output_retries: "Claude could not produce valid structured output.",
+  error_during_execution: "Claude stopped because of an error during execution.",
+}
+
+/** The SDK reports an interrupted turn as an `error_during_execution` result with an abort terminal reason. */
+function isClaudeAbortedTurnResult(message: any) {
+  return message?.is_error === true
+    && typeof message.terminal_reason === "string"
+    && CLAUDE_ABORTED_TERMINAL_REASONS.has(message.terminal_reason)
+}
+
+/** Only success results carry `result`; error subtypes describe the failure in `errors`. */
+function claudeResultText(message: any): string {
+  if (typeof message.result === "string") return message.result
+  if (message.result !== undefined && message.result !== null) return stringFromUnknown(message.result) ?? ""
+  if (!message.is_error) return ""
+  const errors = Array.isArray(message.errors)
+    ? message.errors
+      .filter((error: unknown): error is string => typeof error === "string")
+      // Internal SDK diagnostics are not user-facing error text.
+      .filter((error: string) => error.trim() && !error.startsWith("[ede_diagnostic]"))
+    : []
+  if (errors.length > 0) return errors.join("\n")
+  return CLAUDE_ERROR_SUBTYPE_TEXT[message.subtype] ?? ""
+}
+
 export function normalizeClaudeStreamMessage(message: any): TranscriptEntry[] {
   const debugRaw = JSON.stringify(message)
   const messageId = typeof message.uuid === "string" ? message.uuid : undefined
@@ -486,6 +517,12 @@ export function normalizeClaudeStreamMessage(message: any): TranscriptEntry[] {
     if (message.subtype === "cancelled") {
       return [timestamped({ kind: "interrupted", messageId, debugRaw })]
     }
+    if (isClaudeAbortedTurnResult(message)) {
+      // StillOn only aborts a Claude turn from cancel()/steer, which already
+      // recorded its own interrupt marker. Keep this one hidden so it closes
+      // the prompt without showing a second notice or a textless error.
+      return [timestamped({ kind: "interrupted", hidden: true, messageId, debugRaw })]
+    }
     return [
       timestamped({
         kind: "result",
@@ -493,7 +530,7 @@ export function normalizeClaudeStreamMessage(message: any): TranscriptEntry[] {
         subtype: message.is_error ? "error" : "success",
         isError: Boolean(message.is_error),
         durationMs: typeof message.duration_ms === "number" ? message.duration_ms : 0,
-        result: typeof message.result === "string" ? message.result : stringFromUnknown(message.result),
+        result: claudeResultText(message),
         costUsd: typeof message.total_cost_usd === "number" ? message.total_cost_usd : undefined,
         debugRaw,
       }),

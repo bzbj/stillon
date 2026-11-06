@@ -53,8 +53,19 @@ export function createTranscriptProcessor() {
 export function processTranscriptMessages(entries: TranscriptEntry[], cache?: TranscriptProcessingCache): HydratedTranscriptMessage[] {
   const pendingToolCalls = new Map<string, { hydrated: HydratedToolCall; normalized: NormalizedToolCall; entry: TranscriptEntry; index: number }>()
   const messages: HydratedTranscriptMessage[] = []
+  let interruptedSinceResult = false
 
   for (const entry of entries) {
+    if (entry.kind === "interrupted") {
+      interruptedSinceResult = true
+    } else if (entry.kind === "result") {
+      // Older Claude runs saved the SDK's textless abort result after StillOn's
+      // own interrupt marker; it is not a failure, so do not show it as one.
+      const abortedTurnResult = interruptedSinceResult && entry.isError && !entry.result?.trim()
+      interruptedSinceResult = false
+      if (abortedTurnResult) continue
+    }
+
     const cacheable = entry.kind !== "tool_call" && entry.kind !== "tool_result"
     const cached = cacheable ? cache?.entries.get(entry) : undefined
     if (cached) { messages.push(cached); continue }

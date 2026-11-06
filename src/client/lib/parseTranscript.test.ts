@@ -13,6 +13,32 @@ function entry(partial: Omit<TranscriptEntry, "_id" | "createdAt">): TranscriptE
 }
 
 describe("processTranscriptMessages", () => {
+  test("hides the textless abort result saved after a steered interrupt", () => {
+    const process = createTranscriptProcessor()
+    const transcript = [
+      entry({ kind: "interrupted", hidden: true }),
+      entry({ kind: "user_prompt", content: "Delete it instead" }),
+      entry({ kind: "result", subtype: "error", isError: true, durationMs: 354864, result: undefined as unknown as string }),
+      entry({ kind: "assistant_text", text: "Deleting it now." }),
+      entry({ kind: "result", subtype: "error", isError: true, durationMs: 10, result: "" }),
+    ]
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      const messages = process(transcript)
+      // The stale abort result is dropped; a later failure without an interrupt still shows.
+      expect(messages.map((message) => message.kind)).toEqual(["interrupted", "user_prompt", "assistant_text", "result"])
+      expect(messages[3]?.kind === "result" && messages[3].success).toBe(false)
+    }
+  })
+
+  test("keeps error results that carry text after an interrupt", () => {
+    const messages = processTranscriptMessages([
+      entry({ kind: "interrupted" }),
+      entry({ kind: "result", subtype: "error", isError: true, durationMs: 1, result: "Model request failed" }),
+    ])
+    expect(messages.map((message) => message.kind)).toEqual(["interrupted", "result"])
+  })
+
   test("hydrates tool results onto prior tool calls", () => {
     const messages = processTranscriptMessages([
       entry({
