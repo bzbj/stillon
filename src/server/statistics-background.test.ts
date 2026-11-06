@@ -251,3 +251,28 @@ test("a late statistics failure after disabling cannot publish a new statistics 
   expect(publications).toBe(0)
   expect(store.getPublishedStatistics(chat.id)).toBeNull()
 })
+
+test("concurrent explicit saves both wait for the checkpoint containing their observations", async () => {
+  const { store, chat } = await fixture()
+  const firstGate = deferred(), secondGate = deferred(), secondEntered = deferred()
+  const original = (store as any).appendStatistics.bind(store)
+  let writes = 0, secondDone = false
+  ;(store as any).appendStatistics = async (payload: string) => {
+    if (++writes === 1) await firstGate.promise
+    else { secondEntered.release(); await secondGate.promise }
+    await original(payload)
+  }
+  const first = store.recordStatistics(chat.id, observations[0]!)
+  const second = store.recordStatistics(chat.id, observations[2]!).then(() => { secondDone = true })
+  firstGate.release()
+  try {
+    await secondEntered.promise
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(secondDone).toBe(false)
+  } finally { secondGate.release(); await Promise.all([first, second]) }
+  expect(writes).toBe(2)
+  const restored = new EventStore(store.dataDir, () => "enabled")
+  await restored.initialize()
+  expect(restored.requireChat(chat.id).statisticsState?.snapshot.tokenUsage.outputTokens).toBe(4)
+  await restored.closeStatistics()
+})

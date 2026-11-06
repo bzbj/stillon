@@ -1355,6 +1355,7 @@ export class EventStore {
     this.enqueueStatistics(chatId, input)
     await this.flushStatistics()
     if (this.statisticsDirty.has(chatId)) await this.flushStatistics()
+    await this.statisticsWriteChain
   }
 
   /** Publish the final view immediately without waiting for disk. */
