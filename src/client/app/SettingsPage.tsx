@@ -2415,7 +2415,7 @@ function OwnerSettingsPage() {
                       {providerTab === "deepseek" && state.availableProviders.find(p => p.id === "deepseek")?.capabilities?.modelManagement && <HarnessModelsPanel onDefaultModel={model => { handleProviderDefaultModelChange("deepseek", model); handleProviderDefaultModelOptionsChange("deepseek", { reasoningEffort: "default" }) }} />}
                     </AgentSetupPanel>
                     {isAddonProvider(providerTab) && state.availableProviders.some(provider => provider.id === providerTab) && <div>
-                      <SettingsRow title={`${providerTab === "deepseek" ? "DeepSeek Harness" : "CodeBuddy"} Defaults`} description={providerTab === "deepseek" ? "Choose an enabled Harness model and its reasoning level." : "Use the model and credentials configured in your local CodeBuddy CLI."} alignStart>
+                      <SettingsRow title="DeepSeek Harness Defaults" description="Choose an enabled Harness model and its reasoning level." alignStart>
                         <ChatPreferenceControls availableProviders={state.availableProviders} selectedProvider={providerTab} showProviderPicker={false} providerLocked
                           model={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).model}
                           modelOptions={normalizeAddonPreference(providerTab, providerDefaults[providerTab]).modelOptions}

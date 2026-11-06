@@ -462,19 +462,3 @@ test("Codex HTTPS preference persists without changing proxy settings and reject
   } finally { manager.dispose() }
 })
 
-
-test("CodeBuddy settings remain independent of DeepSeek and built-ins after patch and reload", async () => {
-  const filePath = await createTempFilePath(), manager = new AppSettingsManager(filePath)
-  try {
-    await manager.initialize()
-    const before = manager.getSnapshot().providerDefaults
-    await manager.writePatch({ defaultProvider: "codebuddy", providerDefaults: { codebuddy: { model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "request" } } })
-    await manager.writePatch({ providerDefaults: { codebuddy: { permissionMode: "full" } } })
-    const reloaded = await readAppSettingsSnapshot(filePath)
-    expect(reloaded.defaultProvider).toBe("codebuddy")
-    expect(reloaded.providerDefaults.codebuddy).toEqual({ model: "default", modelOptions: { reasoningEffort: "default" }, permissionMode: "full" })
-    expect(reloaded.providerDefaults.deepseek).toEqual(before.deepseek)
-    expect(reloaded.providerDefaults.claude).toEqual(before.claude)
-    expect(reloaded.providerDefaults.codex).toEqual(before.codex)
-  } finally { manager.dispose() }
-})

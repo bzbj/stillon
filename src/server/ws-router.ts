@@ -1,4 +1,3 @@
-import { normalizeAddonPreference } from "../shared/types"
 import { normalizeSidebarView } from "../shared/sidebar-view"
 import { encodeSidebarEnvelope } from "../shared/sidebar-wire"
 import { workspaceState, workspaceTopicAllowed, workspaceCommandAllowed } from "./workspace-access"
@@ -577,7 +576,6 @@ export function createWsRouter({
       ...patch.network,
     },
     providerDefaults: {
-      ...((snapshot.providerDefaults.codebuddy || patch.providerDefaults?.codebuddy) ? { codebuddy: normalizeAddonPreference("codebuddy", { ...snapshot.providerDefaults.codebuddy, ...patch.providerDefaults?.codebuddy, modelOptions: { ...snapshot.providerDefaults.codebuddy?.modelOptions, ...patch.providerDefaults?.codebuddy?.modelOptions } }) } : {}),
       deepseek: normalizeDeepSeekPreference({ ...snapshot.providerDefaults.deepseek, ...patch.providerDefaults?.deepseek, modelOptions: { ...snapshot.providerDefaults.deepseek?.modelOptions, ...patch.providerDefaults?.deepseek?.modelOptions } }),
       claude: {
         ...snapshot.providerDefaults.claude,
@@ -1430,7 +1428,7 @@ export function createWsRouter({
         case "chat.startQuickCommand": {
           if (typeof command.name !== "string" || !command.name.trim() || command.name.length > 100
             || typeof command.content !== "string" || !command.content.trim() || command.content.length > 50_000) throw new Error("Invalid quick command")
-          if (!command.preferences || !["claude", "codex", "deepseek", "codebuddy"].includes(command.preferences.provider)
+          if (!command.preferences || !["claude", "codex", "deepseek"].includes(command.preferences.provider)
             || typeof command.preferences.model !== "string" || !command.preferences.model.trim()) throw new Error("Invalid quick command preferences")
           const chat = await store.createChat(command.projectId)
           await store.renameChat(chat.id, command.name)

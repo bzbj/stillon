@@ -3,18 +3,18 @@ import type { ProviderCatalogEntry } from "./types"
 
 export const ADDON_API = 1
 export const MAX_ADDON_BYTES = 4 * 1024 * 1024
-export const BUNDLED_INTEGRATIONS = { deepseek: "DeepSeek Harness", codebuddy: "CodeBuddy CLI (Preview)" } as const
+export const BUNDLED_INTEGRATIONS = { deepseek: "DeepSeek Harness" } as const
 const version = z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/u)
 const option = z.object({ id: z.string().min(1).max(128), label: z.string().min(1).max(128) })
 export const addonManifestSchema = z.object({
   format: z.literal(1),
   // Provider IDs are persisted wire identities and cannot shadow built-ins.
-  id: z.enum(["deepseek", "codebuddy"]), name: z.string().min(1).max(100), version,
+  id: z.enum(["deepseek"]), name: z.string().min(1).max(100), version,
   hostApi: z.number().int(),
   targets: z.array(z.string().regex(/^(win32|darwin|linux)-(x64|arm64)$/u)).min(1),
   testedCliVersions: z.array(version).min(1),
   catalog: z.object({
-    id: z.enum(["deepseek", "codebuddy"]), label: z.string().min(1).max(100), defaultModel: z.string().min(1).max(128),
+    id: z.enum(["deepseek"]), label: z.string().min(1).max(100), defaultModel: z.string().min(1).max(128),
     defaultEffort: z.string().max(64).optional(),
     models: z.array(option.extend({ supportsEffort: z.boolean() })).min(1).max(100),
     efforts: z.array(option).max(20),

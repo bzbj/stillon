@@ -16,5 +16,4 @@ export const PROVIDER_SETUP_GUIDES = {
   codex: "https://developers.openai.com/codex/cli",
   claude: "https://code.claude.com/docs/en/setup",
   deepseek: "https://www.deepseek.com/harness/",
-  codebuddy: "https://www.codebuddy.ai/docs/cli/quickstart",
 } as const

@@ -74,7 +74,7 @@ type LegacyPersistedChatPreferencesState = Partial<{
 }>
 
 type PersistedComposerState =
-  | { provider: "deepseek" | "codebuddy"; model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
+  | { provider: "deepseek"; model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
   | {
     provider: "claude"
     model?: string
@@ -147,7 +147,6 @@ export function createDefaultProviderDefaults(): ChatProviderPreferences {
 
 export function normalizeProviderDefaults(value?: {
   deepseek?: { model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
-  codebuddy?: { model?: string; modelOptions?: Partial<DeepSeekModelOptions>; permissionMode?: unknown }
   claude?: {
     model?: string
     effort?: string
@@ -165,7 +164,6 @@ export function normalizeProviderDefaults(value?: {
     claude: normalizeClaudePreference(value?.claude),
     codex: normalizeCodexPreference(value?.codex),
     deepseek: normalizeDeepSeekPreference(value?.deepseek),
-    ...(value?.codebuddy ? { codebuddy: normalizeAddonPreference("codebuddy", value.codebuddy) } : {}),
   }
 }
 
@@ -203,7 +201,7 @@ export function composerFromProviderDefaults(
 }
 
 function cloneComposerState(state: ComposerState): ComposerState {
-  if (state.provider === "deepseek" || state.provider === "codebuddy") return { provider: state.provider, ...normalizeAddonPreference(state.provider, state) }
+  if (state.provider === "deepseek") return { provider: state.provider, ...normalizeAddonPreference(state.provider, state) }
   return state.provider === "claude"
     ? {
       provider: "claude",
@@ -228,7 +226,7 @@ function sameComposerState(left: ComposerState | undefined, right: ComposerState
       && left.modelOptions.contextWindow === right.modelOptions.contextWindow
   }
 
-  if ((left.provider === "deepseek" || left.provider === "codebuddy") && (right.provider === "deepseek" || right.provider === "codebuddy")) return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
+  if (left.provider === "deepseek" && right.provider === "deepseek") return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
 
   if (left.provider === "codex" && right.provider === "codex") {
     return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
@@ -549,7 +547,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         set((state) => ({
           chatStates: {
             ...state.chatStates,
-            [chatId]: (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+            [chatId]: composerState.provider === "deepseek"
               ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, composerState) }
               : composerState.provider === "claude"
               ? {
@@ -570,7 +568,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         set((state) => withChatComposerState(state, chatId, () => composerFromProviderDefaults(provider, state.providerDefaults))),
       setChatComposerModel: (chatId, model) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+          composerState.provider === "deepseek"
             ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, model }) }
             : composerState.provider === "claude"
             ? {
@@ -597,7 +595,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         ))),
       setChatComposerModelOptions: (chatId, modelOptions) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+          composerState.provider === "deepseek"
             ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, modelOptions: { ...composerState.modelOptions, ...modelOptions as Partial<DeepSeekModelOptions> } }) }
             : composerState.provider === "claude"
             ? {
@@ -627,7 +625,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         ))),
       setChatComposerPermissionMode: (chatId, permissionMode) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
-          (composerState.provider === "deepseek" || composerState.provider === "codebuddy")
+          composerState.provider === "deepseek"
             ? { provider: composerState.provider, ...normalizeAddonPreference(composerState.provider, { ...composerState, permissionMode }) }
             : composerState.provider === "claude"
             ? {

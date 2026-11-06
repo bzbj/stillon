@@ -91,7 +91,7 @@ model routing without calling an external inference API.
 The last command consumes real API usage and exercises a separately built and
 installed add-on in an isolated workspace. See
 [the add-on architecture](../../docs/provider-add-on-packages.md) for the remaining
-distribution, CodeBuddy, cross-platform and managed Connect acceptance work.
+distribution, cross-platform and managed Connect acceptance work.
 
 Configuration and model-list writes are local-owner only; authenticated Connect
 clients consume the saved list and use chats under existing workspace permissions.

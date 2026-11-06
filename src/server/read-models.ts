@@ -32,7 +32,7 @@ function canForkChat(
   activeStatuses: Map<string, StillOnStatus>,
   drainingChatIds: Set<string>,
 ) {
-  if (!chat.provider || chat.provider === "deepseek" || chat.provider === "codebuddy") return false
+  if (!chat.provider || chat.provider === "deepseek") return false
   if (!chat.sessionToken && !chat.pendingForkSessionToken) return false
   if (activeStatuses.has(chat.id)) return false
   if (drainingChatIds.has(chat.id)) return false

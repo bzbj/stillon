@@ -14,7 +14,7 @@ interface ChatInputDockProps {
   runtimeStatus: string | null
   canCancel: boolean
   projectId: string | null
-  activeProvider: "claude" | "codex" | "deepseek" | "codebuddy" | null
+  activeProvider: "claude" | "codex" | "deepseek" | null
   codexTransport: CodexTransport | null
   preferencesReady: boolean
   availableProviders: StillOnState["availableProviders"]

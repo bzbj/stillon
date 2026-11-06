@@ -325,7 +325,7 @@ function readLegacyBrowserSettingsPatch(): AppSettingsPatch | null {
   }
 
   const chatPreferencesState = readPersistedZustandState(LEGACY_CHAT_PREFERENCES_STORAGE_KEY)
-  if (chatPreferencesState?.defaultProvider === "deepseek" || chatPreferencesState?.defaultProvider === "codebuddy" || chatPreferencesState?.defaultProvider === "last_used" || chatPreferencesState?.defaultProvider === "claude" || chatPreferencesState?.defaultProvider === "codex") {
+  if (chatPreferencesState?.defaultProvider === "deepseek" || chatPreferencesState?.defaultProvider === "last_used" || chatPreferencesState?.defaultProvider === "claude" || chatPreferencesState?.defaultProvider === "codex") {
     patch.defaultProvider = chatPreferencesState.defaultProvider
   }
   if (chatPreferencesState?.providerDefaults && typeof chatPreferencesState.providerDefaults === "object") {
