@@ -17,7 +17,7 @@ async function deployment(): Promise<UpdateDeployment> {
 }
 const result = (code = 0, stderr = ""): ServiceCommandResult => ({ code, stderr, stdout: "", signal: null })
 
-test("worker replacement waits for asynchronous launchd removal before bootstrap", async () => {
+test.skipIf(process.platform === "win32")("worker replacement waits for asynchronous launchd removal before bootstrap", async () => {
   const calls: string[] = []
   const responses = [result(), result(), result(), result(), result(113), result()]
   const run: ServiceCommandRunner = async (_command, args) => {
@@ -31,7 +31,7 @@ test("worker replacement waits for asynchronous launchd removal before bootstrap
   expect(calls).toEqual(["print", "bootout", "print", "print", "print", "bootstrap"])
 })
 
-test("worker replacement refuses to bootstrap after an unload inspection failure", async () => {
+test.skipIf(process.platform === "win32")("worker replacement refuses to bootstrap after an unload inspection failure", async () => {
   const calls: string[] = []
   const responses = [result(), result(), result(1, "Operation not permitted")]
   const run: ServiceCommandRunner = async (_command, args) => {
@@ -41,7 +41,7 @@ test("worker replacement refuses to bootstrap after an unload inspection failure
   expect(calls).toEqual(["print", "bootout", "print"])
 })
 
-test("worker bootstrap failure retains launchctl diagnostics", async () => {
+test.skipIf(process.platform === "win32")("worker bootstrap failure retains launchctl diagnostics", async () => {
   const run: ServiceCommandRunner = async (_command, args) => args[0] === "print"
     ? result(113) : result(5, "Bootstrap failed: 5: Input/output error")
   await expect(installUpdateWorker(await deployment(), run)).rejects.toThrow("Register updater failed (exit code 5): Bootstrap failed: 5: Input/output error")
