@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import type { ServiceCommandResult, ServiceCommandRunner } from "../service/types"
@@ -45,4 +45,15 @@ test.skipIf(process.platform === "win32")("worker bootstrap failure retains laun
   const run: ServiceCommandRunner = async (_command, args) => args[0] === "print"
     ? result(113) : result(5, "Bootstrap failed: 5: Input/output error")
   await expect(installUpdateWorker(await deployment(), run)).rejects.toThrow("Register updater failed (exit code 5): Bootstrap failed: 5: Input/output error")
+})
+
+
+test.skipIf(process.platform === "win32")("failed launchd inspection preserves an existing worker definition", async () => {
+  const config = await deployment()
+  const directory = path.join(config.launch.homeDirectory, "Library", "LaunchAgents")
+  const file = path.join(directory, "com.bzbj.stillon.updater.plist")
+  await mkdir(directory, { recursive: true }); await writeFile(file, "existing worker definition")
+  const run: ServiceCommandRunner = async () => result(1, "Operation not permitted")
+  await expect(installUpdateWorker(config, run)).rejects.toThrow("Inspect updater failed")
+  expect(await readFile(file, "utf8")).toBe("existing worker definition")
 })

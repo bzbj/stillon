@@ -62,12 +62,13 @@ export async function installUpdateWorker(deployment: UpdateDeployment, run: Ser
     assertCommandSucceeded("Register updater", await run("schtasks.exe", ["/Create", "/TN", worker.task, "/XML", file, "/F"]))
     return
   }
+  const domain = `gui/${process.getuid!()}`
+  const loaded = await run("/bin/launchctl", ["print", `${domain}/${worker.agent}`])
+  if (loaded.signal !== null || ![0, 3, 113].includes(loaded.code ?? -1)) assertCommandSucceeded("Inspect updater", loaded)
   const directory = path.join(deployment.launch.homeDirectory, "Library", "LaunchAgents")
   await mkdir(directory, { recursive: true })
   const file = path.join(directory, `${worker.agent}.plist`)
   await writeFile(file, macosUpdaterPlist(deployment, worker), { mode: 0o600 })
-  const domain = `gui/${process.getuid!()}`
-  const loaded = await run("/bin/launchctl", ["print", `${domain}/${worker.agent}`])
   if (loaded.code === 0 && loaded.signal === null) {
     const service = `${domain}/${worker.agent}`
     assertCommandSucceeded("Unload updater", await run("/bin/launchctl", ["bootout", service]))
@@ -80,7 +81,6 @@ export async function installUpdateWorker(deployment: UpdateDeployment, run: Ser
       timeoutMs: 5_000,
     })
   }
-  else if (![3, 113].includes(loaded.code ?? -1)) assertCommandSucceeded("Inspect updater", loaded)
   assertCommandSucceeded("Register updater", await run("/bin/launchctl", ["bootstrap", domain, file]))
 }
 
