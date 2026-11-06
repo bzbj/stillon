@@ -70,7 +70,7 @@ test("Codex TPS keeps updating after later measured settlements and excludes unt
   } })
   try {
     await manager.startSession({ chatId: "timing", cwd: "/tmp/example", model: "gpt-5.4", sessionToken: null })
-    const turn = await manager.startTurn({ chatId: "timing", model: "gpt-5.4", content: "Synthetic timing", planMode: false, onToolRequest: async () => ({}) })
+    const turn = await manager.startTurn({ chatId: "timing", collectStatistics: () => true, model: "gpt-5.4", content: "Synthetic timing", planMode: false, onToolRequest: async () => ({}) })
     now = 1200; await notify("item/agentMessage/delta", { itemId: "first", delta: "First" })
     now = 2200; await usage(100, 27, 27); await usage(100, 27, 27) // Duplicate settlement is ignored.
     now = 3000; await usage(200, 5, 32) // Tool-only response: usage but no streaming first token.
