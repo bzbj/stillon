@@ -99,12 +99,13 @@ test("runtime policy endpoint and two live clients refresh, reject, restore and 
   }
 }, 15_000)
 
-test("discovered candidates only become active after confirmation, synchronize clients and survive restart", async () => {
+for (const modelId of ["new-codex", "gpt-6.1-terra"]) {
+test(`${modelId}: discovery confirmation synchronizes clients and survives restart`, async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-selection-integration-"))
   const clients: ReturnType<typeof connect>[] = []
   let server: Awaited<ReturnType<typeof startStillOnServer>> | undefined
   const discovery = { getContext: async () => "test-account", discover: async () => ({ cliVersion: "0.159.2", models: [
-    { id: "new-codex", model: "new-codex", displayName: "New Codex", supportedReasoningEfforts: [{ reasoningEffort: "high" }] },
+    { id: modelId, model: modelId, displayName: "New Codex", supportedReasoningEfforts: [{ reasoningEffort: "high" }] },
   ] }) }
   try {
     const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
@@ -126,16 +127,17 @@ test("discovered candidates only become active after confirmation, synchronize c
     const draft = response.result as any
     const read = () => fetch(`http://127.0.0.1:${port}/api/codex/model-policy`).then((response) => response.json())
     expect((await read()).policy).toEqual(BUNDLED_CODEX_MODEL_POLICY)
-    const selection = { draftId: draft.id, modelIds: ["new-codex"], roles: { conversation: "new-codex", background: "new-codex" } }
+    const selection = { draftId: draft.id, modelIds: [modelId], roles: { conversation: modelId, background: modelId } }
     const forbidden = await fetch(`http://127.0.0.1:${port}/api/codex/model-policy/apply`, {
       method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: JSON.stringify(selection) })
     expect(forbidden.status).toBe(403)
     expect((await a.command({ type: "settings.applyCodexModelSelection", selection })).type).toBe("ack")
     await b.command({ type: "settings.readCodexModelPolicy" })
     expect(b.messages.some((message) => message.type === "snapshot" && message.snapshot.type === "codex-model-policy"
-      && message.snapshot.data.policy.models[0]?.id === "new-codex")).toBe(true)
+      && message.snapshot.data.policy.models[0]?.id === modelId)).toBe(true)
     expect(server.store.getChat(chat.id)?.lastTurnPreferences).toEqual(before)
     const accepted = (await read()).policy
+    expect(accepted.models[0].supportsFastMode).toBe(modelId === "gpt-6.1-terra")
     for (const client of clients) client.ws.close()
     await server.stop()
     server = await startStillOnServer({ dataDir, port, strictPort: true, openBrowser: false, codexModelDiscovery: discovery })
@@ -159,3 +161,4 @@ test("discovered candidates only become active after confirmation, synchronize c
     await rm(dataDir, { recursive: true, force: true })
   }
 }, 15000)
+}

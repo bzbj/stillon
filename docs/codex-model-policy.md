@@ -31,8 +31,14 @@ it is not a guarantee of global newest models or continuing remote availability.
 
 Reasoning options come from discovery; unsupported options are omitted with a
 warning, and models with no compatible options are disabled. Fast capability is
-not inferred from `model/list`: existing local Fast configuration is preserved,
-and new models default to Standard. Existing aliases are preserved unless they
+not inferred from `model/list`, which does not report service tiers. For models
+in the bundled catalog (including GPT-6.1 Terra), discovery refreshes Fast
+capability from that catalog, repairing older saved `supportsFastMode: false`
+values only after **Confirm and apply**. For other models, existing local Fast
+capability is preserved and unknown models remain unsupported by default.
+Fast capability enables the selector; it does not enable Fast on saved Standard
+preferences. To repair an already added Terra model, fetch models again and
+confirm with Terra selected. Existing aliases are preserved unless they
 conflict with a selected canonical ID. Official `isDefault`/`upgrade` hints do not
 silently replace local defaults or selections. Saved valid preferences take
 priority over role defaults. Active turn parameters and historical transcripts

@@ -57,6 +57,15 @@ describe("ChatPreferenceControls", () => {
     expect(html).not.toContain('disabled=""')
   })
 
+  test("renders Terra with an enabled Fast Mode control", () => {
+    const html = renderToStaticMarkup(<ChatPreferenceControls availableProviders={PROVIDERS}
+      onProviderChange={() => {}} selectedProvider="codex" model="gpt-6.1-terra" modelOptions={{ reasoningEffort: "high", fastMode: true }}
+      onModelChange={() => {}} onModelOptionChange={() => {}} />)
+    expect(html).toContain("GPT-6.1 Terra")
+    expect(html).toContain("Fast Mode")
+    expect(html).not.toContain('disabled=""')
+  })
+
   test("renders Luna with Fast Mode", () => {
     const html = renderToStaticMarkup(
       <ChatPreferenceControls

@@ -41,7 +41,7 @@ describe("shared model normalization", () => {
   })
 
   test("uses model-specific Codex effort and Fast Mode metadata", () => {
-    expect(CODEX_MODELS.map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"])
+    expect(CODEX_MODELS.map((model) => model.id)).toEqual(["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"])
     expect(getCodexReasoningOptions("gpt-6.1-sol")).toContain("ultra")
     expect(getCodexReasoningOptions("gpt-6-luna")).toContain("ultra")
     expect(getCodexReasoningOptions("gpt-6-luna")).toContain("max")

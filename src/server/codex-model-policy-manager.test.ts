@@ -218,3 +218,31 @@ test("expired confirmation and context changes during discovery preserve active 
   await expect(changing.discover()).rejects.toThrow("changed during discovery")
   expect(changing.getSnapshot()).toEqual(initial)
 })
+
+for (const legacy of [false, true]) {
+  test(`Terra discovery repairs Fast capability (previously selected: ${legacy}) without changing a Standard preference`, async () => {
+    const model = BUNDLED_CODEX_MODEL_POLICY.models.find((model) => model.id === "gpt-6.1-terra")!
+    const policy = structuredClone(BUNDLED_CODEX_MODEL_POLICY)
+    policy.models = policy.models.filter((model) => model.id !== "gpt-6.1-terra")
+    if (legacy) policy.models.push({ ...model, supportsFastMode: false })
+    const manager = new CodexModelPolicyManager(directory, {
+      getContext: async () => "account",
+      discover: async () => ({ cliVersion: "test", models: [{ id: model.id, model: model.id,
+        displayName: model.label, supportedReasoningEfforts: [{ reasoningEffort: "high" }] }] }),
+    })
+    await manager.initialize()
+    await configure(manager, policy)
+    await manager.refresh()
+    const before = manager.getSnapshot()
+    const draft = await manager.discover()
+    expect(manager.getSnapshot()).toEqual(before)
+    expect(draft.candidates.find((candidate) => candidate.model.id === model.id)?.model.supportsFastMode).toBe(true)
+    await manager.applySelection({ draftId: draft.id, modelIds: [model.id],
+      roles: { conversation: model.id, background: model.id } })
+    expect(normalizeCodexPreference({ model: model.id, modelOptions: { fastMode: false } }).modelOptions.fastMode).toBe(false)
+    expect(normalizeCodexPreference({ model: model.id, modelOptions: { fastMode: true } }).modelOptions.fastMode).toBe(true)
+    const restarted = new CodexModelPolicyManager(directory)
+    await restarted.initialize()
+    expect(restarted.getSnapshot().policy.models[0]?.supportsFastMode).toBe(true)
+  })
+}
