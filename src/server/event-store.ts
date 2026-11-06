@@ -1285,6 +1285,7 @@ export class EventStore {
       this.statisticsDirty.add(chatId)
       this.statisticsUnpublished.add(chatId)
       this.publishStatistics(chatId)
+      if (!this.statisticsWriting) this.scheduleStatisticsFlush()
     }
     console.warn(`${LOG_PREFIX} Debug statistics stopped: ${reason}`)
   }
