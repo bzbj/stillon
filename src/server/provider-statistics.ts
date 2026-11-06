@@ -24,6 +24,7 @@ export class ProviderStatistics {
   readonly runId = randomUUID()
   private step = 0
   private open = false
+  private nextStepTime: number | null = null
   private first: DshEvent["data"] | null = null
   private tools = new Set<string>()
   constructor(private emit: (event: HarnessEvent) => void, private now = Date.now) {}
@@ -31,18 +32,18 @@ export class ProviderStatistics {
   private event(type: string, data: Record<string, any> = {}, time = this.now()): DshEvent {
     return { type, time, data: { turn: 1, step: this.step, ...data } }
   }
-  start(time = this.now()) {
+  start(time = this.nextStepTime ?? this.now()) {
     if (this.open) return
-    this.step++; this.open = true; this.first = null
+    this.step++; this.open = true; this.first = null; this.nextStepTime = null
     this.publish([this.event("step/start", {}, time)])
   }
   delta(chunk: Record<string, any>, time = this.now()) {
-    if (!this.open) this.start(time)
+    if (!this.open) this.start(this.nextStepTime ?? time)
     if (this.first) return
     if (isTokenDelta(chunk)) this.first = { type: "chunk", time, chunk }
   }
   retry(usage?: ProviderUsage, time = this.now()) {
-    if (!this.open) this.start(time)
+    if (!this.open) this.start(this.nextStepTime ?? time)
     this.publish([
       this.event("assistant/attempt", { stream: [...(this.first ? [this.first] : []), ...(usage ? [{ type: "chunk", time, chunk: { type: "usage", usage } }] : [])] }, time),
       this.event("llm/retry-started", {}, time),
@@ -50,7 +51,7 @@ export class ProviderStatistics {
     // DSH preserves the first token of earlier attempts in this step.
   }
   complete(usage: ProviderUsage, time = this.now(), nativeTokenUsage?: TokenBuckets) {
-    if (!this.open) this.start(time)
+    if (!this.open) this.start(this.nextStepTime ?? time)
     this.publish([
       this.event("assistant/message", { usage, stream: this.first ? [this.first] : [] }, time),
       this.event("step/end", {}, time),
@@ -64,11 +65,11 @@ export class ProviderStatistics {
   toolResult(callId: string, time = this.now()) {
     if (!this.tools.delete(callId)) return
     this.publish([this.event("tool/result", { message: { source: { callId } } }, time)])
-    if (!this.tools.size) this.start(time)
+    if (!this.tools.size) this.nextStepTime = time
   }
   end(time = this.now()) {
     const events = this.open ? [this.event("step/end", {}, time)] : []
     events.push(this.event("turn/end", {}, time))
-    this.publish(events); this.open = false; this.first = null; this.tools.clear()
+    this.publish(events); this.open = false; this.first = null; this.nextStepTime = null; this.tools.clear()
   }
 }

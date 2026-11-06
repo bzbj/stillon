@@ -36,3 +36,17 @@ test("Claude partial stream commits final usage once despite per-block assistant
   expect(record.snapshot.tokenUsage).toEqual({ uncachedInputTokens: 10, cacheReadTokens: 5, cacheWriteTokens: 0, outputTokens: 4 })
   expect(record.snapshot.sessionStats).toMatchObject({ steps: 1, turns: 1, llmMs: 500, ttftMs: 100, decodeMs: 400 })
 })
+
+test("a finished tool does not invent a model step when the turn ends immediately", () => {
+  const events: HarnessEvent[] = [], c = new ProviderStatistics(e => events.push(e))
+  c.start(100); c.delta({ type: "text-delta", text: "x" }, 200); c.complete({ inputTokens: 10, outputTokens: 4 }, 300)
+  c.toolCall("stop-tool", 310); c.toolResult("stop-tool", 500); c.end(600)
+  expect(fold(events).snapshot.sessionStats).toMatchObject({ steps: 1, llmMs: 200, toolMs: 190 })
+})
+test("the next observed model response retains the previous tool-completion boundary", () => {
+  const events: HarnessEvent[] = [], c = new ProviderStatistics(e => events.push(e))
+  c.start(100); c.delta({ type: "text-delta", text: "x" }, 200); c.complete({ inputTokens: 10, outputTokens: 4 }, 300)
+  c.toolCall("a", 310); c.toolResult("a", 500)
+  c.delta({ type: "text-delta", text: "next" }, 700); c.complete({ inputTokens: 20, outputTokens: 8 }, 900); c.end(910)
+  expect(fold(events).snapshot.sessionStats).toMatchObject({ steps: 2, llmMs: 600, toolMs: 190, ttftMs: 300, decodeMs: 300 })
+})
