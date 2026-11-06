@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode } from "react"
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { Gauge, Layers, X } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 import { formatSessionSpeed, formatSessionTokens, sessionTokenTotal, sessionTokensPerSecond, type SessionStatistics as Statistics } from "../../../shared/session-statistics"
@@ -20,17 +20,18 @@ function Row({ label, children, total = false }: { label: string; children: Reac
 export function SessionStatistics({ statistics, onLayoutChange }: { statistics: Statistics | null; onLayoutChange: () => void }) {
   const visible = useAppSettingsStore(s => s.settings?.showSessionStatistics === true)
   const [open, setOpen] = useState<"timing" | "tokens" | null>(null)
+  const triggers = useRef<Partial<Record<"timing" | "tokens", HTMLButtonElement | null>>>({})
   const total = statistics ? sessionTokenTotal(statistics.tokenUsage) : 0
   const speed = statistics ? sessionTokensPerSecond(statistics) : null
   const show = visible && statistics !== null && (total > 0 || statistics.sessionStats.steps > 0)
   useLayoutEffect(() => { if (!show) setOpen(null); onLayoutChange() }, [show, onLayoutChange])
   if (!show || !statistics) return null
   const stats = statistics.sessionStats
-  const triggerClass = "inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+  const triggerClass = "inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring data-[state=open]:bg-muted data-[state=open]:text-foreground"
   function details(kind: "timing" | "tokens", title: string, trigger: ReactNode, body: ReactNode) {
     return <Popover open={open === kind} onOpenChange={value => setOpen(value ? kind : null)}>
-      <PopoverTrigger asChild><button type="button" className={triggerClass} aria-label={title}>{trigger}</button></PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={8} className="w-[330px] max-w-[calc(100vw-24px)] p-[18px]" aria-label={title}>
+      <PopoverTrigger asChild><button ref={node => { triggers.current[kind] = node }} type="button" className={triggerClass} aria-label={title}>{trigger}</button></PopoverTrigger>
+      <PopoverContent side="top" align="start" sideOffset={8} collisionPadding={12} className="w-[330px] max-w-[calc(100vw-24px)] p-[18px]" aria-label={title} onCloseAutoFocus={event => { event.preventDefault(); triggers.current[kind]?.focus() }}>
         <header className="mb-4 flex items-center justify-between gap-3"><h2 className="text-[13px] font-semibold">{title}</h2><button type="button" className="-m-1 rounded p-1 text-muted-foreground hover:text-foreground" aria-label={`Close ${title.toLowerCase()}`} onClick={() => setOpen(null)}><X className="size-3.5" /></button></header>
         {body}
       </PopoverContent>

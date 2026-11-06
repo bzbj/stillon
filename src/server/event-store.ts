@@ -227,6 +227,10 @@ export class EventStore {
     await this.ensureFile(this.asyncResponsesLogPath)
     await this.loadSnapshot()
     await this.replayLogs()
+    for (const chat of this.state.chatsById.values()) {
+      const stats = chat.statisticsState?.stats
+      if (!chat.deletedAt && stats && (stats.openStep || Object.keys(stats.pendingCalls).length)) await this.finishStatistics(chat.id)
+    }
     await this.restoreTranscriptMetadata()
     await this.loadSidebarProjectOrder()
     if (!(await this.hasLegacyTranscriptData()) && await this.shouldCompact()) {

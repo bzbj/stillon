@@ -1409,6 +1409,7 @@ export class CodexAppServerManager {
         if (threadId && threadId !== context.sessionToken) return
         if (turnId && pendingTurn.turnId && turnId !== pendingTurn.turnId) return
         if (willRetry) {
+          pendingTurn.statistics.retry()
           // Even "Reconnecting... 5/5" is progress while the last retry runs.
           // Keep the turn and pending RPCs alive for recovery or terminal events.
           pendingTurn.queue.push({

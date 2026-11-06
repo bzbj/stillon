@@ -1014,3 +1014,25 @@ test("statistics serialize concurrent observations and survive paging, compactio
   expect(restored.requireChat(chat.id).statisticsState!.snapshot.tokenUsage.outputTokens).toBe(10)
   expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats.steps).toBe(2)
 })
+
+test("restart closes an abandoned model step once without inventing elapsed time", async () => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/crash-statistics", "Example"), chat = await store.createChat(project.id)
+  await store.recordStatistics(chat.id, { runId: "interrupted-process", events: [{ type: "step/start", time: 100, data: { step: 1 } }] })
+  const restored = new EventStore(root); await restored.initialize()
+  expect(restored.requireChat(chat.id).statisticsState!.snapshot.sessionStats).toMatchObject({ steps: 1, turns: 1, llmMs: 0, decodeMs: 0 })
+  const again = new EventStore(root); await again.initialize()
+  expect(again.requireChat(chat.id).statisticsState).toEqual(restored.requireChat(chat.id).statisticsState)
+})
+
+test("older sessions identify incomplete recorded usage until authoritative native counters arrive", async () => {
+  const root = await createTempDataDir(), store = new EventStore(root)
+  await store.initialize()
+  const project = await store.openProject("/tmp/older-statistics", "Example"), chat = await store.createChat(project.id)
+  await store.recordTurnFinished(chat.id)
+  await store.recordStatistics(chat.id, { runId: "new-observation", events: [] })
+  expect(store.requireChat(chat.id).statisticsState?.snapshot.recordedSince).toBeNumber()
+  await store.recordStatistics(chat.id, { runId: "new-observation", events: [], nativeTokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 10 } })
+  expect(store.requireChat(chat.id).statisticsState?.snapshot.recordedSince).toBeUndefined()
+})
