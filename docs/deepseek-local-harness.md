@@ -28,8 +28,9 @@ the Harness account; custom providers can use BYOK. These routes remain distinct
    provider; changing defaults never silently reroutes an existing chat. A disabled
    model must be explicitly selected or re-enabled before continuing that chat.
 
-Installation status verifies the launcher and version; it does not claim the key
-is valid. The first real request reports authentication or model errors. Manage
+Installation status verifies the launcher and reports its version, without a
+version allowlist. SDK operations determine protocol compatibility; a detected
+installation does not prove that every operation or account credential is valid. The first real request reports authentication or model errors. Manage
 runtime updates through DeepSeek Harness itself. StillOn's model service panel
 can save new API keys but never returns existing values.
 StillOn does not replace or update this installation.
@@ -71,9 +72,10 @@ uses a separate StillOn home as well as a separate data directory, while
 
 This is a trial integration. Session forking, native slash commands, import of
 existing Desktop history, incremental token streaming, and usage/cost reporting
-are not implemented. macOS Intel and Apple Silicon previews use the same pinned
-public CLI, with real CLI/loopback model acceptance in CI. Linux installations and
-future runtime releases still need live qualification. Changing the user's SDK
+are not implemented. macOS Intel and Apple Silicon CI uses the same pinned
+public CLI for reproducible CLI/loopback model acceptance. Those test versions
+do not restrict which installed CLI versions users may select. Linux installations
+still need platform qualification. Changing the user's SDK
 profile can change capabilities.
 Model discovery reads the installed runtime's `llm` services through its public
 plugin extension, rather than guessing a new SDK RPC. A custom endpoint's model

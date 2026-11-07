@@ -14,7 +14,7 @@ The internal add-on protocol and isolated adapter modules remain in use.
 - New installations start with the integration disabled. Only enabled,
   compatible integrations appear in Providers and new-chat menus.
 - Enabling shows the local CLI check and a link directly to that provider's
-  configuration. Missing CLI, missing authentication and incompatible versions
+  configuration. Missing CLI, missing authentication and protocol incompatibility
   remain distinct states; enabling an adapter is not proof of authentication.
 - Disabled adapters do not launch a process or probe the vendor CLI. Active
   checks/chats must finish before disabling. The settings page refreshes busy
@@ -60,8 +60,8 @@ are retained, and unchanged startup does not rewrite the registry.
 
 An unreadable/corrupt bundle is unavailable, preserving user preferences and
 leaving the other providers usable. A corrupt registry is preserved and requires
-recovery; it is never silently replaced. Unknown platforms and CLI versions
-fail with an explicit compatibility message. Bundled adapters cannot be replaced,
+recovery; it is never silently replaced. Unknown platforms fail with an explicit compatibility message. Installed CLI
+versions are not allowlisted; SDK operations determine protocol compatibility. Bundled adapters cannot be replaced,
 removed or independently rolled back through the old package-management API.
 Its standalone installation path remains for development protocol fixtures.
 
@@ -82,7 +82,8 @@ See [DeepSeek setup](../addons/deepseek/README.md) and the
 [protocol notes](deepseek-local-harness.md).
 
 Preview targets are **Windows x64 / ARM64 and macOS Intel / Apple Silicon**. DeepSeek uses
-**dsh 0.2.1-rc.5 on Windows**, **0.2.2-rc.1 on Mac**.
+**dsh 0.2.1-rc.5 on Windows**, **0.2.2-rc.1 on Mac** in reproducible CI fixtures;
+these versions do not restrict runtime CLI discovery.
 Shipping the adapter does not establish compatibility
 with other vendor versions or platforms.
 

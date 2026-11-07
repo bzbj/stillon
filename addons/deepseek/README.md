@@ -1,9 +1,11 @@
 # DeepSeek Harness optional integration
 
 Development package version: **0.2.0-preview.5**, StillOn add-on API **1**.
-Preview targets: Windows x64 / ARM64 with public `dsh` **0.2.1-rc.5**, and macOS Intel /
-Apple Silicon with **0.2.2-rc.1** (including SDK questions and approvals).
-Other platforms and CLI versions are rejected until qualified.
+Preview targets: Windows x64 / ARM64 and macOS Intel / Apple Silicon.
+The adapter discovers the installed public `dsh` without requiring a particular
+CLI version. Compatibility is determined by the SDK operations used, rather than
+a version allowlist. CI uses reproducible CLI versions (**0.2.1-rc.5** on Windows
+and **0.2.2-rc.1** on macOS); these are test fixtures, not runtime requirements.
 
 StillOn includes this adapter, disabled by default. Open **Settings -> Integrations
 -> DeepSeek Harness -> Enable**, then follow **Configure Harness models and
@@ -26,18 +28,18 @@ can save a new API key, and supports existing provider routes or custom BYOK end
 StillOn does not install another Harness or import existing secret values.
 
 On macOS, use the public CLI from a compatible Harness Desktop installation or
-install the pinned CLI with Node.js 24:
+install the public CLI with Node.js 24:
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+npm install -g @deepseek-ai/dsh
 dsh --version
 ```
 
 The npm route works on both Intel and Apple Silicon; the vendor's Desktop download
 may only offer Apple Silicon. StillOn checks PATH, `/Applications/DeepSeek Harness.app`
 and `~/Applications/DeepSeek Harness.app`. **Configure → Use an existing CLI** can
-select another public launcher. A selected missing launcher or untested version
-reports an error. Configure account access in Harness or API access in StillOn's
+select another public launcher. A selected missing launcher reports an error. A different CLI version is
+accepted; SDK protocol failures are reported when an operation is attempted. Configure account access in Harness or API access in StillOn's
 local model service panel, then discover and save the enabled models.
 
 Use **Discover loaded models**, select the models to enable, choose a default,
