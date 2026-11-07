@@ -128,3 +128,29 @@ measurement. Raw results: `test-artifacts/main-stability/statistics-benchmark-fi
 - Safari local HTML preview remains the documented known limitation (#257).
 - A production installation update is tracked separately from these isolated
   tests; a prepared candidate or an idle-wait task is not an installed update.
+
+## Follow-up: native pointer targeting in CI
+
+The documentation-head CI run exposed a failure before the first native HTML
+click: the iframe rendered successfully, but the `:hover` precondition never
+settled. See [the failing Linux job](https://github.com/bzbj/stillon/actions/runs/42277303661/job/128096836622).
+The unobstructed case did not reproduce on the local Mac. A new isolated
+cross-origin iframe fixture did reproduce a flaw in that precondition: `:hover`
+could remain true beneath a transparent parent overlay, allowing the helper to
+proceed instead of reporting occlusion. This is not a claim that the original
+Linux failure has the same exact timing sequence.
+
+Pointer preparation now activates the visiting tab, re-enters from outside the
+frame after layout changes, and requires all three observations: parent hit test
+selects the iframe, child hit test selects the target, and a trusted native
+`pointermove` reaches that target. CSS hover state alone is no longer evidence
+of successful targeting. The five-second bound remains, and only pointer motion
+is retried; a click or drag is dispatched once. Timeout diagnostics retain the
+measured geometry, focus state and hit-test results.
+
+`bun run test:previews:pointer` and its `--firefox` variant exercise four zoom
+levels, foreground/background tab transitions, frame displacement, persistent
+occlusion without a click, and successful recovery after removing the overlay.
+The fixture uses Node HTTP servers and real browser input without application
+accounts, private fixtures or user data. Linux CI runs both engines; Windows CI
+runs Edge before the complete preview matrix.

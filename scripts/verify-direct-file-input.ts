@@ -44,6 +44,7 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
 
 async function displayedFileBox(page: Page, element: Locator) {
   const frameElement = page.locator('iframe[title="HTML file preview"]')
+  await page.bringToFront()
   const deadline = Date.now() + 5_000
   for (;;) {
     // The child can be ready before the parent removes its loading bar.
@@ -59,12 +60,55 @@ async function displayedFileBox(page: Page, element: Locator) {
     // Locator coordinates across scaled frames can omit the frame's scale.
     // Native mouse input uses the actual visiting viewport, as a person does.
     const box = { x: outer.x + inner.x * scale, y: outer.y + inner.y * scaleY, width: inner.width * scale, height: inner.height * scaleY, scale }
-    // Chromium can still route input through the iframe's old position after
-    // its loading bar disappears. Confirm the native pointer reaches the
-    // intended element before sending the single click or starting a drag.
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    if (await element.evaluate(element => element.matches(":hover"))) return box
-    assert(Date.now() < deadline, "Native pointer did not reach the HTML preview element")
+    // Re-enter from outside the frame: repeatedly moving to the same point can
+    // leave Chromium's hover target stale after iframe layout/tab changes.
+    // CSS :hover can remain set in an obscured cross-origin frame. Observe a
+    // trusted pointermove instead. Only motion is retried; click/drag runs once.
+    await page.mouse.move(0, 0)
+    let paintTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        frameElement.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))),
+        new Promise<void>(resolve => { paintTimer = setTimeout(resolve, Math.min(100, Math.max(0, deadline - Date.now()))) }),
+      ])
+    } finally { clearTimeout(paintTimer) }
+    const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const probe = await element.evaluateHandle(element => {
+      const result = { received: false, hit: false, target: "", cleanup: () => {} }
+      const receive = (event: PointerEvent) => {
+        if (!event.isTrusted || event.pointerType !== "mouse") return
+        result.received = true
+        result.hit = event.target instanceof Node && (event.target === element || element.contains(event.target))
+        result.target = event.target instanceof Element ? event.target.tagName : ""
+      }
+      document.addEventListener("pointermove", receive, true)
+      result.cleanup = () => document.removeEventListener("pointermove", receive, true)
+      return result
+    })
+    let pointer: { received: boolean; hit: boolean; target: string }
+    try {
+      await page.mouse.move(point.x, point.y)
+      pointer = await probe.evaluate(result => ({ received: result.received, hit: result.hit, target: result.target }))
+    } finally {
+      await probe.evaluate(result => result.cleanup()).catch(() => undefined)
+      await probe.dispose()
+    }
+    const parentHit = await frameElement.evaluate((frame, point) => document.elementFromPoint(point.x, point.y) === frame, point)
+    const childHit = await element.evaluate(element => {
+      const rect = element.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+      return hit === element || Boolean(hit && element.contains(hit))
+    })
+    if (parentHit && childHit && pointer.hit) return box
+    if (Date.now() >= deadline) {
+      const parent = await page.evaluate(point => ({ focused: document.hasFocus(), visibility: document.visibilityState,
+        hit: document.elementFromPoint(point.x, point.y)?.tagName }), point)
+      const child = await element.evaluate(element => {
+        const rect = element.getBoundingClientRect(), hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        return { focused: document.hasFocus(), hit: hit?.tagName, target: element.tagName,
+          receivesPointer: hit === element || Boolean(hit && element.contains(hit)) }
+      })
+      assert.fail("Native pointer did not reach the HTML preview element: " + JSON.stringify({ box, point, outer, size, inner, parent, child, pointer, parentHit, childHit }))
+    }
   }
 }
 

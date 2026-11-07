@@ -63,6 +63,7 @@
     "test:statistics:browser": "bun build ./scripts/verify-session-statistics-browser.ts --target=node --packages=external --outfile=./test-artifacts/statistics-runner.mjs && node ./test-artifacts/statistics-runner.mjs",
     "test:async-answer:browser": "bun build ./scripts/verify-async-answer-browser.ts --target=node --packages=external --outfile=./test-artifacts/async-answer-runner.mjs && node ./test-artifacts/async-answer-runner.mjs",
     "test:remote-auth:browser": "bun build ./scripts/verify-remote-auth-browser.ts --target=node --packages=external --outfile=./test-artifacts/remote-auth-runner.mjs && node ./test-artifacts/remote-auth-runner.mjs",
+    "test:previews:pointer": "bun build ./scripts/verify-direct-file-pointer.ts --target=node --packages=external --outfile=./test-artifacts/direct-file-pointer.mjs && node ./test-artifacts/direct-file-pointer.mjs",
     "test:previews:browser": "bun build ./scripts/verify-workspace-previews-browser.ts --target=node --packages=external --outfile=./test-artifacts/workspace-previews-browser.mjs && node ./test-artifacts/workspace-previews-browser.mjs",
     "build:desktop": "bun scripts/build-desktop.ts",
     "verify:desktop": "bun scripts/verify-desktop.ts"

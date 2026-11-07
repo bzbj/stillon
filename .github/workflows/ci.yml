@@ -156,6 +156,10 @@ jobs:
           done
       - run: bunx playwright install --with-deps chromium firefox
       - run: bun run check
+      - name: Verify isolated iframe pointer targeting
+        run: bun run test:previews:pointer
+      - name: Verify isolated iframe pointer targeting with Firefox
+        run: bun run test:previews:pointer --firefox
       - name: Exercise local preview interfaces
         run: bun run test:previews:browser --local-only
       - name: Verify native files with an unavailable host browser
@@ -189,6 +193,8 @@ jobs:
       - run: bun run check
       - name: Recheck fresh native service discovery
         run: bun scripts/verify-preview-discovery.ts --scans=30
+      - name: Verify isolated iframe pointer targeting with Edge
+        run: bun run test:previews:pointer
       - name: Exercise Edge input, drag and service-list interfaces
         run: bun run test:previews:browser --local-only
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
