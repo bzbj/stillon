@@ -29,6 +29,7 @@ export class ProviderAddons {
   private modelErrors = new Map<string, string>()
   private discovered = new Map<string, Map<string, HarnessModel>>()
   private bundled = new Set<string>()
+  private bundledDirectories = new Map<string, { version: string; directory: string }>()
   private bundleErrors = new Map<string, string>()
   readonly root: string
   constructor(dataDir: string, private readonly environment: () => NodeJS.ProcessEnv = () => process.env,
@@ -67,7 +68,11 @@ export class ProviderAddons {
         const bundle = parseAddonPackage(await file.json())
         if (bundle.manifest.id !== id) throw new Error("Bundled integration identity mismatch.")
         // Staging verifies bytes, but never launches an adapter or vendor CLI.
-        await this.cachePackage(bundle)
+        // Rebuilt app bundles can share a preview version. Keep their verified
+        // bytes separate from legacy installs and other app revisions.
+        const cacheDirectory = path.join(this.root, "bundled", id, hash(JSON.stringify(bundle.manifest)))
+        await this.cachePackage(bundle, cacheDirectory)
+        this.bundledDirectories.set(id, { version: bundle.manifest.version, directory: cacheDirectory })
         const previous = this.records.get(id)?.installation
         const installation: Installation = { version: bundle.manifest.version, enabled: previous?.enabled ?? false }
         const record = { manifest: bundle.manifest, installation, error: this.compatibility(bundle.manifest) }
@@ -92,10 +97,10 @@ export class ProviderAddons {
   }
   private directory(id: string, version: string) {
     if (!isAddonProvider(id) || !safeVersion(version)) throw new Error("Invalid add-on identity.")
-    return path.join(this.root, id, version)
+    const bundled = this.bundledDirectories.get(id)
+    return bundled?.version === version ? bundled.directory : path.join(this.root, id, version)
   }
-  private async readPackage(id: string, version: string) {
-    const directory = this.directory(id, version)
+  private async readPackage(id: string, version: string, directory = this.directory(id, version)) {
     const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8"))
     const code = await readFile(path.join(directory, "adapter.js"), "utf8")
     const bundle = parseAddonPackage({ manifest, code })
@@ -200,10 +205,9 @@ export class ProviderAddons {
       await this.save(records)
     })
   }
-  private async cachePackage({ manifest, code }: AddonPackage) {
-    const directory = this.directory(manifest.id, manifest.version)
+  private async cachePackage({ manifest, code }: AddonPackage, directory = this.directory(manifest.id, manifest.version)) {
     try {
-      const existing = await this.readPackage(manifest.id, manifest.version)
+      const existing = await this.readPackage(manifest.id, manifest.version, directory)
       if (JSON.stringify(existing.manifest) !== JSON.stringify(manifest)) throw new Error("This package version already exists with different content. Use a new version.")
       return directory
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
