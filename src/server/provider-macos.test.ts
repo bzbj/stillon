@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { buildBundledIntegrations } from "../../scripts/build-integrations"
-import { deepSeekCandidates, deepSeekCliVersion, deepSeekCommand, killDeepSeekTree, spawnDeepSeek } from "../../addons/deepseek/src/deepseek-cli"
+import { deepSeekCandidates, deepSeekCommand, killDeepSeekTree, spawnDeepSeek } from "../../addons/deepseek/src/deepseek-cli"
 import { ProviderAddons } from "./provider-addons"
 
 const roots: string[] = []
@@ -15,8 +15,6 @@ async function fixture() {
 }
 
 test("macOS discovery includes both Desktop locations without a login shell", () => {
-  expect(deepSeekCliVersion("darwin")).toBe("0.2.2-rc.1")
-  expect(deepSeekCliVersion("win32")).toBe("0.2.1-rc.5")
   const environment = { HOME: "/Users/example", PATH: "" }
   expect(deepSeekCandidates(environment, "darwin")).toEqual([
     "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
@@ -39,9 +37,7 @@ test.skipIf(process.platform !== "darwin")("shipped Mac integration enables and 
   const legacy = path.join(root, "legacy-dsh")
   await writeFile(legacy, "#!/bin/sh\necho 0.2.1-rc.5\n", { mode: 0o755 })
   environment.DSH_EXECUTABLE = legacy
-  const unsupported = await manager.status("deepseek", true)
-  expect(unsupported.state).toBe("error")
-  expect(unsupported.message).toContain("requires 0.2.2-rc.1")
+  expect(await manager.status("deepseek", true)).toMatchObject({ state: "ready", version: "0.2.1-rc.5", executable: legacy })
   await manager.change("deepseek", "disable")
   manager = new ProviderAddons(root, () => environment); await manager.initialize(directory)
   expect(manager.providers().map(provider => provider.id)).toEqual([])

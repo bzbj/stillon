@@ -7,9 +7,6 @@ import { findCliExecutable } from "../../../src/server/cli-environment"
 const exec = promisify(execFile)
 const quote = (value: string) => `'${value.replaceAll("'", "''")}'`
 
-// The Mac preview uses the public release with SDK question/approval bridging.
-export const deepSeekCliVersion = (platform: NodeJS.Platform = process.platform) => platform === "darwin" ? "0.2.2-rc.1" : "0.2.1-rc.5"
-
 /** Launch the documented CLI, including Desktop's public Windows shim. */
 export function deepSeekCommand(executable: string, args: string[], environment: NodeJS.ProcessEnv, platform = process.platform) {
   if (platform === "win32" && /\.(cmd|bat|ps1)$/iu.test(executable)) {

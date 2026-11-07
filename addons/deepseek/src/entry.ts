@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline"
 import { startDeepSeekTurn } from "./deepseek-harness"
-import { deepSeekCliVersion, discoverDeepSeek, deepSeekVersion } from "./deepseek-cli"
+import { discoverDeepSeek, deepSeekVersion } from "./deepseek-cli"
 import type { HarnessTurn } from "../../../src/server/harness-types"
 import type { AddonTurnArgs } from "../../../src/server/addon-process"
 import { modelControl } from "./model-control"
@@ -11,8 +11,7 @@ let turn: HarnessTurn | undefined, serial = 0, stopping = false
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
 async function checkCli() {
   const executable = await discoverDeepSeek(process.env), version = await deepSeekVersion(executable, process.env)
-  // New vendor releases need qualification; a similar executable name is insufficient.
-  if (version !== deepSeekCliVersion()) throw new Error(`DeepSeek CLI ${version} is not qualified by this add-on. This platform's preview requires ${deepSeekCliVersion()}.`)
+  // CLI versions are diagnostic metadata; the actual SDK operations verify compatibility.
   return { executable, version }
 }
 async function shutdown() {
