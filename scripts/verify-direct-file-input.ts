@@ -4,6 +4,8 @@ import type { Locator, Page } from "playwright"
 export async function verifyHtmlPreviewRecovery(page: Page) {
   const iframe = page.locator('iframe[title="HTML file preview"]')
   await iframe.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
+  const originalBox = await iframe.boundingBox(); assert(originalBox)
+  const assertGeometry = async () => assert.deepEqual(await iframe.boundingBox(), originalBox, "Loading/recovery notices must not move or resize the iframe")
   const url = (await iframe.getAttribute("src"))!
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
@@ -12,12 +14,15 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
   try {
     await page.getByRole("button", { name: "Refresh", exact: true }).click()
     await page.getByRole("status").filter({ hasText: "Loading file preview…" }).waitFor()
+    await iframe.waitFor(); await assertGeometry()
     // A message from the parent window is not a readiness receipt from the iframe.
     await page.evaluate(() => window.postMessage({ type: "stillon:file-ready" }, "*"))
     await page.getByRole("alert").filter({ hasText: "This file preview is taking longer than expected." }).waitFor({ timeout: 25_000 })
+    await assertGeometry()
     release()
     await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
     await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
+    await assertGeometry()
   } finally { release(); await page.unroute(url, hold) }
   // Error documents also fire iframe load. Only a document readiness receipt counts.
   // Canceled navigations can consume a one-shot route before committing a page.
@@ -32,6 +37,7 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
     await page.getByRole("button", { name: "Refresh", exact: true }).click()
     await page.frameLocator('iframe[title="HTML file preview"]').getByText("Fixture unavailable", { exact: true }).waitFor()
     await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ timeout: 25_000 })
+    await assertGeometry()
   } catch (error) {
     console.error("HTML recovery injection", { requests: unavailableRequests,
       sameSource: await iframe.evaluateAll((frames, source) => frames.some(frame => frame.getAttribute("src") === source), url).catch(() => false) })
@@ -40,6 +46,7 @@ export async function verifyHtmlPreviewRecovery(page: Page) {
   await page.getByRole("button", { name: "Retry preview", exact: true }).click()
   await page.frameLocator('iframe[title="HTML file preview"]').getByText("ES module ready", { exact: true }).waitFor()
   await page.getByRole("button", { name: "Retry preview", exact: true }).waitFor({ state: "hidden" })
+  await assertGeometry()
 }
 
 async function displayedFileBox(page: Page, element: Locator) {
@@ -47,8 +54,8 @@ async function displayedFileBox(page: Page, element: Locator) {
   await page.bringToFront()
   const deadline = Date.now() + 5_000
   for (;;) {
-    // The child can be ready before the parent removes its loading bar.
-    // Wait for that layout change before measuring native mouse coordinates.
+    // Wait for the parent to acknowledge readiness before measuring input.
+    // Notice visibility must not change the iframe's geometry.
     await frameElement.locator("..").and(page.locator('[aria-busy="false"]')).waitFor()
     await element.scrollIntoViewIfNeeded()
     await (await frameElement.elementHandle())!.waitForElementState("stable")

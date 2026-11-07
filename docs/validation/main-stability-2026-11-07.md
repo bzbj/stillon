@@ -154,3 +154,17 @@ occlusion without a click, and successful recovery after removing the overlay.
 The fixture uses Node HTTP servers and real browser input without application
 accounts, private fixtures or user data. Linux CI runs both engines; Windows CI
 runs Edge before the complete preview matrix.
+
+The subsequent Linux run passed the new isolated pointer fixtures but reproduced
+the complete-page failure. Its diagnostics showed parent/child DOM hit tests
+selecting the iframe/button while the trusted pointer event reached the heading
+above it. The actual component layout fixture then deterministically reproduced
+a 45 CSS px upward move and height increase when the loading notice disappeared.
+
+Loading, dependency and linked-action notices now overlay a fixed iframe viewport
+instead of consuming its flex height. The real-component fixture fails the
+geometry invariant before this change and passes with Chromium and Firefox after
+it, including native clicks. Complete preview recovery additionally checks
+identical frame bounds while loading, slow, unavailable and restored. Both the
+real-component geometry fixture and pointer fixture run before complete preview
+acceptance in Linux/Windows CI.

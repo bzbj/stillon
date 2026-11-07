@@ -156,6 +156,10 @@ jobs:
           done
       - run: bunx playwright install --with-deps chromium firefox
       - run: bun run check
+      - name: Verify direct HTML notice geometry
+        run: bun run test:previews:layout
+      - name: Verify direct HTML notice geometry with Firefox
+        run: bun run test:previews:layout --firefox
       - name: Verify isolated iframe pointer targeting
         run: bun run test:previews:pointer
       - name: Verify isolated iframe pointer targeting with Firefox
@@ -193,6 +197,8 @@ jobs:
       - run: bun run check
       - name: Recheck fresh native service discovery
         run: bun scripts/verify-preview-discovery.ts --scans=30
+      - name: Verify direct HTML notice geometry with Edge
+        run: bun run test:previews:layout
       - name: Verify isolated iframe pointer targeting with Edge
         run: bun run test:previews:pointer
       - name: Exercise Edge input, drag and service-list interfaces
