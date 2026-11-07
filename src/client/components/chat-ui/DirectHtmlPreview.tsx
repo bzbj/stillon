@@ -128,20 +128,23 @@ export function DirectHtmlPreview({ targetId, target, projectId, refreshVersion,
   const retry = () => setAttempt(value => value + 1)
   if (error) return <div role="alert" className="p-6 text-sm"><p>{error}</p><button className="mt-2 underline" onClick={retry}>Retry preview</button></div>
   if (!url) return <p role="status" className="p-6 text-sm">Loading file preview…</p>
-  return <div className="flex h-full flex-col">
-    {loading !== "ready" ? <div role={loading === "slow" ? "alert" : "status"} className="border-b p-3 text-sm">
-      <p>{loading === "slow" ? "This file preview is taking longer than expected." : "Loading file preview…"}</p>
-      {loading === "slow" ? <button className="mt-2 underline" onClick={retry}>Retry preview</button> : null}
-    </div> : null}
-    {dependencyError ? <div role="alert" className="border-b p-3 text-sm"><p>{dependencyError}</p><button className="underline" onClick={() => setDependencyError(undefined)}>Dismiss dependency warning</button></div> : null}
-    {linkedAction ? <div className="flex flex-wrap items-center gap-3 border-b p-3 text-sm"><span className="break-all">{linkedAction.label}</span>
-      <button className="underline" disabled={!capabilities} onClick={() => {
-        if (linkedAction.service) onNavigate(linkedAction.address)
-        else void executeResourceAction(linkedAction.address, capabilities?.local ? "open_default" : "download", projectId).catch(e => setDependencyError(e.message))
-        setLinkedAction(undefined)
-      }}>{linkedAction.service ? "Preview host service" : capabilities?.local ? "Open linked file" : "Download linked file"}</button>
-      <button className="underline" onClick={() => setLinkedAction(undefined)}>Dismiss</button>
-    </div> : null}
+  return <div className="relative flex h-full flex-col">
+    {/* Keep the iframe's native input geometry fixed when notices appear or disappear. */}
+    <div className="absolute inset-x-0 top-0 z-10">
+      {loading !== "ready" ? <div role={loading === "slow" ? "alert" : "status"} className="border-b bg-background p-3 text-sm">
+        <p>{loading === "slow" ? "This file preview is taking longer than expected." : "Loading file preview…"}</p>
+        {loading === "slow" ? <button className="mt-2 underline" onClick={retry}>Retry preview</button> : null}
+      </div> : null}
+      {dependencyError ? <div role="alert" className="border-b bg-background p-3 text-sm"><p>{dependencyError}</p><button className="underline" onClick={() => setDependencyError(undefined)}>Dismiss dependency warning</button></div> : null}
+      {linkedAction ? <div className="flex flex-wrap items-center gap-3 border-b bg-background p-3 text-sm"><span className="break-all">{linkedAction.label}</span>
+        <button className="underline" disabled={!capabilities} onClick={() => {
+          if (linkedAction.service) onNavigate(linkedAction.address)
+          else void executeResourceAction(linkedAction.address, capabilities?.local ? "open_default" : "download", projectId).catch(e => setDependencyError(e.message))
+          setLinkedAction(undefined)
+        }}>{linkedAction.service ? "Preview host service" : capabilities?.local ? "Open linked file" : "Download linked file"}</button>
+        <button className="underline" onClick={() => setLinkedAction(undefined)}>Dismiss</button>
+      </div> : null}
+    </div>
     <div className="min-h-0 flex-1 overflow-hidden" aria-busy={loading !== "ready"}><iframe key={`${url}:${requestVersion}`} ref={frame} title="HTML file preview" src={url}
     onLoad={() => frame.current?.contentWindow?.postMessage({ type: "stillon:file-ready-request" }, new URL(url).origin)}
     onError={() => setLoading("slow")}

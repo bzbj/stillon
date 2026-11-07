@@ -122,3 +122,16 @@ Login/reboot acceptance must use a disposable installation and verify both the
 selected runtime and history after recovery, then remove its test services.
 Custom launchers require their own integration; this PR does not adopt them or
 replace an existing custom local startup method.
+
+## macOS worker replacement rehearsal
+
+Run `bun run test:updates:macos` from a logged-in macOS GUI session. It uses a
+unique launchd label and a temporary home, without touching the installed app.
+It verifies initial worker startup, replacement with a different process,
+registration failure, successful retry, fixture history retention and cleanup.
+
+`launchctl bootout` can return before launchd removes the old registration.
+The updater now polls `launchctl print` before bootstrapping the replacement,
+using the same bounded wait as application-service installation. An inspection
+failure or timeout prevents bootstrap; a bootstrap failure retains its native
+diagnostic. This does not certify reboot, logout/login or power-loss recovery.

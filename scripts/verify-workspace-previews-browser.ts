@@ -8,6 +8,7 @@ import { chromium, firefox, type Page } from "playwright"
 import { verifyPreviewInput } from "./verify-preview-input"
 
 const filesOnly = process.argv.includes("--files-only")
+const revealLabel = process.platform === "darwin" ? "Show in Finder" : "Show in folder"
 const output = path.resolve("test-artifacts/workspace-previews", process.argv.includes("--firefox") ? "firefox" : "chromium")
 await mkdir(output, { recursive: true })
 const privateFixture = path.join(output, "private-browser-fixture-" + Date.now() + ".json")
@@ -244,7 +245,7 @@ try {
     }
     await guide.click({ button: "right" })
     const labels = await resolvedFileMenuLabels()
-    assert.deepEqual(labels, entry.name === "loopback" ? ["Preview in sidebar", "Open on this computer", "Show in folder"] : ["Preview in sidebar", "Download"])
+    assert.deepEqual(labels, entry.name === "loopback" ? ["Preview in sidebar", "Open on this computer", revealLabel] : ["Preview in sidebar", "Download"])
     await page.getByRole("menuitem", { name: "Preview in sidebar", exact: true }).focus()
     await page.keyboard.press("Escape")
     await page.getByRole("menu").waitFor({ state: "hidden" })
@@ -256,7 +257,7 @@ try {
     await page.getByRole("heading", { name: "Preview guide", exact: true }).waitFor()
     checks.push({ entry: entry.name, check: "Chat link sidebar routing, modifier/middle-click independent reading, stable custom file menu", result: "Pass" })
     const menuLabels = (previewable: boolean) => entry.name === "loopback"
-      ? [...(previewable ? ["Preview in sidebar"] : []), "Open on this computer", "Show in folder"]
+      ? [...(previewable ? ["Preview in sidebar"] : []), "Open on this computer", revealLabel]
       : [...(previewable ? ["Preview in sidebar"] : []), "Download"]
     const verifyDownload = async (activate: () => Promise<unknown>, fileName: string) => {
       const pending = page.waitForEvent("download")

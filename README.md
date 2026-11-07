@@ -91,7 +91,7 @@ The full operating chain looks like this:
 
 ## Quickstart
 
-Install [Bun](https://bun.sh) v1.3.5 or newer, then:
+Install [Bun](https://bun.sh) v1.3.14 or newer, then:
 
 ```bash
 git clone https://github.com/bzbj/stillon.git
@@ -223,7 +223,7 @@ proxy and security contract.
 
 ## Windows
 
-StillOn supports Windows 10/11 with Bun 1.3.5 or newer, Git, and PowerShell.
+StillOn supports Windows 10/11 with Bun 1.3.14 or newer, Git, and PowerShell.
 Install and validate from PowerShell:
 
 ```powershell

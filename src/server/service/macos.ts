@@ -7,6 +7,7 @@ import {
   type ServiceBackend,
   type ServiceBackendContext,
   type ServiceCommandResult,
+  type ServiceCommandRunner,
   type ServiceLaunchSpec,
 } from "./types"
 
@@ -161,8 +162,8 @@ async function defaultSleep(delayMs: number) {
   await delay(delayMs)
 }
 
-async function waitForServiceToUnload(
-  context: ServiceBackendContext,
+export async function waitForServiceToUnload(
+  run: ServiceCommandRunner,
   serviceTarget: string,
   options: {
     now: () => number
@@ -174,7 +175,7 @@ async function waitForServiceToUnload(
   const deadline = options.now() + options.timeoutMs
 
   while (true) {
-    const result = await queryLoadedService(context, serviceTarget)
+    const result = await run(LAUNCHCTL_PATH, ["print", serviceTarget])
     if (serviceIsNotLoaded(result)) return
     if (!commandSucceeded(result)) assertCommandSucceeded("launchctl print", result)
 
@@ -223,7 +224,7 @@ export function createMacosServiceBackend(options: MacosServiceBackendOptions = 
       if (commandSucceeded(loaded)) {
         const bootout = await context.run(LAUNCHCTL_PATH, ["bootout", targets.service])
         assertCommandSucceeded("launchctl bootout", bootout)
-        await waitForServiceToUnload(context, targets.service, {
+        await waitForServiceToUnload(context.run, targets.service, {
           now,
           sleep,
           pollIntervalMs: unloadPollIntervalMs,

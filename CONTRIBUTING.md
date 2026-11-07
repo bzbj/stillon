@@ -4,7 +4,7 @@ Thanks for helping improve StillOn.
 
 ## Development
 
-Install Bun 1.3.5 or newer, then run:
+Install Bun 1.3.14 or newer, then run:
 
 ~~~bash
 bun install
