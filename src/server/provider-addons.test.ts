@@ -124,6 +124,43 @@ test("app updates and rollback select their bundled versions while retaining ena
   expect(JSON.parse(await readFile(history, "utf8")).sessionToken).toBe("synthetic-session")
 }, 20_000)
 
+test("same-version bundled rebuilds preserve legacy caches, runtime isolation and rollback", async () => {
+  const { root, manager: legacy } = await fixture(), version = "0.2.0"
+  await legacy.install(bundle(version, version, true))
+  await legacy.modelOperation("deepseek", "discover", { provider: "gateway" })
+  const id = harnessModelId("gateway", "same-model")
+  await legacy.selectModels("deepseek", { ids: [id], defaultModel: id })
+  const policyFile = path.join(root, "addons/deepseek/models.json"), policy = await readFile(policyFile, "utf8")
+  const legacyCodeFile = path.join(root, "addons/deepseek", version, "adapter.js")
+  const legacyCode = await readFile(legacyCodeFile, "utf8")
+  const directory = await bundledRuntime(root, version)
+  const original = new ProviderAddons(root); await original.initialize(directory)
+  const rebuilt = bundle(version, version, true)
+  rebuilt.code = rebuilt.code.replace("'resumed':'new'", "'rebuilt-resumed':'rebuilt-new'")
+  rebuilt.manifest.sha256 = createHash("sha256").update(rebuilt.code).digest("hex")
+  await writeFile(path.join(directory, "deepseek.stillon-addon"), JSON.stringify(rebuilt))
+  const updated = new ProviderAddons(root); await updated.initialize(directory)
+  expect(updated.snapshot()[0]).toMatchObject({ version, enabled: true, compatible: true })
+  expect(updated.getCatalog("deepseek").defaultModel).toBe(id)
+  const transcript = async (manager: ProviderAddons) => {
+    const turn = await manager.startTurn("deepseek", { ...turnArgs(root, "hello", "synthetic-session"), model: id })
+    const events: HarnessEvent[] = []; for await (const event of turn.stream) events.push(event)
+    return events.flatMap(event => event.entry?.kind === "assistant_text" ? [event.entry.text] : [])
+  }
+  expect(await transcript(updated)).toEqual(["rebuilt-resumed"])
+  expect(await transcript(original)).toEqual(["resumed"])
+  const restarted = new ProviderAddons(root); await restarted.initialize(directory)
+  expect(await transcript(restarted)).toEqual(["rebuilt-resumed"])
+  await restarted.change("deepseek", "disable")
+  await writeFile(path.join(directory, "deepseek.stillon-addon"), JSON.stringify(bundle(version, version, true)))
+  const rollback = new ProviderAddons(root); await rollback.initialize(directory)
+  expect(rollback.snapshot()[0]).toMatchObject({ enabled: false, compatible: true })
+  await rollback.change("deepseek", "enable")
+  expect(await transcript(rollback)).toEqual(["resumed"])
+  expect(await readFile(policyFile, "utf8")).toBe(policy)
+  expect(await readFile(legacyCodeFile, "utf8")).toBe(legacyCode)
+}, 20_000)
+
 test("a damaged bundled update fails closed without changing preferences", async () => {
   const { root } = await fixture(), initial = await bundledRuntime(root), manager = new ProviderAddons(root)
   await manager.initialize(initial); await manager.change("deepseek", "enable")
