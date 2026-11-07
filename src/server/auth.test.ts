@@ -10,7 +10,9 @@ import { startStillOnServer } from "./server"
 const tempDirs: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  // Windows can briefly retain a directory handle after server.stop() settles.
+  // Keep cleanup bounded and fail if the handle never becomes available.
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
 })
 
 async function startPasswordServer(options: { password?: string; trustProxy?: boolean; port?: number } = {}) {

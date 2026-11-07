@@ -168,3 +168,11 @@ it, including native clicks. Complete preview recovery additionally checks
 identical frame bounds while loading, slow, unavailable and restored. Both the
 real-component geometry fixture and pointer fixture run before complete preview
 acceptance in Linux/Windows CI.
+
+On `f06c136`, the complete Linux preview job passed Chromium, files-only mode and
+Firefox, including both geometry and pointer preflights. The complete Windows
+Edge preview job also passed. A separate Windows x64 validation job hit `EBUSY`
+while removing an authentication test's temporary directory after server shutdown.
+Authentication assertions were unchanged; fixture cleanup now uses the repository's
+bounded `rm` retry policy (five retries, 100 ms base delay), and still fails if the
+lock persists. The local authentication suite passed all 18 tests after that change.
