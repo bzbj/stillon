@@ -45,7 +45,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
       for await (const event of turn.stream) events.push(event)
       return events.at(-1)?.entry
     }
-    for (const version of ["0.1.0", "0.2.1-rc.5", "1.0.0", "9.0.0-preview.1"]) {
+    for (const version of ["0.1.0", "0.2.1-rc.5", "1.0.0", "1.0.0+build.42", "dsh 2.0.0", "9.0.0-preview.1"]) {
       environment.FIXTURE_VERSION = version
       expect(await manager.status("deepseek", true)).toMatchObject({ state: "ready", installed: true, version, executable })
       expect(await run()).toMatchObject({ kind: "result", isError: false, result: `local CLI ${version}` })
@@ -55,4 +55,4 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     environment.DSH_EXECUTABLE = path.join(root, "missing-dsh")
     expect(await manager.status("deepseek", true)).toMatchObject({ state: "error", installed: false })
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
-}, 30_000)
+}, 60_000)

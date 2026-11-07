@@ -62,7 +62,7 @@ export async function deepSeekVersion(executable: string, environment: NodeJS.Pr
     throw new Error("The selected DeepSeek CLI could not report its version. Check or repair its installation.")
   })
   const version = output.stdout.trim()
-  if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(version)) throw new Error("The selected executable did not identify itself as dsh.")
+  if (!version) throw new Error("The selected DeepSeek CLI did not report a version.")
   return version
 }
 
