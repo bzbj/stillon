@@ -1,3 +1,4 @@
+import { UPDATE_VERIFICATION_INSTRUCTIONS } from "../shared/update-instructions"
 import { describe, expect, test } from "bun:test"
 import {
   buildSourceUpgradePrompt,
@@ -46,7 +47,7 @@ describe("source upgrade prompt generation", () => {
     const { prompt } = await generator.generate({ targetTag: " v0.3.2 " })
 
     expect(readContext(prompt)).toEqual(context)
-    expect(prompt.split("\n")).toHaveLength(9)
+    expect(prompt.split("\n")).toHaveLength(10)
     expect(prompt).toContain("升级到 v0.3.2")
     expect(prompt).toContain("https://github.com/bzbj/stillon/releases/tag/v0.3.2")
     expect(prompt).toContain("https://github.com/bzbj/stillon.git")
@@ -57,6 +58,7 @@ describe("source upgrade prompt generation", () => {
     expect(prompt).toContain("不擅自替换独立 launcher 或创建重复服务")
     expect(prompt).toContain("/health")
     expect(prompt).toContain("回滚")
+    expect(prompt).toContain(UPDATE_VERIFICATION_INSTRUCTIONS)
     expect(prompt).not.toContain("stillon service install")
   })
 

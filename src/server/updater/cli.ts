@@ -14,11 +14,11 @@ import { checkSetupReadiness, type SetupState } from "./setup"
 
 export function parseUpdateArgs(args: string[]) {
   const [action, ...rest] = args
-  if (["setup", "status", "recover"].includes(action) && rest.length === 0) return { action }
+  if (["setup", "status", "recover", "settings-snapshot"].includes(action) && rest.length === 0) return { action }
   if (action === "request" && (rest.length === 1 || (rest.length === 2 && rest[1] === "--prepare-only"))) {
     return { action, tag: releaseTag(rest[0]), prepareOnly: rest.length === 2 }
   }
-  throw new Error("Usage: stillon update setup | status | recover | request <release-tag> [--prepare-only]")
+  throw new Error("Usage: stillon update setup | status | recover | settings-snapshot | request <release-tag> [--prepare-only]")
 }
 
 export async function setupManagedUpdates(root = updateRoot()) {
@@ -124,6 +124,11 @@ export async function updateCli(args = process.argv.slice(3)) {
     throw new Error("Run stillon update setup from a recorded native service installation first.")
   }
   const deployment = await json<UpdateDeployment>(config)
+  if (options.action === "settings-snapshot") {
+    const { readUpdateSettingsSnapshot } = await import("./settings-snapshot")
+    console.log(JSON.stringify(await readUpdateSettingsSnapshot(deployment), null, 2))
+    return
+  }
   if (options.action === "status") {
     const file = path.join(root, "state.json")
     const setupFile = path.join(root, "setup.json")
