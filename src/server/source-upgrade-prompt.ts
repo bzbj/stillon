@@ -1,3 +1,4 @@
+import { UPDATE_VERIFICATION_INSTRUCTIONS } from "../shared/update-instructions"
 import type { SourceUpgradePromptResult } from "../shared/protocol"
 
 const SOURCE_REPOSITORY_URL = "https://github.com/bzbj/stillon.git"
@@ -39,6 +40,7 @@ export function buildSourceUpgradePrompt(targetTag: string, context: SourceUpgra
 保留运行目录与开发目录的分离、数据目录、环境文件、认证配置、监听地址和端口、代理或隧道以及开机启动方式；不要泄露密钥，不覆盖未提交修改，不擅自替换独立 launcher 或创建重复服务。
 更新前备份受影响的数据、配置及本地修改，记录当前版本和启动入口以便回滚；先准备并验证目标版本，再使用已确认的现有启动机制切换或重启，尽量减少中断。
 升级后检查实际监听地址上的 /health、版本、页面和连接状态；失败时恢复原版本、启动入口及必要的备份，并报告结果。
+${UPDATE_VERIFICATION_INSTRUCTIONS}
 任何无法确认的部署细节都应先查明并保留，不得将模板中的上下文当作已完成检查的结论。`
 }
 

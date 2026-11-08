@@ -1,3 +1,4 @@
+import { STILLON_UPDATE_PROMPT } from "../../shared/update-instructions"
 import { SessionStatisticsSetting } from "./SessionStatisticsSetting"
 import { isAddonProvider, normalizeAddonPreference } from "../../shared/types"
 import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
@@ -369,7 +370,7 @@ export function getAvailablePackageRelease(releases: GithubRelease[], currentVer
   }), currentVersion)
 }
 
-export const STILLON_UPDATE_PROMPT = "Update StillOn to the latest release from https://github.com/bzbj/stillon. Preserve data/customizations; stage and verify first. Register an OS-owned independent task to start about 5 seconds later and survive StillOn/agent exit. Report task name, target version and status file; end this agent turn without waiting. Poll the native idle check every 5 seconds for up to 12 hours. After agent turns finish and embedded terminals close, request shutdown. If the old process remains after 5 seconds, verify its managed instance identity and force-terminate that process before backing up, upgrading and restarting. If idle wait times out, leave StillOn running. Verify local/Connect connections; roll back on failure."
+export { STILLON_UPDATE_PROMPT } from "../../shared/update-instructions"
 
 function SourceUpgradePrompt({ release }: { release: GithubRelease }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle")

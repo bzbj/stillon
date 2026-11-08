@@ -240,3 +240,104 @@ If rollback also fails, `state.json` retains the original upgrade failure in
 recovery worker preserves the original reason even if recovery fails again.
 These controller diagnostics require a newly installed controller; updating only the app does not replace
 an existing pinned controller.
+
+## Verification contract
+
+This contract applies to both the About copy prompt and the server-generated
+source upgrade prompt. Read the **installed** runtime/controller documentation:
+controllers are pinned outside application releases. A new checkout or app
+upgrade does not add capabilities to an older controller.
+
+### Use the existing transaction owner
+
+For an enabled managed installation, use `bun bin/stillon update status`,
+`bun bin/stillon update request <tag> --prepare-only`, then an explicit
+`bun bin/stillon update request <tag>` when ready, and `update recover` for
+recovery. These commands hand work to the registered **StillOn Updater** Windows
+task or **com.bzbj.stillon.updater** macOS LaunchAgent. Do not register a second
+transaction worker, import internal updater modules, replace verification effects,
+or manually resume a verification gate to make a check pass.
+
+The existing request CLI wakes its worker immediately; it does **not** promise a
+five-second delay or twelve-hour idle polling. It refuses a busy switch. If a
+caller requires deferred execution, an OS-owned scheduling adapter may wait for
+the installed native authenticated idle check and then submit the supported
+request; it must leave the application running on timeout. The native worker
+must retain ownership of shutdown, identity checks, backup, switch and rollback.
+Check the installed version's behavior rather than inventing unsupported flags.
+For custom/unmanaged services, preserve the launcher and follow the source
+workflow; do not silently adopt them into managed updates. The unauthenticated
+`/health?update-setup=1` readiness probe is for legacy setup, not a replacement for
+the managed authenticated control check.
+
+### Checks while paused
+
+The new application starts with user work blocked until the transaction owner
+finishes verification. Normal `/ws` access and mutations deliberately return 503.
+A settings read command over `/ws` is therefore **unavailable**, not evidence
+that settings changed. Keep that boundary intact during rollback verification too.
+
+The native verifier checks `/health` (version, protocol and random instance
+identity against the runner record), exact HTML and referenced asset bytes, and
+startup stability. It does not establish authenticated Connect workspace access.
+
+For managed installations with this CLI, capture read-only settings evidence:
+
+```text
+bun bin/stillon update settings-snapshot
+```
+
+It reads the recorded deployment's `dataRoot/data/settings.json` using the local
+settings reader, without a running server, WebSocket, controller lease or gate
+change. It reports `{ present, settings }`; missing settings are explicit, and
+unreadable/invalid JSON is reported as `Settings snapshot unavailable` rather than
+silently comparing fallback defaults. Save output privately before and after the
+switch and compare the relevant preserved fields; new version defaults may add
+fields. Snapshots can contain private configuration: do not paste them into
+public logs, issues or PRs. A controller/verifier can run the command from the
+runtime it is verifying; this read-only CLI does not replace the transaction owner.
+
+On older versions or custom source installations, the existing read-only
+`readAppSettingsSnapshot(settingsFile)` in `src/server/app-settings.ts` is usable
+locally. Pass the actual settings file explicitly, record whether it exists and
+reject warnings/defaults caused by invalid input. This is a local application
+settings reader, not an internal updater orchestration interface. Do not read
+settings by releasing the gate or adding a mutation exception.
+
+### Connect evidence and redirects
+
+Report these checks separately:
+
+| Evidence | What it establishes |
+| --- | --- |
+| Local health, identity and asset checks | The selected local runtime is serving the expected build |
+| Connect binding identity and transport online | The configured host is registered and its connector is online |
+| Remote login gateway reachable | An unauthenticated request can reach the login flow |
+| Authenticated workspace session | Login gateway, tunnel, adapter and application work together for that authorized session |
+
+A normal unauthenticated request may redirect from the workspace to
+`/_connect/login` and then to `/authorize` on the configured Connect origin,
+where the authorization page returns 200. Inspect the redirect chain and require
+HTTPS and the expected workspace/configured-origin hosts; do not require the
+**final** URL to contain `/_connect/login`, and do not accept arbitrary off-origin
+redirects. Bound requests and retries. HTTP 200 on an authorization page alone is
+not authenticated workspace verification. If no authorized session is available,
+report that level as unverified rather than claiming success or a proven runtime
+failure. An explicitly required check that cannot be completed must remain
+incomplete; do not silently weaken acceptance or bypass authentication.
+
+### Status and failure causality
+
+The managed `update status` output contains the transaction `id`, `targetTag`,
+`phase`, `oldRuntime`, `newRuntime`, `backupReady`, original `error`, and separate
+`recoveryError`. The authoritative file is `state.json` under ManagedUpdates;
+`transactions/<id>/journal.json` is written before that state. After success the
+selected runtime is `newRuntime`; after verified rollback it is `oldRuntime`.
+During recovery, confirm `control.json`, `runner.json` and live health rather
+than inferring a completed selection from the phase alone.
+
+A scheduling adapter's status must identify the native transaction and these
+paths. Preserve its original verifier failure alongside the final native
+recovery outcome; never replace the cause with a generic recovery message or
+present an adapter's exit code as the transaction result. Reuse the native owner
+for recovery, and retain backups and quarantined data until recovery is verified.

@@ -5,6 +5,7 @@ import path from "node:path"
 import { chromium, type Page } from "playwright"
 import { createConnectFixture, eventually } from "./connect-fixture"
 import { startStillOnServer } from "../src/server/server"
+import { STILLON_UPDATE_PROMPT } from "../src/shared/update-instructions"
 
 // Synthetic CLIs, accounts and temporary data only; no real authentication or installers.
 // Bun caches homedir at process startup. Spawn with the isolated home already set,
@@ -182,7 +183,7 @@ try {
     await p.getByRole("button", { name: "Check for Updates", exact: true }).click()
     await p.getByRole("button", { name: "Copy update prompt", exact: true }).waitFor()
     const prompt = await p.getByRole("textbox", { name: "Update prompt", exact: true }).inputValue()
-    assert(prompt.length <= 800 && prompt.includes("local/Connect connections"))
+    assert.equal(prompt, STILLON_UPDATE_PROMPT)
     assert(prompt.includes("start about 5 seconds later") && prompt.includes("end this agent turn without waiting"))
     assert(prompt.includes("native idle check every 5 seconds for up to 12 hours"))
     assert(prompt.includes("verify its managed instance identity") && prompt.includes("force-terminate that process before backing up"))
