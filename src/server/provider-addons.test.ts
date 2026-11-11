@@ -161,6 +161,27 @@ test("same-version bundled rebuilds preserve legacy caches, runtime isolation an
   expect(await readFile(legacyCodeFile, "utf8")).toBe(legacyCode)
 }, 20_000)
 
+test("loading a saved Harness policy shortens legacy labels without rewriting routes or the saved file", async () => {
+  const { root, manager } = await fixture()
+  await manager.install(bundle("0.1.0", "0.1.0", true))
+  const models = ["deepseek-official", "gateway"].map(provider => ({
+    id: harnessModelId(provider, "deepseek-flash"), provider, model: "deepseek-flash",
+    label: `DeepSeek-V4.1-Flash · ${provider}`, supportsEffort: true,
+    efforts: [{ id: "high", label: "High" }], defaultEffort: "high", contextWindow: 1048576,
+  }))
+  const policy = { schema: 1, models, defaultModel: models[1]!.id }
+  const filename = path.join(root, "addons/deepseek/models.json")
+  const stored = JSON.stringify(policy)
+  await writeFile(filename, stored)
+  const restarted = new ProviderAddons(root)
+  await restarted.initialize()
+  const normalized = restarted.modelState("deepseek").policy!
+  expect(normalized.models).toEqual(models.map(model => ({ ...model, label: "DeepSeek Flash" })))
+  expect(normalized.defaultModel).toBe(policy.defaultModel)
+  expect(restarted.getCatalog("deepseek").models.map(model => model.label)).toEqual(["DeepSeek Flash", "DeepSeek Flash"])
+  expect(await readFile(filename, "utf8")).toBe(stored)
+})
+
 test("a damaged bundled update fails closed without changing preferences", async () => {
   const { root } = await fixture(), initial = await bundledRuntime(root), manager = new ProviderAddons(root)
   await manager.initialize(initial); await manager.change("deepseek", "enable")

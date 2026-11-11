@@ -1,7 +1,7 @@
 /** Runs in the user's dsh via its documented --patch plugin extension. No vendor runtime is bundled. */
 import { createInterface } from "node:readline"
 import { createHash, randomUUID } from "node:crypto"
-import { harnessConfigInputSchema, harnessModelId, type HarnessModel } from "../../../src/shared/harness-models"
+import { harnessConfigInputSchema, harnessModelId, harnessModelLabel, type HarnessModel } from "../../../src/shared/harness-models"
 
 export const name = "stillon-model-control"
 export const inject = ["llm", "settings", "credentials", "sdkAppStartup"]
@@ -61,7 +61,7 @@ export function apply(ctx: Context) {
       for (const model of models) {
         const resolved = await ctx.llm.resolveModelInfo(provider, model.id)
         output.push({ id: harnessModelId(provider, model.id), provider, model: model.id,
-          label: `${model.name} · ${provider}`, supportsEffort: Boolean(resolved.reasoning?.efforts.length),
+          label: harnessModelLabel(model.name, provider, model.id), supportsEffort: Boolean(resolved.reasoning?.efforts.length),
           efforts: resolved.reasoning?.efforts.map(e => ({ id: e.id, label: e.name })) ?? [],
           defaultEffort: resolved.reasoning?.defaultEffort, contextWindow: resolved.context?.contextWindow })
       }
