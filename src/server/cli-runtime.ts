@@ -92,7 +92,7 @@ Usage:
   ${CLI_COMMAND} [options]
   ${CLI_COMMAND} service <install|status|logs|uninstall> [options]
   ${CLI_COMMAND} update <setup|status|recover|settings-snapshot>
-  ${CLI_COMMAND} update request <release-tag> [--prepare-only]
+  ${CLI_COMMAND} update request <release-tag> [--prepare-only] [--wait-idle <duration>]
 
 Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})

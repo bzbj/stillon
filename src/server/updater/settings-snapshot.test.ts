@@ -56,3 +56,26 @@ test("CLI snapshot uses the recorded data root and never wakes a worker", async 
   expect(JSON.parse(stdout).settings.machineName).toBe("CLI upgrade fixture")
   expect(JSON.parse(stdout).present).toBe(true)
 })
+
+test("status reports a queued deferred request before the worker journals it", async () => {
+  const f = await fixture()
+  const home = path.join(f.dataRoot, "home")
+  const localAppData = path.join(home, "AppData", "Local")
+  const root = updateRoot(process.platform, home, localAppData)
+  await mkdir(root, { recursive: true })
+  await writeFile(path.join(root, "deployment.json"), JSON.stringify({ dataRoot: f.dataRoot }))
+  const queued = { id: "deferred-transaction", phase: "queued", targetTag: "v9.9.9", prepareOnly: false,
+    oldRuntime: "/old", newRuntime: "/new", updatedAt: new Date().toISOString(), idleWaitSeconds: 43_200 }
+  await writeFile(path.join(root, "request.json"), JSON.stringify(queued))
+  const child = Bun.spawn([process.execPath, "--no-env-file", path.resolve("bin/stillon"), "update", "status"], {
+    env: { ...process.env, HOME: home, USERPROFILE: home, LOCALAPPDATA: localAppData },
+    stdout: "pipe", stderr: "pipe",
+  })
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+  expect(stderr).toBe("")
+  expect(code).toBe(0)
+  const status = JSON.parse(stdout)
+  expect(status.update.id).toBe("deferred-transaction")
+  expect(status.update.phase).toBe("queued")
+  expect(status.update.idleWaitSeconds).toBe(43_200)
+})

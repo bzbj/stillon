@@ -2,20 +2,36 @@ import { randomUUID } from "node:crypto"
 import { mkdir, open, rename, stat, unlink } from "node:fs/promises"
 import path from "node:path"
 import { atomicJson, copySourceEntry, copyTree, exists, inside, json, manifest, sameManifest, type Manifest } from "./files"
-import { appCommand, appStatus, localFetch, pauseManagedServer, resumeManagedServer, waitUntil } from "./control"
+import { appCommand, appIdle, appStatus, localFetch, pauseManagedServer, resumeManagedServer, UpdateBusyError, waitUntil } from "./control"
 import { applicationFailure } from "./startup-diagnostics"
 import { BUNDLE_FILE, runtimeExecutable } from "../distribution/bundle"
-import { desktopTransitionPending, FINISHED_PHASES, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
+import { desktopTransitionPending, FINISHED_PHASES, MAX_IDLE_WAIT_SECONDS, MIN_IDLE_WAIT_SECONDS, newerRelease, releaseTag, SWITCH_PHASES, UPDATE_REPOSITORY, type UpdateControl, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "./model"
 
 export interface UpdateEffects {
   prepare: (state: UpdateState) => Promise<void>
-  pause: () => Promise<void>
+  pause: (options?: { restoreOnFailure?: boolean }) => Promise<void>
   resume: (runtime: string) => Promise<void>
   verify: (runtime: string) => Promise<void>
+  /** Authenticated native check for active agent turns, terminals and mutations. */
+  idle?: () => Promise<boolean>
+}
+
+export interface UpdateEngineOptions {
+  /** Poll interval for a deferred upgrade; the native worker polls every five seconds. */
+  idlePollMs?: number
+  /** How long one scheduled worker invocation waits before yielding to the OS timer. */
+  idleSessionMs?: number
+  now?: () => number
+  sleep?: (milliseconds: number) => Promise<void>
+}
+
+function isBusyFailure(error: unknown) {
+  return error instanceof UpdateBusyError
+    || (error instanceof Error && error.message.startsWith("Finish active agent turns"))
 }
 
 export class UpdateEngine {
-  constructor(readonly deployment: UpdateDeployment, readonly effects: UpdateEffects) {}
+  constructor(readonly deployment: UpdateDeployment, readonly effects: UpdateEffects, readonly options: UpdateEngineOptions = {}) {}
   state!: UpdateState
   get stateFile() { return path.join(this.deployment.root, "state.json") }
   get transaction() { return inside(path.join(this.deployment.root, "transactions"), this.state.id) }
@@ -68,6 +84,83 @@ export class UpdateEngine {
     await this.save("rolled-back")
   }
 
+  private now() {
+    return this.options.now?.() ?? Date.now()
+  }
+
+  private async sleep(milliseconds: number) {
+    await (this.options.sleep ?? Bun.sleep)(milliseconds)
+  }
+
+  private async assertIdle() {
+    if (!this.effects.idle) throw new Error("The installed updater has no authenticated idle check.")
+    return await this.effects.idle()
+  }
+
+  /**
+   * Keeps one scheduled worker invocation polling the authenticated native idle
+   * check. A user turn that starts afterwards is handled by pausing again, and a
+   * session that ends while StillOn stays busy returns to the OS timer without
+   * changing the application.
+   */
+  private async waitForIdleTurn(): Promise<boolean> {
+    const seconds = this.state.idleWaitSeconds
+    if (!seconds || !Number.isInteger(seconds) || seconds < MIN_IDLE_WAIT_SECONDS || seconds > MAX_IDLE_WAIT_SECONDS) {
+      throw new Error("Invalid deferred idle wait.")
+    }
+    if (!this.effects.idle) throw new Error("The installed updater has no authenticated idle check.")
+    const now = this.now()
+    const startedAt = this.state.idleWaitStartedAt ?? new Date(now).toISOString()
+    const deadline = this.state.idleDeadline ?? new Date(now + seconds * 1_000).toISOString()
+    const deadlineMs = Date.parse(deadline)
+    if (!Number.isFinite(deadlineMs)) throw new Error("Invalid deferred idle deadline.")
+    if (this.state.phase !== "waiting-for-idle" || !this.state.idleDeadline) {
+      await this.save("waiting-for-idle", { idleWaitSeconds: seconds, idleWaitStartedAt: startedAt, idleDeadline: deadline })
+    }
+    const sessionEnd = Math.min(deadlineMs, now + (this.options.idleSessionMs ?? 5 * 60_000))
+    for (;;) {
+      if (this.now() >= deadlineMs) {
+        const last = this.state.idleWaitError ? ` Last idle check: ${this.state.idleWaitError}` : ""
+        await this.save("failed", { error: `Idle wait timed out after ${seconds} seconds; StillOn remains running and no update was started.${last}` })
+        return false
+      }
+      try {
+        if (await this.effects.idle()) {
+          if (this.state.idleWaitError) await this.save("waiting-for-idle", { idleWaitError: undefined })
+          return true
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Idle check failed."
+        if (message !== this.state.idleWaitError) await this.save("waiting-for-idle", { idleWaitError: message })
+      }
+      const remaining = Math.min(deadlineMs, sessionEnd) - this.now()
+      if (remaining <= 0) return false
+      await this.sleep(Math.min(this.options.idlePollMs ?? 5_000, remaining))
+    }
+  }
+
+  private async pauseWhenIdle(): Promise<boolean> {
+    const deferred = Boolean(this.state.idleWaitSeconds)
+    for (;;) {
+      if (deferred) {
+        if (!await this.waitForIdleTurn()) return false
+      } else if (this.effects.idle && !await this.assertIdle()) {
+        throw new UpdateBusyError()
+      }
+      await this.save("pausing", { idleWaitError: undefined })
+      try {
+        await this.effects.pause({ restoreOnFailure: true })
+        return true
+      } catch (error) {
+        // A new agent turn can start between the idle check and pause. The
+        // controller restores its previous request, so keep waiting instead of
+        // turning a racing user action into a rollback.
+        if (deferred && isBusyFailure(error)) { await this.save("waiting-for-idle"); continue }
+        throw error
+      }
+    }
+  }
+
   async execute() {
     this.state = await json<UpdateState>(this.stateFile)
     if (FINISHED_PHASES.has(this.state.phase)) return
@@ -78,15 +171,18 @@ export class UpdateEngine {
       return
     }
     try {
-      if (this.state.phase !== "queued") {
-        await this.save("failed", { error: "Preparation was interrupted; the old version remains selected. Submit a new request." })
-        return
+      if (this.state.phase === "waiting-for-idle") {
+        if (!await this.pauseWhenIdle()) return
+      } else {
+        if (this.state.phase !== "queued") {
+          await this.save("failed", { error: "Preparation was interrupted; the old version remains selected. Submit a new request." })
+          return
+        }
+        await this.save("preparing")
+        await this.effects.prepare(this.state)
+        if (this.state.prepareOnly) { await this.save("prepared"); return }
+        if (!await this.pauseWhenIdle()) return
       }
-      await this.save("preparing")
-      await this.effects.prepare(this.state)
-      if (this.state.prepareOnly) { await this.save("prepared"); return }
-      await this.save("pausing")
-      await this.effects.pause()
       await this.save("backing-up")
       const dataExisted = await exists(this.deployment.dataRoot)
       if (dataExisted) {
@@ -228,10 +324,6 @@ export async function prepareSource(deployment: UpdateDeployment, state: UpdateS
   const baselines = await json<Record<string, Manifest>>(path.join(deployment.root, "build-manifests.json"))
   baselines[runtime] = await manifest(path.join(runtime, "dist"))
   await atomicJson(path.join(deployment.root, "build-manifests.json"), baselines)
-  if (!state.prepareOnly) {
-    const runner = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
-    await appCommand(deployment, runner.secret, "check")
-  }
 }
 
 export async function probeRuntime(deployment: UpdateDeployment, runtime: string, transaction: string) {
@@ -262,9 +354,14 @@ export async function probeRuntime(deployment: UpdateDeployment, runtime: string
   }
 }
 
-export async function enqueueUpdate(deployment: UpdateDeployment, target: string, prepareOnly = false) {
+export async function enqueueUpdate(deployment: UpdateDeployment, target: string, prepareOnly = false, idleWaitSeconds?: number) {
   if (await desktopTransitionPending(deployment.root)) throw new Error("Wait for the desktop migration or recovery to finish.")
   const tag = releaseTag(target)
+  if (prepareOnly && idleWaitSeconds !== undefined) throw new Error("A prepare-only request cannot wait for idle.")
+  if (idleWaitSeconds !== undefined
+    && (!Number.isInteger(idleWaitSeconds) || idleWaitSeconds < MIN_IDLE_WAIT_SECONDS || idleWaitSeconds > MAX_IDLE_WAIT_SECONDS)) {
+    throw new Error(`Idle wait must be a whole number of seconds between ${MIN_IDLE_WAIT_SECONDS} and ${MAX_IDLE_WAIT_SECONDS}.`)
+  }
   const setupFile = path.join(deployment.root, "setup.json")
   if (await exists(setupFile) && (await json<{ phase: string }>(setupFile)).phase !== "enabled") {
     throw new Error("First-time setup must finish successfully before requesting an upgrade. Use update status or update recover.")
@@ -278,7 +375,8 @@ export async function enqueueUpdate(deployment: UpdateDeployment, target: string
     const control = await json<UpdateControl>(path.join(deployment.root, "control.json"))
     const id = randomUUID()
     const state: UpdateState = { id, targetTag: tag, prepareOnly, oldRuntime: control.runtime,
-      newRuntime: inside(path.join(deployment.root, "releases"), `${id}/${tag}`), phase: "queued", updatedAt: new Date().toISOString() }
+      newRuntime: inside(path.join(deployment.root, "releases"), `${id}/${tag}`), phase: "queued", updatedAt: new Date().toISOString(),
+      ...(idleWaitSeconds === undefined ? {} : { idleWaitSeconds }) }
     await handle.writeFile(JSON.stringify(state))
     await handle.sync()
     return state
@@ -315,6 +413,10 @@ export function realUpdateEffects(deployment: UpdateDeployment): UpdateEffects {
       return preparePackage(deployment, state)
     }
     return prepareSource(deployment, state)
-  }, pause: () => pauseManagedServer(deployment),
-    resume: (runtime) => resumeManagedServer(deployment, runtime), verify: (runtime) => verifyRuntime(deployment, runtime) }
+  }, pause: (options) => pauseManagedServer(deployment, options),
+    resume: (runtime) => resumeManagedServer(deployment, runtime), verify: (runtime) => verifyRuntime(deployment, runtime),
+    idle: async () => {
+      const runner = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
+      return appIdle(deployment, runner.secret)
+    } }
 }

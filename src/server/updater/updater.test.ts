@@ -6,7 +6,8 @@ import path from "node:path"
 import { createManagedAppControl } from "./app-control"
 import { atomicJson, copyTree, inside, json, manifest } from "./files"
 import { claimRequest, enqueueUpdate, UpdateEngine, type UpdateEffects } from "./engine"
-import { parseUpdateArgs } from "./cli"
+import { parseIdleWait, parseUpdateArgs } from "./cli"
+import { UpdateBusyError } from "./control"
 import { macosUpdaterPlist, windowsUpdaterXml } from "./native"
 import { newerRelease, releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
 
@@ -50,6 +51,24 @@ describe("platform and architecture selection", () => {
     expect(newerRelease("v1.2.3", "1.2.3")).toBe(false)
     expect(parseUpdateArgs(["request", "1.2.3", "--prepare-only"])).toEqual({ action: "request", tag: "v1.2.3", prepareOnly: true })
     expect(() => parseUpdateArgs(["setup", "--force"])).toThrow()
+  })
+  test("deferred requests accept only a bounded idle duration and never combine with prepare-only", () => {
+    expect(parseIdleWait("5")).toBe(5)
+    expect(parseIdleWait("30m")).toBe(1_800)
+    expect(parseIdleWait("12h")).toBe(43_200)
+    expect(() => parseIdleWait("4")).toThrow("between 5")
+    expect(() => parseIdleWait("12h1m")).toThrow()
+    expect(() => parseIdleWait("0")).toThrow()
+    expect(parseUpdateArgs(["request", "v1.2.3", "--wait-idle", "12h"])).toEqual({
+      action: "request", tag: "v1.2.3", prepareOnly: false, idleWaitSeconds: 43_200,
+    })
+    expect(parseUpdateArgs(["request", "--wait-idle", "30m", "1.2.3"])).toEqual({
+      action: "request", tag: "v1.2.3", prepareOnly: false, idleWaitSeconds: 1_800,
+    })
+    expect(() => parseUpdateArgs(["request", "v1.2.3", "--wait-idle"])).toThrow("requires a duration")
+    expect(() => parseUpdateArgs(["request", "v1.2.3", "--prepare-only", "--wait-idle", "30m"])).toThrow("prepare-only")
+    expect(() => parseUpdateArgs(["request", "v1.2.3", "--wait-idle", "1m", "--wait-idle", "2m"])).toThrow("Duplicate")
+    expect(() => parseUpdateArgs(["request", "v1.2.3", "--idle"])).toThrow()
   })
 })
 
@@ -117,13 +136,13 @@ describe("application shutdown authorization", () => {
   })
 })
 
-async function fixture() {
+async function fixture(idleWaitSeconds?: number) {
   const root = await temp()
   const config = deployment(root)
   await mkdir(config.dataRoot, { recursive: true })
   await writeFile(path.join(config.dataRoot, "history.json"), "original")
   await atomicJson(path.join(root, "control.json"), { runtime: config.launch.workingDirectory, paused: false })
-  const state = await enqueueUpdate(config, "v0.2.16")
+  const state = await enqueueUpdate(config, "v0.2.16", false, idleWaitSeconds)
   await claimRequest(config)
   const calls: string[] = []
   const effects: UpdateEffects = {
@@ -137,6 +156,7 @@ async function fixture() {
       }
     },
     verify: async () => { calls.push("verify") },
+    idle: async () => true,
   }
   return { root, config, state, effects, calls, engine: new UpdateEngine(config, effects) }
 }
@@ -199,6 +219,59 @@ describe("durable update and recovery", () => {
     expect(f.engine.state.phase).toBe("failed")
     expect(f.calls).toEqual([])
     expect(await readFile(path.join(f.config.dataRoot, "history.json"), "utf8")).toBe("original")
+  })
+  test("deferred upgrade waits for authenticated idle and resumes on the next worker", async () => {
+    const f = await fixture(43_200)
+    f.effects.idle = async () => false
+    await new UpdateEngine(f.config, f.effects, { idleSessionMs: 0 }).execute()
+    const waiting = await json<UpdateState>(path.join(f.root, "state.json"))
+    expect(waiting.phase).toBe("waiting-for-idle")
+    expect(waiting.idleWaitSeconds).toBe(43_200)
+    expect(waiting.idleDeadline).toBeString()
+    expect(waiting.idleWaitStartedAt).toBeString()
+    expect(f.calls).toEqual(["prepare"])
+    expect(await readFile(path.join(f.config.dataRoot, "history.json"), "utf8")).toBe("original")
+
+    f.effects.idle = async () => true
+    const resumed = new UpdateEngine(f.config, f.effects)
+    await resumed.execute()
+    expect(resumed.state.phase).toBe("succeeded")
+    expect(f.calls).toEqual(["prepare", "pause", "new", "verify"])
+  })
+  test("deferred idle timeout leaves StillOn running without a backup or switch", async () => {
+    const f = await fixture(5)
+    f.effects.idle = async () => false
+    let clock = 0
+    // Cross the five-second deadline before the first check without sleeping.
+    const now = () => { clock += 10_000; return clock }
+    const engine = new UpdateEngine(f.config, f.effects, { now, idleSessionMs: 60_000 })
+    await engine.execute()
+    expect(engine.state.phase).toBe("failed")
+    expect(engine.state.error).toContain("Idle wait timed out after 5 seconds")
+    expect(engine.state.error).toContain("StillOn remains running")
+    expect(f.calls).toEqual(["prepare"])
+    expect(await readFile(path.join(f.config.dataRoot, "history.json"), "utf8")).toBe("original")
+    expect(await Bun.file(path.join(f.config.dataRoot, "new-schema.json")).exists()).toBe(false)
+  })
+  test("a user turn racing the pause keeps the deferred request waiting instead of rolling back", async () => {
+    const f = await fixture(60)
+    f.effects.idle = async () => true
+    let pauses = 0
+    f.effects.pause = async () => {
+      f.calls.push("pause")
+      pauses++
+      if (pauses === 1) throw new UpdateBusyError()
+    }
+    await f.engine.execute()
+    expect(f.engine.state.phase).toBe("succeeded")
+    expect(pauses).toBe(2)
+    expect(f.calls).toEqual(["prepare", "pause", "pause", "new", "verify"])
+  })
+  test("deferred options are validated before a request is written", async () => {
+    const f = await fixture()
+    await expect(enqueueUpdate(f.config, "v0.2.17", true, 300)).rejects.toThrow("prepare-only")
+    await expect(enqueueUpdate(f.config, "v0.2.17", false, 4)).rejects.toThrow("between 5")
+    await expect(enqueueUpdate(f.config, "v0.2.17", false, 43_201)).rejects.toThrow("between 5")
   })
   test("failed new runtime restores old history and preserves migrated data", async () => {
     const f = await fixture()

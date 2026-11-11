@@ -1,9 +1,8 @@
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { appCommand } from "../updater/control"
 import { probeRuntime } from "../updater/engine"
 import { atomicJson, exists, inside, json, manifest } from "../updater/files"
-import { newerRelease, releaseTag, type UpdateDeployment, type UpdateRunnerStatus, type UpdateState } from "../updater/model"
+import { newerRelease, releaseTag, type UpdateDeployment, type UpdateState } from "../updater/model"
 import { MAX_ARCHIVE_BYTES, RELEASE_FILE, selectArtifact, sha256, unpackBundle, verifyBundle } from "./bundle"
 import { prepareRuntimeTransport } from "../connect/transport"
 
@@ -82,8 +81,4 @@ export async function preparePackage(deployment: UpdateDeployment, state: Update
   await atomicJson(baselinesFile, baselines)
   await atomicJson(cacheFile, { schema: 1, targetTag: state.targetTag, oldRuntime: state.oldRuntime,
     oldBuildId: previous.buildId, launchDigest, runtime: state.newRuntime, buildId: candidate.buildId } satisfies PreparedPackage)
-  if (!state.prepareOnly) {
-    const runner = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
-    await appCommand(deployment, runner.secret, "check")
-  }
 }

@@ -46,13 +46,26 @@ export async function appStatus(deployment: UpdateDeployment) {
   } catch { return null }
 }
 
+export class UpdateBusyError extends Error {
+  constructor(message = "Finish active agent turns and close embedded terminals before updating.") {
+    super(message)
+    this.name = "UpdateBusyError"
+  }
+}
+
 export async function appCommand(deployment: UpdateDeployment, secret: string, command: "pause" | "resume" | "check") {
   const response = await localFetch(`http://127.0.0.1:${deployment.port}/_stillon/update/${command}`, {
     method: "POST", headers: { Authorization: `Bearer ${secret}` },
   })
-  if (!response.ok) throw new Error(response.status === 409
-    ? "Finish active agent turns and close embedded terminals before updating."
-    : "The managed server did not acknowledge the update controller.")
+  if (!response.ok) throw response.status === 409
+    ? new UpdateBusyError()
+    : new Error("The managed server did not acknowledge the update controller.")
+}
+
+/** True only when the authenticated native controller reports no active work. */
+export async function appIdle(deployment: UpdateDeployment, secret: string) {
+  try { await appCommand(deployment, secret, "check"); return true }
+  catch (error) { if (error instanceof UpdateBusyError) return false; throw error }
 }
 
 export async function waitUntil(test: () => Promise<boolean>, timeout = 60_000) {
@@ -153,15 +166,23 @@ export async function runServerController(deployment: UpdateDeployment) {
   }
 }
 
-export async function pauseManagedServer(deployment: UpdateDeployment) {
+export async function pauseManagedServer(deployment: UpdateDeployment, options: { restoreOnFailure?: boolean } = {}) {
   const controlFile = path.join(deployment.root, "control.json")
   const control = await json<UpdateControl>(controlFile)
   await atomicJson(controlFile, { ...control, paused: true })
-  await waitUntil(async () => {
-    const status = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
-    if (status.error) throw new Error(status.error)
-    return status.stopped && !await appStatus(deployment)
-  })
+  try {
+    await waitUntil(async () => {
+      const status = await json<UpdateRunnerStatus>(path.join(deployment.root, "runner.json"))
+      if (status.error) throw new Error(status.error)
+      return status.stopped && !await appStatus(deployment)
+    })
+  } catch (error) {
+    // A check can race with a new user turn. Only the pre-switch pause may
+    // restore the previous request; recovery must not unlock user work on
+    // migrated data just because its pause failed.
+    if (options.restoreOnFailure) await atomicJson(controlFile, control)
+    throw error
+  }
 }
 
 export async function resumeManagedServer(deployment: UpdateDeployment, runtime: string) {
