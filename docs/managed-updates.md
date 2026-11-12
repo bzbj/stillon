@@ -73,16 +73,18 @@ reinstall either of these supervisors.
 
 Settings → About checks releases and offers a short, copyable coding-agent
 prompt when a newer stable release exists. The prompt asks the agent to preserve
-customizations and data, stage and verify the update, and use an independent
-system task that survives StillOn and agent exit, starts about five seconds after
-registration, and polls StillOn's native idle check every five seconds for up to
-twelve hours. Only after all active agent turns finish and embedded terminals
-close may that task request shutdown. If the old application is still running
-after five seconds, the task revalidates its managed instance identity and
-force-terminates that process before backing up, upgrading and restarting. An idle
-wait timeout leaves StillOn running. The initiating agent reports the task name, target version and status
-file, then ends its turn instead of waiting in the chat. The prompt also requests
-local/Connect verification and rollback on failure.
+customizations and data, stage and verify the update, and submit a deferred
+request from an independent system task that survives StillOn and agent exit.
+The native worker polls StillOn's authenticated idle check every five seconds for
+up to twelve hours. Only after all active agent turns finish and embedded
+terminals close does that worker request shutdown. If the old application is
+still running after five seconds, the worker revalidates its managed instance
+identity and force-terminates that process before backing up, upgrading and
+restarting. An idle wait timeout leaves StillOn running and records the timeout
+in the transaction. The initiating agent reports the task name, target version,
+transaction ID and status file, then ends its turn instead of waiting in the
+chat. The prompt also requests local/Connect verification and rollback on
+failure through the native owner.
 Copying the prompt does not schedule or run an update. The managed CLI remains
 available for installations that use it.
 
@@ -90,16 +92,21 @@ Equivalent commands:
 
 ```text
 bun bin/stillon update request v0.3.0 --prepare-only
+bun bin/stillon update request v0.3.0 --wait-idle 12h
 bun bin/stillon update request v0.3.0
 bun bin/stillon update status
 bun bin/stillon update recover
 ```
 
-Replace the example tag with the desired stable source release. Requests are
-explicit: the recovery task's periodic timer does not choose or install new
-versions. Closing the browser, terminal or initiating agent does not cancel an
-accepted request. A prepare-only result does not switch the active application;
-a later upgrade request creates a new transaction and rechecks current files.
+Replace the example tag with the desired stable source release. `--wait-idle`
+accepts seconds or a duration such as `30m` or `12h`, bounded between five
+seconds and twelve hours. It defers the switch until the native authenticated idle
+check passes; the worker, not the caller, owns polling. A prepare-only request
+cannot also wait for idle. Requests are explicit: the recovery task's periodic
+timer does not choose or install new versions. Closing the browser, terminal or
+initiating agent does not cancel an accepted request. A prepare-only result does
+not switch the active application; a later upgrade request creates a new
+transaction and rechecks current files.
 
 ## Transaction boundary
 
@@ -110,9 +117,11 @@ a later upgrade request creates a new transaction and rechecks current files.
 3. Run the new application on an isolated port and disposable user home, with
    no real credentials/history. Verify version, instance identity, page bytes
    and referenced client assets. Existing application files remain untouched.
-4. Check for active agent turns, draining work and embedded terminals. Refuse
-   a busy switch. Journal the transition before asking the stable controller
-   to pause the application.
+4. Check for active agent turns, draining work and embedded terminals. For a
+   deferred request, journal `waiting-for-idle` and poll the authenticated native
+   check every five seconds until idle or the bounded deadline. An immediate
+   request refuses a busy switch. Journal the transition before asking the stable
+   controller to pause the application.
 5. Block new application work and shut down through an authenticated loopback
    control endpoint. Allow five seconds for process exit, then revalidate the old
    application’s persisted random identity and force-terminate a lingering process.
@@ -252,19 +261,27 @@ upgrade does not add capabilities to an older controller.
 
 For an enabled managed installation, use `bun bin/stillon update status`,
 `bun bin/stillon update request <tag> --prepare-only`, then an explicit
-`bun bin/stillon update request <tag>` when ready, and `update recover` for
-recovery. These commands hand work to the registered **StillOn Updater** Windows
-task or **com.bzbj.stillon.updater** macOS LaunchAgent. Do not register a second
-transaction worker, import internal updater modules, replace verification effects,
-or manually resume a verification gate to make a check pass.
+`bun bin/stillon update request <tag> --wait-idle 12h` when ready,
+`update recover` for recovery, and `update settings-snapshot` for preserved
+settings evidence. These commands hand work to the registered **StillOn Updater**
+Windows task or **com.bzbj.stillon.updater** macOS LaunchAgent. Do not register a
+second transaction worker, import internal updater modules, replace verification
+effects, or manually resume a verification gate to make a check pass.
 
-The existing request CLI wakes its worker immediately; it does **not** promise a
-five-second delay or twelve-hour idle polling. It refuses a busy switch. If a
-caller requires deferred execution, an OS-owned scheduling adapter may wait for
-the installed native authenticated idle check and then submit the supported
-request; it must leave the application running on timeout. The native worker
-must retain ownership of shutdown, identity checks, backup, switch and rollback.
-Check the installed version's behavior rather than inventing unsupported flags.
+`--wait-idle` is the supported deferred entry point. The request CLI wakes the
+native worker immediately; the worker prepares the candidate, then polls the
+authenticated idle check every five seconds until the application has no active
+agent turns, running embedded terminals or pending mutations, or the bounded
+deadline expires. While it waits, `update status` reports phase
+`waiting-for-idle` with the transaction `id`, `idleWaitStartedAt` and
+`idleDeadline`; a failed check is reported separately in `idleWaitError` and is
+not treated as a settings mismatch. A timeout records phase `failed` and leaves
+StillOn running; no backup, switch or data mutation occurred. The worker must
+retain ownership of shutdown, identity checks, backup, switch and rollback. Do not
+build a second poller, poll `/ws`, or invent unsupported flags; an OS-owned task
+is needed only to delay the request and survive the initiating agent's exit.
+Check the installed version's behavior because older pinned controllers do not
+support `--wait-idle`. A prepare-only request cannot also wait for idle.
 For custom/unmanaged services, preserve the launcher and follow the source
 workflow; do not silently adopt them into managed updates. The unauthenticated
 `/health?update-setup=1` readiness probe is for legacy setup, not a replacement for
@@ -330,11 +347,14 @@ incomplete; do not silently weaken acceptance or bypass authentication.
 
 The managed `update status` output contains the transaction `id`, `targetTag`,
 `phase`, `oldRuntime`, `newRuntime`, `backupReady`, original `error`, and separate
-`recoveryError`. The authoritative file is `state.json` under ManagedUpdates;
-`transactions/<id>/journal.json` is written before that state. After success the
-selected runtime is `newRuntime`; after verified rollback it is `oldRuntime`.
-During recovery, confirm `control.json`, `runner.json` and live health rather
-than inferring a completed selection from the phase alone.
+`recoveryError`. A deferred request also records `idleWaitSeconds`,
+`idleWaitStartedAt` and `idleDeadline`; `waiting-for-idle` may include a separate
+`idleWaitError` from the last authenticated check. The authoritative file is
+`state.json` under ManagedUpdates; `transactions/<id>/journal.json` is written
+before that state. After success the selected runtime is `newRuntime`; after
+verified rollback it is `oldRuntime`. During recovery, confirm `control.json`,
+`runner.json` and live health rather than inferring a completed selection from
+the phase alone.
 
 A scheduling adapter's status must identify the native transaction and these
 paths. Preserve its original verifier failure alongside the final native

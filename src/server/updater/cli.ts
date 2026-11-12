@@ -8,17 +8,57 @@ import { enqueueUpdate, prepareSource, probeRuntime } from "./engine"
 import { BUNDLE_FILE, bunRelativePath, verifyBundle } from "../distribution/bundle"
 import { installUpdateWorker, wakeUpdateWorker } from "./native"
 import { leaseAlive } from "./control"
-import { releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
+import { FINISHED_PHASES, MAX_IDLE_WAIT_SECONDS, MIN_IDLE_WAIT_SECONDS, releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
 import { verifyServiceRegistration, windowsServiceCommand, type ServiceRegistration } from "./registration"
 import { checkSetupReadiness, type SetupState } from "./setup"
 
-export function parseUpdateArgs(args: string[]) {
-  const [action, ...rest] = args
-  if (["setup", "status", "recover", "settings-snapshot"].includes(action) && rest.length === 0) return { action }
-  if (action === "request" && (rest.length === 1 || (rest.length === 2 && rest[1] === "--prepare-only"))) {
-    return { action, tag: releaseTag(rest[0]), prepareOnly: rest.length === 2 }
+/** Accept plain seconds or a bounded `30s`, `30m` or `12h` duration. */
+export function parseIdleWait(value: string) {
+  const match = /^([1-9]\d*)([smh])?$/i.exec(value)
+  if (!match) throw new Error(`Idle wait must be seconds or a duration such as 30m or 12h (${MIN_IDLE_WAIT_SECONDS}-${MAX_IDLE_WAIT_SECONDS} seconds).`)
+  const multiplier = match[2]?.toLowerCase() === "h" ? 3_600 : match[2]?.toLowerCase() === "m" ? 60 : 1
+  const seconds = Number(match[1]) * multiplier
+  if (!Number.isSafeInteger(seconds) || seconds < MIN_IDLE_WAIT_SECONDS || seconds > MAX_IDLE_WAIT_SECONDS) {
+    throw new Error(`Idle wait must be between ${MIN_IDLE_WAIT_SECONDS} and ${MAX_IDLE_WAIT_SECONDS} seconds.`)
   }
-  throw new Error("Usage: stillon update setup | status | recover | settings-snapshot | request <release-tag> [--prepare-only]")
+  return seconds
+}
+
+export type ParsedUpdateArgs =
+  | { action: "setup" | "status" | "recover" | "settings-snapshot" }
+  | { action: "request"; tag: string; prepareOnly: boolean; idleWaitSeconds?: number }
+
+export function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
+  const [action, ...rest] = args
+  if ((action === "setup" || action === "status" || action === "recover" || action === "settings-snapshot") && rest.length === 0) {
+    return { action }
+  }
+  if (action === "request") {
+    let tag: string | undefined
+    let prepareOnly = false
+    let idleWaitSeconds: number | undefined
+    for (let index = 0; index < rest.length; index++) {
+      const argument = rest[index]
+      if (argument === "--prepare-only") {
+        if (prepareOnly) throw new Error("Duplicate --prepare-only.")
+        prepareOnly = true
+        continue
+      }
+      if (argument === "--wait-idle") {
+        if (idleWaitSeconds !== undefined) throw new Error("Duplicate --wait-idle.")
+        const value = rest[++index]
+        if (!value) throw new Error("--wait-idle requires a duration such as 12h.")
+        idleWaitSeconds = parseIdleWait(value)
+        continue
+      }
+      if (argument.startsWith("--") || tag !== undefined) throw new Error("Use a single release tag and supported request options.")
+      tag = releaseTag(argument)
+    }
+    if (!tag) throw new Error("A release tag is required.")
+    if (prepareOnly && idleWaitSeconds !== undefined) throw new Error("A prepare-only request cannot wait for idle.")
+    return { action: "request", tag, prepareOnly, ...(idleWaitSeconds === undefined ? {} : { idleWaitSeconds }) }
+  }
+  throw new Error("Usage: stillon update setup | status | recover | settings-snapshot | request <release-tag> [--prepare-only] [--wait-idle <duration>]")
 }
 
 export async function setupManagedUpdates(root = updateRoot()) {
@@ -131,13 +171,35 @@ export async function updateCli(args = process.argv.slice(3)) {
   }
   if (options.action === "status") {
     const file = path.join(root, "state.json")
+    const requestFile = path.join(root, "request.json")
     const setupFile = path.join(root, "setup.json")
     const setup = await exists(setupFile) ? await json<SetupState>(setupFile) : null
+    const state = await exists(file) ? await json<UpdateState>(file) : null
+    // A request can be flushed before the worker journals it into state.json.
+    // Report the queued transaction instead of a stale finished one.
+    const pending = (!state || FINISHED_PHASES.has(state.phase)) && await exists(requestFile)
+      ? await json<UpdateState>(requestFile).catch(() => null)
+      : null
     console.log(JSON.stringify({ setup: setup ? { phase: setup.phase, error: setup.error, updatedAt: setup.updatedAt } : null,
-      update: await exists(file) ? await json<UpdateState>(file) : null }, null, 2))
+      update: pending ?? state }, null, 2))
     return
   }
-  if (options.action === "request") await enqueueUpdate(deployment, options.tag!, options.prepareOnly)
+  if (options.action === "request") {
+    const state = await enqueueUpdate(deployment, options.tag!, options.prepareOnly, options.idleWaitSeconds)
+    await wakeUpdateWorker(deployment)
+    console.log(JSON.stringify({
+      id: state.id,
+      targetTag: state.targetTag,
+      prepareOnly: state.prepareOnly,
+      idleWaitSeconds: state.idleWaitSeconds ?? null,
+      statusFile: path.join(root, "state.json"),
+      journalFile: path.join(root, "transactions", state.id, "journal.json"),
+      message: state.idleWaitSeconds
+        ? "The independent operating-system updater owns the authenticated idle wait, shutdown, backup, switch, verification and rollback. This terminal can be closed."
+        : "The independent operating-system updater has been requested. This terminal can be closed.",
+    }, null, 2))
+    return
+  }
   await wakeUpdateWorker(deployment)
   console.log("The independent operating-system updater has been requested. This terminal can be closed. Use stillon update status for progress.")
 }

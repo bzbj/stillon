@@ -685,6 +685,8 @@ describe("ChangelogSection", () => {
     expect(STILLON_UPDATE_PROMPT).toContain("start about 5 seconds later")
     expect(STILLON_UPDATE_PROMPT).toContain("end this agent turn without waiting")
     expect(STILLON_UPDATE_PROMPT).toContain("native idle check every 5 seconds for up to 12 hours")
+    expect(STILLON_UPDATE_PROMPT).toContain("--wait-idle 12h")
+    expect(STILLON_UPDATE_PROMPT).toContain("Do not poll the idle check yourself")
     expect(STILLON_UPDATE_PROMPT).toContain("If idle wait times out, leave StillOn running")
     expect(html).not.toContain("Analyze this installation")
     expect(html).not.toContain("Let Codex inspect")

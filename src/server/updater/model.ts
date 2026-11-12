@@ -4,7 +4,7 @@ import type { ServiceLaunchSpec } from "../service/types"
 
 export type UpdatePlatform = "darwin" | "win32"
 export type UpdateArchitecture = "x64" | "arm64"
-export type UpdatePhase = "queued" | "preparing" | "prepared" | "pausing" | "backing-up"
+export type UpdatePhase = "queued" | "preparing" | "prepared" | "waiting-for-idle" | "pausing" | "backing-up"
   | "starting" | "verifying" | "rolling-back" | "recovery-required" | "succeeded" | "rolled-back" | "failed"
 
 export interface UpdateDeployment {
@@ -28,6 +28,11 @@ export interface UpdateState {
   updatedAt: string
   error?: string
   recoveryError?: string
+  /** Native idle wait requested for this transaction. */
+  idleWaitSeconds?: number
+  idleWaitStartedAt?: string
+  idleDeadline?: string
+  idleWaitError?: string
   backupReady?: boolean
   dataExisted?: boolean
   newMayHaveStarted?: boolean
@@ -49,8 +54,10 @@ export interface UpdateRunnerStatus {
 }
 
 export const FINISHED_PHASES = new Set<UpdatePhase>(["prepared", "succeeded", "rolled-back", "failed"])
+export const MIN_IDLE_WAIT_SECONDS = 5
+export const MAX_IDLE_WAIT_SECONDS = 12 * 60 * 60
 export const SWITCH_PHASES = new Set<UpdatePhase>(["pausing", "backing-up", "starting", "verifying", "rolling-back", "recovery-required"])
-export const UPDATE_PHASES = new Set<UpdatePhase>([...FINISHED_PHASES, ...SWITCH_PHASES, "queued", "preparing"])
+export const UPDATE_PHASES = new Set<UpdatePhase>([...FINISHED_PHASES, ...SWITCH_PHASES, "queued", "preparing", "waiting-for-idle"])
 export const SETUP_SWITCH_PHASES = new Set(["installing", "verifying", "restoring", "recovery-required"])
 export const UPDATE_REPOSITORY = "https://github.com/bzbj/stillon.git"
 

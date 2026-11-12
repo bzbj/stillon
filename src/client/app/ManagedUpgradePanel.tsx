@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button"
 
 export const UPDATE_PHASE_LABELS: Record<string, string> = {
   queued: "Upgrade queued", preparing: "Downloading, preserving customizations, and checking the new build…",
-  prepared: "Preparation passed. The running version has not changed.", pausing: "Waiting for the application to stop…",
+  prepared: "Preparation passed. The running version has not changed.", "waiting-for-idle": "Waiting for active agent turns and embedded terminals to finish. StillOn is still running.", pausing: "Waiting for the application to stop…",
   "backing-up": "Backing up your StillOn data…", starting: "Starting the new version…", verifying: "Checking the new version…",
   "rolling-back": "Restoring the previous version…", "recovery-required": "Recovery needs attention. Backups have been retained.",
   succeeded: "Upgrade complete", "rolled-back": "Previous version restored", failed: "Upgrade stopped before switching versions",

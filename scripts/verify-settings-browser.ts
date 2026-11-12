@@ -186,6 +186,7 @@ try {
     assert.equal(prompt, STILLON_UPDATE_PROMPT)
     assert(prompt.includes("start about 5 seconds later") && prompt.includes("end this agent turn without waiting"))
     assert(prompt.includes("native idle check every 5 seconds for up to 12 hours"))
+    assert(prompt.includes("--wait-idle 12h") && prompt.includes("Do not poll the idle check yourself"))
     assert(prompt.includes("verify its managed instance identity") && prompt.includes("force-terminate that process before backing up"))
     assert(prompt.includes("If idle wait times out, leave StillOn running"))
     assert.equal(await p.locator("details[open]").count(), 0)
