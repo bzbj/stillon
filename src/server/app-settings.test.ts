@@ -78,6 +78,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
     appearance: defaultAppearance(),
     machineName: "This Machine",
     theme: "system",
+    chatSendShortcut: "enter",
     chatSoundPreference: "always",
     chatSoundId: "funk",
     terminal: {
@@ -500,5 +501,21 @@ test("debug enrollment epoch persists across reload and rotates only after disab
     expect(manager.getStatisticsEpoch()).toBeNull()
     await manager.writePatch({ showSessionStatistics: true })
     expect(manager.getStatisticsEpoch()).not.toBe(epoch)
+  } finally { manager.dispose() }
+})
+
+ test("send shortcut persists across readers and rejects invalid writes without losing the saved choice", async () => {
+  const filePath = await createTempFilePath()
+  const manager = new AppSettingsManager(filePath)
+  try {
+    await manager.initialize()
+    await manager.writePatch({ chatSendShortcut: "ctrl-enter" })
+    expect((await readAppSettingsSnapshot(filePath)).chatSendShortcut).toBe("ctrl-enter")
+    await manager.reload()
+    expect(manager.getSnapshot().chatSendShortcut).toBe("ctrl-enter")
+    await expect(manager.writePatch({ chatSendShortcut: "invalid" } as never)).rejects.toThrow("Invalid chat send shortcut")
+    expect((await readAppSettingsSnapshot(filePath)).chatSendShortcut).toBe("ctrl-enter")
+    await manager.writePatch({ chatSendShortcut: "enter" })
+    expect((await readAppSettingsSnapshot(filePath)).chatSendShortcut).toBe("enter")
   } finally { manager.dispose() }
 })

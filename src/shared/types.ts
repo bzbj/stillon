@@ -12,6 +12,8 @@ export function isAddonProvider(value: unknown): value is AddonProvider { return
 export type CodexTransport = "exec" | "app-server"
 export type LlmProviderKind = "openai" | "openrouter" | "custom"
 export type AppThemePreference = "light" | "dark" | "system"
+export type ChatSendShortcut = "enter" | "ctrl-enter"
+
 export type ChatSoundPreference = "never" | "unfocused" | "always"
 export type ChatSoundId = "blow" | "bottle" | "frog" | "funk" | "glass" | "ping" | "pop" | "purr" | "tink"
 export type DefaultProviderPreference = "last_used" | AgentProvider
@@ -767,6 +769,7 @@ export interface AppSettingsSnapshot {
   browserSettingsMigrated: boolean
   machineName: string
   theme: AppThemePreference
+  chatSendShortcut?: ChatSendShortcut
   chatSoundPreference: ChatSoundPreference
   chatSoundId: ChatSoundId
   terminal: {
@@ -801,6 +804,7 @@ export interface AppSettingsPatch {
   browserSettingsMigrated?: boolean
   machineName?: string
   theme?: AppThemePreference
+  chatSendShortcut?: ChatSendShortcut
   chatSoundPreference?: ChatSoundPreference
   chatSoundId?: ChatSoundId
   terminal?: Partial<AppSettingsSnapshot["terminal"]>

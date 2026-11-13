@@ -48,6 +48,7 @@ interface AppSettingsFile {
   browserSettingsMigrated?: unknown
   machineName?: unknown
   theme?: unknown
+  chatSendShortcut?: unknown
   chatSoundPreference?: unknown
   chatSoundId?: unknown
   terminal?: {
@@ -215,6 +216,7 @@ function toFilePayload(state: AppSettingsState) {
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
     workspaceCollapseVersions: { ...state.workspaceCollapseVersions },
+    chatSendShortcut: state.chatSendShortcut ?? "enter",
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -243,6 +245,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     quickCommands: state.quickCommands,
     workspaceCollapsed: { ...state.workspaceCollapsed },
     workspaceCollapseVersions: { ...state.workspaceCollapseVersions },
+    chatSendShortcut: state.chatSendShortcut ?? "enter",
     chatSoundPreference: state.chatSoundPreference,
     chatSoundId: state.chatSoundId,
     terminal: state.terminal,
@@ -303,6 +306,7 @@ function normalizeAppSettings(
     quickCommands: migrateQuickCommandDefaults(source?.quickCommands),
     workspaceCollapsed: normalizeWorkspaceCollapsed(source?.workspaceCollapsed),
     workspaceCollapseVersions: normalizeWorkspaceCollapseVersions(source?.workspaceCollapseVersions, normalizeWorkspaceCollapsed(source?.workspaceCollapsed)),
+    chatSendShortcut: source?.chatSendShortcut === "ctrl-enter" ? "ctrl-enter" : "enter",
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
     chatSoundId: normalizeChatSoundId(source?.chatSoundId),
     terminal: {
@@ -347,6 +351,7 @@ function toComparablePayload(source: AppSettingsFile) {
     quickCommands: source.quickCommands,
     workspaceCollapsed: source.workspaceCollapsed,
     workspaceCollapseVersions: source.workspaceCollapseVersions,
+    chatSendShortcut: source.chatSendShortcut,
     chatSoundPreference: source.chatSoundPreference,
     chatSoundId: source.chatSoundId,
     terminal: source.terminal,
@@ -497,6 +502,7 @@ export class AppSettingsManager {
 
   private async persistPatch(patch: AppSettingsPatch) {
     if (patch.showSessionStatistics !== undefined && typeof patch.showSessionStatistics !== "boolean") throw new Error("Session statistics must be a boolean.")
+    if (patch.chatSendShortcut !== undefined && patch.chatSendShortcut !== "enter" && patch.chatSendShortcut !== "ctrl-enter") throw new Error("Invalid chat send shortcut.")
     const nextState = {
       ...applyPatch(this.state, patch, this.defaultMachineName),
       warning: null,

@@ -2590,6 +2590,21 @@ function OwnerSettingsPage() {
                   <div className="space-y-5">
                     <SegmentedControl value={commandsTab} onValueChange={setCommandsTab} options={[{ value: "skills", label: "Skills" }, { value: "prompts", label: "Preset Prompts" }, { value: "shortcuts", label: "Keyboard Shortcuts" }]} />
                     {commandsTab === "skills" ? <SkillsSection state={state} /> : commandsTab === "prompts" ? <QuickCommandsEditor global commands={normalizeQuickCommands(appSettings?.quickCommands).global} disabled={!appSettings || state.connectionStatus !== "connected"} onSave={global => state.handleWriteAppSettings({ quickCommands: { global } })} /> : <div className="border-b border-border">
+                    <SettingsRow title="Send message" description="Shift+Enter always inserts a new line. On touch devices, Enter inserts a new line.">
+                      <Select value={appSettings?.chatSendShortcut ?? "enter"}
+                        disabled={!appSettings || state.connectionStatus !== "connected"}
+                        onValueChange={(value) => {
+                          void handleWriteAppSettings({ chatSendShortcut: value as "enter" | "ctrl-enter" }).catch((error) => {
+                            setAppSettingsError(error instanceof Error ? error.message : "Unable to save send shortcut.")
+                          })
+                        }}>
+                        <SelectTrigger className="min-w-[180px]" aria-label="Send message shortcut"><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectGroup>
+                          <SelectItem value="enter">Enter to send</SelectItem>
+                          <SelectItem value="ctrl-enter">Ctrl / Cmd + Enter to send</SelectItem>
+                        </SelectGroup></SelectContent>
+                      </Select>
+                    </SettingsRow>
                     {keybindingsError ? (
                       <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                         {keybindingsError}

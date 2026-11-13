@@ -1,3 +1,5 @@
+import { useAppSettingsStore } from "../../stores/appSettingsStore"
+import { isChatSendKey } from "../../lib/chatSendShortcut"
 import { isAddonProvider } from "../../../shared/types"
 import { downloadUrl } from "../../lib/download"
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
@@ -427,6 +429,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const composerChatId = chatId ?? NEW_CHAT_COMPOSER_ID
   const storedComposerState = useChatPreferencesStore((state) => state.chatStates[composerChatId])
   const composerState = storedComposerState ?? getComposerState(composerChatId)
+  const chatSendShortcut = useAppSettingsStore((store) => store.settings?.chatSendShortcut ?? "enter")
   const [value, setValue] = useState(() => (chatId ? getDraft(chatId) : ""))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isStandalone = useIsStandalone()
@@ -838,11 +841,10 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const isModifiedEnter = event.ctrlKey || event.metaKey
     const isDesktopLikeDevice = isDesktopLikeInputDevice()
     if (
-      event.key === "Enter"
-      && !event.shiftKey
+      isChatSendKey(event, chatSendShortcut, isDesktopLikeDevice)
       && !disabled
       && !hasBlockingUploadsInFlight()
-      && ((isModifiedEnter && canSubmit) || (!isModifiedEnter && isDesktopLikeDevice && hasTextToSend))
+      && (isModifiedEnter ? canSubmit : hasTextToSend)
     ) {
       event.preventDefault()
       void handleSubmit()
