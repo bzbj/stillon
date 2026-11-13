@@ -5,7 +5,7 @@ import { runServiceCommand } from "../service"
 import { assertCommandSucceeded } from "../service/types"
 import { atomicJson, exists, json, manifest, sameManifest } from "./files"
 import { enqueueUpdate, prepareSource, probeRuntime } from "./engine"
-import { BUNDLE_FILE, bunRelativePath, verifyBundle } from "../distribution/bundle"
+import { BUNDLE_FILE, bunRelativePath, CLONE_COPY, verifyBundle } from "../distribution/bundle"
 import { installUpdateWorker, wakeUpdateWorker } from "./native"
 import { leaseAlive } from "./control"
 import { FINISHED_PHASES, MAX_IDLE_WAIT_SECONDS, MIN_IDLE_WAIT_SECONDS, releaseTag, updateRoot, updateTarget, type UpdateDeployment, type UpdateState } from "./model"
@@ -112,9 +112,9 @@ export async function setupManagedUpdates(root = updateRoot()) {
   let controllerExecutable = await realpath(launch.executable)
   if (packaged) {
     await verifyBundle(runtime, serviceTarget)
-    await copyFile(path.join(runtime, "runtime", "controller.js"), path.join(bundleDirectory, "controller.js"))
+    await copyFile(path.join(runtime, "runtime", "controller.js"), path.join(bundleDirectory, "controller.js"), CLONE_COPY)
     controllerExecutable = path.join(bundleDirectory, target.platform === "win32" ? "bun.exe" : "bun")
-    await copyFile(path.join(runtime, bunRelativePath(target.platform)), controllerExecutable)
+    await copyFile(path.join(runtime, bunRelativePath(target.platform)), controllerExecutable, CLONE_COPY)
     await chmod(controllerExecutable, 0o755)
   } else {
     const build = await Bun.build({ entrypoints: [path.join(import.meta.dir, "entry.ts")], outdir: bundleDirectory,
