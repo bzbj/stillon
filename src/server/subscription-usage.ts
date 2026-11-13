@@ -10,7 +10,8 @@ import type {
 } from "../shared/types"
 import { APP_NAME, APP_VERSION } from "../shared/branding"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
-import { getClaudeCliCommand, resolveClaudeCodeExecutable } from "./claude-executable"
+import { getClaudeCliCommand } from "./claude-executable"
+import { resolveSdkClaudeExecutable } from "./claude-component"
 import { getCodexCliCommand } from "./codex-cli-command"
 
 const CODEX_APP_SERVER_TIMEOUT_MS = 20_000
@@ -153,7 +154,7 @@ async function readClaudeUsageProvider(
   now: number
 ): Promise<SubscriptionUsageProviderSnapshot> {
   const readClaudeSdkUsage = options.readClaudeSdkUsage ?? readClaudeSdkUsageSnapshot
-  const claudeExecutable = resolveClaudeCodeExecutable({ environment: options.environment })
+  const claudeExecutable = await resolveSdkClaudeExecutable({ environment: options.environment, download: false })
   let sdkSnapshot: SubscriptionUsageProviderSnapshot | null = null
 
   try {

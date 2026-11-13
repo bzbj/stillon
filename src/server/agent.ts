@@ -32,7 +32,7 @@ import { CodexTransportManager } from "./codex-transport"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
-import { resolveClaudeCodeExecutable } from "./claude-executable"
+import { resolveSdkClaudeExecutable } from "./claude-component"
 import {
   applyClaudeSdkModels,
   type ClaudeSdkModelInfo,
@@ -1723,7 +1723,8 @@ export class AgentCoordinator {
         forkSession: args.forkSession,
         environment,
         collectStatistics: () => this.store.shouldCollectStatistics(args.chatId),
-        claudeExecutable: resolveClaudeCodeExecutable({ environment }),
+        // A Claude turn may download the SDK runtime once when no Claude Code is installed.
+        claudeExecutable: await resolveSdkClaudeExecutable({ environment, download: true }),
         onToolRequest: args.onToolRequest,
       })
       this.refreshClaudeModelCatalog(started)

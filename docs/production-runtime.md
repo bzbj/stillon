@@ -39,8 +39,19 @@ CLAUDE_EXECUTABLE=/absolute/path/to/claude
 `CLAUDE_EXECUTABLE` is optional. Set it when StillOn should use a specific
 Claude Code installation for both conversations and CLI-based account or usage
 checks; a leading `~` is expanded to the service account's home directory. If
-it is unset, Agent SDK conversations keep using the SDK-bundled executable and
-direct CLI checks use `claude` from the service PATH (`claude.cmd` on Windows).
+it is unset, StillOn uses `claude` from the service PATH (`claude.cmd` on
+Windows). Without either, a source runtime uses the Agent SDK's own native
+binary from `node_modules`.
+
+Desktop packages omit that ~200 MB binary. Their sealed
+`runtime/claude-component.json` records the exact npm package and lockfile
+integrity. The first Claude conversation that needs it downloads the package
+once from the npm registry, verifies it, and caches the binary under
+`StillOn/Components/claude-code` (in `~/Library/Application Support` on macOS,
+`%LOCALAPPDATA%` on Windows). Set `STILLON_NPM_REGISTRY` or `npm_config_registry`
+to an HTTPS mirror if needed; the integrity check still applies. Background
+model discovery, usage checks and quick responses use an existing copy, but
+never start this download.
 
 Install the native service by invoking the entrypoint in this runtime:
 

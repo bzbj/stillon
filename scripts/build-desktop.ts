@@ -1,10 +1,11 @@
-import { chmod, copyFile, cp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import pkg from "../package.json"
 import { artifactName, BUNDLE_FILE, bundleFiles, bunRelativePath, sha256, validateBundle, type ReleaseArtifact, type RuntimeBundle } from "../src/server/distribution/bundle"
 import { updateTarget } from "../src/server/updater/model"
 import transportComponents from "../src/server/connect/frp-components.json"
 import { TRANSPORT_DESCRIPTOR, validateTransportComponent } from "../src/server/connect/transport-component"
+import { CLAUDE_COMPONENT_DESCRIPTOR, claudeComponentFromLock } from "../src/server/claude-component"
 import { desktopConnectConfig } from "../src/server/connect/config"
 import { buildBundledIntegrations } from "./build-integrations"
 
@@ -117,6 +118,13 @@ async function main() {
   console.log("Installing production dependencies in the build staging directory…")
   await run([process.execPath, "install", "--production", "--frozen-lockfile", "--ignore-scripts", "--linker=hoisted"], runtime)
   await rm(path.join(runtime, "node_modules", ".bin"), { recursive: true, force: true })
+  // The Agent SDK's native Claude Code binary (~200 MB) is only used when no Claude
+  // Code installation is found. Seal its exact package/integrity instead; the
+  // runtime downloads and verifies it on the first Claude turn that needs it.
+  const claudeComponent = claudeComponentFromLock(await readFile(path.join(repository, "bun.lock"), "utf8"), target)
+  for (const entry of await readdir(path.join(runtime, "node_modules", "@anthropic-ai"))) {
+    if (entry.startsWith("claude-agent-sdk-")) await rm(path.join(runtime, "node_modules", "@anthropic-ai", entry), { recursive: true, force: true })
+  }
   // Hoisted packages are ordinary files. bundleFiles rejects any unexpected
   // package symlinks; never copy dependencies between OS/architecture targets.
   console.log("Assembling the server, clients and independent updater…")
@@ -132,6 +140,7 @@ async function main() {
   if (selected.length !== 1) throw new Error("A unique Connect component is required for this target")
   const component = validateTransportComponent(selected[0], target)
   await writeFile(path.join(runtime, TRANSPORT_DESCRIPTOR), JSON.stringify(component, null, 2) + "\n")
+  await writeFile(path.join(runtime, CLAUDE_COMPONENT_DESCRIPTOR), JSON.stringify(claudeComponent, null, 2) + "\n")
   if (connectConfig) {
     // Only public configuration enters the desktop artifact. Never copy an env file.
     await writeFile(path.join(runtime, "runtime/connect.json"), JSON.stringify(connectConfig) + "\n")

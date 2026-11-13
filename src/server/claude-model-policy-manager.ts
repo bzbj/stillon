@@ -6,7 +6,7 @@ import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
 import { claudeModelPolicySchema, claudeModelSelectionSchema, type ClaudeModelDraft, type ClaudeModelPolicy, type ClaudeModelPolicySnapshot } from "../shared/claude-model-policy"
 import { BUNDLED_CLAUDE_MODEL_POLICY } from "../shared/types"
 import { applyServerClaudeModelPolicy } from "./provider-catalog"
-import { resolveClaudeCodeExecutable } from "./claude-executable"
+import { resolveSdkClaudeExecutable } from "./claude-component"
 import { inheritClaudeAgentEnvironment } from "./agent-environment"
 
 export interface ClaudeDiscoveredModel {
@@ -27,9 +27,10 @@ export async function discoverClaudeModels(environment: NodeJS.ProcessEnv): Prom
   let finish!: () => void
   const stopped = new Promise<void>((resolve) => { finish = resolve })
   const prompt = (async function* (): AsyncGenerator<SDKUserMessage> { await stopped })()
+  const pathToClaudeCodeExecutable = await resolveSdkClaudeExecutable({ environment, download: false })
   const q = query({ prompt, options: {
     cwd: homedir(), tools: [], systemPrompt: "", persistSession: false,
-    settingSources: ["user"], pathToClaudeCodeExecutable: resolveClaudeCodeExecutable({ environment }),
+    settingSources: ["user"], pathToClaudeCodeExecutable,
     env: inheritClaudeAgentEnvironment(environment),
   } })
   let timer: ReturnType<typeof setTimeout> | undefined
