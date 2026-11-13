@@ -6,7 +6,7 @@ import { getCodexModelForRole, type CodexApiTransport, type LlmProviderSnapshot 
 import { CodexExecManager } from "./codex-exec"
 import { inheritAgentEnvironment, inheritClaudeAgentEnvironment } from "./agent-environment"
 import { createAgentNetworkFetch } from "./agent-network"
-import { resolveClaudeCodeExecutable } from "./claude-executable"
+import { resolveSdkClaudeExecutable } from "./claude-component"
 import { readLlmProviderSnapshot } from "./llm-provider"
 
 const CLAUDE_STRUCTURED_TIMEOUT_MS = 5_000
@@ -108,6 +108,7 @@ export async function runClaudeStructured(
   args: Omit<StructuredQuickResponseArgs<unknown>, "parse">,
   environment: NodeJS.ProcessEnv = inheritAgentEnvironment(),
 ): Promise<unknown | null> {
+  const pathToClaudeCodeExecutable = await resolveSdkClaudeExecutable({ environment, download: false })
   const q = query({
     prompt: args.prompt,
     options: {
@@ -121,7 +122,7 @@ export async function runClaudeStructured(
         type: "json_schema",
         schema: args.schema,
       },
-      pathToClaudeCodeExecutable: resolveClaudeCodeExecutable({ environment }),
+      pathToClaudeCodeExecutable,
       env: inheritClaudeAgentEnvironment(environment),
     },
   })
