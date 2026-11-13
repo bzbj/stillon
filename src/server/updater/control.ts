@@ -5,6 +5,7 @@ import { atomicJson, exists, json } from "./files"
 import { SETUP_SWITCH_PHASES, SWITCH_PHASES, UPDATE_PHASES, type UpdateControl, type UpdateDeployment, type UpdateLease, type UpdateRunnerStatus, type UpdateState } from "./model"
 import { stopOrphanedApp } from "./processes"
 import { runtimeExecutable } from "../distribution/bundle"
+import { createSpinDetector, recordSpinRestart, spinRestartAllowed, SPIN_RESTART_EXIT_CODE, type SpinDetectorOptions } from "./spin-watchdog"
 
 export async function localFetch(url: string, init: RequestInit = {}) {
   const options = { ...init, proxy: null, signal: AbortSignal.timeout(3_000) }
@@ -77,7 +78,13 @@ export async function waitUntil(test: () => Promise<boolean>, timeout = 60_000) 
   throw new Error("Timed out waiting for the managed server.")
 }
 
-export async function runServerController(deployment: UpdateDeployment) {
+export interface ServerControllerOptions {
+  spin?: SpinDetectorOptions
+  /** Leave the process for the native service manager to restart it. */
+  exit?: (code: number) => void
+}
+
+export async function runServerController(deployment: UpdateDeployment, options: ServerControllerOptions = {}) {
   const root = deployment.root
   const statusFile = path.join(root, "runner.json")
   let child: ReturnType<typeof Bun.spawn> | null = null
@@ -124,7 +131,43 @@ export async function runServerController(deployment: UpdateDeployment) {
     await atomicJson(statusFile, last)
   }
 
+  const spin = createSpinDetector(options.spin)
+  let spinning = false
+  let spinRestartBlocked = false
+
+  // Only restart while no update transaction can be affected and the
+  // application has no active work. Pausing the idle application first
+  // keeps the next controller from finding a live orphan.
+  async function spinRestartReady() {
+    if (await leaseAlive(root) || await verificationPending(root)) return false
+    if (child || await appStatus(deployment)) {
+      if (!await appIdle(deployment, last.secret)) return false
+      await stopApp()
+    }
+    return true
+  }
+
   for (;;) {
+    const busy = spin.observe()
+    if (spinning && !busy) {
+      spinning = false
+      console.error("[stillon-updater] Controller event loop returned to idle; no restart needed.")
+    } else if (!spinning && busy) {
+      spinning = true
+      spinRestartBlocked = !await spinRestartAllowed(root)
+      console.error(spinRestartBlocked
+        ? `[stillon-updater] Controller event loop is busy (CPU ${Math.round(spin.ratio * 100)}%), but it was restarted recently; not restarting again.`
+        : `[stillon-updater] Controller event loop is busy (CPU ${Math.round(spin.ratio * 100)}%). Restarting once the application is idle.`)
+    }
+    if (spinning && !spinRestartBlocked) {
+      try {
+        if (await spinRestartReady()) {
+          await recordSpinRestart(root, spin.ratio).catch(() => {})
+          ;(options.exit ?? process.exit)(SPIN_RESTART_EXIT_CODE)
+          return
+        }
+      } catch { /* Active work or a transient failure: keep supervising and retry. */ }
+    }
     try {
       const control = await json<UpdateControl>(path.join(root, "control.json"))
       const permitted = await launchAllowed(root)
