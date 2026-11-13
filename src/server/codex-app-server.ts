@@ -63,7 +63,7 @@ import {
   isServerRequest,
 } from "./codex-app-server-protocol"
 import { asyncQuestionContextFromItem } from "./async-question"
-import { ProcessOwnership, type ProcessControl } from "./process-tree"
+import { defaultProcessControl, hasBackgroundWorkSince, ProcessOwnership, type ProcessControl } from "./process-tree"
 
 interface CodexAppServerProcess {
   pid?: number
@@ -134,7 +134,22 @@ interface SessionContext {
   sessionToken: string | null
   stderrLines: string[]
   closed: boolean
+  /** Last time this session started work or received output (Date.now()). */
+  lastActiveAt: number
+  /** The launcher process has already closed. */
+  exited: boolean
+  /** When this server first ran a command or hook; later processes may be background work. */
+  firstCommandAt: number | null
+  /** The thread has a persisted rollout (resumed, or a turn started), so a later resume works. */
+  resumable: boolean
 }
+
+/** Stop an idle App Server after this long; the next turn resumes its thread. */
+export const CODEX_APP_SERVER_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+/** Keep at most this many idle App Servers warm, stopping the least recently used. */
+export const CODEX_APP_SERVER_MAX_IDLE_SESSIONS = 4
+/** Never reclaim a session that started or produced output this recently. */
+const IDLE_RECLAIM_GRACE_MS = 30 * 1000
 
 export interface StartCodexSessionArgs {
   chatId: string
@@ -767,14 +782,38 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   }
 }
 
+/** Notifications after which the server may own processes started for the user. */
+function startsProcesses(message: unknown) {
+  if (!message || typeof message !== "object" || "id" in message) return false
+  const { method, params } = message as { method?: unknown; params?: { item?: { type?: unknown } } }
+  if (method === "hook/started") return true
+  return method === "item/started" && params?.item?.type === "commandExecution"
+}
+
 export class CodexAppServerManager {
   private readonly sessions = new Map<string, SessionContext>()
   private readonly spawnProcess: SpawnCodexAppServer
   private readonly getEnvironment: () => NodeJS.ProcessEnv
   private readonly getApiTransport: () => CodexApiTransport
   private readonly processControl?: ProcessControl
+  private readonly idleTimeoutMs: number
+  private readonly maxIdleSessions: number
+  private reclaimTimer: ReturnType<typeof setInterval> | null = null
+  private reclaiming = false
+  /** Servers still shutting down, so a new server never resumes a thread they hold. */
+  private readonly stopping = new Map<string, Promise<void>>()
 
-  constructor(args: { spawnProcess?: SpawnCodexAppServer; getEnvironment?: () => NodeJS.ProcessEnv; getApiTransport?: () => CodexApiTransport; processControl?: ProcessControl } = {}) {
+  constructor(args: {
+    spawnProcess?: SpawnCodexAppServer
+    getEnvironment?: () => NodeJS.ProcessEnv
+    getApiTransport?: () => CodexApiTransport
+    processControl?: ProcessControl
+    /** 0 disables idle reclamation. */
+    idleTimeoutMs?: number
+    maxIdleSessions?: number
+  } = {}) {
+    this.idleTimeoutMs = args.idleTimeoutMs ?? CODEX_APP_SERVER_IDLE_TIMEOUT_MS
+    this.maxIdleSessions = Math.max(1, args.maxIdleSessions ?? CODEX_APP_SERVER_MAX_IDLE_SESSIONS)
     this.getEnvironment = args.getEnvironment ?? (() => inheritAgentEnvironment())
     this.getApiTransport = args.getApiTransport ?? (() => "auto")
     this.processControl = args.processControl
@@ -794,12 +833,15 @@ export class CodexAppServerManager {
     }
     if (existing && !existing.closed && existing.cwd === args.cwd && existing.apiTransport === apiTransport
       && existing.sessionToken === args.sessionToken && !args.pendingForkSessionToken) {
+      existing.lastActiveAt = Date.now()
       return
     }
 
     if (existing) {
-      this.stopSession(args.chatId)
+      // Let the previous server release its thread before another one resumes it.
+      await this.stopSession(args.chatId)
     }
+    await this.stopping.get(args.chatId)
 
     const environment = this.getEnvironment()
     const child = this.spawnProcess(args.cwd, environment, ["app-server", ...codexApiTransportArgs(apiTransport, environment)])
@@ -813,9 +855,14 @@ export class CodexAppServerManager {
       sessionToken: null,
       stderrLines: [],
       closed: false,
+      lastActiveAt: Date.now(),
+      exited: false,
+      firstCommandAt: null,
+      resumable: false,
     }
     this.sessions.set(args.chatId, context)
     this.attachListeners(context)
+    this.scheduleReclaim()
 
     try {
       await this.sendRequest(context, "initialize", {
@@ -857,6 +904,7 @@ export class CodexAppServerManager {
           persistExtendedHistory: false,
         } satisfies ThreadForkParams)
       } else if (args.sessionToken) {
+        context.resumable = true
         response = await this.sendRequest<ThreadResumeResponse>(context, "thread/resume", {
           threadId: args.sessionToken,
           model: args.model,
@@ -874,7 +922,7 @@ export class CodexAppServerManager {
       context.sessionToken = response.thread.id
       return context.sessionToken
     } catch (error) {
-      this.stopSession(args.chatId)
+      void this.stopSession(args.chatId)
       throw error
     }
   }
@@ -884,6 +932,7 @@ export class CodexAppServerManager {
     if (context.pendingTurn) {
       throw new Error("Codex turn is already running")
     }
+    context.lastActiveAt = Date.now()
 
     const queue = new AsyncQueue<HarnessEvent>()
     if (context.sessionToken) {
@@ -941,6 +990,7 @@ export class CodexAppServerManager {
           },
         },
       } satisfies TurnStartParams)
+      context.resumable = true
       if (context.pendingTurn) {
         context.pendingTurn.turnId = response.turn.id
       } else {
@@ -1057,21 +1107,113 @@ export class CodexAppServerManager {
       return candidate || null
     } finally {
       turn?.close()
-      this.stopSession(chatId)
+      void this.stopSession(chatId)
     }
   }
 
-  stopSession(chatId: string) {
+  /**
+   * Detach a chat's App Server and stop it. The npm launcher and its native
+   * Codex process are both stopped; background tools are left alone.
+   */
+  async stopSession(chatId: string) {
     const context = this.sessions.get(chatId)
     if (!context) return
     context.closed = true
     context.pendingTurn?.queue.finish()
     this.sessions.delete(chatId)
+    if (this.sessions.size === 0) this.cancelReclaim()
+    const stopped = this.terminateContext(context).catch((error) => {
+      console.warn("[stillon] Codex App Server did not stop cleanly:", error instanceof Error ? error.message : error)
+    })
+    const previous = this.stopping.get(chatId)
+    const pending = Promise.all([previous, stopped]).then(() => {
+      if (this.stopping.get(chatId) === pending) this.stopping.delete(chatId)
+    })
+    this.stopping.set(chatId, pending)
+    await pending
+  }
+
+  private isIdle(context: SessionContext) {
+    return !context.closed && context.resumable && !context.pendingTurn && context.pendingRequests.size === 0
+  }
+
+  private scheduleReclaim() {
+    if (this.reclaimTimer || this.idleTimeoutMs <= 0) return
+    this.reclaimTimer = setInterval(() => { void this.reclaimIdleSessions() }, Math.min(60_000, this.idleTimeoutMs))
+    this.reclaimTimer.unref?.()
+  }
+
+  private cancelReclaim() {
+    if (!this.reclaimTimer) return
+    clearInterval(this.reclaimTimer)
+    this.reclaimTimer = null
+  }
+
+  /**
+   * Stop App Servers idle longer than the timeout, and the least recently used
+   * idle ones beyond the warm limit. A session with a running turn, a pending
+   * request, an unpersisted thread or a live process started by a command or
+   * hook (background terminal, dev server) is kept. MCP servers started with
+   * the session are not background work. The next turn starts a new server and
+   * resumes the same thread.
+   */
+  async reclaimIdleSessions(now = Date.now()) {
+    if (this.reclaiming || this.idleTimeoutMs <= 0) return
+    this.reclaiming = true
+    try {
+      for (const [chatId, context] of this.sessions) {
+        // The process already exited; only its bookkeeping remains.
+        if (context.closed) this.sessions.delete(chatId)
+      }
+      const idle = [...this.sessions.values()]
+        .filter((context) => this.isIdle(context) && now - context.lastActiveAt >= IDLE_RECLAIM_GRACE_MS)
+        .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
+      const overflow = Math.max(0, idle.length - this.maxIdleSessions)
+      const candidates = idle.filter((context, index) => index < overflow || now - context.lastActiveAt >= this.idleTimeoutMs)
+      if (candidates.length === 0) return
+      let processes: Awaited<ReturnType<ProcessControl["listProcesses"]>>
+      try {
+        processes = await (this.processControl ?? defaultProcessControl).listProcesses()
+      } catch {
+        return // Without a process table, background work cannot be ruled out.
+      }
+      for (const context of candidates) {
+        const lastActiveAt = context.lastActiveAt
+        if (this.sessions.get(context.chatId) !== context || !this.isIdle(context) || context.lastActiveAt !== lastActiveAt) continue
+        // MCP servers start with the session and are restarted on resume. Only
+        // processes started by a command or hook can be a user's background work.
+        if (context.firstCommandAt !== null && typeof context.child.pid === "number"
+          && hasBackgroundWorkSince(context.child.pid, processes, context.firstCommandAt)) continue
+        await this.stopSession(context.chatId)
+      }
+    } finally {
+      this.reclaiming = false
+      if (this.sessions.size === 0) this.cancelReclaim()
+    }
+  }
+
+  private async terminateContext(context: SessionContext) {
+    if (context.exited || context.child.exitCode != null || context.child.signalCode != null) return
+    if (typeof context.child.pid === "number") {
+      // npm shims can own a separate native Codex process. Reuse the exec
+      // transport's identity-checked shutdown instead of killing only its
+      // launcher. Background tools are outside the writer scope.
+      await new ProcessOwnership(context.child.pid, this.processControl).terminate({
+        scope: "writer", rootAlive: () => context.child.exitCode == null && context.child.signalCode == null,
+        graceMs: 2000, killTimeoutMs: 3000,
+      })
+      return
+    }
+    const exit = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Codex App Server did not exit.")), 10_000)
+      context.child.once("close", () => { clearTimeout(timeout); resolve() })
+    })
     try {
       context.child.kill("SIGKILL")
     } catch {
-      // ignore kill failures
+      return
     }
+    await exit
   }
 
   async stopAll() {
@@ -1079,29 +1221,12 @@ export class CodexAppServerManager {
     // be stopped by an older asynchronous cleanup using the same chat id.
     const contexts = [...this.sessions.values()]
     this.sessions.clear()
+    this.cancelReclaim()
     for (const context of contexts) {
       context.closed = true
       context.pendingTurn?.queue.finish()
     }
-    await Promise.all(contexts.map(async context => {
-      if (context.child.exitCode != null || context.child.signalCode != null) return Promise.resolve()
-      if (typeof context.child.pid === "number") {
-        // npm shims can own a separate native Codex process. Reuse the exec
-        // transport's identity-checked shutdown instead of killing only its
-        // launcher. Background tools are outside the writer scope.
-        await new ProcessOwnership(context.child.pid, this.processControl).terminate({
-          scope: "writer", rootAlive: () => context.child.exitCode == null && context.child.signalCode == null,
-          graceMs: 2000, killTimeoutMs: 3000,
-        })
-        return
-      }
-      const exit = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Codex App Server did not exit.")), 10_000)
-        context.child.once("close", () => { clearTimeout(timeout); resolve() })
-      })
-      context.child.kill("SIGKILL")
-      await exit
-    }))
+    await Promise.all(contexts.map(context => this.terminateContext(context)))
   }
 
   private requireSession(chatId: string) {
@@ -1116,6 +1241,8 @@ export class CodexAppServerManager {
     const lines = createInterface({ input: context.child.stdout })
     void (async () => {
       for await (const line of lines) {
+        // Idle servers can still send status notifications; only turn output counts.
+        if (context.pendingTurn) context.lastActiveAt = Date.now()
         const parsed = parseJsonLine(line)
         if (!parsed) continue
 
@@ -1134,6 +1261,8 @@ export class CodexAppServerManager {
           })
           continue
         }
+
+        if (context.firstCommandAt === null && startsProcesses(parsed)) context.firstCommandAt = Date.now()
 
         if (isServerNotification(parsed)) {
           void this.handleNotification(context, parsed)
@@ -1155,6 +1284,7 @@ export class CodexAppServerManager {
     })
 
     context.child.on("close", (code) => {
+      context.exited = true
       if (context.closed) return
       queueMicrotask(() => {
         if (context.closed) return

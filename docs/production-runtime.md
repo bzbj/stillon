@@ -157,6 +157,20 @@ when its connection method changes, preserving its thread. Switching back to
 Automatic removes StillOn's override; a user-wide HTTPS preference, if configured
 separately, still applies.
 
+### Idle Codex App Servers
+
+Each Codex chat on the App Server transport runs its own `codex app-server`
+process tree (the npm launcher, the native Codex process, its helpers and the
+configured MCP servers). StillOn stops a chat's tree after 10 minutes without a
+turn or output, and also stops the least recently used idle trees beyond four.
+The next message starts a new server and resumes the same thread, which adds a
+short startup delay to that turn. A tree is kept while a turn is running, a
+request is pending, or its thread has not been persisted yet (no turn has
+started). It is also kept while a process that a command or hook started is
+still running, such as a dev server or background terminal; MCP servers started
+with the session do not count. Without a readable process table, nothing is
+stopped.
+
 ## Verify, update, and roll back
 
 Check the native service and local health endpoint after each deployment:
