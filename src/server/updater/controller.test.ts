@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { appStatus, appCommand, localFetch, pauseManagedServer } from "./control"
+import { appStatus, appCommand, localFetch, pauseManagedServer, runServerController } from "./control"
 import { atomicJson, exists, json } from "./files"
 import { verifyRuntime } from "./engine"
 import { stopOrphanedApp } from "./processes"
@@ -192,6 +192,52 @@ test.skipIf(!supported)("idle shutdown force-exits a lingering owned child, pres
     controller?.kill(); sibling?.kill()
     await Promise.all([controller?.exited, sibling?.exited])
     if (deployment && await exists(path.join(root, "runner.json"))) await stopOrphanedApp(deployment, await json<UpdateRunnerStatus>(path.join(root, "runner.json")), { force: true })
+    await rm(root, { recursive: true, force: true })
+  }
+}, 60_000)
+
+test.skipIf(!supported)("a busy controller event loop restarts only after the application becomes idle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stillon-spin-controller-"))
+  let deployment: UpdateDeployment | undefined
+  let exitCode: number | undefined
+  let controller: Promise<void> | undefined
+  try {
+    const runtime = path.join(root, "runtime")
+    await writeRuntime(runtime, "1.0.0")
+    const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null) })
+    const port = reserve.port!
+    await reserve.stop(true)
+    const home = path.join(root, "home")
+    await mkdir(path.join(home, ".stillon"), { recursive: true })
+    deployment = { schema: 1, ...updateTarget(), root, controller: entry, dataRoot: path.join(home, ".stillon"), port,
+      launch: { executable: process.execPath, workingDirectory: runtime, homeDirectory: home, pathEnvironment: process.env.PATH ?? "",
+        args: [path.join(runtime, "bin", "stillon"), "--port", String(port), "--no-open", "--strict-port"] } }
+    await atomicJson(path.join(root, "deployment.json"), deployment)
+    await atomicJson(path.join(root, "control.json"), { runtime, paused: false })
+    const busy = path.join(home, ".stillon/busy")
+    await writeFile(busy, "active")
+    // Every observation reports one second at 90% CPU: a stuck poller.
+    const clock = { cpuMicros: 0, wallMs: 0 }
+    const sample = () => { clock.wallMs += 1_000; clock.cpuMicros += 900_000; return { ...clock } }
+    controller = runServerController(deployment, { spin: { windowMs: 1_000, windows: 2, sample }, exit: (code) => { exitCode = code } })
+    await waitFor(async () => (await appStatus(deployment!)) !== null)
+    // Active work keeps the application running; the controller keeps supervising.
+    await Bun.sleep(4_000)
+    expect(exitCode).toBeUndefined()
+    expect(await appStatus(deployment)).not.toBeNull()
+    await rm(busy)
+    await controller
+    expect(exitCode).toBe(75)
+    expect(await appStatus(deployment)).toBeNull()
+    expect((await json<UpdateRunnerStatus>(path.join(root, "runner.json"))).stopped).toBe(true)
+    expect(await exists(path.join(root, "controller-restart.json"))).toBe(true)
+  } finally {
+    if (deployment && exitCode === undefined) {
+      await atomicJson(path.join(root, "control.json"), { runtime: path.join(root, "runtime"), paused: true }).catch(() => {})
+    }
+    if (deployment && await exists(path.join(root, "runner.json"))) {
+      await stopOrphanedApp(deployment, await json<UpdateRunnerStatus>(path.join(root, "runner.json")), { force: true }).catch(() => {})
+    }
     await rm(root, { recursive: true, force: true })
   }
 }, 60_000)
