@@ -197,6 +197,51 @@ function isCodexExecutable(command: string) {
   return (basename(command).split(/\s+/)[0] ?? "").toLowerCase().startsWith("codex")
 }
 
+// .NET ticks (100 ns since 0001-01-01 UTC) at the Unix epoch.
+const DOTNET_UNIX_EPOCH_TICKS = 621_355_968_000_000_000n
+
+/** Start time in epoch milliseconds, or null when `startedAt` cannot be read. */
+export function processStartedAtMs(startedAt: string): number | null {
+  if (/^\d+$/.test(startedAt)) {
+    // Windows CIM CreationDate, converted to UTC ticks by `listProcesses`.
+    const ticks = BigInt(startedAt)
+    return ticks > DOTNET_UNIX_EPOCH_TICKS ? Number((ticks - DOTNET_UNIX_EPOCH_TICKS) / 10_000n) : null
+  }
+  // `ps lstart` under LC_ALL=C, in local time with one-second resolution.
+  const parsed = Date.parse(startedAt)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * True when a live process below `rootPid` that is neither Codex nor a launcher
+ * leading to Codex started at or after `since` (epoch ms): a background
+ * terminal or dev server left by a command, which stopping the tree would end.
+ * Earlier processes (MCP servers started with the session) are not counted;
+ * an unreadable start time is counted.
+ */
+export function hasBackgroundWorkSince(rootPid: number, processes: ProcessInfo[], since: number) {
+  const children = new Map<number, number[]>()
+  for (const info of processes) {
+    const siblings = children.get(info.ppid)
+    if (siblings) siblings.push(info.pid)
+    else children.set(info.ppid, [info.pid])
+  }
+  const byPid = new Map(processes.map((info) => [info.pid, info]))
+  const isCodex = (pid: number) => {
+    const info = byPid.get(pid)
+    return Boolean(info && isCodexExecutable(info.command))
+  }
+  return descendantsOf(rootPid, children).some((pid) => {
+    const info = byPid.get(pid)
+    if (!info || info.stat.startsWith("Z") || isCodex(pid)) return false
+    // A shell/node launcher chain (for example on Windows) leads to Codex itself.
+    if (descendantsOf(pid, children).some(isCodex)) return false
+    const startedAt = processStartedAtMs(info.startedAt)
+    // `ps` truncates to whole seconds; allow for that and minor clock skew.
+    return startedAt === null || startedAt >= since - 2_000
+  })
+}
+
 function sameProcess(info: ProcessInfo | undefined, owned: OwnedProcess) {
   return Boolean(info && info.startedAt === owned.startedAt && !info.stat.startsWith("Z"))
 }
