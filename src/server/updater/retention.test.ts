@@ -57,7 +57,8 @@ async function installation() {
     await writeFile(path.join(root, "controllers", name, "controller.js"), "//")
     await age(path.join(root, "controllers", name))
   }
-  const deployment: UpdateDeployment = { schema: 1, ...updateTarget(), root, controller: path.join(root, "controllers", "desktop-current", "controller.js"),
+  // Retention is platform-neutral; any supported target works on every CI host.
+  const deployment: UpdateDeployment = { schema: 1, ...updateTarget("darwin", "arm64"), root, controller: path.join(root, "controllers", "desktop-current", "controller.js"),
     dataRoot: path.join(root, "home", ".stillon"), port: 1,
     launch: { executable: path.join(root, "controllers", "desktop-current", "bun"), workingDirectory: current, homeDirectory: path.join(root, "home"),
       pathEnvironment: "", args: [path.join(current, "bin", "stillon")] } }
