@@ -56,20 +56,26 @@ export function isManagedAppCommand(command: string, deployment: UpdateDeploymen
     && /(?:^|[\s"])app(?:[\s"]|$)/.test(command)
 }
 
-async function matchingPids(deployment: UpdateDeployment, status: UpdateRunnerStatus) {
-  if (deployment.platform === "win32") {
+/** Every process with its full command line; throws when the table cannot be read. */
+export async function processCommandLines(platform: UpdateDeployment["platform"]): Promise<{ pid: number; command: string }[]> {
+  if (platform === "win32") {
     const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine) -Compress'
     const result = await runServiceCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeWindowsPowerShell(script)])
     assertCommandSucceeded("Inspect managed processes", result)
     const processes = JSON.parse(result.stdout.replace(/^\uFEFF/, "")) as { ProcessId: number; CommandLine: string | null }[]
-    return processes.filter((p) => isManagedAppCommand(p.CommandLine ?? "", deployment, status)).map((p) => p.ProcessId)
+    return processes.map((p) => ({ pid: p.ProcessId, command: p.CommandLine ?? "" }))
   }
   const result = await runServiceCommand("/bin/ps", ["-axo", "pid=,command="])
   assertCommandSucceeded("Inspect managed processes", result)
   return result.stdout.split("\n").flatMap((line) => {
     const match = line.match(/^\s*(\d+)\s+(.*)$/)
-    return match && isManagedAppCommand(match[2], deployment, status) ? [Number(match[1])] : []
+    return match ? [{ pid: Number(match[1]), command: match[2] }] : []
   })
+}
+
+async function matchingPids(deployment: UpdateDeployment, status: UpdateRunnerStatus) {
+  return (await processCommandLines(deployment.platform))
+    .filter((p) => isManagedAppCommand(p.command, deployment, status)).map((p) => p.pid)
 }
 
 export async function stopOrphanedApp(deployment: UpdateDeployment, status: UpdateRunnerStatus, options: { force?: boolean } = {}) {

@@ -6,12 +6,15 @@ import { runServerController } from "./control"
 import { claimRequest, realUpdateEffects, UpdateEngine, type UpdateEffects } from "./engine"
 import { desktopTransitionPending, updateTarget, type UpdateDeployment } from "./model"
 import { withWorkerLease } from "./lease"
+import { pruneManagedStorage } from "./retention"
 export { withWorkerLease } from "./lease"
 import { realSetupEffects, runSetupTransaction, type SetupEffects, type SetupState } from "./setup"
 
 export async function worker(deployment: UpdateDeployment, effects: {
   setup?: (setup: SetupState) => SetupEffects
   update?: UpdateEffects
+  /** false disables storage retention (fixtures that inspect every runtime). */
+  retention?: false
 } = {}) {
   if (await desktopTransitionPending(deployment.root)) return
   return withWorkerLease(deployment, async () => {
@@ -22,6 +25,16 @@ export async function worker(deployment: UpdateDeployment, effects: {
     }
     await claimRequest(deployment)
     if (await exists(path.join(root, "state.json"))) await new UpdateEngine(deployment, effects.update ?? realUpdateEffects(deployment)).execute()
+    if (effects.retention === false) return
+    try {
+      const pruned = await pruneManagedStorage(deployment)
+      if (pruned.removedReleases.length || pruned.removedControllers.length || pruned.removedTransactionData.length) {
+        console.log(`[stillon-updater] Removed ${pruned.removedReleases.length} old runtime(s), ${pruned.removedControllers.length} controller(s) and ${pruned.removedTransactionData.length} transaction backup(s).`)
+      }
+    } catch (error) {
+      // Storage cleanup never changes the outcome of an update.
+      console.warn("[stillon-updater] Storage retention skipped:", error instanceof Error ? error.message : error)
+    }
   })
 }
 
