@@ -250,19 +250,6 @@ recovery worker preserves the original reason even if recovery fails again.
 These controller diagnostics require a newly installed controller; updating only the app does not replace
 an existing pinned controller.
 
-### Controller CPU self-check
-
-The stable controller is idle between one-second supervision passes. If its own
-CPU use stays at or above 50% for three consecutive one-minute windows (for
-example, a runtime poller left busy after a hibernate wake), it logs the event
-and restarts itself through the native service manager. It waits until no worker
-lease is alive, no switch or verification is pending, and the application
-acknowledges that it has no active work. It then pauses the application, records
-`controller-restart.json`, and exits with status 75. The next controller starts a
-fresh application instance. At most one automatic restart happens in six hours;
-a recurring busy loop is logged without further restarts. Like the other
-diagnostics above, this requires a newly installed controller.
-
 ## Verification contract
 
 This contract applies to both the About copy prompt and the server-generated
