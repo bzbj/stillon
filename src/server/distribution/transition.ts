@@ -13,7 +13,7 @@ import { FINISHED_PHASES, newerRelease, releaseTag, type UpdateControl, type Upd
 import { DEFAULT_WORKER, installUpdateWorker, macosUpdaterPlist, wakeUpdateWorker, windowsUpdaterXml, type WorkerIdentity } from "../updater/native"
 import { stopWindowsEncodedProcesses } from "../updater/processes"
 import { captureServiceRegistration, verifyServiceRegistration, windowsServiceCommand, windowsServiceHash, type ServiceRegistration } from "../updater/registration"
-import { BUNDLE_FILE, bunRelativePath, CLONE_COPY, copyBundle, sha256, verifyBundle } from "./bundle"
+import { bunRelativePath, copyBundle, sha256, verifyBundle } from "./bundle"
 import { prepareRuntimeTransport } from "../connect/transport"
 import { saveDesktopReceipt } from "./desktop"
 
@@ -128,20 +128,16 @@ export async function requestDesktopTransition(source: string, root: string) {
   const snapshots = await captureKnownServices(oldDeployment)
   const id = randomUUID()
   const newRuntime = path.join(root, "releases", "desktop-" + bundle.buildId + "-" + id)
-  // Clone unchanged files from the running package instead of copying them from the installer volume.
-  const reuse = await exists(path.join(oldRuntime, BUNDLE_FILE))
-    ? await verifyBundle(oldRuntime, oldDeployment).then(previous => ({ root: oldRuntime, bundle: previous })).catch(() => undefined)
-    : undefined
-  await copyBundle(source, newRuntime, bundle, reuse)
+  await copyBundle(source, newRuntime, bundle)
   await prepareRuntimeTransport(newRuntime, { homeDirectory: oldDeployment.launch.homeDirectory,
     localAppDataDirectory: oldDeployment.launch.localAppDataDirectory, legacyRuntime: oldRuntime })
   const directory = path.join(root, "controllers", "desktop-" + id)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const executable = path.join(directory, oldDeployment.platform === "win32" ? "bun.exe" : "bun")
-  await copyFile(path.join(newRuntime, bunRelativePath(oldDeployment.platform)), executable, CLONE_COPY)
+  await copyFile(path.join(newRuntime, bunRelativePath(oldDeployment.platform)), executable)
   await chmod(executable, 0o755)
   const controller = path.join(directory, "controller.js")
-  await copyFile(path.join(newRuntime, "runtime/controller.js"), controller, CLONE_COPY)
+  await copyFile(path.join(newRuntime, "runtime/controller.js"), controller)
   const previousEntry = path.join(oldDeployment.launch.workingDirectory, "bin", "stillon")
   if (!oldDeployment.launch.args.includes(previousEntry)) throw new Error("Unrecognized source service CLI layout.")
   const newDeployment: UpdateDeployment = { ...oldDeployment, root, controller, launch: { ...oldDeployment.launch, executable,

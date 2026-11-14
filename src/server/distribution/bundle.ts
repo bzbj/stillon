@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { constants } from "node:fs"
-import { chmod, copyFile, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises"
+import { chmod, copyFile, lstat, mkdir, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { gunzipSync } from "node:zlib"
 import { exists, inside, json } from "../updater/files"
@@ -138,43 +138,8 @@ export async function runtimeExecutable(runtime: string, fallback: string) {
   return inside(runtime, bunRelativePath(bundle.platform))
 }
 
-/**
- * Exclusive copy that shares storage when the filesystem supports clones
- * (APFS, Btrfs, XFS, ReFS) and falls back to a regular copy otherwise.
- */
-export const CLONE_COPY = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE
-
-/** An installed runtime whose identical files can seed a new one. */
-export interface BundleReuse { root: string; bundle: RuntimeBundle }
-
-/**
- * Clone `name` from a verified installed runtime when it records the same
- * content. Consecutive releases share almost all files, so on cloning
- * filesystems a new runtime only stores what changed. Every file is still
- * verified against the incoming manifest afterwards.
- */
-async function reuseFile(reuse: BundleReuse | undefined, name: string, metadata: BundleFile, target: string) {
-  const previous = reuse?.bundle.files[name]
-  if (!reuse || !previous || previous.sha256 !== metadata.sha256 || previous.size !== metadata.size) return false
-  try {
-    const from = inside(reuse.root, name)
-    const info = await lstat(from)
-    if (!info.isFile() || info.isSymbolicLink() || info.size !== metadata.size) return false
-    await copyFile(from, target, CLONE_COPY)
-    // The installed runtime was verified earlier; confirm this file still matches.
-    const hash = createHash("sha256")
-    for await (const chunk of Bun.file(target).stream()) hash.update(chunk)
-    if (hash.digest("hex") !== metadata.sha256) throw new Error("Reused runtime file changed")
-    return true
-  } catch {
-    // The target did not exist (exclusive copy); drop any partial clone before falling back.
-    await rm(target, { force: true }).catch(() => {})
-    return false
-  }
-}
-
 /** Copy a previously verified vendor manifest; verify every copied byte before use. */
-export async function copyBundle(source: string, destination: string, verified: RuntimeBundle, reuse?: BundleReuse) {
+export async function copyBundle(source: string, destination: string, verified: RuntimeBundle) {
   validateBundle(verified)
   if (await exists(destination)) throw new Error("Refusing to overwrite an installed runtime")
   await mkdir(destination, { recursive: true, mode: 0o700 })
@@ -189,7 +154,7 @@ export async function copyBundle(source: string, destination: string, verified: 
       const info = await lstat(from)
       if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Runtime file changed type: ${name}`)
       await mkdir(path.dirname(to), { recursive: true, mode: 0o700 })
-      if (!await reuseFile(reuse, name, metadata, to)) await copyFile(from, to, CLONE_COPY)
+      await copyFile(from, to, constants.COPYFILE_EXCL)
       if (process.platform !== "win32") await chmod(to, metadata.executable ? 0o755 : 0o644)
     }
   }))
@@ -198,7 +163,7 @@ export async function copyBundle(source: string, destination: string, verified: 
 }
 
 /** Write regular files ourselves. Archive symlinks/hardlinks never reach disk. */
-export async function unpackBundle(bytes: Uint8Array, destination: string, expected: Parameters<typeof validateBundle>[1], reuse?: BundleReuse) {
+export async function unpackBundle(bytes: Uint8Array, destination: string, expected: Parameters<typeof validateBundle>[1]) {
   if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error("Runtime download is too large")
   const plain = gunzipSync(bytes, { maxOutputLength: MAX_RUNTIME_BYTES })
   const files = await new Bun.Archive(plain).files()
@@ -217,9 +182,7 @@ export async function unpackBundle(bytes: Uint8Array, destination: string, expec
   async function write(name: string, file: Blob) {
     const target = inside(destination, name)
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 })
-    if (!await reuseFile(reuse, name, bundle.files[name], target)) {
-      await writeFile(target, new Uint8Array(await file.arrayBuffer()), { flag: "wx", mode: bundle.files[name]?.executable ? 0o755 : 0o644 })
-    }
+    await writeFile(target, new Uint8Array(await file.arrayBuffer()), { flag: "wx", mode: bundle.files[name]?.executable ? 0o755 : 0o644 })
     if (process.platform !== "win32") await chmod(target, bundle.files[name]?.executable ? 0o755 : 0o644)
   }
   const small = [...files].filter(([, file]) => file.size <= 1024 * 1024)

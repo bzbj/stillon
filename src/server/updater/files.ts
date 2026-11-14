@@ -98,7 +98,7 @@ export async function copySourceEntry(source: string, target: string, relative: 
     // Keep relative link text; validate the assembled runtime after all copies.
     await symlink(link, to, (await stat(from)).isDirectory() ? "dir" : "file")
   } else if (info.isFile()) {
-    await copyFile(from, to, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE)
+    await copyFile(from, to, constants.COPYFILE_EXCL)
     await chmod(to, info.mode & 0o777)
   } else throw new Error("Special source files require manual migration.")
 }
@@ -142,8 +142,7 @@ export async function copyTree(source: string, target: string) {
     const destination = inside(target, relative)
     if (before[relative] === "directory") { await mkdir(destination, { recursive: true, mode: 0o700 }); continue }
     await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
-    // Clone where supported: a data backup then costs only the blocks changed afterwards.
-    await copyFile(inside(source, relative), destination, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE)
+    await copyFile(inside(source, relative), destination, constants.COPYFILE_EXCL)
     await chmod(destination, (await stat(inside(source, relative))).mode & 0o777)
   }
   if (!sameManifest(before, await manifest(source)) || !sameManifest(before, await manifest(target))) {

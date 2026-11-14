@@ -66,7 +66,7 @@ export async function preparePackage(deployment: UpdateDeployment, state: Update
     const artifact = selectArtifact(metadata, state.targetTag, expected)
     const bytes = await effects.download(`${base}/${artifact.name}`, Math.min(artifact.size, MAX_ARCHIVE_BYTES))
     if (bytes.byteLength !== artifact.size || sha256(bytes) !== artifact.sha256) throw new Error("Downloaded runtime checksum mismatch")
-    const bundle = await unpackBundle(bytes, state.newRuntime, { ...expected, tag: state.targetTag }, { root: state.oldRuntime, bundle: previous })
+    const bundle = await unpackBundle(bytes, state.newRuntime, { ...expected, tag: state.targetTag })
     if (bundle.buildId !== artifact.buildId) throw new Error("Downloaded runtime build identity mismatch")
     await atomicJson(path.join(transaction, "package.json"), { artifact, reused: false })
   }
