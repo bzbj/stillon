@@ -173,34 +173,8 @@ Managed infrastructure lives in:
 
 This is deliberately separate from the app's data root and source checkout.
 Transaction journals, source patches, build/probe logs and data backups stay
-local and may contain private material.
-
-### Storage retention
-
-Copies use filesystem clones where available (APFS, Btrfs, XFS, ReFS), so a
-data backup or controller copy only costs the blocks that change afterwards.
-A new package runtime clones every file whose content matches the installed
-runtime, verifies each clone, and writes only changed files from the download or
-installer. Every file of the new runtime is still verified.
-
-After each worker run, while it holds the updater lease and no request,
-transaction, desktop migration or unfinished setup is pending, the worker
-retires storage that is no longer needed:
-
-- **Package runtimes** (`releases/` entries with a `stillon-bundle.json`) other
-  than the current runtime and the previously active one. Runtimes referenced by
-  updater state, deployment, service or desktop records, by a running process,
-  or changed in the last 24 hours are kept.
-  Source runtimes, which can hold local customizations, are never removed.
-- **Controller directories** not referenced by the deployment or other updater
-  records and not used by a running process.
-- **Data backups and probe homes** of finished transactions older than the two
-  most recent. Their journals, patches and logs are kept.
-
-Quarantined data (`~/.stillon-after-failed-*`) and user data are never removed.
-Removals are renamed out of the way before deletion, recorded in
-`retention-log.json`, and skipped when the process table cannot be read. The
-active runtime history is kept in `retention.json`.
+local and may contain private material. No old runtime, quarantine or backup is
+automatically deleted by this first implementation.
 
 ## Review / rollout limits
 
@@ -275,19 +249,6 @@ If rollback also fails, `state.json` retains the original upgrade failure in
 recovery worker preserves the original reason even if recovery fails again.
 These controller diagnostics require a newly installed controller; updating only the app does not replace
 an existing pinned controller.
-
-### Controller CPU self-check
-
-The stable controller is idle between one-second supervision passes. If its own
-CPU use stays at or above 50% for three consecutive one-minute windows (for
-example, a runtime poller left busy after a hibernate wake), it logs the event
-and restarts itself through the native service manager. It waits until no worker
-lease is alive, no switch or verification is pending, and the application
-acknowledges that it has no active work. It then pauses the application, records
-`controller-restart.json`, and exits with status 75. The next controller starts a
-fresh application instance. At most one automatic restart happens in six hours;
-a recurring busy loop is logged without further restarts. Like the other
-diagnostics above, this requires a newly installed controller.
 
 ## Verification contract
 

@@ -59,26 +59,6 @@ describe("complete runtime bundles", () => {
     await writeFile(path.join(source, "src/server/cli.ts"), "changed after verification")
     await expect(copyBundle(source, path.join(root, "changed"), f.bundle)).rejects.toThrow("files changed")
   })
-  test("a new runtime reuses identical files from the installed one and still verifies every byte", async () => {
-    const root = await temp()
-    const old = await fixture(path.join(root, "old-source"), "1.0.0")
-    const installed = path.join(root, "installed-old")
-    await unpackBundle(old.bytes, installed, target)
-    const next = await fixture(path.join(root, "new-source"), "1.0.1")
-    const reuse = { root: installed, bundle: old.bundle }
-    const upgraded = path.join(root, "installed-new")
-    expect(await unpackBundle(next.bytes, upgraded, { ...target, tag: "1.0.1" }, reuse)).toEqual(next.bundle)
-    expect(await verifyBundle(upgraded, { ...target, tag: "1.0.1" })).toEqual(next.bundle)
-    // A changed installed file is not trusted: the incoming bytes are written instead.
-    await writeFile(path.join(installed, "src/server/cli.ts"), "tampered")
-    const fallback = path.join(root, "installed-fallback")
-    expect(await unpackBundle(next.bytes, fallback, { ...target, tag: "1.0.1" }, reuse)).toEqual(next.bundle)
-    expect(await Bun.file(path.join(fallback, "src/server/cli.ts")).text()).toBe("// server")
-    const staged = path.join(root, "staged-new")
-    await copyBundle(path.join(root, "new-source"), staged, next.bundle, reuse)
-    expect(await verifyBundle(staged, { ...target, tag: "1.0.1" })).toEqual(next.bundle)
-    expect(await Bun.file(path.join(staged, "src/server/cli.ts")).text()).toBe("// server")
-  })
   test("altered code and added private files stop automatic package upgrades", async () => {
     const root = await temp(); await fixture(root)
     await writeFile(path.join(root, "src/server/cli.ts"), "changed")
