@@ -65,6 +65,6 @@ test("updater keeps the stable owner before Bun and dotenv arguments", async () 
   config.launch.responsibleExecutable = "/Users/example/Agent & Tools/StillOn Agent"
   const plist = macosUpdaterPlist(config)
   const prefix = "<string>/Users/example/Agent &amp; Tools/StillOn Agent</string>"
-  expect(plist.replace(prefix, "")).toBe(original)
+  expect(plist.replace(prefix, "").replace("<key>ExitTimeOut</key><integer>30</integer>\n", "")).toBe(original)
   expect(plist).toContain(prefix + `<string>${config.launch.executable}</string><string>--env-file</string>`)
 })

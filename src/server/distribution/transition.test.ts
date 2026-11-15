@@ -1,10 +1,13 @@
+import { generateLaunchAgentPlist, getMacosServicePaths } from "../service/macos"
+import { macosUpdaterPlist } from "../updater/native"
+import { agentExecutable, installAgentHelper, runtimeAgentBundle } from "../service/macos-agent"
 import { afterEach, expect, test } from "bun:test"
-import { copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises"
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { BUNDLE_FILE, artifactName, bundleFiles, bunRelativePath, sha256, verifyBundle, type RuntimeBundle } from "./bundle"
-import { executeDesktopTransition, TRANSITION_FILE, type DesktopTransition, type TransitionNativeEffects } from "./transition"
+import { executeDesktopTransition, requestDesktopTransition, TRANSITION_FILE, type DesktopTransition, type TransitionNativeEffects } from "./transition"
 import { appStatus, pauseManagedServer, waitUntil } from "../updater/control"
 import { UpdateEngine, realUpdateEffects, enqueueUpdate } from "../updater/engine"
 import { worker, withWorkerLease } from "../updater/entry"
@@ -220,3 +223,37 @@ desktopTest("a failed recovery journal write cannot publish success or unlock us
   expect(engine.state.phase).toBe("verifying")
   expect((await json<UpdateState>(path.join(f.root, "state.json"))).phase).toBe("verifying")
 }, 30_000)
+
+test.skipIf(process.platform !== "darwin")("rejected request preflights and failed journal writes never swap the installed helper", async () => {
+  const f = await fixture()
+  await rm(path.join(f.root, TRANSITION_FILE))
+  const old = f.t.oldDeployment
+  const home = old.launch.homeDirectory
+  async function helper(runtime: string, bytes: string) {
+    const contents = path.join(runtimeAgentBundle(runtime), "Contents")
+    await mkdir(path.join(contents, "MacOS"), { recursive: true })
+    await writeFile(path.join(contents, "Info.plist"), "plist")
+    const executable = path.join(contents, "MacOS/StillOn Agent")
+    await writeFile(executable, bytes); await chmod(executable, 0o755)
+  }
+  await helper(f.t.oldRuntime, "original")
+  await installAgentHelper(f.t.oldRuntime, home)
+  await helper(f.t.newRuntime, "candidate")
+  const bundle = await json<RuntimeBundle>(path.join(f.t.newRuntime, BUNDLE_FILE))
+  bundle.files = await bundleFiles(f.t.newRuntime)
+  await atomicJson(path.join(f.t.newRuntime, BUNDLE_FILE), bundle)
+  const paths = getMacosServicePaths(home)
+  await mkdir(paths.launchAgentsDirectory, { recursive: true })
+  await writeFile(paths.plistPath, generateLaunchAgentPlist({ ...old.launch, args: [old.controller, "serve", old.root], workingDirectory: old.root, environmentFile: undefined }))
+  await writeFile(path.join(paths.launchAgentsDirectory, "com.bzbj.stillon.updater.plist"), macosUpdaterPlist(old))
+  const config = path.join(f.t.oldRuntime, "runtime/connect.json")
+  await atomicJson(config, { origin: "http://stillon.example.com" })
+  await expect(requestDesktopTransition(f.t.newRuntime, f.root)).rejects.toThrow("Connect service configuration")
+  expect(await readFile(agentExecutable(home), "utf8")).toBe("original")
+  expect(await exists(path.join(f.root, TRANSITION_FILE))).toBe(false)
+  await rm(config)
+  await writeFile(path.join(f.root, "transactions"), "block journal directory")
+  await expect(requestDesktopTransition(f.t.newRuntime, f.root)).rejects.toThrow()
+  expect(await readFile(agentExecutable(home), "utf8")).toBe("original")
+  expect(await exists(path.join(f.root, TRANSITION_FILE))).toBe(false)
+}, 30000)

@@ -482,6 +482,6 @@ describe("macOS service backend", () => {
   const helper = "/Users/example/Agent & Tools/StillOn Agent"
   const plist = generateLaunchAgentPlist({ ...legacy, responsibleExecutable: helper })
   const prefix = "      <string>/Users/example/Agent &amp; Tools/StillOn Agent</string>\n"
-  expect(plist.replace(prefix, "")).toBe(original)
+  expect(plist.replace(prefix, "").replace("    <key>ExitTimeOut</key>\n    <integer>30</integer>\n", "")).toBe(original)
   expect(plist.indexOf(prefix)).toBeLessThan(plist.indexOf(`<string>${legacy.executable}</string>`))
 })

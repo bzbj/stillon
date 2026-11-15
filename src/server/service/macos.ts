@@ -96,6 +96,7 @@ export function generateLaunchAgentPlist(spec: ServiceLaunchSpec) {
     "    <true/>",
     "    <key>ThrottleInterval</key>",
     "    <integer>10</integer>",
+    ...(spec.responsibleExecutable ? ["    <key>ExitTimeOut</key>", "    <integer>30</integer>"] : []),
     "    <key>ProcessType</key>",
     "    <string>Background</string>",
     "    <key>StandardOutPath</key>",

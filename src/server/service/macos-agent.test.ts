@@ -31,6 +31,11 @@ test.skipIf(process.platform === "win32")("helper install is idempotent and repl
   const old = path.join(agentDirectory(f.home), previous, "Contents/MacOS/StillOn Agent")
   expect((await stat(old)).ino).toBe(before.ino)
   expect(await readFile(old, "utf8")).toBe("original")
+  // The next successful install prunes retired bundles, without rewriting the active one.
+  const current = await stat(installed)
+  await installAgentHelper(f.runtime, f.home)
+  expect((await stat(installed)).ino).toBe(current.ino)
+  expect(await readdir(agentDirectory(f.home))).toEqual(["StillOn Agent.app"])
   expect((await stat(agentDirectory(f.home))).mode & 0o777).toBe(0o700)
 })
 test.skipIf(process.platform === "win32")("helper rejects linked runtime content before modifying the installation", async () => {
@@ -38,4 +43,14 @@ test.skipIf(process.platform === "win32")("helper rejects linked runtime content
   await symlink(f.binary, path.join(f.bundle, "linked"))
   await expect(installAgentHelper(f.runtime, f.home)).rejects.toThrow("links")
   expect(await readFile(agentExecutable(f.home), "utf8")).toBe("original")
+})
+
+test.skipIf(process.platform === "win32")("successive helper changes retain only the immediate predecessor", async () => {
+  const f = await fixture()
+  await installAgentHelper(f.runtime, f.home)
+  await writeFile(f.binary, "second"); await installAgentHelper(f.runtime, f.home)
+  await writeFile(f.binary, "third"); await installAgentHelper(f.runtime, f.home)
+  const retired = (await readdir(agentDirectory(f.home))).filter(name => name.includes(".replaced-"))
+  expect(retired).toHaveLength(1)
+  expect(await readFile(path.join(agentDirectory(f.home), retired[0]!, "Contents/MacOS/StillOn Agent"), "utf8")).toBe("second")
 })

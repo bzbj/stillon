@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { chmod, cp, mkdir, rename, rm } from "node:fs/promises"
+import { chmod, cp, mkdir, readdir, rename, rm } from "node:fs/promises"
 import path from "node:path"
 import { bundleFiles } from "../distribution/bundle"
 
@@ -18,7 +18,18 @@ export async function installAgentHelper(runtime: string, home: string): Promise
   const directory = agentDirectory(home)
   const installed = path.join(directory, "StillOn Agent.app")
   const same = (actual: Awaited<ReturnType<typeof bundleFiles>>) => JSON.stringify(actual) === JSON.stringify(expected)
-  try { if (same(await bundleFiles(installed))) return agentExecutable(home) } catch (error) {
+  async function pruneReplaced(keep?: string) {
+    for (const entry of await readdir(directory)) {
+      if (/^StillOn Agent\.app\.replaced-[0-9a-f-]{36}$/.test(entry)) {
+        const candidate = path.join(directory, entry)
+        if (candidate !== keep) await rm(candidate, { recursive: true, force: true })
+      }
+    }
+  }
+  try { if (same(await bundleFiles(installed))) {
+    await pruneReplaced()
+    return agentExecutable(home)
+  } } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -39,5 +50,6 @@ export async function installAgentHelper(runtime: string, home: string): Promise
       throw error
     }
   } finally { await rm(staging, { recursive: true, force: true }) }
+  await pruneReplaced(moved ? replaced : undefined)
   return agentExecutable(home)
 }

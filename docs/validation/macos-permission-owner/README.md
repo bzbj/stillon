@@ -31,3 +31,16 @@ Pending interactive platform acceptance in a disposable macOS account:
 A scratch HOME does not isolate the logged-in account's TCC consent database.
 The interactive matrix needs a disposable login account. Build and unit results
 establish process mechanics and packaging; they do not establish TCC attribution.
+
+QA follow-up regression coverage:
+
+- Rejected Connect-origin preflight and failed transition journal writes leave the
+  installed helper bytes unchanged. Journal recovery retries helper installation
+  before registering the transition worker.
+- Identical helper reinstalls prune retired bundles; successive changed installs
+  retain only their immediate predecessor.
+- A controller that ignores SIGTERM is killed and reaped after the helper deadline
+  (production 20 seconds, test build 1 second). Helper-backed LaunchAgents set
+  `ExitTimeOut=30`; legacy plist bytes remain unchanged.
+- Helper-to-helper rollback intentionally retains the newly installed helper,
+  including its ad-hoc identity-change limitation.

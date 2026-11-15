@@ -306,7 +306,9 @@ New macOS desktop installs launch both background services through **StillOn Age
 (`com.bzbj.stillon.agent`), a native app bundle at
 `~/Library/Application Support/StillOn/Agent/StillOn Agent.app`. It stays alive
 and spawns the versioned controller, forwarding termination signals and exit
-status. Runtime updates keep the controller pinned; installer controller handovers
+status. After SIGTERM it allows 20 seconds for shutdown, then kills and reaps
+the controller; helper-backed LaunchAgents allow 30 seconds before launchd
+forces termination. Runtime updates keep the controller pinned; installer controller handovers
 reuse the helper at the same path. Source-channel installs retain their existing
 Bun launch path. Existing desktop installs adopt the helper during their next
 installer controller handover.
@@ -326,5 +328,6 @@ versions, including signed controller handover and rollback.
 Installation compares all helper file hashes and executable modes. Identical
 bundles stay untouched. Changed bundles are staged, verified and renamed into
 place; the previous bundle is retained beside it so running processes keep their
-original inode. Desktop uninstall removes this helper directory after stopping
+original inode. The next successful install prunes older retired bundles, retaining
+only the immediate predecessor when a replacement occurs. Desktop uninstall removes this helper directory after stopping
 both services and preserves application data.

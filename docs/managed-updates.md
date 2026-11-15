@@ -372,3 +372,11 @@ handover installs the manifest-verified helper using staged copy and rename,
 never by overwriting a running executable. Rollback restores the previous
 service definitions; a pre-helper deployment returns to its original Bun
 permission owner. See [macOS permission owner](desktop-distribution.md#macos-permission-owner).
+
+Helper replacement occurs after the transition journal is durable and all request
+preflights have passed. A retry can safely finish helper installation before
+registering the recovery worker. Rollback restores controller and service definitions
+but keeps the installed helper bytes, including helper-to-helper transitions.
+The stable path and Developer ID requirement remain the same; an ad-hoc helper
+change can therefore cause one renewed consent request even after rollback.
+Older retired helper bundles are pruned on the next successful helper install.

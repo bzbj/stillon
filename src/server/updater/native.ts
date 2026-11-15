@@ -47,7 +47,7 @@ export function macosUpdaterPlist(deployment: UpdateDeployment, identity = DEFAU
 <key>WorkingDirectory</key><string>${xml(deployment.root)}</string>
 <key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(deployment.launch.homeDirectory)}</string><key>STILLON_FALLBACK_PATH</key><string>${xml(deployment.launch.pathEnvironment)}</string><key>STILLON_REFRESH_PATH</key><string>1</string></dict>
 <key>RunAtLoad</key><true/><key>StartInterval</key><integer>60</integer>
-<key>ProcessType</key><string>Background</string>
+${deployment.launch.responsibleExecutable ? "<key>ExitTimeOut</key><integer>30</integer>\n" : ""}<key>ProcessType</key><string>Background</string>
 <key>StandardOutPath</key><string>${xml(path.posix.join(deployment.root, "worker.log"))}</string>
 <key>StandardErrorPath</key><string>${xml(path.posix.join(deployment.root, "worker.log"))}</string>
 </dict></plist>`

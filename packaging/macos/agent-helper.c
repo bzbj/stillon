@@ -8,7 +8,11 @@
 
 extern char **environ;
 
-static void child_changed(int signal_number) { (void)signal_number; }
+#ifndef STILLON_TERMINATION_TIMEOUT
+#define STILLON_TERMINATION_TIMEOUT 20
+#endif
+
+static void signal_ready(int signal_number) { (void)signal_number; }
 
 int main(int argc, char **argv) {
     if (argc < 2 || argv[1][0] != '/') return 64;
@@ -18,12 +22,14 @@ int main(int argc, char **argv) {
     sigaddset(&watched, SIGINT);
     sigaddset(&watched, SIGHUP);
     sigaddset(&watched, SIGCHLD);
+    sigaddset(&watched, SIGALRM);
     if (sigprocmask(SIG_BLOCK, &watched, NULL) != 0) return 71;
-    /* SIGCHLD must generate a waitable event, even if inherited as ignored. */
+    /* Keep wakeups waitable, even if these signals were inherited as ignored. */
     struct sigaction action = {0};
-    action.sa_handler = child_changed;
+    action.sa_handler = signal_ready;
     sigemptyset(&action.sa_mask);
-    if (sigaction(SIGCHLD, &action, NULL) != 0) return 71;
+    if (sigaction(SIGCHLD, &action, NULL) != 0 ||
+        sigaction(SIGALRM, &action, NULL) != 0) return 71;
     sigemptyset(&empty);
     defaults = watched;
     posix_spawnattr_t attr;
@@ -36,6 +42,7 @@ int main(int argc, char **argv) {
     if (!error) error = posix_spawn(&child, argv[1], NULL, &attr, argv + 1, environ);
     posix_spawnattr_destroy(&attr);
     if (error) { errno = error; perror("StillOn Agent"); return 71; }
+    int terminating = 0;
     for (;;) {
         int status;
         pid_t result = waitpid(child, &status, WNOHANG);
@@ -46,6 +53,14 @@ int main(int argc, char **argv) {
         if (result < 0 && errno != EINTR) return 71;
         int received;
         if (sigwait(&watched, &received) != 0) return 71;
-        if (received != SIGCHLD) kill(child, received);
+        if (received == SIGALRM) {
+            if (terminating) kill(child, SIGKILL);
+        } else if (received != SIGCHLD) {
+            kill(child, received);
+            if (received == SIGTERM && !terminating) {
+                terminating = 1;
+                alarm(STILLON_TERMINATION_TIMEOUT);
+            }
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { installAgentHelper } from "../service/macos-agent"
+import { agentExecutable, installAgentHelper } from "../service/macos-agent"
 import { randomUUID } from "node:crypto"
 import { chmod, copyFile, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -109,6 +109,7 @@ export async function requestDesktopTransition(source: string, root: string) {
     const pending = await json<DesktopTransition>(file)
     if (!TERMINAL.has(pending.phase)) {
       if (!await leaseAlive(root)) {
+        if (pending.newDeployment.platform === "darwin" && pending.newDeployment.launch.responsibleExecutable) await installAgentHelper(pending.newRuntime, pending.newDeployment.launch.homeDirectory)
         await installUpdateWorker(pending.newDeployment, runServiceCommand, TRANSITION_WORKER)
         await wakeUpdateWorker(pending.newDeployment, runServiceCommand, TRANSITION_WORKER)
       }
@@ -142,7 +143,7 @@ export async function requestDesktopTransition(source: string, root: string) {
   const previousEntry = path.join(oldDeployment.launch.workingDirectory, "bin", "stillon")
   if (!oldDeployment.launch.args.includes(previousEntry)) throw new Error("Unrecognized source service CLI layout.")
   const newDeployment: UpdateDeployment = { ...oldDeployment, root, controller, launch: { ...oldDeployment.launch, executable,
-    responsibleExecutable: oldDeployment.platform === "darwin" ? await installAgentHelper(newRuntime, oldDeployment.launch.homeDirectory) : undefined,
+    responsibleExecutable: oldDeployment.platform === "darwin" ? agentExecutable(oldDeployment.launch.homeDirectory) : undefined,
     workingDirectory: newRuntime, args: oldDeployment.launch.args.map(arg => arg === previousEntry ? path.join(newRuntime, "bin", "stillon") : arg) } }
   const metadata: Record<string, unknown | null> = {}
   for (const name of ["desktop.json", "desktop-receipt.json"]) metadata[name] = await exists(path.join(root, name)) ? await json(path.join(root, name)) : null
@@ -161,6 +162,7 @@ export async function requestDesktopTransition(source: string, root: string) {
   // can never abandon a partially replaced service. The old installation still runs.
   await atomicJson(path.join(root, "transactions", id, "desktop-transition.json"), transition)
   await atomicJson(file, transition)
+  if (newDeployment.platform === "darwin") await installAgentHelper(newRuntime, newDeployment.launch.homeDirectory)
   await installUpdateWorker(newDeployment, runServiceCommand, TRANSITION_WORKER)
   await wakeUpdateWorker(newDeployment, runServiceCommand, TRANSITION_WORKER)
   return transition
