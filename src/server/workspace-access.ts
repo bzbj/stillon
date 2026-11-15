@@ -23,7 +23,15 @@ export function workspaceCommandAllowed(command: ClientCommand, workspaceId: str
   if (command.type === "settings.writeAppSettingsPatch") {
     const patch = command.patch
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) return false
-    return Object.keys(patch).every(k => k === "workspaceCollapsed" || k === "workspaceCollapseExpectedVersions") && Object.keys(patch.workspaceCollapsed ?? {}).every(id => id === workspaceId)
+    const commands = patch.quickCommands
+    if (commands !== undefined) {
+      if (!commands || typeof commands !== "object" || Array.isArray(commands)
+        || Object.keys(commands).some(key => key !== "workspaces")) return false
+      const workspaces = commands.workspaces
+      if (!workspaces || typeof workspaces !== "object" || Array.isArray(workspaces)
+        || Object.keys(workspaces).some(id => id !== workspaceId)) return false
+    }
+    return Object.keys(patch).every(k => k === "workspaceCollapsed" || k === "workspaceCollapseExpectedVersions" || k === "quickCommands") && Object.keys(patch.workspaceCollapsed ?? {}).every(id => id === workspaceId)
       && Object.keys(patch.workspaceCollapseExpectedVersions ?? {}).every(id => id === workspaceId)
   }
   if (command.type === "chat.create" || command.type === "chat.startQuickCommand" || command.type === "project.readQuickActions" || command.type === "project.writeQuickActions") return command.projectId === workspaceId

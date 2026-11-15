@@ -5,7 +5,7 @@ import path from "node:path"
 import { EventStore } from "./event-store"
 import { createWsRouter } from "./ws-router"
 
-for (const fail of [false, true]) test(`quick command creates a new conversation in the captured workspace (${fail ? "agent unavailable" : "sent"})`, async () => {
+for (const guest of [false, true]) for (const fail of [false, true]) test(`${guest ? "shared guest" : "local owner"} quick command creates a new conversation in the captured workspace (${fail ? "agent unavailable" : "sent"})`, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "stillon-quick-command-"))
   const store = new EventStore(path.join(directory, "data"))
   await store.initialize()
@@ -28,7 +28,7 @@ for (const fail of [false, true]) test(`quick command creates a new conversation
     keybindings: { getSnapshot: () => ({ bindings: {}, warning: null, filePathDisplay: "~/.stillon/keybindings.json" }), onChange: () => () => {} } as never,
     refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Example computer",
   })
-  const ws = { data: { subscriptions: new Map() }, send: (message: string) => { messages.push(JSON.parse(message)) } }
+  const ws = { data: { subscriptions: new Map(), workspaceId: guest ? project.id : undefined }, send: (message: string) => { messages.push(JSON.parse(message)) } }
   try {
     await router.handleMessage(ws as never, JSON.stringify({ v: 1, type: "command", id: "quick", command: {
       type: "chat.startQuickCommand", projectId: project.id, name: "Work Brief", content: "Prepare a work brief as HTML.",

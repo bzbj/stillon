@@ -22,9 +22,15 @@ test("invited workspace capabilities follow actual resource ownership and never 
     { type: "chat.setDraftProtection", chatIds: ["shared-chat", "private-chat"] },
     { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { private: true } } },
     { type: "settings.writeAppSettingsPatch", patch: { machineName: "Changed" } },
+    ...[null, [], { global: [] }, { workspaces: null }, { workspaces: [] }, { workspaces: { private: [] } },
+      { workspaces: { shared: [], private: [] } }, { workspaces: { shared: [] }, global: [] },
+    ].map(quickCommands => ({ type: "settings.writeAppSettingsPatch", patch: { quickCommands } })),
   ]) expect(workspaceCommandAllowed(command as never, "shared", state, terminals)).toBe(false)
   for (const command of [
     { type: "chat.create", projectId: "shared" }, { type: "chat.archive", chatId: "shared-chat" },
+    { type: "chat.startQuickCommand", projectId: "shared" },
+    ...[[], null, [{ id: "brief", name: "Brief", prompt: "Summarize the workspace." }]].map(commands =>
+      ({ type: "settings.writeAppSettingsPatch", patch: { quickCommands: { workspaces: { shared: commands } } } })),
     { type: "chat.cancel", chatId: "shared-chat", runId: "observed-run" },
     { type: "settings.writeAppSettingsPatch", patch: { workspaceCollapsed: { shared: true }, workspaceCollapseExpectedVersions: { shared: 0 } } },
   ]) expect(workspaceCommandAllowed(command as never, "shared", state, terminals)).toBe(true)
