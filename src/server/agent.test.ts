@@ -2093,6 +2093,106 @@ describe("AgentCoordinator claude integration", () => {
     expect(store.chat.pendingForkSessionToken).toBeNull()
     events.close()
   })
+
+  describe("turns Claude starts on its own", () => {
+    const initEntry = () => timestamped({
+      kind: "system_init",
+      provider: "claude",
+      model: "claude-opus-4-8",
+      tools: [],
+      agents: [],
+      slashCommands: [],
+      mcpServers: [],
+    })
+    const resultEntry = (result: string) => timestamped({
+      kind: "result",
+      subtype: "success",
+      isError: false,
+      durationMs: 0,
+      result,
+    })
+
+    function createSelfStartingCoordinator() {
+      const events = new AsyncEventQueue<any>()
+      const prompts: string[] = []
+      const store = createFakeStore()
+      const coordinator = new AgentCoordinator({
+        store: store as never,
+        onStateChange: () => {},
+        startClaudeSession: async () => ({
+          provider: "claude",
+          stream: events,
+          getAccountInfo: async () => null,
+          interrupt: async () => {},
+          close: () => {},
+          setModel: async () => {},
+          setPermissionMode: async () => {},
+          sendPrompt: async (content: string) => {
+            prompts.push(content)
+            events.push({ type: "transcript" as const, entry: initEntry() })
+            // Only the first prompt finishes right away; later turns end when the test says so.
+            if (prompts.length === 1) events.push({ type: "transcript" as const, entry: resultEntry("waiting on a background task") })
+          },
+        }),
+      })
+      return { coordinator, events, prompts, store }
+    }
+
+    const sendToClaude = (coordinator: AgentCoordinator, content: string) => coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "claude",
+      content,
+      model: "claude-opus-4-8",
+    })
+
+    test("shows the chat as running until the self-started turn's result arrives", async () => {
+      const { coordinator, events, store } = createSelfStartingCoordinator()
+      try {
+        await sendToClaude(coordinator, "merge when CI is green")
+        await waitFor(() => store.turnFinishedCount === 1)
+        expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
+
+        // The background task finishes and Claude resumes with no prompt from us.
+        events.push({ type: "transcript", entry: initEntry() })
+        await waitFor(() => coordinator.getActiveStatuses().get("chat-1") === "running")
+        expect(store.turnStartedCount).toBe(2)
+
+        events.push({ type: "transcript", entry: resultEntry("merged") })
+        await waitFor(() => store.turnFinishedCount === 2)
+        expect(coordinator.getActiveStatuses().has("chat-1")).toBe(false)
+      } finally { await coordinator.shutdown() }
+    })
+
+    test("queues a message sent during a self-started turn and runs it after the result", async () => {
+      const { coordinator, events, prompts, store } = createSelfStartingCoordinator()
+      try {
+        await sendToClaude(coordinator, "merge when CI is green")
+        await waitFor(() => store.turnFinishedCount === 1)
+
+        events.push({ type: "transcript", entry: initEntry() })
+        await waitFor(() => coordinator.getActiveStatuses().get("chat-1") === "running")
+
+        const queued = await sendToClaude(coordinator, "how is it going?")
+        expect("queued" in queued && queued.queued).toBe(true)
+        expect(prompts).toEqual(["merge when CI is green"])
+
+        events.push({ type: "transcript", entry: resultEntry("merged") })
+        await waitFor(() => prompts.length === 2)
+        expect(prompts[1]).toBe("how is it going?")
+        expect(store.queuedMessages).toHaveLength(0)
+      } finally { await coordinator.shutdown() }
+    })
+
+    test("does not register a second turn for a turn started by our own prompt", async () => {
+      const { coordinator, store } = createSelfStartingCoordinator()
+      try {
+        await sendToClaude(coordinator, "merge when CI is green")
+        await waitFor(() => store.turnFinishedCount === 1)
+        expect(store.turnStartedCount).toBe(1)
+      } finally { await coordinator.shutdown() }
+    })
+  })
 })
 
 function createFakeStore() {
@@ -2112,6 +2212,7 @@ function createFakeStore() {
   }
   return {
     chat,
+    turnStartedCount: 0,
     turnFinishedCount: 0,
     messages: [] as TranscriptEntry[],
     queuedMessages: [] as any[],
@@ -2146,7 +2247,9 @@ function createFakeStore() {
     async appendMessage(_chatId: string, entry: TranscriptEntry) {
       this.messages.push(entry)
     },
-    async recordTurnStarted() {},
+    async recordTurnStarted() {
+      this.turnStartedCount += 1
+    },
     async recordTurnFinished() {
       this.turnFinishedCount += 1
     },
