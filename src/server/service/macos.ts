@@ -64,7 +64,7 @@ function plistString(value: string, indentation: string) {
 
 export function generateLaunchAgentPlist(spec: ServiceLaunchSpec) {
   const paths = getMacosServicePaths(spec.homeDirectory)
-  const programArguments = [spec.executable, ...spec.args]
+  const programArguments = [...(spec.responsibleExecutable ? [spec.responsibleExecutable] : []), spec.executable, ...spec.args]
     .map((argument) => plistString(argument, "      "))
     .join("\n")
 

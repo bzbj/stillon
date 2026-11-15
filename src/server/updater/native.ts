@@ -38,7 +38,7 @@ export function windowsUpdaterXml(deployment: UpdateDeployment, user: string, no
 }
 
 export function macosUpdaterPlist(deployment: UpdateDeployment, identity = DEFAULT_WORKER) {
-  const args = [deployment.launch.executable, ...(deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]), deployment.controller, identity.mode, deployment.root]
+  const args = [...(deployment.launch.responsibleExecutable ? [deployment.launch.responsibleExecutable] : []), deployment.launch.executable, ...(deployment.launch.environmentFile ? ["--env-file", deployment.launch.environmentFile] : ["--no-env-file"]), deployment.controller, identity.mode, deployment.root]
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>

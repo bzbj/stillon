@@ -141,3 +141,21 @@ test("desktop uninstall rejects service definitions changed after installation",
   await writeFile(updater, "user-customized updater service")
   await expect(verifyDesktopReceipt(root)).rejects.toThrow("updater service definition changed")
 })
+
+test("macOS helper bundle round-trips spaces, signatures and executable permissions", async () => {
+  const root = await temp(); const source = path.join(root, "source")
+  await fixture(source)
+  const prefix = "macos/StillOn Agent.app/Contents/"
+  for (const name of ["Info.plist", "MacOS/StillOn Agent", "_CodeSignature/CodeResources"]) {
+    const file = path.join(source, prefix + name)
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, name)
+  }
+  await chmod(path.join(source, prefix + "MacOS/StillOn Agent"), 0o755)
+  const bundle = await json<RuntimeBundle>(path.join(source, BUNDLE_FILE))
+  bundle.files = await bundleFiles(source)
+  await atomicJson(path.join(source, BUNDLE_FILE), bundle)
+  await verifyBundle(source)
+  const destination = path.join(root, "destination")
+  await copyBundle(source, destination, bundle)
+  expect(await verifyBundle(destination)).toEqual(bundle)
+})

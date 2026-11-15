@@ -1,6 +1,7 @@
+import { installAgentHelper, agentDirectory } from "../service/macos-agent"
 import { cliFallbackPath, mergeSearchPaths } from "../cli-environment"
 import { randomUUID } from "node:crypto"
-import { mkdir, realpath, rename, rmdir, stat, unlink } from "node:fs/promises"
+import { mkdir, realpath, rename, rm, rmdir, stat, unlink } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createServiceLaunchSpec, manageService, resolveServiceBackend, runServiceCommand } from "../service"
@@ -146,7 +147,9 @@ export async function launchDesktop(source: string, options: { open?: boolean; p
   const port = options.port ?? 3210
   await prepareRuntimeTransport(install.runtime, { homeDirectory: home })
   desktopProgress("Starting the StillOn background service…")
-  await manageService("install", { executable: path.join(install.runtime, bunRelativePath(target.platform)),
+  await manageService("install", {
+    responsibleExecutable: target.platform === "darwin" ? await installAgentHelper(install.runtime, home) : undefined,
+    executable: path.join(install.runtime, bunRelativePath(target.platform)),
     entrypoint: path.join(install.runtime, "bin", "stillon"), homeDirectory: home,
     port, host: "127.0.0.1", pathEnvironment: desktopPath(home), recordInstallation: true })
   // The first native PowerShell launch on Windows ARM can still be warming up
@@ -213,6 +216,7 @@ export async function uninstallDesktop() {
     await unlink(path.join(deployment.launch.homeDirectory, "Library", "LaunchAgents", `${UPDATE_AGENT}.plist`)).catch((error) => { if (error.code !== "ENOENT") throw error })
     await resolveServiceBackend("darwin").uninstall(context)
   }
+  if (deployment.platform === "darwin") await rm(agentDirectory(deployment.launch.homeDirectory), { recursive: true, force: true })
   // Retain runtimes and recovery records under a distinct inactive directory.
   // A later fresh install can reuse ~/.stillon without reviving old supervisors.
   const retired = `${root}-uninstalled-${Date.now()}`

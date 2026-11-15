@@ -1,3 +1,4 @@
+import { installAgentHelper } from "../service/macos-agent"
 import { randomUUID } from "node:crypto"
 import { chmod, copyFile, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -141,6 +142,7 @@ export async function requestDesktopTransition(source: string, root: string) {
   const previousEntry = path.join(oldDeployment.launch.workingDirectory, "bin", "stillon")
   if (!oldDeployment.launch.args.includes(previousEntry)) throw new Error("Unrecognized source service CLI layout.")
   const newDeployment: UpdateDeployment = { ...oldDeployment, root, controller, launch: { ...oldDeployment.launch, executable,
+    responsibleExecutable: oldDeployment.platform === "darwin" ? await installAgentHelper(newRuntime, oldDeployment.launch.homeDirectory) : undefined,
     workingDirectory: newRuntime, args: oldDeployment.launch.args.map(arg => arg === previousEntry ? path.join(newRuntime, "bin", "stillon") : arg) } }
   const metadata: Record<string, unknown | null> = {}
   for (const name of ["desktop.json", "desktop-receipt.json"]) metadata[name] = await exists(path.join(root, name)) ? await json(path.join(root, name)) : null

@@ -44,18 +44,22 @@ async function createDiskImage(command: string[]) {
   }
 }
 
-async function buildMacInstaller() {
-  const app = path.join(output, "macos", "StillOn.app")
-  const contents = path.join(app, "Contents")
-  await mkdir(path.join(contents, "MacOS"), { recursive: true })
-  await mkdir(path.join(contents, "Resources"), { recursive: true })
+async function buildMacIcon(destination: string) {
   const iconset = path.join(output, "StillOn.iconset")
   await mkdir(iconset, { recursive: true })
   for (const size of [16, 32, 128, 256, 512]) {
     await run(["/usr/bin/sips", "-z", String(size), String(size), "public/icon-512.png", "--out", path.join(iconset, `icon_${size}x${size}.png`)])
     if (size < 512) await run(["/usr/bin/sips", "-z", String(size * 2), String(size * 2), "public/icon-512.png", "--out", path.join(iconset, `icon_${size}x${size}@2x.png`)])
   }
-  await run(["/usr/bin/iconutil", "-c", "icns", iconset, "-o", path.join(contents, "Resources", "StillOn.icns")])
+  await run(["/usr/bin/iconutil", "-c", "icns", iconset, "-o", destination])
+}
+
+async function buildMacInstaller() {
+  const app = path.join(output, "macos", "StillOn.app")
+  const contents = path.join(app, "Contents")
+  await mkdir(path.join(contents, "MacOS"), { recursive: true })
+  await mkdir(path.join(contents, "Resources"), { recursive: true })
+  await copyFile(path.join(output, "StillOn.icns"), path.join(contents, "Resources", "StillOn.icns"))
   await cp(runtime, path.join(contents, "Resources", "payload"), { recursive: true })
   await run(["/usr/bin/clang", "-fobjc-arc", "-framework", "Cocoa", "-mmacosx-version-min=13.0", "packaging/macos/launcher.m", "-o", path.join(contents, "MacOS", "StillOn")])
   await writeFile(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
@@ -149,6 +153,18 @@ async function main() {
   await chmod(path.join(runtime, bunRelativePath(target.platform)), 0o755)
   const controller = await Bun.build({ entrypoints: [path.join(repository, "src/server/updater/entry.ts")], target: "bun", packages: "bundle", naming: "controller.js", outdir: path.join(runtime, "runtime") })
   if (!controller.success) throw new AggregateError(controller.logs, "Could not bundle the updater")
+  if (target.platform === "darwin") {
+    const app = path.join(runtime, "macos/StillOn Agent.app")
+    const contents = path.join(app, "Contents")
+    await mkdir(path.join(contents, "MacOS"), { recursive: true })
+    await mkdir(path.join(contents, "Resources"), { recursive: true })
+    await buildMacIcon(path.join(output, "StillOn.icns"))
+    await copyFile(path.join(output, "StillOn.icns"), path.join(contents, "Resources/StillOn.icns"))
+    await run(["/usr/bin/clang", "-Wall", "-Wextra", "-Werror", "-mmacosx-version-min=13.0", "packaging/macos/agent-helper.c", "-o", path.join(contents, "MacOS/StillOn Agent")])
+    await writeFile(path.join(contents, "Info.plist"), (await readFile("packaging/macos/agent-helper-Info.plist", "utf8")).replaceAll("__VERSION__", pkg.version.split(".").slice(0, 3).join(".")))
+    await run(["/usr/bin/codesign", "--force", ...(macosSignIdentity ? ["--options", "runtime", "--timestamp"] : []), "--identifier", "com.bzbj.stillon.agent", "--sign", macosSignIdentity ?? "-", app])
+    await run(["/usr/bin/codesign", "--verify", "--strict", app])
+  }
   if (target.platform === "darwin" && macosSignIdentity) {
     await run(["/usr/bin/codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", "packaging/macos/entitlements.plist", "--sign", macosSignIdentity,
       path.join(runtime, bunRelativePath("darwin"))])
@@ -166,6 +182,7 @@ async function main() {
   const bundle: RuntimeBundle = { schema: 1, version: pkg.version, buildId, revision, ...target,
     bunVersion: Bun.version, minimumUpdaterProtocol: 1, files: await bundleFiles(runtime) }
   validateBundle(bundle)
+  if (target.platform === "darwin" && !bundle.files["macos/StillOn Agent.app/Contents/MacOS/StillOn Agent"]?.executable) throw new Error("Missing macOS permission owner")
   await writeFile(path.join(runtime, BUNDLE_FILE), JSON.stringify(bundle, null, 2) + "\n")
   console.log(`Packing ${Object.keys(bundle.files).length} verified runtime files…`)
   const inputs: Record<string, Blob> = Object.create(null)

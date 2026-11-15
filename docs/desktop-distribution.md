@@ -299,3 +299,32 @@ production credentials or disable protection, and is not Smart App Control or
 hosted Connect acceptance. Maintainers must still run the authenticated private
 managed stack against the exact PR revision before completing paired-entry
 acceptance.
+
+## macOS permission owner
+
+New macOS desktop installs launch both background services through **StillOn Agent**
+(`com.bzbj.stillon.agent`), a native app bundle at
+`~/Library/Application Support/StillOn/Agent/StillOn Agent.app`. It stays alive
+and spawns the versioned controller, forwarding termination signals and exit
+status. Runtime updates keep the controller pinned; installer controller handovers
+reuse the helper at the same path. Source-channel installs retain their existing
+Bun launch path. Existing desktop installs adopt the helper during their next
+installer controller handover.
+
+When macOS requests Documents, Desktop or Downloads access, allow the folder
+needed by the task. Review consent in System Settings → Privacy & Security →
+Files & Folders → StillOn Agent. Full Disk Access is not required for ordinary
+folder access. Existing consent for a versioned Bun path does not transfer to the
+helper; its first access can require consent again.
+
+The helper is signed before its bytes enter the runtime manifest. Developer ID
+builds use the bundle identifier and signing identity; development builds use an
+ad-hoc signature. A changed ad-hoc helper can require renewed consent. Consent
+persistence and displayed attribution require validation on supported macOS
+versions, including signed controller handover and rollback.
+
+Installation compares all helper file hashes and executable modes. Identical
+bundles stay untouched. Changed bundles are staged, verified and renamed into
+place; the previous bundle is retained beside it so running processes keep their
+original inode. Desktop uninstall removes this helper directory after stopping
+both services and preserves application data.

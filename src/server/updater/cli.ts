@@ -1,3 +1,4 @@
+import { installAgentHelper } from "../service/macos-agent"
 import { randomUUID } from "node:crypto"
 import { chmod, copyFile, mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
@@ -123,7 +124,7 @@ export async function setupManagedUpdates(root = updateRoot()) {
   }
   const deployment: UpdateDeployment = { schema: 1, ...serviceTarget, root, controller: path.join(bundleDirectory, "controller.js"),
     port, dataRoot: path.join(launch.homeDirectory, ".stillon"),
-    launch: { ...launch, executable: controllerExecutable, workingDirectory: runtime,
+    launch: { ...launch, responsibleExecutable: packaged && target.platform === "darwin" ? await installAgentHelper(runtime, launch.homeDirectory) : undefined, executable: controllerExecutable, workingDirectory: runtime,
       args: launch.args.map((arg) => arg === previousEntry ? entrypoint : arg) } }
   const baseline = await manifest(path.join(runtime, "dist"))
   await atomicJson(path.join(root, "build-manifests.json"), { [runtime]: baseline })

@@ -475,3 +475,13 @@ describe("macOS service backend", () => {
     expect(await readFile(paths.plistPath, "utf8")).toBe("plist")
   })
 })
+
+ test("stable owner prefixes escaped controller arguments without changing legacy output", () => {
+  const legacy = createLaunchSpec("/Users/example")
+  const original = generateLaunchAgentPlist(legacy)
+  const helper = "/Users/example/Agent & Tools/StillOn Agent"
+  const plist = generateLaunchAgentPlist({ ...legacy, responsibleExecutable: helper })
+  const prefix = "      <string>/Users/example/Agent &amp; Tools/StillOn Agent</string>\n"
+  expect(plist.replace(prefix, "")).toBe(original)
+  expect(plist.indexOf(prefix)).toBeLessThan(plist.indexOf(`<string>${legacy.executable}</string>`))
+})
