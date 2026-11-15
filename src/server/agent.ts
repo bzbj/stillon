@@ -1972,6 +1972,56 @@ export class AgentCoordinator {
     return { chatId: forked.id }
   }
 
+  /**
+   * Claude can start a turn on its own, for example when a background command
+   * finishes after the previous turn ended. No prompt of ours is behind it, so
+   * there is no active turn; register one so the chat reads as running until
+   * that turn's result arrives, and so Stop and message queuing apply to it.
+   */
+  private async adoptSelfStartedClaudeTurn(session: ClaudeSessionState): Promise<ActiveTurn | undefined> {
+    const { chatId } = session
+    const control = this.runControls.get(chatId)
+    if (
+      this.claudeSessions.get(chatId) !== session
+      // A prompt of ours is still in flight, or a stop/handoff is under way:
+      // this init belongs to that run, not to a new one.
+      || session.pendingPromptSeqs.length > 0
+      || control?.launching
+      || control?.barrier
+      || control?.steering
+      || control?.paused
+    ) {
+      return undefined
+    }
+
+    const active: ActiveTurn = {
+      chatId,
+      provider: "claude",
+      turn: {
+        provider: "claude",
+        stream: { async *[Symbol.asyncIterator]() {} },
+        getAccountInfo: session.session.getAccountInfo,
+        interrupt: session.session.interrupt,
+        close: () => {},
+      },
+      model: session.model,
+      effort: session.effort,
+      planMode: session.planMode,
+      permissionMode: session.permissionMode,
+      status: "running",
+      pendingTool: null,
+      postToolFollowUp: null,
+      hasFinalResult: false,
+      cancelRequested: false,
+      cancelRecorded: false,
+    }
+    this.activeTurns.set(chatId, active)
+    await this.store.recordTurnStarted(chatId)
+    logClaudeSteer("claude_self_started_turn", { chatId, sessionId: session.id })
+    this.emitStateChange(chatId, { immediate: true })
+    return active
+  }
+
   private async runClaudeSession(session: ClaudeSessionState) {
     try {
       for await (const event of session.session.stream) {
@@ -1991,7 +2041,10 @@ export class AgentCoordinator {
         }
         if (!event.entry) continue
         await this.store.appendMessage(session.chatId, event.entry)
-        const active = this.activeTurns.get(session.chatId)
+        let active = this.activeTurns.get(session.chatId)
+        if (event.entry.kind === "system_init" && !active) {
+          active = await this.adoptSelfStartedClaudeTurn(session)
+        }
         if (event.entry.kind === "system_init" && active) {
           active.status = "running"
           const chat = this.store.getChat(session.chatId)
