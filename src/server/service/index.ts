@@ -18,6 +18,7 @@ import type {
 import { windowsServiceBackend } from "./windows"
 
 export interface ManageServiceOptions {
+  responsibleExecutable?: string
   recordInstallation?: boolean
   platform?: NodeJS.Platform
   executable?: string
@@ -135,6 +136,7 @@ export function createServiceLaunchSpec(options: ManageServiceOptions = {}): Ser
     workingDirectory: options.workingDirectory ?? defaultWorkingDirectory,
     homeDirectory,
     pathEnvironment: options.pathEnvironment ?? process.env.PATH ?? "",
+    responsibleExecutable: options.responsibleExecutable,
     environmentFile: environmentFile ? pathImplementation.resolve(environmentFile) : undefined,
     localAppDataDirectory: options.localAppDataDirectory
       ?? (platform === "win32" ? process.env.LOCALAPPDATA : undefined),

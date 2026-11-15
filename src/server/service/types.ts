@@ -19,6 +19,8 @@ export type ServiceCommandRunner = (
 ) => Promise<ServiceCommandResult>
 
 export interface ServiceLaunchSpec {
+  /** Stable macOS parent that spawns the controller and retains responsibility. */
+  responsibleExecutable?: string
   executable: string
   args: string[]
   workingDirectory: string

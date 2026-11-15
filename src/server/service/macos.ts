@@ -64,7 +64,7 @@ function plistString(value: string, indentation: string) {
 
 export function generateLaunchAgentPlist(spec: ServiceLaunchSpec) {
   const paths = getMacosServicePaths(spec.homeDirectory)
-  const programArguments = [spec.executable, ...spec.args]
+  const programArguments = [...(spec.responsibleExecutable ? [spec.responsibleExecutable] : []), spec.executable, ...spec.args]
     .map((argument) => plistString(argument, "      "))
     .join("\n")
 
@@ -96,6 +96,7 @@ export function generateLaunchAgentPlist(spec: ServiceLaunchSpec) {
     "    <true/>",
     "    <key>ThrottleInterval</key>",
     "    <integer>10</integer>",
+    ...(spec.responsibleExecutable ? ["    <key>ExitTimeOut</key>", "    <integer>30</integer>"] : []),
     "    <key>ProcessType</key>",
     "    <string>Background</string>",
     "    <key>StandardOutPath</key>",

@@ -413,3 +413,5 @@ See the [brand guide](docs/brand.md), [security policy](SECURITY.md), and [publi
 ## Contributing
 
 Issues and pull requests are welcome at [bzbj/stillon](https://github.com/bzbj/stillon). Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+On macOS, desktop background services use StillOn Agent for folder permission requests. See [macOS folder permissions](docs/desktop-distribution.md#macos-permission-owner).

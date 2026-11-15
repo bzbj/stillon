@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import type { ServiceCommandResult, ServiceCommandRunner } from "../service/types"
-import { installUpdateWorker } from "./native"
+import { installUpdateWorker, macosUpdaterPlist } from "./native"
 import type { UpdateDeployment } from "./model"
 
 const roots: string[] = []
@@ -56,4 +56,15 @@ test.skipIf(process.platform === "win32")("failed launchd inspection preserves a
   const run: ServiceCommandRunner = async () => result(1, "Operation not permitted")
   await expect(installUpdateWorker(config, run)).rejects.toThrow("Inspect updater failed")
   expect(await readFile(file, "utf8")).toBe("existing worker definition")
+})
+
+test("updater keeps the stable owner before Bun and dotenv arguments", async () => {
+  const config = await deployment()
+  config.launch.environmentFile = "/Users/example/env"
+  const original = macosUpdaterPlist(config)
+  config.launch.responsibleExecutable = "/Users/example/Agent & Tools/StillOn Agent"
+  const plist = macosUpdaterPlist(config)
+  const prefix = "<string>/Users/example/Agent &amp; Tools/StillOn Agent</string>"
+  expect(plist.replace(prefix, "").replace("<key>ExitTimeOut</key><integer>30</integer>\n", "")).toBe(original)
+  expect(plist).toContain(prefix + `<string>${config.launch.executable}</string><string>--env-file</string>`)
 })
