@@ -11,7 +11,7 @@ import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
-import { useOutletContext } from "react-router-dom"
+import { useLocation, useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { Card, CardContent } from "../../components/ui/card"
@@ -460,6 +460,7 @@ function ChatWorkspace({
 }
 
 export function ChatPage() {
+  const location = useLocation()
   const state = useOutletContext<StillOnState>()
   const layoutRootRef = useRef<HTMLDivElement>(null)
   const transcriptListRef = useRef<LegendListRef | null>(null)
@@ -946,6 +947,7 @@ export function ChatPage() {
           projectId={projectId}
           activeProvider={state.runtime?.provider ?? null}
           codexTransport={state.runtime?.codexTransport ?? state.appSettings?.codexTransport ?? "app-server"}
+          focusWhenReady={location.state?.focusScheduleDraft === true}
           preferencesReady={state.composerPreferencesReady}
           availableProviders={state.availableProviders}
           onSubmit={handleChatSubmit}
@@ -994,6 +996,8 @@ export function ChatPage() {
     ? <Suspense fallback={<PanelLoadingFallback label="Loading schedules…" />}><SchedulesPanel
         projectId={projectId} projectTitle={state.sidebarData.projectGroups.find(group => group.groupKey === projectId)?.title ?? "Workspace"}
         socket={state.socket} status={state.connectionStatus} onClose={handleCloseRightSidebar}
+        currentChatTitle={state.runtime?.title ?? "当前对话"}
+        onNewConversation={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); return state.handleCreateScheduledChat(projectId, text) }}
         onPrefill={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); chatInputRef.current?.prefillDraft(text) }}
       /></Suspense>
     : activeRightPanel === "browser" && projectId

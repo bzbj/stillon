@@ -346,6 +346,7 @@ interface Props {
   inputElementRef?: React.Ref<HTMLTextAreaElement>
   activeProvider: AgentProvider | null
   codexTransport?: CodexTransport | null
+  focusWhenReady?: boolean
   preferencesReady?: boolean
   availableProviders: ProviderCatalogEntry[]
   previousPrompt?: string | null
@@ -407,6 +408,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   inputElementRef,
   activeProvider,
   codexTransport,
+  focusWhenReady = false,
   preferencesReady = true,
   availableProviders,
   previousPrompt = null,
@@ -560,6 +562,16 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useLayoutEffect(() => {
     onLayoutChange?.()
   }, [attachments.length, hasFailedUploads, hasPendingUploads, onLayoutChange, uploadError])
+
+  const focusedWhenReady = useRef(false)
+  useEffect(() => {
+    if (!focusWhenReady || disabled || focusedWhenReady.current) return
+    const frame = requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      focusedWhenReady.current = true
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusWhenReady, disabled])
 
   useEffect(() => {
     textareaRef.current?.focus()

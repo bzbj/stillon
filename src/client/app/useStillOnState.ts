@@ -737,6 +737,8 @@ export interface StillOnState {
   loadToolDetails: (toolIds: string[]) => Promise<void>
   quickCommandStarting: boolean
   handleRunQuickCommand: (projectId: string, command: QuickCommand) => Promise<void>
+  handleOpenScheduleConversation: (chatId: string, draft: string) => void
+  handleCreateScheduledChat: (projectId: string, draft: string) => Promise<void>
   handleCreateChat: (projectId: string) => Promise<void>
   setDefaultProjectId: (projectId: string | null) => void
   handleForkChat: (chat: SidebarChatRow) => Promise<void>
@@ -1582,16 +1584,17 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     } finally { setQuickCommandStarting(false) }
   }, [activeChatId, navigate, quickCommandDelivery])
 
-  const createChatForProject = useCallback(async (projectId: string) => {
+  const createChatForProject = useCallback(async (projectId: string, initialDraft?: string) => {
     const chatPreferences = useChatPreferencesStore.getState()
     const sourceComposerState = activeChatId
       ? chatPreferences.getComposerState(activeChatId)
       : chatPreferences.getComposerState(NEW_CHAT_COMPOSER_ID)
     const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId })
     chatPreferences.initializeComposerForChat(result.chatId, { sourceState: sourceComposerState })
+    if (initialDraft) useChatInputStore.getState().setDraft(result.chatId, initialDraft)
     setSelectedProjectId(projectId)
     setPendingChatId(result.chatId)
-    navigate(`/chat/${result.chatId}`)
+    navigate(`/chat/${result.chatId}`, { state: initialDraft ? { focusScheduleDraft: true } : undefined })
     setSidebarOpen(false)
     setCommandError(null)
   }, [activeChatId, navigate, socket])
@@ -1634,6 +1637,19 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
       setStartingLocalPath(null)
     }
   }, [createChatForProject, resolveProjectIdForStartChat])
+
+  const handleOpenScheduleConversation = useCallback((chatId: string, draft: string) => {
+    const drafts = useChatInputStore.getState()
+    const old = drafts.getDraft(chatId)
+    drafts.setDraft(chatId, old.trim() ? `${old}\n\n${draft}` : draft)
+    navigate(`/chat/${chatId}`, { state: { focusScheduleDraft: true } })
+    setSidebarOpen(false)
+  }, [navigate])
+
+  const handleCreateScheduledChat = useCallback(async (projectId: string, draft: string) => {
+    try { await createChatForProject(projectId, draft) }
+    catch (error) { setCommandError(error instanceof Error ? error.message : "Unable to create conversation"); throw error }
+  }, [createChatForProject])
 
   const handleCreateChat = useCallback(async (projectId: string) => {
     navigate(`/?${new URLSearchParams({ workspace: projectId })}`)
@@ -2360,6 +2376,8 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     closeAddProjectModal,
     loadOlderHistory,
     loadToolDetails,
+    handleOpenScheduleConversation,
+    handleCreateScheduledChat,
     handleCreateChat,
     handleRunQuickCommand,
     quickCommandStarting,

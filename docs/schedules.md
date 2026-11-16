@@ -13,7 +13,13 @@ Create and manage schedules through conversation:
 - “Change the daily project check to 10:00.”
 - “Delete the release reminder.”
 
-The plus and Edit actions prefill the existing composer and preserve its draft.
+Workspace options → 定时任务 opens the same panel even when the Workspace has no conversations.
+
+The plus action lets you choose the current conversation (showing its title) or
+create a new conversation in that Workspace. Without an active conversation, only
+new conversation is offered. Both actions prefill the existing composer and
+preserve the original conversation’s draft. Editing from the Workspace view
+opens the plan’s existing result conversation; the edit prompt keeps that target.
 They do not send a message. There is no separate creation form. Send one message
 in a target conversation before scheduling it so its execution preferences exist.
 The target must belong to the same Workspace.

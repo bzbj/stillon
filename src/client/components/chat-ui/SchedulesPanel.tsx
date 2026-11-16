@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Clock3, MoreHorizontal, Pencil, Plus, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import type { StillOnSocket, SocketStatus } from "../../app/socket"
@@ -8,14 +8,30 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 
 interface Props {
   projectId: string; projectTitle: string; socket: StillOnSocket; status: SocketStatus
-  onClose: () => void; onPrefill: (text: string) => void
+  onClose: () => void; onPrefill?: (text: string) => void
+  currentChatTitle?: string; onEditConversation?: (chatId: string, text: string) => void; onNewConversation: (text: string) => Promise<void>
 }
 const outcomes = { claimed: "Starting", running: "Running", waiting_for_user: "Needs input", succeeded: "Completed", failed: "Failed", cancelled: "Stopped", skipped: "Skipped", blocked: "Blocked", interrupted_unknown: "Interrupted · review conversation" }
-export function SchedulesPanel({ projectId, projectTitle, socket, status, onClose, onPrefill }: Props) {
+export function SchedulesPanel({ projectId, projectTitle, socket, status, onClose, onPrefill, currentChatTitle, onEditConversation, onNewConversation }: Props) {
   const [snapshot, setSnapshot] = useState<ProjectSchedulesSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const navigate = useNavigate()
+  const creatingRef = useRef(false)
+  const focusComposerRef = useRef(false)
+  const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const draft = "请帮我在当前 Workspace 安排一个定时任务，执行过程和结果留在本对话："
+  const createNew = async () => {
+    if (creatingRef.current) return
+    creatingRef.current = true
+    focusComposerRef.current = true
+    setCreateOpen(false)
+    setCreating(true); setError(null)
+    try { await onNewConversation(draft) }
+    catch { setError("新建对话失败，请重试。") }
+    finally { creatingRef.current = false; setCreating(false) }
+  }
   useEffect(() => {
     setSnapshot(null); setError(null); setSelected(null)
     let active = true
@@ -30,13 +46,21 @@ export function SchedulesPanel({ projectId, projectTitle, socket, status, onClos
     const unsubscribe = socket.subscribe<ProjectSchedulesSnapshot>({ type: "project-schedules", projectId }, value => { receivedLive = true; receive(value) })
     return () => { active = false; abort.abort(); unsubscribe() }
   }, [projectId, socket])
-  const disabled = status !== "connected" || !snapshot || snapshot.available === false || Boolean(error)
-  const edit = (schedule: Schedule) => onPrefill(`把当前 Workspace 的定时任务「${schedule.name}」修改为：`)
+  const disabled = status !== "connected" || !snapshot || snapshot.available === false || creating
+  const edit = (schedule: Schedule & { chatTitle: string }) => {
+    const text = `请修改当前 Workspace 的定时任务「${schedule.name}」，保持结果对话「${schedule.chatTitle}」不变。修改为：`
+    if (onEditConversation) onEditConversation(schedule.chatId, text)
+    else onPrefill?.(text)
+  }
+
   return <div className="flex h-full min-h-0 flex-col border-l border-border bg-background md:min-w-[370px]">
     <div className="flex h-[49px] shrink-0 items-center gap-2 border-b border-border px-3">
       <Clock3 className="size-4" /><span className="text-sm font-medium">定时任务</span>
       {snapshot && <span className="ml-auto text-xs text-muted-foreground">{snapshot.schedules.filter(s => s.enabled).length} on</span>}
-      <Button variant="ghost" size="icon" className="size-8" aria-label="New schedule in chat" disabled={disabled} onClick={() => onPrefill("请帮我在当前 Workspace 安排一个定时任务：")}><Plus className="size-4" /></Button>
+      <Popover open={createOpen} onOpenChange={setCreateOpen}><PopoverTrigger asChild><Button variant="ghost" size="icon" className="size-8" aria-label="新建定时任务" disabled={disabled}><Plus className="size-4" /></Button></PopoverTrigger><PopoverContent align="end" className="w-64 p-1" onCloseAutoFocus={event => { if (focusComposerRef.current) { event.preventDefault(); focusComposerRef.current = false } }}>
+        {currentChatTitle && onPrefill && <button className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" disabled={disabled} onClick={() => { focusComposerRef.current = true; setCreateOpen(false); onPrefill(draft) }}>在当前对话中安排<span className="block truncate text-xs text-muted-foreground">{currentChatTitle}</span></button>}
+        <button className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" disabled={disabled} onClick={() => void createNew()}>{creating ? "正在新建…" : "新建对话来安排"}</button>
+      </PopoverContent></Popover>
       <Button variant="ghost" size="icon" className="size-8" aria-label="Close schedules" onClick={onClose}><X className="size-4" /></Button>
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
