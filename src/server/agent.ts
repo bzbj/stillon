@@ -1004,7 +1004,7 @@ export class AgentCoordinator {
 
   async tryStartScheduledTurn(schedule: Schedule, run: ScheduleRun): Promise<{ status: "started"; agentRunId: string } | { status: "busy" }> {
     const control = this.control(schedule.chatId)
-    if (this.cliMaintenance || this.isChatBusy(schedule.chatId) || control.barrier || control.steering || control.paused || this.drainingStreams.has(schedule.chatId) || this.store.getQueuedMessages(schedule.chatId).length) return { status: "busy" }
+    if (this.cliMaintenance || this.isChatBusy(schedule.chatId) || control.barrier || control.steering || this.drainingStreams.has(schedule.chatId) || this.store.getQueuedMessages(schedule.chatId).length) return { status: "busy" }
     const chat = this.store.requireChat(schedule.chatId)
     if (chat.projectId !== schedule.projectId || chat.provider !== schedule.execution.provider) throw new Error("Target conversation or provider changed; update the schedule")
     const settings = this.getProviderSettings(schedule.execution.provider, { ...schedule.execution, modelOptions: { [schedule.execution.provider]: schedule.execution.modelOptions } })
@@ -1485,7 +1485,7 @@ export class AgentCoordinator {
     if (args.expectedGeneration !== undefined && control.generation !== args.expectedGeneration) {
       throw new StartSupersededError("A newer stop request replaced this start")
     }
-    if (args.scheduledRun && (control.paused || control.steering || control.barrier || this.store.getQueuedMessages(args.chatId).length)) throw new ChatBusyError("Conversation is not available for a scheduled turn")
+    if (args.scheduledRun && (control.steering || control.barrier || this.store.getQueuedMessages(args.chatId).length)) throw new ChatBusyError("Conversation is not available for a scheduled turn")
     if (this.isChatBusy(args.chatId)) {
       throw new ChatBusyError("Chat is already running")
     }

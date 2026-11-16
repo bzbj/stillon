@@ -26,7 +26,7 @@ use their saved IANA timezone. A nonexistent daylight-saving time is skipped;
 a repeated wall time runs only at its first occurrence.
 
 After downtime, one overdue occurrence runs; missed intervals are not replayed
-as a backlog. A busy, paused or still-stopping target skips that occurrence.
+as a backlog. A busy target, paused message queue or still-stopping target skips that occurrence.
 At most two scheduled turns run concurrently. A missing target or launch failure
 blocks the run and pauses its schedule. An interrupted run whose outcome cannot
 be established is retained for review and never automatically replayed.

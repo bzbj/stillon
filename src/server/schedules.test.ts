@@ -169,3 +169,27 @@ test("scheduled agent turn restores archive, uses frozen preferences and separat
   expect(transcript).not.toContain("stillon-schedules")
   expect(transcript).toContain('"scheduleSource"')
 })
+
+test("stopping a scheduled turn leaves the next occurrence eligible after confirmed exit", async () => {
+  const { AgentCoordinator } = await import("./agent")
+  const f = await fixture()
+  let starts = 0
+  const coordinator = new AgentCoordinator({ store: f.events, onStateChange: () => {},
+    codexManager: {
+      async startSession() {},
+      async startTurn() {
+        starts++
+        let release!: () => void
+        const stopped = new Promise<void>(resolve => { release = resolve })
+        return { provider: "codex", interrupt: async () => { release() }, close: async () => { release() }, stream: (async function* () { await stopped })() }
+      }, stopAll: async () => {},
+    } as never,
+  })
+  cleanup.push(() => coordinator.shutdown())
+  const schedule = create(f)
+  const run: ScheduleRun = { id: crypto.randomUUID(), scheduleId: schedule.id, projectId: f.project.id, chatId: f.chat.id, name: schedule.name, scheduledFor: Date.now(), state: "claimed", execution: schedule.execution, cwd: f.project.localPath }
+  expect((await coordinator.tryStartScheduledTurn(schedule, run)).status).toBe("started")
+  await coordinator.cancel(f.chat.id)
+  expect((await coordinator.tryStartScheduledTurn(schedule, { ...run, id: crypto.randomUUID() })).status).toBe("started")
+  expect(starts).toBe(2)
+})
