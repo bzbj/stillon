@@ -352,6 +352,7 @@ interface Props {
 }
 
 export interface ChatInputHandle {
+  prefillDraft: (text: string) => void
   enqueueFiles: (files: File[]) => void
 }
 
@@ -762,7 +763,13 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useImperativeHandle(forwardedRef, () => ({
     enqueueFiles,
-  }), [enqueueFiles])
+    prefillDraft(text) {
+      const next = value.trim() ? `${value}\n\n${text}` : text
+      setValue(next)
+      if (chatId) setDraft(chatId, next)
+      requestAnimationFrame(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(next.length, next.length) })
+    },
+  }), [enqueueFiles, value, chatId, setDraft])
 
   const newChatSubmittingRef = useRef(false)
 

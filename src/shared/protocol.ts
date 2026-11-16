@@ -91,6 +91,7 @@ export interface ProjectQuickAction {
 }
 
 export type SubscriptionTopic =
+  | { type: "project-schedules"; projectId: string }
   | { type: "sidebar"; compactVersion?: 1; view?: SidebarView }
   | { type: "local-projects" }
   | { type: "keybindings" }
@@ -254,6 +255,7 @@ export type ClientEnvelope =
   | { v: 1; type: "command"; id: string; command: ClientCommand }
 
 export type ServerSnapshot =
+  | { type: "project-schedules"; data: import("./schedules").ProjectSchedulesSnapshot }
   | { type: "sidebar"; data: SidebarData }
   | { type: "local-projects"; data: LocalProjectsSnapshot }
   | { type: "keybindings"; data: KeybindingsSnapshot }

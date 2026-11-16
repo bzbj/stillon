@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import type { ChatAttachment } from "../../../shared/types"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { CornerUpLeft } from "lucide-react"
+import { Clock3, CornerUpLeft } from "lucide-react"
 import { createMarkdownComponents, localFileMarkdownUrlTransform } from "./shared"
 import { classifyAttachmentPreview } from "./attachmentPreview"
 import { AttachmentFileCard, AttachmentImageCard } from "./AttachmentCard"
@@ -13,6 +13,7 @@ import { useTranscriptRenderOptions } from "./render-context"
 interface Props {
   content: string
   attachments?: ChatAttachment[]
+  scheduleSource?: import("../../../shared/schedules").ScheduleSource
   steered?: boolean
 }
 
@@ -28,7 +29,7 @@ function parseSystemMessage(content: string) {
   }
 }
 
-export function UserMessage({ content, attachments = [], steered = false }: Props) {
+export function UserMessage({ content, attachments = [], steered = false, scheduleSource }: Props) {
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const renderOptions = useTranscriptRenderOptions()
   const parsedContent = useMemo(() => parseSystemMessage(content), [content])
@@ -61,6 +62,7 @@ export function UserMessage({ content, attachments = [], steered = false }: Prop
   return (
     <>
       <div className="flex flex-col items-end gap-2">
+        {scheduleSource && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" /><span>由「{scheduleSource.name}」定时触发</span></div>}
         {imageAttachments.length > 0 ? (
           <div className="flex max-w-[85%] sm:max-w-[80%] flex-wrap justify-end gap-3">
             {imageAttachments.map((attachment) => (

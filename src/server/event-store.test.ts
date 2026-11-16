@@ -1123,3 +1123,27 @@ test("debug statistics enroll only sessions created while enabled and never writ
   const untrackedFork = await restored.forkChat(old.id)
   expect(restored.requireChat(untrackedFork.id).statisticsState).toBeUndefined()
 })
+
+test("scheduled prompts restore archived chats and recover a crash before metadata checkpoint", async () => {
+  const dir = await createTempDataDir()
+  const store = new EventStore(dir)
+  await store.initialize()
+  const project = await store.openProject(join(dir, "project"))
+  const chat = await store.createChat(project.id)
+  await store.archiveChat(chat.id)
+  const source = { kind: "schedule" as const, scheduleId: "schedule", name: "Daily check", runId: "run" }
+  await store.appendMessage(chat.id, { _id: "scheduled", kind: "user_prompt", content: "Check", createdAt: Date.now() + 1, scheduleSource: source })
+  expect(store.getChat(chat.id)?.archivedAt).toBeUndefined()
+  await store.archiveChat(chat.id)
+  // An ordinary message does not change the existing archive semantics.
+  await store.appendMessage(chat.id, { _id: "ordinary", kind: "user_prompt", content: "Hello", createdAt: Date.now() + 2 })
+  expect(store.getChat(chat.id)?.archivedAt).toBeTruthy()
+  // Simulate process death after the transcript append but before the log and checkpoint.
+  await appendFile(join(dir, "transcripts", `${chat.id}.jsonl`), JSON.stringify({ _id: "crash", kind: "user_prompt", content: "Recovered check", createdAt: Date.now() + 3, scheduleSource: source }) + "\n")
+  const recovered = new EventStore(dir)
+  await recovered.initialize()
+  expect(recovered.getChat(chat.id)?.archivedAt).toBeUndefined()
+  const again = new EventStore(dir)
+  await again.initialize()
+  expect(again.getChat(chat.id)?.archivedAt).toBeUndefined()
+})

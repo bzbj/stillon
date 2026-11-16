@@ -132,6 +132,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
 }
 
 export interface ClientState {
+  canManageSchedules?: boolean
   chunkTransport?: boolean
   transport?: SocketTransport
   canOpenHostFiles?: boolean
@@ -146,6 +147,7 @@ export interface ClientState {
 }
 
 interface CreateWsRouterArgs {
+  schedules?: import("./schedule-service").ScheduleService
   getBrowserPreviewBlockedPorts?: () => number[]
   remoteOperations?: import("./connect/operations").RemoteOperations
   store: EventStore
@@ -430,6 +432,7 @@ export function createWsRouter({
   sourceUpgradePrompt,
   managedUpdate,
   remoteOperations,
+  schedules,
   agentNetwork,
   refreshDiscovery,
   getDiscoveredProjects,
@@ -761,6 +764,10 @@ export function createWsRouter({
     cache?: SnapshotComputationCache,
     workspaceId?: string,
   ): Promise<ServerEnvelope> {
+    if (topic.type === "project-schedules") {
+      if (!schedules) throw new Error("Schedules are unavailable")
+      return { v: PROTOCOL_VERSION, type: "snapshot", id, snapshot: { type: "project-schedules", data: schedules.snapshot(topic.projectId) } }
+    }
     if (topic.type === "claude-model-policy") {
       if (!claudeModelPolicy) throw new Error("Claude model configuration is unavailable")
       return { v: PROTOCOL_VERSION, type: "snapshot", id,
@@ -1435,7 +1442,7 @@ export function createWsRouter({
           await store.renameChat(chat.id, command.name)
           let result: { chatId: string; error?: string; promptSaved?: boolean } = { chatId: chat.id }
           try {
-            await agent.send({ ...command.preferences, modelOptions: { [command.preferences.provider]: command.preferences.modelOptions }, type: "chat.send", chatId: chat.id, content: command.content })
+            await agent.send({ ...command.preferences, modelOptions: { [command.preferences.provider]: command.preferences.modelOptions }, type: "chat.send", chatId: chat.id, content: command.content }, { schedules: ws.data.canManageSchedules === true })
           } catch (error) {
             result = { chatId: chat.id, error: error instanceof Error ? error.message : "Unable to start the agent.", promptSaved: await store.hasMessages(chat.id) }
           }
@@ -1499,7 +1506,7 @@ export function createWsRouter({
           break
         }
         case "chat.send": {
-          const result = await agent.send(command)
+          const result = await agent.send(command, { schedules: ws.data.canManageSchedules === true })
           const profile = command.clientTraceId && result.chatId
             ? agent.getActiveTurnProfile(result.chatId)
             : null
@@ -1571,7 +1578,7 @@ export function createWsRouter({
           return
         }
         case "message.enqueue": {
-          const result = await agent.enqueue(command)
+          const result = await agent.enqueue(command, { schedules: ws.data.canManageSchedules === true })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           await broadcastChatAndSidebar(command.chatId)
           return
@@ -1682,10 +1689,13 @@ export function createWsRouter({
           if (!view) { send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Invalid sidebar view" }); return }
           parsed.topic = { ...parsed.topic, view }
         }
+        if (parsed.topic?.type === "project-schedules" && !ws.data.canManageSchedules) {
+          sendEnvelope(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "OWNER_ONLY" }); return
+        }
         if (ws.data.workspaceId && (!parsed.topic || !workspaceTopicAllowed(parsed.topic, ws.data.workspaceId, store.state, terminals))) {
           send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "WORKSPACE_ONLY" }); return
         }
-        if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "claude-model-policy", "chat", "terminal"].includes(parsed.topic.type)) {
+        if (!parsed.topic || !["sidebar", "local-projects", "keybindings", "app-settings", "codex-model-policy", "claude-model-policy", "project-schedules", "chat", "terminal"].includes(parsed.topic.type)) {
           send(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: "Unknown subscription topic" })
           return
         }
@@ -1728,6 +1738,7 @@ export function createWsRouter({
           if (prior) { sendEnvelope(ws, prior); return }
         } catch (error) { sendEnvelope(ws, { v: PROTOCOL_VERSION, type: "error", id: parsed.id, message: error instanceof Error ? error.message : "Operation unavailable" }); return }
       }
+      if (!ws.data.canManageSchedules && "chatId" in parsed.command && typeof parsed.command.chatId === "string" && ["chat.send", "message.steer", "chat.respondTool", "chat.answerAsyncQuestion"].includes(parsed.command.type)) agent.restrictScheduleAccess(parsed.command.chatId)
       await handleCommand(ws, parsed)
     },
     dispose() {

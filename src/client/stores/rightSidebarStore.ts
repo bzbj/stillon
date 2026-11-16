@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware"
 import { privateBrowserStorage } from "../lib/remoteSession"
 
 export interface ProjectRightSidebarVisibilityState {
-  rightPanel: "hidden" | "browser"
+  rightPanel: "hidden" | "browser" | "schedules"
 }
 
 export interface ProjectBrowserPanelState {
@@ -92,7 +92,7 @@ export function migrateRightSidebarStore(persistedState: unknown, version = 0) {
     Object.entries(state.projects ?? {}).map(([projectId, layout]) => [
       projectId,
       {
-        rightPanel: layout.rightPanel === "browser" ? "browser" : "hidden",
+        rightPanel: layout.rightPanel === "browser" ? "browser" : layout.rightPanel === "schedules" ? "schedules" : "hidden",
       },
     ])
   )

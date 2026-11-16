@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../../stores/workspaceSharingStore"
 import { FileDropOverlay } from "../../components/chat-ui/FileDropOverlay"
 import { usePageFileDrop } from "../../lib/usePageFileDrop"
 import { openLocalServiceInBrowser } from "../../lib/localServiceBrowser"
@@ -41,6 +42,7 @@ import {
   EMPTY_STATE_TYPING_INTERVAL_MS,
 } from "./utils"
 
+const SchedulesPanel = lazy(() => import("../../components/chat-ui/SchedulesPanel").then(({ SchedulesPanel }) => ({ default: SchedulesPanel })))
 const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
 const ChatInputDock = lazy(() => import("./ChatInputDock").then(({ ChatInputDock }) => ({ default: ChatInputDock })))
 const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").then(({ ChatTranscriptViewport }) => ({ default: ChatTranscriptViewport })))
@@ -471,6 +473,8 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
+  const sharingView = useWorkspaceSharingStore(s => s.view)
+  const showSchedules = !isSharedWorkspaceBrowser() && sharingView?.mode !== "guest"
   // Presentation can classify the entry without probing file capabilities.
   // Explicit actions still check capabilities and server authorization.
   const canOpenHostFiles = canOpenTranscriptFilesOnHost(window.location.hostname)
@@ -881,6 +885,7 @@ export function ChatPage() {
           localPath={state.navbarLocalPath}
           rightPanel={activeRightPanel}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
+          onToggleSchedules={projectId && showSchedules ? () => toggleRightPanel(projectId, "schedules") : undefined}
         />
         {!state.runtime ? <p role="status" className="px-5 py-3 text-sm text-muted-foreground">{state.connectionStatus === "connected" ? "Loading conversation history…" : "Connecting to your computer…"}</p> : null}
         <StartupPart name="route" ready={state.composerPreferencesReady} />
@@ -985,7 +990,13 @@ export function ChatPage() {
     chatCard
   )
 
-  const rightPanelContent = activeRightPanel === "browser" && projectId
+  const rightPanelContent = activeRightPanel === "schedules" && projectId && showSchedules
+    ? <Suspense fallback={<PanelLoadingFallback label="Loading schedules…" />}><SchedulesPanel
+        projectId={projectId} projectTitle={state.sidebarData.projectGroups.find(group => group.groupKey === projectId)?.title ?? "Workspace"}
+        socket={state.socket} status={state.connectionStatus} onClose={handleCloseRightSidebar}
+        onPrefill={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); chatInputRef.current?.prefillDraft(text) }}
+      /></Suspense>
+    : activeRightPanel === "browser" && projectId
     ? (
       <Suspense fallback={<PanelLoadingFallback label="Loading browser…" />}>
         <BrowserPanel
