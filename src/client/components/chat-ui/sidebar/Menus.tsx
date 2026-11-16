@@ -63,7 +63,7 @@ export function ProjectSectionMenu({
         <ContextMenuSeparator className="mx-2 bg-border/50" />
         {quickItems}
       </> : <>
-        {canManageWorkspace && onOpenSchedules ? <ContextMenuItem onSelect={onOpenSchedules}><Clock3 className="size-3.5" />定时任务</ContextMenuItem> : null}
+        {canManageWorkspace && onOpenSchedules ? <ContextMenuItem onSelect={onOpenSchedules}><Clock3 className="size-3.5" />Schedules</ContextMenuItem> : null}
         {onManageCommands ? narrow ? (
           <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(true) }}><Sparkles className="size-3.5" />Preset Prompts<ChevronRight className="ml-auto size-3.5" /></ContextMenuItem>
         ) : (

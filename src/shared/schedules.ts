@@ -25,8 +25,8 @@ export interface ProjectSchedulesSnapshot {
 }
 
 export function scheduleTriggerLabel(trigger: ScheduleTrigger) {
-  if (trigger.kind === "once") return new Date(trigger.at).toLocaleString()
+  if (trigger.kind === "once") return new Date(trigger.at).toLocaleString("en", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
   const days = [...new Set(trigger.weekdays)].sort()
-  const label = days.length === 7 ? "每天" : days.join() === "1,2,3,4,5" ? "工作日" : days.map(day => ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][day]).join("、")
+  const label = days.length === 7 ? "Every day" : days.join() === "1,2,3,4,5" ? "Weekdays" : days.map(day => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")
   return `${label} ${trigger.timeOfDay} · ${trigger.timeZone}`
 }

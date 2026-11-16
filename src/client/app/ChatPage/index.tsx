@@ -996,7 +996,7 @@ export function ChatPage() {
     ? <Suspense fallback={<PanelLoadingFallback label="Loading schedules…" />}><SchedulesPanel
         projectId={projectId} projectTitle={state.sidebarData.projectGroups.find(group => group.groupKey === projectId)?.title ?? "Workspace"}
         socket={state.socket} status={state.connectionStatus} onClose={handleCloseRightSidebar}
-        currentChatTitle={state.runtime?.title ?? "当前对话"}
+        currentChatTitle={state.runtime?.title ?? "Current conversation"}
         onNewConversation={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); return state.handleCreateScheduledChat(projectId, text) }}
         onPrefill={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); chatInputRef.current?.prefillDraft(text) }}
       /></Suspense>

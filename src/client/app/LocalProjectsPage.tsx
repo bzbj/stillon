@@ -49,7 +49,7 @@ export function LocalProjectsPage() {
         onResolveLocalPath={state.handleResolveLocalPath}
       />
     </div>
-    {open && project && <aside aria-label="Workspace 定时任务" className="absolute inset-0 z-30 bg-background md:static md:w-[400px] md:shrink-0"><Suspense fallback={<p role="status" className="p-4">Loading schedules…</p>}><SchedulesPanel
+    {open && project && <aside aria-label="Workspace schedules" className="absolute inset-0 z-30 bg-background md:static md:w-[400px] md:shrink-0"><Suspense fallback={<p role="status" className="p-4">Loading schedules…</p>}><SchedulesPanel
       projectId={project.groupKey} projectTitle={project.title} socket={state.socket} status={state.connectionStatus} onClose={close}
       onNewConversation={text => state.handleCreateScheduledChat(project.groupKey, text)}
       onEditConversation={state.handleOpenScheduleConversation}
