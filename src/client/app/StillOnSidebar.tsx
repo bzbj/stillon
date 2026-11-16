@@ -655,7 +655,7 @@ function StillOnSidebarImpl({
               renderChatRow={renderChatRow}
               onShowArchivedProject={key => { setArchivedLimit(SIDEBAR_MORE_CHAT_LIMIT); setArchivedProjectId(key) }}
               onRunQuickCommand={onRunQuickCommand}
-              onManageWorkspaceCommands={!guest && onWriteQuickCommands ? setCommandsProjectId : undefined}
+              onManageWorkspaceCommands={onWriteQuickCommands ? setCommandsProjectId : undefined}
               onNewLocalChat={(localPath) => {
                 const projectId = projectIdByPath.get(localPath)
                 if (projectId) {

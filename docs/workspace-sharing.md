@@ -22,6 +22,13 @@ avatar at its lower left, preserving the existing activity indicators. Sharing
 ends when all invitations/access are removed; conversations and files remain.
 Drafts remain private to each browser until sent.
 
+The workspace menu includes **Preset Prompts** for invited people too. They can
+run global and workspace prompts in a new conversation and use **Manage Workspace
+Prompts…** to add, edit, reorder or remove prompts for that shared workspace.
+Workspace prompt changes are shared with the owner and other participants.
+Global prompts and prompts belonging to other workspaces cannot be changed by
+invited people.
+
 Sharing badges use a five-minute display cache. Only visible pages refresh it,
 with a small scheduling jitter; returning to a page reuses fresh metadata.
 The host coalesces readers across local and Connect pages, and failed automatic
