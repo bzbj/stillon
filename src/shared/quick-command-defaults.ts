@@ -161,4 +161,42 @@ Use the user's established language preference or the workspace's usual language
 
 Save a short, dated record of actual changes, supporting evidence, and pending confirmations in .agent/, using an unused filename for a new record. Update continuation state and relevant indexes. Finish with a concise account of navigation and record improvements, knowledge or method changes, human-file operations actually completed under approval, and decisions or work still pending. If a plan awaits confirmation, show it clearly in chat and do not describe it as completed.`,
   },
+  {
+    id: "explain-workspace",
+    name: "Explain Workspace",
+    description: "Explore this workspace's purpose, annotated directory tree, and source dependencies in HTML.",
+    prompt: `Explain this workspace to a person who needs to understand what it does, where its files belong, where to find results, and what those results depend on. Produce a standalone HTML guide that opens locally without a server or external assets.
+
+${WORKSPACE_ENTRY_GUIDANCE}
+
+## Inspect the actual workspace
+
+Read the root instructions, current indexes, relevant project READMEs, recent status and migration records, and source or output inventories. Start with a shallow directory listing, including meaningful hidden folders and symbolic links. Inspect selected scripts and configuration references to establish important data flows. Exclude dependency packages, virtual environments, build products, and bulk historical runs from recursive scans; do not recursively follow links outside the workspace.
+
+Describe the files and responsibilities that actually exist here. Use real directory names, concrete tasks, and actual result locations. Do not substitute generic project advice, placeholder trees, or statements about how projects are usually organized. Distinguish current projects from historical copies, migrated tasks, and independent repositories. Use the available explain-workspace or workspace-io-map skill when it helps; the guide must remain possible without either skill installed.
+
+## Explain purpose and directory structure
+
+Open with the workspace's actual purpose, responsibilities, and useful outputs. Briefly describe its functional groupings, then show its real directory structure as annotated trees. Put a short, concrete explanation after each path on the same line, introduced by #. Include the main top-level directories and important root files; expand second-level directories where they explain responsibility or navigation. Split a long tree into blocks labeled with their actual parent paths. Functional groupings are explanatory categories, not invented directory levels. Do not repeat the same inventory in separate directory tables.
+
+Explain where human-facing materials and Agent support records actually live. Identify the root entry's real filename and the roles of existing support directories. If .agent/ is absent, say so; do not create it merely to make the described structure match a template. Do not describe upload caches as Agent memory or reflection records without evidence. If a setup preset is available, use it to distinguish the intended convention from the observed layout, not to claim the convention has already been applied.
+
+## Trace internal and external dependencies
+
+Use this workspace root as the boundary. Show concrete upstream-to-downstream relationships among local source files, processing scripts, reports, applications, and generated pages. Distinguish data flow, runtime dependencies, organizational rules, and historical code origins. A copied or split repository is not necessarily a live runtime dependency.
+
+Include external websites and services, other local workspaces, databases outside this root, shared runtimes, repositories, and deployment destinations where the evidence supports them. For each important relationship, identify the consuming project, what enters or leaves, the saved result or destination, its current or historical status, and a link to the supporting source record. Internal snapshots still have external origins. Reading an existing report and refreshing its underlying data can have different dependencies. Do not equate an output file with a published or sent result, or a recorded URL with verified access.
+
+Reuse maintained source indexes and check key relationships against current scripts or instructions. Include a compact dependency table or diagram where it makes the relationships easier to follow. End with concrete links to the workspace's useful reports, workbooks, pages, or result indexes.
+
+## Deliver the guide
+
+Use the user's established language preference or the workspace's usual language for the guide and reply; preserve actual filenames and identifiers. Keep prose specific and concise. Remove generic examples, repeated explanations, defensive filler, and unsolicited reorganization proposals.
+
+Save the HTML in the location permitted by this workspace's instructions. If candidate outputs belong in .agent/, keep it there for review and follow existing publication rules; otherwise use the established documentation or output location. Do not create a competing revision or overwrite human-authored material. Markdown may be a working source, but it is not the primary deliverable.
+
+Provide clear section navigation, readable annotated trees, and a narrow-screen layout with scrollable long paths. Check the rendered HTML when a browser is available, local links, internal anchors, and any scrolling or expansion controls. Report a material validation gap precisely if it remains.
+
+This task authorizes inspection and creation of the guide, not moving business files, changing workspace instructions, refreshing business data, logging into external systems, sending messages, or deploying anything. Read external references in place and avoid copying source files or exposing credentials. Finish with a direct local link to the HTML and a brief account of what it covers.`,
+  },
 ]
