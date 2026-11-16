@@ -62,6 +62,9 @@ import { randomToken } from "./connect/crypto"
 import { createConnector, type ConnectorOptions } from "./connect/connector"
 import { validateIngress, remoteOperationOwner } from "./connect/ingress"
 import { handleConnectLocal } from "./connect/local-api"
+import { ScheduleService } from "./schedule-service"
+import { ScheduleStore } from "./schedule-store"
+import { ScheduleToolBridge } from "./schedule-tools"
 import { RemoteOperations } from "./connect/operations"
 import { stopConnectListener } from "./connect/stop-server"
 
@@ -272,7 +275,11 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       port: server.port!,
     }),
   })
+  let scheduleBridge: ScheduleToolBridge | undefined
+  let schedules: ScheduleService | undefined
   const agent = new AgentCoordinator({
+    getScheduleBridge: chatId => scheduleBridge?.forChat(chatId),
+    onScheduleRunState: (id, state) => schedules?.setState(id, state),
     store,
     addons,
     getEnvironment: getAgentEnvironment,
@@ -295,6 +302,14 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       router.scheduleBroadcast()
     },
   })
+  try {
+    schedules = new ScheduleService(new ScheduleStore(store.dataDir), { events: store, start: (schedule, run) => agent.tryStartScheduledTurn(schedule, run), changed: () => router?.scheduleBroadcast() })
+    scheduleBridge = new ScheduleToolBridge(schedules, chatId => agent.getScheduleContext(chatId))
+  } catch {
+    schedules?.close()
+    schedules = undefined
+    console.warn("[schedules] Scheduler unavailable; conversations remain available. Check schedules.sqlite compatibility and permissions.")
+  }
   store.setStatisticsListener(chatId => router.scheduleChatStateBroadcast(chatId))
   const disposeStatisticsSettings = appSettings.onChange(() => store.syncStatisticsSettings())
   const localHtmlPreviews = createLocalHtmlPreviewManager()
@@ -352,6 +367,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       read: async () => { await cliEnvironment.refresh(); return readSubscriptionUsageSnapshot({ environment: getAgentEnvironment() }) },
     },
     sourceUpgradePrompt,
+    schedules,
     remoteOperations,
     managedUpdate: options.managedUpdate ?? createManagedUpdateApi(path.resolve(import.meta.dir, "..", "..")),
     llmProvider: {
@@ -503,12 +519,38 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
               data: {
                 chunkTransport: url.searchParams.get(SOCKET_TRANSPORT_QUERY) === "1",
                 canOpenHostFiles: ingress.kind === "local",
+                canManageSchedules: ingress.kind === "local" || (ingress.kind === "remote" && !ingress.workspaceId),
                 subscriptions: new Map(),
                 snapshotSignatures: new Map(),
                 ...(ingress.kind === "remote" ? { remoteOwnerId: remoteOperationOwner(ingress), workspaceId: ingress.workspaceId } : {}),
               },
             })
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
+          }
+
+          const scheduleDelete = /^\/api\/projects\/([^/]+)\/schedules\/([^/]+)$/.exec(url.pathname)
+          if (scheduleDelete) {
+            if (!(ingress.kind === "local" || (ingress.kind === "remote" && !ingress.workspaceId))) return Response.json({ error: "OWNER_ONLY" }, { status: 403 })
+            if (req.method !== "DELETE") return new Response(null, { status: 405, headers: { Allow: "DELETE" } })
+            if (!req.headers.has("origin") || (auth && ingress.kind !== "remote" && !auth.validateOrigin(req))) return new Response("Forbidden", { status: 403 })
+            if (!schedules) return Response.json({ error: "Scheduler unavailable" }, { status: 503 })
+            try {
+              return Response.json(schedules.deleteFromWorkspace(decodeURIComponent(scheduleDelete[1]!), decodeURIComponent(scheduleDelete[2]!), await req.json()), { headers: { "Cache-Control": "no-store" } })
+            } catch (error) {
+              const message = error instanceof Error ? error.message : ""
+              if (message.includes("Schedule changed")) return Response.json({ error: "任务已变化，请刷新后再删除。" }, { status: 409 })
+              if (message.includes("not found")) return Response.json({ error: "任务不存在，请刷新列表。" }, { status: 404 })
+              return Response.json({ error: "删除失败，请刷新后重试。" }, { status: 400 })
+            }
+          }
+
+          const scheduleList = /^\/api\/projects\/([^/]+)\/schedules$/.exec(url.pathname)
+          if (scheduleList) {
+            if (!(ingress.kind === "local" || (ingress.kind === "remote" && !ingress.workspaceId))) return Response.json({ error: "OWNER_ONLY" }, { status: 403 })
+            if (req.method !== "GET") return new Response(null, { status: 405 })
+            if (!schedules) return Response.json({ error: "Scheduler unavailable" }, { status: 503 })
+            try { return Response.json(schedules.snapshot(decodeURIComponent(scheduleList[1]!)), { headers: { "Cache-Control": "no-store" } }) }
+            catch { return Response.json({ error: "Schedules unavailable for this workspace" }, { status: 404 }) }
           }
 
           if (url.pathname === "/api/sidebar-view") {
@@ -762,6 +804,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
   // Binding the server is the startup critical path. Provider history is
   // discovered incrementally afterwards, while saved sidebar projects are
   // already available to the first connected client.
+  schedules?.start()
   const backgroundDiscoveryTimer = setTimeout(() => {
     void refreshDiscovery()
   }, BACKGROUND_PROJECT_DISCOVERY_DELAY_MS)
@@ -772,6 +815,7 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
 
     shutdownPromise = (async () => {
       shuttingDown = true
+      await schedules?.stop()
       clearTimeout(backgroundDiscoveryTimer)
       clearInterval(staleEmptyChatPruneInterval)
       discoveryAbortController.abort()
@@ -793,6 +837,8 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
       await discoveryRefresh
       // Stop every run and wait for its processes, so none outlives the service.
       await agent.shutdown()
+      await scheduleBridge?.close()
+      schedules?.close()
       router.dispose()
       remoteOperations.close()
       localHtmlPreviews.dispose()

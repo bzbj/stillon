@@ -1,4 +1,4 @@
-import { Globe, Menu, MessageCirclePlus } from "lucide-react"
+import { Clock3, Globe, Menu, MessageCirclePlus } from "lucide-react"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
 import { cn } from "../../lib/utils"
@@ -8,7 +8,8 @@ interface Props {
   onOpenSidebar: () => void
   onNewChat: () => void
   localPath?: string
-  rightPanel?: "hidden" | "browser"
+  rightPanel?: "hidden" | "browser" | "schedules"
+  onToggleSchedules?: () => void
   onToggleBrowserPanel?: () => void
 }
 
@@ -19,6 +20,7 @@ export function ChatNavbar({
   localPath,
   rightPanel = "hidden",
   onToggleBrowserPanel,
+  onToggleSchedules,
 }: Props) {
   const browserPanelVisible = rightPanel === "browser"
 
@@ -54,6 +56,7 @@ export function ChatNavbar({
 
         <div className="flex-1 min-w-0" />
 
+        {localPath && onToggleSchedules ? <Button variant="ghost" size="none" onClick={onToggleSchedules} title="Schedules" aria-label="Schedules" aria-pressed={rightPanel === "schedules"} className="h-9 shrink-0 border-0 px-1.5 hover:!bg-transparent"><Clock3 className="h-4" /></Button> : null}
         {localPath && onToggleBrowserPanel ? (
           <div className="flex items-center flex-shrink-0 rounded-[9px] h-[30px]">
             <Button

@@ -1,3 +1,4 @@
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../../stores/workspaceSharingStore"
 import { FileDropOverlay } from "../../components/chat-ui/FileDropOverlay"
 import { usePageFileDrop } from "../../lib/usePageFileDrop"
 import { openLocalServiceInBrowser } from "../../lib/localServiceBrowser"
@@ -10,7 +11,7 @@ import { AsyncQuestionDeliveryContext } from "../asyncQuestionDeliveryContext"
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import type { GroupImperativeHandle } from "react-resizable-panels"
-import { useOutletContext } from "react-router-dom"
+import { useLocation, useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { Card, CardContent } from "../../components/ui/card"
@@ -41,6 +42,7 @@ import {
   EMPTY_STATE_TYPING_INTERVAL_MS,
 } from "./utils"
 
+const SchedulesPanel = lazy(() => import("../../components/chat-ui/SchedulesPanel").then(({ SchedulesPanel }) => ({ default: SchedulesPanel })))
 const BrowserPanel = lazy(() => import("../../components/chat-ui/BrowserPanel").then(({ BrowserPanel }) => ({ default: BrowserPanel })))
 const ChatInputDock = lazy(() => import("./ChatInputDock").then(({ ChatInputDock }) => ({ default: ChatInputDock })))
 const ChatTranscriptViewport = lazy(() => import("./ChatTranscriptViewport").then(({ ChatTranscriptViewport }) => ({ default: ChatTranscriptViewport })))
@@ -458,6 +460,7 @@ function ChatWorkspace({
 }
 
 export function ChatPage() {
+  const location = useLocation()
   const state = useOutletContext<StillOnState>()
   const layoutRootRef = useRef<HTMLDivElement>(null)
   const transcriptListRef = useRef<LegendListRef | null>(null)
@@ -471,6 +474,8 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
+  const sharingView = useWorkspaceSharingStore(s => s.view)
+  const showSchedules = !isSharedWorkspaceBrowser() && sharingView?.mode !== "guest"
   // Presentation can classify the entry without probing file capabilities.
   // Explicit actions still check capabilities and server authorization.
   const canOpenHostFiles = canOpenTranscriptFilesOnHost(window.location.hostname)
@@ -881,6 +886,7 @@ export function ChatPage() {
           localPath={state.navbarLocalPath}
           rightPanel={activeRightPanel}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
+          onToggleSchedules={projectId && showSchedules ? () => toggleRightPanel(projectId, "schedules") : undefined}
         />
         {!state.runtime ? <p role="status" className="px-5 py-3 text-sm text-muted-foreground">{state.connectionStatus === "connected" ? "Loading conversation history…" : "Connecting to your computer…"}</p> : null}
         <StartupPart name="route" ready={state.composerPreferencesReady} />
@@ -941,6 +947,7 @@ export function ChatPage() {
           projectId={projectId}
           activeProvider={state.runtime?.provider ?? null}
           codexTransport={state.runtime?.codexTransport ?? state.appSettings?.codexTransport ?? "app-server"}
+          focusWhenReady={location.state?.focusScheduleDraft === true}
           preferencesReady={state.composerPreferencesReady}
           availableProviders={state.availableProviders}
           onSubmit={handleChatSubmit}
@@ -985,7 +992,15 @@ export function ChatPage() {
     chatCard
   )
 
-  const rightPanelContent = activeRightPanel === "browser" && projectId
+  const rightPanelContent = activeRightPanel === "schedules" && projectId && showSchedules
+    ? <Suspense fallback={<PanelLoadingFallback label="Loading schedules…" />}><SchedulesPanel
+        projectId={projectId} projectTitle={state.sidebarData.projectGroups.find(group => group.groupKey === projectId)?.title ?? "Workspace"}
+        socket={state.socket} status={state.connectionStatus} onClose={handleCloseRightSidebar}
+        currentChatTitle={state.runtime?.title ?? "当前对话"}
+        onNewConversation={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); return state.handleCreateScheduledChat(projectId, text) }}
+        onPrefill={text => { if (isMobileRightSidebarOverlay) handleCloseRightSidebar(); chatInputRef.current?.prefillDraft(text) }}
+      /></Suspense>
+    : activeRightPanel === "browser" && projectId
     ? (
       <Suspense fallback={<PanelLoadingFallback label="Loading browser…" />}>
         <BrowserPanel

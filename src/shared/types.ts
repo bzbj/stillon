@@ -162,6 +162,8 @@ export type StandaloneTranscriptExportCommandResult =
   | StandaloneTranscriptExportFailureResult
 
 export interface QueuedChatMessage {
+  /** Server-authored grant; never read from a browser command. */
+  scheduleAccess?: boolean
   id: string
   content: string
   attachments: ChatAttachment[]
@@ -1057,6 +1059,7 @@ export interface ToolResultEntry extends TranscriptEntryBase {
 }
 
 export interface UserPromptEntry extends TranscriptEntryBase {
+  scheduleSource?: import("./schedules").ScheduleSource
   kind: "user_prompt"
   content: string
   attachments?: ChatAttachment[]
@@ -1277,7 +1280,7 @@ export type HydratedToolCall =
   | HydratedUnknownToolCall
 
 export type HydratedTranscriptMessage =
-  | ({ kind: "user_prompt"; content: string; attachments?: ChatAttachment[]; steered?: boolean; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "user_prompt"; scheduleSource?: import("./schedules").ScheduleSource; content: string; attachments?: ChatAttachment[]; steered?: boolean; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "system_init"; model: string; tools: string[]; agents: string[]; slashCommands: string[]; mcpServers: McpServerInfo[]; provider: AgentProvider; id: string; messageId?: string; timestamp: string; hidden?: boolean; debugRaw?: string })
   | ({ kind: "account_info"; accountInfo: AccountInfo; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "assistant_text"; text: string; asyncQuestion?: AsyncQuestionContext; id: string; messageId?: string; timestamp: string; hidden?: boolean })

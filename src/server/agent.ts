@@ -1,3 +1,6 @@
+import type { Schedule, ScheduleRun, ScheduleRunState } from "../shared/schedules"
+import type { ScheduleToolContext } from "./schedule-service"
+import { scheduleEnvironment, scheduleInstructions, type ScheduleBridgeConfig } from "./schedule-tools"
 import { ClaudeStatistics } from "./claude-statistics"
 import { query, type CanUseTool, type EffortLevel, type PermissionResult, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
 import type {
@@ -80,6 +83,8 @@ interface PendingToolRequest {
 }
 
 interface ActiveTurn {
+  scheduleRunId?: string
+  scheduleAccess?: boolean
   chatId: string
   provider: AgentProvider
   turn: HarnessTurn
@@ -137,6 +142,7 @@ interface CodexManager {
     sessionToken: string | null
     pendingForkSessionToken?: string | null
     permissionMode?: CodexPermissionMode
+    applicationEnvironment?: NodeJS.ProcessEnv
   }): Promise<string | undefined>
   startTurn(args: {
     chatId: string
@@ -171,6 +177,8 @@ interface CodexManager {
 }
 
 interface AgentCoordinatorArgs {
+  getScheduleBridge?: (chatId: string) => ScheduleBridgeConfig | undefined
+  onScheduleRunState?: (id: string, state: ScheduleRunState) => void
   store: EventStore
   addons?: ProviderAddons
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
@@ -226,6 +234,7 @@ The user would like to inform you of something while you continue to work. Ackno
 </system-message>`
 
 interface SendMessageOptions {
+  scheduleAccess?: boolean
   provider?: AgentProvider
   model?: string
   modelOptions?: ModelOptions
@@ -792,6 +801,7 @@ export async function startClaudeSession(args: {
       allowDangerouslySkipPermissions: args.permissionMode === "bypassPermissions",
       canUseTool,
       tools: [...CLAUDE_TOOLSET],
+      ...(args.environment.STILLON_SCHEDULE_URL ? { mcpServers: { stillon_schedules: { type: "http" as const, url: args.environment.STILLON_SCHEDULE_URL, headers: { Authorization: `Bearer ${args.environment.STILLON_SCHEDULE_TOKEN}` } } } } : {}),
       settingSources: ["user", "project", "local"],
       pathToClaudeCodeExecutable: args.claudeExecutable,
       env: inheritClaudeAgentEnvironment(args.environment),
@@ -878,6 +888,8 @@ interface ChatRunControl {
 }
 
 interface StartTurnArgs {
+  scheduleAccess?: boolean
+  scheduledRun?: ScheduleRun
   chatId: string
   provider: AgentProvider
   content: string
@@ -940,6 +952,9 @@ function isConfirmedTurnSteerRejection(message: string) {
 }
 
 export class AgentCoordinator {
+  private readonly getScheduleBridge?: AgentCoordinatorArgs["getScheduleBridge"]
+  private readonly onScheduleRunState?: AgentCoordinatorArgs["onScheduleRunState"]
+  private readonly scheduleAccess = new Map<string, { allowed: boolean; automated: boolean }>()
   private readonly addons?: ProviderAddons
   private readonly store: EventStore
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
@@ -961,6 +976,8 @@ export class AgentCoordinator {
   private readonly asyncQuestionLocks = new Map<string, Promise<void>>()
 
   constructor(args: AgentCoordinatorArgs) {
+    this.getScheduleBridge = args.getScheduleBridge
+    this.onScheduleRunState = args.onScheduleRunState
     this.store = args.store
     this.addons = args.addons
     this.onStateChange = args.onStateChange
@@ -974,6 +991,32 @@ export class AgentCoordinator {
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
     this.stopConfirmTimeoutMs = args.stopConfirmTimeoutMs ?? DEFAULT_STOP_CONFIRM_TIMEOUT_MS
+  }
+
+  getScheduleContext(chatId: string): ScheduleToolContext | null {
+    const grant = this.scheduleAccess.get(chatId)
+    const chat = this.store.getChat(chatId)
+    if (!grant?.allowed || !chat || !this.isChatBusy(chatId)) return null
+    return { chatId, projectId: chat.projectId, planning: this.activeTurns.get(chatId)?.planMode ?? chat.planMode, automated: grant.automated }
+  }
+
+  restrictScheduleAccess(chatId: string) { this.scheduleAccess.delete(chatId) }
+
+  async tryStartScheduledTurn(schedule: Schedule, run: ScheduleRun): Promise<{ status: "started"; agentRunId: string } | { status: "busy" }> {
+    const control = this.control(schedule.chatId)
+    if (this.cliMaintenance || this.isChatBusy(schedule.chatId) || control.barrier || control.steering || this.drainingStreams.has(schedule.chatId) || this.store.getQueuedMessages(schedule.chatId).length) return { status: "busy" }
+    const chat = this.store.requireChat(schedule.chatId)
+    if (chat.projectId !== schedule.projectId || chat.provider !== schedule.execution.provider) throw new Error("Target conversation or provider changed; update the schedule")
+    const settings = this.getProviderSettings(schedule.execution.provider, { ...schedule.execution, modelOptions: { [schedule.execution.provider]: schedule.execution.modelOptions } })
+    try {
+      await this.startTurnForChat({ chatId: chat.id, provider: schedule.execution.provider, content: schedule.prompt, attachments: [], model: settings.model, effort: settings.effort,
+        serviceTier: settings.serviceTier, planMode: schedule.execution.planMode, permissionMode: settings.permissionMode, preferences: settings.preferences,
+        appendUserPrompt: true, expectedGeneration: control.generation, scheduledRun: run })
+    } catch (error) {
+      if (error instanceof ChatBusyError || error instanceof StartSupersededError) return { status: "busy" }
+      throw error
+    }
+    return { status: "started", agentRunId: run.id }
   }
 
   setBackgroundErrorReporter(report: ((message: string) => void) | null) {
@@ -1016,6 +1059,8 @@ export class AgentCoordinator {
   }
 
   private emitStateChange(chatId?: string, options?: { immediate?: boolean }) {
+    const active = chatId ? this.activeTurns.get(chatId) : undefined
+    if (active?.scheduleRunId && !active.cancelRequested) this.onScheduleRunState?.(active.scheduleRunId, active.status === "waiting_for_user" ? "waiting_for_user" : "running")
     this.onStateChange(chatId, options)
   }
 
@@ -1157,6 +1202,7 @@ export class AgentCoordinator {
       permissionMode: options?.permissionMode,
       asyncQuestionSubmissionId: options?.asyncQuestionSubmissionId,
       asyncQuestionKey: options?.asyncQuestionKey,
+      scheduleAccess: options?.scheduleAccess,
     })
     this.emitStateChange(chatId)
     return queued
@@ -1192,6 +1238,7 @@ export class AgentCoordinator {
         appendUserPrompt: true,
         steered: options?.steered,
         consumeQueuedMessageId: queuedMessage.id,
+        scheduleAccess: queuedMessage.scheduleAccess,
         expectedGeneration: options?.generation,
       })
     } finally {
@@ -1438,10 +1485,11 @@ export class AgentCoordinator {
     if (args.expectedGeneration !== undefined && control.generation !== args.expectedGeneration) {
       throw new StartSupersededError("A newer stop request replaced this start")
     }
+    if (args.scheduledRun && (control.steering || control.barrier || this.store.getQueuedMessages(args.chatId).length)) throw new ChatBusyError("Conversation is not available for a scheduled turn")
     if (this.isChatBusy(args.chatId)) {
       throw new ChatBusyError("Chat is already running")
     }
-    this.runIds.set(args.chatId, crypto.randomUUID())
+    this.runIds.set(args.chatId, args.scheduledRun?.id ?? crypto.randomUUID())
     let finishLaunch!: () => void
     control.launching = new Promise<void>((resolve) => {
       finishLaunch = resolve
@@ -1496,7 +1544,7 @@ export class AgentCoordinator {
 
     if (args.appendUserPrompt) {
       const userPromptEntry = timestamped(
-        { kind: "user_prompt", content: args.content, attachments: args.attachments, steered: args.steered },
+        { kind: "user_prompt", content: args.content, attachments: args.attachments, steered: args.steered, ...(args.scheduledRun ? { scheduleSource: { kind: "schedule" as const, scheduleId: args.scheduledRun.scheduleId, name: args.scheduledRun.name, runId: args.scheduledRun.id } } : {}) },
         Date.now()
       )
       await this.store.appendMessage(args.chatId, userPromptEntry)
@@ -1514,6 +1562,9 @@ export class AgentCoordinator {
       void this.generateTitleInBackground(args.chatId, args.content, project.localPath, optimisticTitle ?? "New Chat")
     }
 
+    const bridge = this.getScheduleBridge?.(args.chatId)
+    this.scheduleAccess.set(args.chatId, { allowed: args.scheduleAccess === true || Boolean(args.scheduledRun), automated: Boolean(args.scheduledRun) })
+    const content = args.content + (bridge && (args.scheduleAccess || args.scheduledRun) ? scheduleInstructions() : "")
     let previousToolRequest = Promise.resolve()
     const onToolRequest = async (request: HarnessToolRequest): Promise<unknown> => {
       let release!: () => void
@@ -1529,6 +1580,7 @@ export class AgentCoordinator {
         }
 
         active.status = "waiting_for_user"
+        if (active.scheduleRunId) this.onScheduleRunState?.(active.scheduleRunId, "waiting_for_user")
         this.emitStateChange(args.chatId)
 
         return await new Promise<unknown>((resolve) => {
@@ -1547,7 +1599,8 @@ export class AgentCoordinator {
     if (isAddonProvider(args.provider)) {
       if (chat.pendingForkSessionToken) throw new Error("Add-on session forking is not supported. Start a new chat instead.")
       if (!this.addons) throw new Error("Install and enable the provider add-on in Settings → Add-ons.")
-      turn = await this.addons.startTurn(args.provider, { cwd: project.localPath, content: buildPromptText(args.content, args.attachments),
+      turn = await this.addons.startTurn(args.provider, { cwd: project.localPath, content: buildPromptText(content, args.attachments),
+        applicationEnvironment: scheduleEnvironment(bridge),
         model: args.model, effort: args.effort, sessionToken: chat.sessionToken,
         collectStatistics: this.store.shouldCollectStatistics(args.chatId),
         permissionMode: args.permissionMode === "full" ? "full" : "request", onToolRequest })
@@ -1587,6 +1640,7 @@ export class AgentCoordinator {
         sessionToken: chat.sessionToken,
         pendingForkSessionToken: chat.pendingForkSessionToken,
         permissionMode: normalizeCodexPermissionMode(args.permissionMode),
+        applicationEnvironment: scheduleEnvironment(bridge),
       })
       if (chat.pendingForkSessionToken && sessionToken) {
         await this.store.setPendingForkSessionToken(args.chatId, null)
@@ -1599,7 +1653,7 @@ export class AgentCoordinator {
       turn = await this.codexManager.startTurn({
         chatId: args.chatId,
         collectStatistics: () => this.store.shouldCollectStatistics(args.chatId),
-        content: buildPromptText(args.content, args.attachments),
+        content: buildPromptText(content, args.attachments),
         model: args.model,
         effort: args.effort as any,
         serviceTier: args.serviceTier,
@@ -1619,6 +1673,8 @@ export class AgentCoordinator {
     }
 
     const active: ActiveTurn = {
+      scheduleRunId: args.scheduledRun?.id,
+      scheduleAccess: args.scheduleAccess,
       chatId: args.chatId,
       provider: args.provider,
       turn,
@@ -1637,6 +1693,7 @@ export class AgentCoordinator {
       profilingStartedAt: args.profile?.startedAt,
     }
     this.activeTurns.set(args.chatId, active)
+    if (active.scheduleRunId) this.onScheduleRunState?.(active.scheduleRunId, "running")
     logSendToStartingProfile(args.profile, "start_turn.active_turn_registered", {
       chatId: args.chatId,
       status: active.status,
@@ -1683,7 +1740,7 @@ export class AgentCoordinator {
         contentPreview: args.content.slice(0, 160),
         pendingPromptSeqs: [...session.pendingPromptSeqs],
       })
-      await session.session.sendPrompt(buildPromptText(args.content, args.attachments))
+      await session.session.sendPrompt(buildPromptText(content, args.attachments))
       logSendToStartingProfile(args.profile, "start_turn.claude_prompt_sent", {
         chatId: args.chatId,
       })
@@ -1712,7 +1769,7 @@ export class AgentCoordinator {
         this.claudeSessions.delete(args.chatId)
       }
 
-      const environment = this.getEnvironment()
+      const environment = { ...this.getEnvironment(), ...scheduleEnvironment(this.getScheduleBridge?.(args.chatId)) }
       const started = await this.startClaudeSessionFn({
         localPath: args.localPath,
         model: args.model,
@@ -1767,7 +1824,7 @@ export class AgentCoordinator {
     }
   }
 
-  async send(command: Extract<ClientCommand, { type: "chat.send" }>) {
+  async send(command: Extract<ClientCommand, { type: "chat.send" }>, access?: { schedules: boolean }) {
     const requestedProvider = (command.chatId ? this.store.requireChat(command.chatId).provider : null) ?? command.provider
     if (isAddonProvider(requestedProvider)) {
       if (!this.addons) throw new Error("Install and enable the provider add-on in Settings → Add-ons.")
@@ -1805,6 +1862,7 @@ export class AgentCoordinator {
         modelOptions: command.modelOptions,
         effort: command.effort,
         permissionMode: command.permissionMode,
+        scheduleAccess: access?.schedules === true,
       })
       return { chatId: targetChatId, queuedMessageId: queuedMessage.id, queued: true as const }
     }
@@ -1833,6 +1891,7 @@ export class AgentCoordinator {
         appendUserPrompt: true,
         profile,
         expectedGeneration: generation,
+        scheduleAccess: access?.schedules === true,
       })
     } catch (error) {
       // Nothing was started for this message: keep it rather than drop it.
@@ -1855,12 +1914,13 @@ export class AgentCoordinator {
     return { chatId }
   }
 
-  async enqueue(command: Extract<ClientCommand, { type: "message.enqueue" }>) {
+  async enqueue(command: Extract<ClientCommand, { type: "message.enqueue" }>, access?: { schedules: boolean }) {
     const queuedMessage = await this.enqueueMessage(command.chatId, command.content, command.attachments ?? [], {
       provider: command.provider,
       model: command.model,
       modelOptions: command.modelOptions,
       permissionMode: command.permissionMode,
+      scheduleAccess: access?.schedules === true,
     })
     // The browser may have thought the chat was busy when it had just gone
     // idle; don't strand the message behind a queue nobody will drain.
@@ -2079,6 +2139,7 @@ export class AgentCoordinator {
 
         if (event.entry.kind === "result" && active && completedClaudePromptSeq === (active.claudePromptSeq ?? null)) {
           active.hasFinalResult = true
+          if (active.scheduleRunId && !active.cancelRequested) this.onScheduleRunState?.(active.scheduleRunId, event.entry.isError ? "failed" : "succeeded")
           if (event.entry.isError) {
             await this.store.recordTurnFailed(session.chatId, event.entry.result || "Turn failed")
           } else if (!active.cancelRequested) {
@@ -2107,11 +2168,13 @@ export class AgentCoordinator {
           })
         )
         await this.store.recordTurnFailed(session.chatId, message)
+        if (active.scheduleRunId) this.onScheduleRunState?.(active.scheduleRunId, "failed")
       }
     } finally {
       this.claudeSessions.delete(session.chatId)
       const active = this.activeTurns.get(session.chatId)
       if (active?.provider === "claude") {
+        if (active.scheduleRunId && !active.hasFinalResult && !active.cancelRequested) this.onScheduleRunState?.(active.scheduleRunId, "interrupted_unknown")
         if (active.cancelRequested && !active.cancelRecorded) {
           await this.store.recordTurnCancelled(session.chatId)
         }
@@ -2179,6 +2242,7 @@ export class AgentCoordinator {
 
         if (event.entry.kind === "result") {
           active.hasFinalResult = true
+          if (active.scheduleRunId && !active.cancelRequested) this.onScheduleRunState?.(active.scheduleRunId, event.entry.isError ? "failed" : "succeeded")
           if (event.entry.isError) {
             await this.store.recordTurnFailed(active.chatId, event.entry.result || "Turn failed")
           } else if (!active.cancelRequested) {
@@ -2210,8 +2274,10 @@ export class AgentCoordinator {
           })
         )
         await this.store.recordTurnFailed(active.chatId, message)
+        if (active.scheduleRunId) this.onScheduleRunState?.(active.scheduleRunId, "failed")
       }
     } finally {
+      if (active.scheduleRunId && !active.hasFinalResult && !active.cancelRequested) this.onScheduleRunState?.(active.scheduleRunId, "interrupted_unknown")
       if (active.cancelRequested && !active.cancelRecorded) {
         await this.store.recordTurnCancelled(active.chatId)
       }
@@ -2265,6 +2331,7 @@ export class AgentCoordinator {
 
   async cancel(chatId: string, options?: { hideInterrupted?: boolean; handoff?: boolean; runId?: string | null }) {
     if (options?.runId !== undefined && options.runId !== this.getActiveRunId(chatId)) return
+    const scheduledId = this.activeTurns.get(chatId)?.scheduleRunId
     const control = this.control(chatId)
     if (!options?.handoff) {
       control.generation += 1
@@ -2297,6 +2364,7 @@ export class AgentCoordinator {
     }
 
     await this.awaitRunStopped(chatId, { retry: true })
+    if (scheduledId) this.onScheduleRunState?.(scheduledId, "cancelled")
   }
 
   private async stopActiveTurn(chatId: string, active: ActiveTurn, options?: { hideInterrupted?: boolean }) {
@@ -2307,6 +2375,7 @@ export class AgentCoordinator {
     })
 
     active.cancelRequested = true
+    this.scheduleAccess.delete(chatId)
 
     const pendingTool = active.pendingTool
     active.pendingTool = null

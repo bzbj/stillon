@@ -1,3 +1,4 @@
+import { scheduleMcpArgs } from "./schedule-tools"
 import { ProviderStatistics, providerUsage } from "./provider-statistics"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -152,6 +153,7 @@ export const CODEX_APP_SERVER_MAX_IDLE_SESSIONS = 4
 const IDLE_RECLAIM_GRACE_MS = 30 * 1000
 
 export interface StartCodexSessionArgs {
+  applicationEnvironment?: NodeJS.ProcessEnv
   chatId: string
   cwd: string
   model: string
@@ -843,8 +845,8 @@ export class CodexAppServerManager {
     }
     await this.stopping.get(args.chatId)
 
-    const environment = this.getEnvironment()
-    const child = this.spawnProcess(args.cwd, environment, ["app-server", ...codexApiTransportArgs(apiTransport, environment)])
+    const environment = { ...this.getEnvironment(), ...args.applicationEnvironment }
+    const child = this.spawnProcess(args.cwd, environment, ["app-server", ...codexApiTransportArgs(apiTransport, environment), ...scheduleMcpArgs(environment)])
     const context: SessionContext = {
       apiTransport,
       chatId: args.chatId,

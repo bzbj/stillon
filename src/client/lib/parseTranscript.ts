@@ -78,6 +78,7 @@ export function processTranscriptMessages(entries: TranscriptEntry[], cache?: Tr
           content: entry.content,
           attachments: entry.attachments ?? [],
           steered: entry.steered,
+          scheduleSource: entry.scheduleSource,
         })
         break
       case "system_init":

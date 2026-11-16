@@ -2150,3 +2150,29 @@ test("sidebar catalog and expanded subscriptions share the local/remote router w
     expect(await subscribe({ version: 2, groups: [] })).toMatchObject({ type: "error", message: "Invalid sidebar view" })
   } finally { router.handleClose(ws as never); router.dispose() }
 })
+
+test("workspace schedules subscribe and update live for owners, and refuse guests", async () => {
+  let revision = 1
+  const router = createWsRouter({
+    store: { state: createEmptyState() } as never,
+    agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+    terminals: { getSnapshot: () => null, onEvent: () => () => {} } as never,
+    keybindings: { getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT, onChange: () => () => {} } as never,
+    refreshDiscovery: async () => [], getDiscoveredProjects: () => [], machineDisplayName: "Computer",
+    schedules: { snapshot: (projectId: string) => ({ type: "project-schedules", projectId, available: true, schedules: [{ revision }], runs: [] }) } as never,
+  })
+  const owner = new FakeWebSocket(), guest = new FakeWebSocket()
+  Object.assign(owner.data, { canManageSchedules: true })
+  router.handleOpen(owner as never); router.handleOpen(guest as never)
+  try {
+    const subscribe = JSON.stringify({ v: 1, type: "subscribe", id: "plans", topic: { type: "project-schedules", projectId: "project" } })
+    await router.handleMessage(owner as never, subscribe)
+    expect(owner.sent.at(-1)).toHaveProperty("snapshot.data.schedules.0.revision", 1)
+    revision++
+    await router.broadcastSnapshots()
+    expect(owner.sent.at(-1)).toHaveProperty("snapshot.data.schedules.0.revision", 2)
+    await router.handleMessage(guest as never, subscribe)
+    expect(guest.sent.at(-1)).toHaveProperty("message", "OWNER_ONLY")
+    expect(guest.data.subscriptions.size).toBe(0)
+  } finally { router.handleClose(owner as never); router.handleClose(guest as never); router.dispose() }
+})

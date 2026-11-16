@@ -46,6 +46,7 @@ interface Props {
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
+  onOpenSchedules?: (projectId: string) => void
   onManageWorkspaceCommands?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
@@ -70,6 +71,7 @@ interface SortableProjectGroupProps {
   renderChatRow: (chat: SidebarChatRow) => ReactNode
   onShowArchivedProject?: (projectId: string) => void
   onRunQuickCommand?: (projectId: string, command: QuickCommand) => void
+  onOpenSchedules?: (projectId: string) => void
   onManageWorkspaceCommands?: (projectId: string) => void
   onNewLocalChat?: (localPath: string) => void
   onCopyPath?: (localPath: string) => void
@@ -235,6 +237,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
   renderChatRow,
   onShowArchivedProject,
   onRunQuickCommand,
+  onOpenSchedules,
   onManageWorkspaceCommands,
   onNewLocalChat,
   onCopyPath,
@@ -322,6 +325,7 @@ const SortableProjectGroup = memo(function SortableProjectGroup({
           onShowArchived={() => onShowArchivedProject?.(groupKey)}
           workspaceId={groupKey}
           onRunQuickCommand={onRunQuickCommand ? command => onRunQuickCommand(groupKey, command) : undefined}
+          onOpenSchedules={onOpenSchedules ? () => onOpenSchedules(groupKey) : undefined}
           onManageCommands={onManageWorkspaceCommands ? () => onManageWorkspaceCommands(groupKey) : undefined}
           onHide={() => onHideProject?.(groupKey)}
           onCustomizeAvatar={() => setAvatarOpen(true)}
@@ -380,6 +384,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
   renderChatRow,
   onShowArchivedProject,
   onRunQuickCommand,
+  onOpenSchedules,
   onManageWorkspaceCommands,
   onNewLocalChat,
   onCopyPath,
@@ -497,6 +502,7 @@ const LocalProjectsSectionImpl = function LocalProjectsSection({
           renderChatRow={renderChatRow}
           onShowArchivedProject={onShowArchivedProject}
           onRunQuickCommand={onRunQuickCommand}
+          onOpenSchedules={onOpenSchedules}
           onManageWorkspaceCommands={onManageWorkspaceCommands}
           onNewLocalChat={onNewLocalChat}
           onCopyPath={onCopyPath}

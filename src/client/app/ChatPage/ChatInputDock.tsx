@@ -18,6 +18,7 @@ interface ChatInputDockProps {
   projectId: string | null
   activeProvider: "claude" | "codex" | "deepseek" | null
   codexTransport: CodexTransport | null
+  focusWhenReady?: boolean
   preferencesReady: boolean
   availableProviders: StillOnState["availableProviders"]
   onSubmit: StillOnState["handleSend"]
@@ -38,6 +39,7 @@ export const ChatInputDock = memo(function ChatInputDock({
   projectId,
   activeProvider,
   codexTransport,
+  focusWhenReady,
   preferencesReady,
   availableProviders,
   onSubmit,
@@ -65,6 +67,7 @@ export const ChatInputDock = memo(function ChatInputDock({
           projectId={projectId}
           activeProvider={activeProvider}
           codexTransport={codexTransport}
+          focusWhenReady={focusWhenReady}
           preferencesReady={preferencesReady}
           availableProviders={availableProviders}
           previousPrompt={previousPrompt}

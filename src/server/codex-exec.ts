@@ -1,3 +1,4 @@
+import { scheduleMcpArgs } from "./schedule-tools"
 import { providerUsage } from "./provider-statistics"
 import { spawn } from "node:child_process"
 import type { SpawnOptions } from "node:child_process"
@@ -79,6 +80,7 @@ export function codexSpawnOptions(
 }
 
 export interface StartCodexExecSessionArgs {
+  applicationEnvironment?: NodeJS.ProcessEnv
   chatId: string
   cwd: string
   model: string
@@ -127,6 +129,7 @@ interface CodexExecProcess {
 type SpawnCodexExec = (args: string[], cwd: string, environment: NodeJS.ProcessEnv) => CodexExecProcess
 
 interface SessionContext {
+  applicationEnvironment?: NodeJS.ProcessEnv
   chatId: string
   cwd: string
   model: string
@@ -390,6 +393,7 @@ export class CodexExecManager {
   async startSession(args: StartCodexExecSessionArgs): Promise<string | undefined> {
     const existing = this.sessions.get(args.chatId)
     if (existing && !existing.closed && existing.cwd === args.cwd && !args.pendingForkSessionToken) {
+      existing.applicationEnvironment = args.applicationEnvironment
       existing.model = args.model
       existing.serviceTier = args.serviceTier
       existing.sessionToken = args.sessionToken
@@ -403,6 +407,7 @@ export class CodexExecManager {
     }
 
     const context: SessionContext = {
+      applicationEnvironment: args.applicationEnvironment,
       chatId: args.chatId,
       cwd: args.cwd,
       model: args.model,
@@ -444,10 +449,11 @@ export class CodexExecManager {
       queue.push({ type: "session_token", sessionToken: context.sessionToken })
     }
 
-    const environment = this.getEnvironment()
+    const baseEnvironment = this.getEnvironment()
+    const environment = context.applicationEnvironment ? { ...baseEnvironment, ...context.applicationEnvironment } : baseEnvironment
     const commandArgs = this.buildCommandArgs(context, args)
     // Each exec subcommand owns its config flags; outer overrides can be replaced.
-    commandArgs.splice(commandArgs[1] === "resume" || commandArgs[1] === "fork" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment))
+    commandArgs.splice(commandArgs[1] === "resume" || commandArgs[1] === "fork" ? 2 : 1, 0, ...codexApiTransportArgs(this.getApiTransport(), environment), ...scheduleMcpArgs(environment))
     const child = this.spawnProcess(commandArgs, context.cwd, environment)
     const pendingTurn: PendingTurn = {
       collectStatistics: args.collectStatistics ?? (() => false),

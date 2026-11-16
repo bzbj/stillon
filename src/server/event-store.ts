@@ -758,6 +758,16 @@ export class EventStore {
     chat.updatedAt = Math.max(chat.updatedAt, entry.createdAt)
   }
 
+  // Persist before the transcript checkpoint so recovery also repairs a crash
+  // between writing the scheduled prompt and restoring the chat to the sidebar.
+  private async restoreScheduledChat(chatId: string, entry: TranscriptEntry) {
+    const chat = this.requireChat(chatId)
+    if (entry.kind !== "user_prompt" || !entry.scheduleSource || !chat.archivedAt || entry.createdAt < chat.archivedAt) return
+    const event: ChatEvent = { v: STORE_VERSION, type: "chat_unarchived", timestamp: entry.createdAt, chatId }
+    await appendFile(this.chatsLogPath, `${JSON.stringify(event)}\n`, "utf8")
+    this.applyEvent(event)
+  }
+
   private async persistTranscriptMetadata(chatId: string, transcriptMetadataOffset: number) {
     const chat = this.requireChat(chatId)
     const event: ChatEvent = {
@@ -799,6 +809,7 @@ export class EventStore {
             // predate creation and must not replace the fork's own activity.
             if (savedOffset === undefined && chat.pendingForkSessionToken && entry.createdAt < chat.createdAt) continue
             this.applyMessageMetadata(chat.id, entry)
+            await this.restoreScheduledChat(chat.id, entry)
           }
         } finally {
           lines.close()
@@ -1378,6 +1389,7 @@ export class EventStore {
       await appendFile(transcriptPath, payload, "utf8")
       const afterAppendAt = performance.now()
       this.applyMessageMetadata(chatId, entry)
+      await this.restoreScheduledChat(chatId, entry)
       if (entry.kind === "user_prompt") {
         await this.persistTranscriptMetadata(chatId, await this.getTranscriptSize(chatId))
       }
@@ -1407,6 +1419,7 @@ export class EventStore {
       permissionMode: message.permissionMode,
       asyncQuestionSubmissionId: message.asyncQuestionSubmissionId,
       asyncQuestionKey: message.asyncQuestionKey,
+      scheduleAccess: message.scheduleAccess,
     }
     const event: QueuedMessageEvent = {
       v: STORE_VERSION,

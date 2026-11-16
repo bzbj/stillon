@@ -23,7 +23,7 @@ async function shutdown() {
 async function handle(method: string, params: any) {
   if (method === "hello") {
     if (params?.api !== 1) throw new Error("Unsupported host API.")
-    return { api: 1, id: "deepseek", version: "0.2.0-preview.5" }
+    return { api: 1, id: "deepseek", version: "0.2.0-preview.6" }
   }
   if (method === "status") {
     const base = { provider: "deepseek", platform: process.platform, canOpenTerminal: false, canSelectExecutable: Boolean(params?.local) }
@@ -39,7 +39,7 @@ async function handle(method: string, params: any) {
     if (typeof params?.cwd !== "string" || typeof params?.content !== "string" || !["request", "full"].includes(params?.permissionMode)) throw new Error("Invalid turn input.")
     await checkCli()
     if (stopping) throw new Error("Turn was stopped before startup.")
-    turn = startDeepSeekTurn({ ...params as AddonTurnArgs, permissionMode: params.permissionMode, environment: process.env,
+    turn = startDeepSeekTurn({ ...params as AddonTurnArgs, permissionMode: params.permissionMode, environment: { ...process.env, ...(params.applicationEnvironment?.STILLON_SCHEDULE_URL ? { STILLON_SCHEDULE_URL: params.applicationEnvironment.STILLON_SCHEDULE_URL, STILLON_SCHEDULE_TOKEN: params.applicationEnvironment.STILLON_SCHEDULE_TOKEN } : {}) },
       onToolRequest: request => new Promise(resolve => { const id = ++serial; questions.set(id, resolve); send({ question: request, questionId: id }) }) })
     void (async () => {
       try { for await (const event of turn!.stream) send({ event }) }

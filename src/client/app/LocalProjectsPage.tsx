@@ -1,14 +1,24 @@
 import { useOutletContext, useSearchParams } from "react-router-dom"
+import { lazy, Suspense } from "react"
+import { isSharedWorkspaceBrowser, useWorkspaceSharingStore } from "../stores/workspaceSharingStore"
 import { LocalDev } from "../components/LocalDev"
 import type { StillOnState } from "./useStillOnState"
 import { StartupPart } from "./StartupReadiness"
+
+const SchedulesPanel = lazy(() => import("../components/chat-ui/SchedulesPanel").then(module => ({ default: module.SchedulesPanel })))
 
 export function LocalProjectsPage() {
   const state = useOutletContext<StillOnState>()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  const guest = useWorkspaceSharingStore(store => store.view?.mode === "guest") || isSharedWorkspaceBrowser()
+  const project = state.sidebarData.projectGroups.find(group => group.groupKey === searchParams.get("workspace"))
+  const open = !guest && Boolean(project) && searchParams.get("schedules") === "1"
+  const close = () => { const next = new URLSearchParams(searchParams); next.delete("schedules"); setSearchParams(next, { replace: true }) }
+
   return (
-    <div className="flex-1 flex flex-col min-w-0 relative">
+    <div className="flex flex-1 min-w-0 min-h-0 relative">
+    <div className="flex flex-1 min-w-0 flex-col">
       <StartupPart name="route" />
       <LocalDev
         machineName={state.machineName ?? undefined}
@@ -38,6 +48,12 @@ export function LocalProjectsPage() {
         onListDirectories={state.handleListLocalDirectories}
         onResolveLocalPath={state.handleResolveLocalPath}
       />
+    </div>
+    {open && project && <aside aria-label="Workspace 定时任务" className="absolute inset-0 z-30 bg-background md:static md:w-[400px] md:shrink-0"><Suspense fallback={<p role="status" className="p-4">Loading schedules…</p>}><SchedulesPanel
+      projectId={project.groupKey} projectTitle={project.title} socket={state.socket} status={state.connectionStatus} onClose={close}
+      onNewConversation={text => state.handleCreateScheduledChat(project.groupKey, text)}
+      onEditConversation={state.handleOpenScheduleConversation}
+    /></Suspense></aside>}
     </div>
   )
 }

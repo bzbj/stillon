@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
-if (process.argv[2] === "update") {
+if (process.argv[2] === "schedule") {
+  const { scheduleCli } = await import("../src/server/schedule-tools.ts")
+  try { await scheduleCli(process.argv.slice(3)) } catch (error) {
+    console.error(error instanceof Error ? error.message : "Schedule command failed.")
+    process.exitCode = 1
+  }
+} else if (process.argv[2] === "update") {
   const { updateCli } = await import("../src/server/updater/cli.ts")
   try { await updateCli() } catch (error) {
     console.error(error instanceof Error ? error.message : "Managed update failed.")

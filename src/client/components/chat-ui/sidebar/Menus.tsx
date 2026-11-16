@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
-import { Archive, ChevronLeft, ChevronRight, Copy, X, FolderOpen, Palette, Pencil, Pin, PinOff, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
+import { Archive, Clock3, ChevronLeft, ChevronRight, Copy, X, FolderOpen, Palette, Pencil, Pin, PinOff, Settings2, Sparkles, Split, Trash2, UserRoundPlus } from "lucide-react"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,11 +26,12 @@ function isNarrowMenu() {
 }
 
 export function ProjectSectionMenu({
-  workspaceId, onRunQuickCommand, onManageCommands, onRename, onCopyPath,
+  workspaceId, onRunQuickCommand, onManageCommands, onOpenSchedules, onRename, onCopyPath,
   onShowArchived, onHide, onCustomizeAvatar, onShareWorkspace, canManageWorkspace = true, children,
 }: {
   workspaceId?: string
   onRunQuickCommand?: (command: QuickCommand) => void
+  onOpenSchedules?: () => void
   onManageCommands?: () => void
   onRename: () => void
   onCopyPath: () => void
@@ -62,6 +63,7 @@ export function ProjectSectionMenu({
         <ContextMenuSeparator className="mx-2 bg-border/50" />
         {quickItems}
       </> : <>
+        {canManageWorkspace && onOpenSchedules ? <ContextMenuItem onSelect={onOpenSchedules}><Clock3 className="size-3.5" />定时任务</ContextMenuItem> : null}
         {onManageCommands ? narrow ? (
           <ContextMenuItem closeOnSelect={false} onSelect={event => { event.preventDefault(); setShowCommands(true) }}><Sparkles className="size-3.5" />Preset Prompts<ChevronRight className="ml-auto size-3.5" /></ContextMenuItem>
         ) : (
