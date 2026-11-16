@@ -35,6 +35,12 @@ export class ScheduleService {
       ...(!this.store.writable ? { error: "Another StillOn process owns this scheduler" } : {}),
       schedules: this.store.list(projectId).map(schedule => ({ ...schedule, chatTitle: this.deps.events.getChat(schedule.chatId)?.title ?? "Deleted conversation" })), runs: this.store.runs(projectId) }
   }
+  deleteFromWorkspace(projectId: string, scheduleId: string, raw: unknown) {
+    const input = z.object({ operationId: z.string().uuid(), expectedRevision: z.number().int().positive() }).strict().parse(raw)
+    // UI deletion has owner authorization at the HTTP boundary, independently
+    // of any active provider turn. Use a stable receipt scope for retries.
+    return this.execute("delete_schedule", { ...input, scheduleId }, { projectId, chatId: "workspace-ui", planning: false, automated: false })
+  }
   execute(name: string, raw: unknown, context: ScheduleToolContext) {
     if (name === "list_schedules") return this.executeCore(name, raw, context)
     if (context.automated) throw new Error("Scheduled runs cannot create or change schedules. Ask the user in the conversation.")

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { Clock3, MoreHorizontal, Pencil, Plus, X } from "lucide-react"
+import { Clock3, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import type { StillOnSocket, SocketStatus } from "../../app/socket"
 import { scheduleTriggerLabel, type ProjectSchedulesSnapshot, type Schedule } from "../../../shared/schedules"
+import { useAppDialog } from "../ui/app-dialog"
 import { Button } from "../ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 
@@ -17,6 +18,12 @@ export function SchedulesPanel({ projectId, projectTitle, socket, status, onClos
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const navigate = useNavigate()
+  const dialog = useAppDialog()
+  const [actionsOpen, setActionsOpen] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const deletingRef = useRef(false)
+  const deleteOperations = useRef(new Map<string, string>())
+  const actionFocusRef = useRef(false)
   const creatingRef = useRef(false)
   const focusComposerRef = useRef(false)
   const [creating, setCreating] = useState(false)
@@ -46,8 +53,38 @@ export function SchedulesPanel({ projectId, projectTitle, socket, status, onClos
     const unsubscribe = socket.subscribe<ProjectSchedulesSnapshot>({ type: "project-schedules", projectId }, value => { receivedLive = true; receive(value) })
     return () => { active = false; abort.abort(); unsubscribe() }
   }, [projectId, socket])
-  const disabled = status !== "connected" || !snapshot || snapshot.available === false || creating
+  const disabled = status !== "connected" || !snapshot || snapshot.available === false || creating || deletingId !== null
+  const remove = async (schedule: Schedule) => {
+    if (deletingRef.current) return
+    deletingRef.current = true
+    actionFocusRef.current = true
+    setActionsOpen(null)
+    try {
+      const confirmed = await dialog.confirm({ title: `删除定时任务「${schedule.name}」？`, description: "停止后续触发。历史记录和对话会保留，已开始的执行不受影响。", confirmLabel: "删除", cancelLabel: "取消", confirmVariant: "destructive" })
+      if (!confirmed) return
+      setDeletingId(schedule.id); setError(null)
+      const key = `${schedule.id}:${schedule.revision}`
+      let operationId = deleteOperations.current.get(key)
+      if (!operationId) { operationId = crypto.randomUUID(); deleteOperations.current.set(key, operationId) }
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/schedules/${encodeURIComponent(schedule.id)}`, {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationId, expectedRevision: schedule.revision }), signal: AbortSignal.timeout(15000),
+      })
+      if (!response.ok) {
+        const result = await response.json().catch(() => null)
+        throw new Error(result?.error ?? "删除失败，请重试。")
+      }
+      deleteOperations.current.delete(key)
+      // Only remove after an acknowledged commit; the subscription also
+      // updates other open local and Connect views.
+      setSnapshot(current => current ? { ...current, schedules: current.schedules.filter(item => item.id !== schedule.id) } : current)
+      setSelected(current => current === schedule.id ? null : current)
+    } catch (error) { setError(error instanceof Error ? error.message : "删除失败，请重试。") }
+    finally { deletingRef.current = false; setDeletingId(null) }
+  }
   const edit = (schedule: Schedule & { chatTitle: string }) => {
+    actionFocusRef.current = true
+    setActionsOpen(null)
     const text = `请修改当前 Workspace 的定时任务「${schedule.name}」，保持结果对话「${schedule.chatTitle}」不变。修改为：`
     if (onEditConversation) onEditConversation(schedule.chatId, text)
     else onPrefill?.(text)
@@ -75,7 +112,10 @@ export function SchedulesPanel({ projectId, projectTitle, socket, status, onClos
             <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${schedule.enabled ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
             <span className="min-w-0"><span className="block truncate text-sm font-medium">{schedule.name}</span><span className="mt-1 block text-xs text-muted-foreground">{scheduleTriggerLabel(schedule.trigger)}</span><span className="mt-1 block truncate text-xs text-muted-foreground">结果对话：{schedule.chatTitle}</span><span className="mt-1 block text-xs text-muted-foreground">{schedule.enabled && schedule.nextRunAt !== null ? `下次 ${new Date(schedule.nextRunAt).toLocaleString()}` : schedule.issue ? "需要处理" : schedule.nextRunAt === null ? "已结束" : "已暂停"}</span></span>
           </button>
-          <Popover><PopoverTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label={`Actions for ${schedule.name}`}><MoreHorizontal className="size-4" /></Button></PopoverTrigger><PopoverContent><button disabled={disabled} onClick={() => edit(schedule)}><Pencil className="size-3.5" />Edit Schedule…</button></PopoverContent></Popover>
+          <Popover open={actionsOpen === schedule.id} onOpenChange={open => setActionsOpen(open ? schedule.id : null)}><PopoverTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label={`Actions for ${schedule.name}`} disabled={deletingId === schedule.id}><MoreHorizontal className="size-4" /></Button></PopoverTrigger><PopoverContent align="end" className="w-48 p-1" onCloseAutoFocus={event => { if (actionFocusRef.current) { event.preventDefault(); actionFocusRef.current = false } }}>
+            <button className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50" disabled={disabled} onClick={() => edit(schedule)}><Pencil className="size-3.5" />Edit Schedule…</button>
+            <button className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-destructive hover:bg-muted disabled:opacity-50" disabled={disabled} onClick={() => void remove(schedule)}><Trash2 className="size-3.5" />Delete…</button>
+          </PopoverContent></Popover>
         </div>
         {selected === schedule.id && <div className="mx-2 mt-2 border-t border-border pt-3">
           <p className="whitespace-pre-wrap break-words text-sm leading-6">{schedule.prompt}</p>

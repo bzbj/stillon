@@ -528,6 +528,22 @@ export async function startStillOnServer(options: StartStillOnServerOptions = {}
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
           }
 
+          const scheduleDelete = /^\/api\/projects\/([^/]+)\/schedules\/([^/]+)$/.exec(url.pathname)
+          if (scheduleDelete) {
+            if (!(ingress.kind === "local" || (ingress.kind === "remote" && !ingress.workspaceId))) return Response.json({ error: "OWNER_ONLY" }, { status: 403 })
+            if (req.method !== "DELETE") return new Response(null, { status: 405, headers: { Allow: "DELETE" } })
+            if (!req.headers.has("origin") || (auth && ingress.kind !== "remote" && !auth.validateOrigin(req))) return new Response("Forbidden", { status: 403 })
+            if (!schedules) return Response.json({ error: "Scheduler unavailable" }, { status: 503 })
+            try {
+              return Response.json(schedules.deleteFromWorkspace(decodeURIComponent(scheduleDelete[1]!), decodeURIComponent(scheduleDelete[2]!), await req.json()), { headers: { "Cache-Control": "no-store" } })
+            } catch (error) {
+              const message = error instanceof Error ? error.message : ""
+              if (message.includes("Schedule changed")) return Response.json({ error: "任务已变化，请刷新后再删除。" }, { status: 409 })
+              if (message.includes("not found")) return Response.json({ error: "任务不存在，请刷新列表。" }, { status: 404 })
+              return Response.json({ error: "删除失败，请刷新后重试。" }, { status: 400 })
+            }
+          }
+
           const scheduleList = /^\/api\/projects\/([^/]+)\/schedules$/.exec(url.pathname)
           if (scheduleList) {
             if (!(ingress.kind === "local" || (ingress.kind === "remote" && !ingress.workspaceId))) return Response.json({ error: "OWNER_ONLY" }, { status: 403 })

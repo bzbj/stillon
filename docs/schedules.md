@@ -20,7 +20,11 @@ create a new conversation in that Workspace. Without an active conversation, onl
 new conversation is offered. Both actions prefill the existing composer and
 preserve the original conversation’s draft. Editing from the Workspace view
 opens the plan’s existing result conversation; the edit prompt keeps that target.
-They do not send a message. There is no separate creation form. Send one message
+They do not send a message. The task’s actions menu also offers Delete… with confirmation. Deletion
+stops future triggers and retains the conversation and run history; it does not
+interrupt an occurrence already claimed or running. Failed deletions keep the
+item visible, and changes made after the confirmation opened require a refresh
+and another confirmation. There is no separate creation form. Send one message
 in a target conversation before scheduling it so its execution preferences exist.
 The target must belong to the same Workspace.
 

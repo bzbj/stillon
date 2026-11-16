@@ -193,3 +193,28 @@ test("stopping a scheduled turn leaves the next occurrence eligible after confir
   expect((await coordinator.tryStartScheduledTurn(schedule, { ...run, id: crypto.randomUUID() })).status).toBe("started")
   expect(starts).toBe(2)
 })
+
+test("Workspace UI deletion preserves active runs and history and deduplicates lost-response retries", async () => {
+  const f = await fixture(), schedule = create(f)
+  f.advance(60000); await f.service.tick()
+  const run = f.store.runs(f.project.id)[0]!
+  f.service.setState(run.id, "running")
+  const args = { operationId: crypto.randomUUID(), expectedRevision: f.store.get(schedule.id)!.revision }
+  const result = f.service.deleteFromWorkspace(f.project.id, schedule.id, args)
+  expect(f.store.get(schedule.id)).toBeNull()
+  expect(f.store.runs(f.project.id)[0]!.state).toBe("running")
+  expect(f.events.getChat(schedule.chatId)).not.toBeNull()
+  expect(f.service.deleteFromWorkspace(f.project.id, schedule.id, args)).toEqual(result)
+  f.service.setState(run.id, "succeeded")
+  expect(f.store.runs(f.project.id)[0]!.state).toBe("succeeded")
+})
+
+test("Workspace UI deletion rejects stale revisions, cross-Workspace IDs and malformed receipts", async () => {
+  const f = await fixture(), schedule = create(f)
+  f.service.execute("set_schedule", { scheduleId: schedule.id, name: "Changed" }, f.context)
+  const args = { operationId: crypto.randomUUID(), expectedRevision: schedule.revision }
+  expect(() => f.service.deleteFromWorkspace(f.project.id, schedule.id, args)).toThrow("changed")
+  expect(() => f.service.deleteFromWorkspace(f.other.id, schedule.id, args)).toThrow("not found")
+  expect(() => f.service.deleteFromWorkspace(f.project.id, schedule.id, { expectedRevision: 2 })).toThrow()
+  expect(f.store.get(schedule.id)?.name).toBe("Changed")
+})
