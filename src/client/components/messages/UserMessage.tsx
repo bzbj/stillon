@@ -62,7 +62,7 @@ export function UserMessage({ content, attachments = [], steered = false, schedu
   return (
     <>
       <div className="flex flex-col items-end gap-2">
-        {scheduleSource && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" /><span>由「{scheduleSource.name}」定时触发</span></div>}
+        {scheduleSource && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" /><span>Scheduled by {scheduleSource.name}</span></div>}
         {imageAttachments.length > 0 ? (
           <div className="flex max-w-[85%] sm:max-w-[80%] flex-wrap justify-end gap-3">
             {imageAttachments.map((attachment) => (
