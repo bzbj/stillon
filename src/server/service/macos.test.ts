@@ -120,6 +120,7 @@ describe("generateLaunchAgentPlist", () => {
     expect(plist).toContain("<key>STILLON_FALLBACK_PATH</key>")
     expect(plist).toContain("<key>RunAtLoad</key>\n    <true/>")
     expect(plist).toContain("<key>KeepAlive</key>\n    <true/>")
+    expect(plist).toContain("<key>ProcessType</key>\n    <string>Standard</string>")
     expect(plist).toContain("<key>ThrottleInterval</key>\n    <integer>10</integer>")
     expect(plist).toContain("<key>StandardOutPath</key>\n    <string>/Users/tester/Library/Logs/StillOn/stillon.out.log</string>")
     expect(plist.endsWith("\n")).toBe(true)

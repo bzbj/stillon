@@ -62,6 +62,7 @@ test("updater keeps the stable owner before Bun and dotenv arguments", async () 
   const config = await deployment()
   config.launch.environmentFile = "/Users/example/env"
   const original = macosUpdaterPlist(config)
+  expect(original).toContain("<key>ProcessType</key><string>Background</string>")
   config.launch.responsibleExecutable = "/Users/example/Agent & Tools/StillOn Agent"
   const plist = macosUpdaterPlist(config)
   const prefix = "<string>/Users/example/Agent &amp; Tools/StillOn Agent</string>"

@@ -97,8 +97,10 @@ export function generateLaunchAgentPlist(spec: ServiceLaunchSpec) {
     "    <key>ThrottleInterval</key>",
     "    <integer>10</integer>",
     ...(spec.responsibleExecutable ? ["    <key>ExitTimeOut</key>", "    <integer>30</integer>"] : []),
+    // Background also throttles child-process networking (including Connect).
+    // This service handles interactive requests even when no local window is open.
     "    <key>ProcessType</key>",
-    "    <string>Background</string>",
+    "    <string>Standard</string>",
     "    <key>StandardOutPath</key>",
     plistString(paths.stdoutLogPath, "    "),
     "    <key>StandardErrorPath</key>",
