@@ -170,10 +170,9 @@ export class CodexModelPolicyManager {
           ...(existing?.aliases ? { aliases: existing.aliases } : {}),
           supportsEffort: recognized.length > 0,
           supportedReasoningEfforts: recognized.length ? recognized : ["low"],
-          // model/list does not report service tiers. Refresh known capabilities
-          // from the bundled policy so a previously discovered false can recover.
-          // This enables the control; it does not opt a chat into paid Fast mode.
-          supportsFastMode: BUNDLED_CODEX_MODEL_POLICY.models.find((model) => model.id === entry.model)?.supportsFastMode
+          supportsFastMode: entry.serviceTiers?.some(({ id }) => id === "priority" || id === "fast")
+            ?? entry.additionalSpeedTiers?.includes("fast")
+            ?? BUNDLED_CODEX_MODEL_POLICY.models.find((model) => model.id === entry.model)?.supportsFastMode
             ?? existing?.supportsFastMode ?? false,
         },
       }

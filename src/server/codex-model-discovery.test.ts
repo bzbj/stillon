@@ -25,6 +25,8 @@ createInterface({input:process.stdin}).on("line", line=>{
  if(mode==="error") {console.log(JSON.stringify({id:q.id,error:{code:-1,message:"private upstream details"}}));return;}
  if(mode==="invalid") {console.log("not json");return;}
  const model={id:q.params.cursor?"b":"a",model:q.params.cursor?"b":"a",displayName:"模型",hidden:false,supportedReasoningEfforts:[{reasoningEffort:"high",description:"test"}],isDefault:true};
+ if(q.params.cursor) model.additionalSpeedTiers=["fast"];
+ else model.serviceTiers=[{id:"priority",name:"Fast",description:"Faster"}];
  const data=mode==="empty"?[]:[model];
  if(mode==="schema") delete model.supportedReasoningEfforts;
  if(mode==="duplicate") data.push(model);
@@ -46,6 +48,8 @@ test("isolated discovery initializes, pages and accepts additive fields without 
   const result = await probe.result
   expect(result.models.map((model) => model.model)).toEqual(["a", "b"])
   expect(result.models[0]!.displayName).toBe("模型")
+  expect(result.models[0]!.serviceTiers).toEqual([{ id: "priority" }])
+  expect(result.models[1]!.additionalSpeedTiers).toEqual(["fast"])
   expect(result.cliVersion).toBe("0.159.2")
   expect(probe.child().exitCode !== null || probe.child().signalCode !== null).toBe(true)
 })
