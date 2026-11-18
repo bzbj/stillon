@@ -99,13 +99,14 @@ test("runtime policy endpoint and two live clients refresh, reject, restore and 
   }
 }, 15_000)
 
-for (const modelId of ["new-codex", "gpt-6.1-terra"]) {
+for (const modelId of ["new-codex", "gpt-6.1-terra", "gpt-6.2-sol"]) {
 test(`${modelId}: discovery confirmation synchronizes clients and survives restart`, async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "stillon-selection-integration-"))
   const clients: ReturnType<typeof connect>[] = []
   let server: Awaited<ReturnType<typeof startStillOnServer>> | undefined
   const discovery = { getContext: async () => "test-account", discover: async () => ({ cliVersion: "0.159.2", models: [
-    { id: modelId, model: modelId, displayName: "New Codex", supportedReasoningEfforts: [{ reasoningEffort: "high" }] },
+    { id: modelId, model: modelId, displayName: "New Codex", supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+      ...(modelId === "gpt-6.2-sol" ? { serviceTiers: [{ id: "priority" }, { id: "ultrafast" }] } : {}) },
   ] }) }
   try {
     const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
@@ -137,7 +138,7 @@ test(`${modelId}: discovery confirmation synchronizes clients and survives resta
       && message.snapshot.data.policy.models[0]?.id === modelId)).toBe(true)
     expect(server.store.getChat(chat.id)?.lastTurnPreferences).toEqual(before)
     const accepted = (await read()).policy
-    expect(accepted.models[0].supportsFastMode).toBe(modelId === "gpt-6.1-terra")
+    expect(accepted.models[0].supportsFastMode).toBe(modelId !== "new-codex")
     for (const client of clients) client.ws.close()
     await server.stop()
     server = await startStillOnServer({ dataDir, port, strictPort: true, openBrowser: false, codexModelDiscovery: discovery })

@@ -5,6 +5,7 @@ import path from "node:path"
 import { BUNDLED_CODEX_MODEL_POLICY, type CodexModelPolicy } from "../shared/codex-model-policy"
 import { getCodexModelForRole, normalizeCodexPreference } from "../shared/types"
 import { applyServerCodexModelPolicy, getServerProviderCatalog, normalizeServerModel } from "./provider-catalog"
+import type { DiscoveredCodexModel } from "./codex-model-discovery"
 import { CodexModelPolicyManager } from "./codex-model-policy-manager"
 
 function replacementPolicy(id = "future-codex"): CodexModelPolicy {
@@ -219,16 +220,22 @@ test("expired confirmation and context changes during discovery preserve active 
   expect(changing.getSnapshot()).toEqual(initial)
 })
 
-for (const legacy of [false, true]) {
-  test(`Terra discovery repairs Fast capability (previously selected: ${legacy}) without changing a Standard preference`, async () => {
-    const model = BUNDLED_CODEX_MODEL_POLICY.models.find((model) => model.id === "gpt-6.1-terra")!
+for (const [id, speedMetadata, previouslySelected] of [
+  ["gpt-6.1-terra", {}, false],
+  ["gpt-6.1-terra", {}, true],
+  ["gpt-6.2-sol", { serviceTiers: [{ id: "priority" }, { id: "ultrafast" }] }, true],
+  ["gpt-6.2-astra", { additionalSpeedTiers: ["fast"] }, true],
+] satisfies [string, Pick<DiscoveredCodexModel, "serviceTiers" | "additionalSpeedTiers">, boolean][]) {
+  test(`${id}: discovery imports Fast (previously selected: ${previouslySelected}) and preserves Standard`, async () => {
+    const model = { ...BUNDLED_CODEX_MODEL_POLICY.models.find((model) => model.id === "gpt-6.1-terra")!,
+      id, label: id, aliases: [] }
     const policy = structuredClone(BUNDLED_CODEX_MODEL_POLICY)
     policy.models = policy.models.filter((model) => model.id !== "gpt-6.1-terra")
-    if (legacy) policy.models.push({ ...model, supportsFastMode: false })
+    if (previouslySelected) policy.models.push({ ...model, supportsFastMode: false })
     const manager = new CodexModelPolicyManager(directory, {
       getContext: async () => "account",
       discover: async () => ({ cliVersion: "test", models: [{ id: model.id, model: model.id,
-        displayName: model.label, supportedReasoningEfforts: [{ reasoningEffort: "high" }] }] }),
+        displayName: model.label, supportedReasoningEfforts: [{ reasoningEffort: "high" }], ...speedMetadata }] }),
     })
     await manager.initialize()
     await configure(manager, policy)

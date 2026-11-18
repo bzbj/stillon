@@ -14,6 +14,8 @@ const modelSchema = z.object({
   description: z.string().max(4096).optional(),
   hidden: z.boolean().optional(),
   supportedReasoningEfforts: z.array(z.object({ reasoningEffort: z.string().max(64) })).max(32),
+  serviceTiers: z.array(z.object({ id: z.string() })).optional().catch(undefined),
+  additionalSpeedTiers: z.array(z.string()).optional().catch(undefined),
   inputModalities: z.array(z.string()).optional(),
 })
 const pageSchema = z.object({ data: z.array(modelSchema).max(2000), nextCursor: z.string().min(1).max(4096).nullable() })
