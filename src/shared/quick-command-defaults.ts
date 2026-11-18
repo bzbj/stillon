@@ -186,7 +186,6 @@ Explain where human-facing materials and Agent support records actually live. Id
 Keep this section as simple as a set of linked notes:
 
 - **External upstream sources.** Use the workspace root as the boundary. Other local directories, online data sources, and uploaded files all count as external. Link to each important source or its receipt and explain what information it provides and where it is used. Preserve the origin of local copies.
-- **Information reused within the workspace.** Include only meaningful references between local materials and the work that uses them.
 - **Downstream agents.** List other agents that actually cite or use this workspace's outputs. Identify the specific output, the consuming agent, and what it uses the output for. Link to the consuming task or reference record. If no use is documented, say so.
 
 Use a short list or a two-column table. Leave out Office and Python environments, package dependencies, build steps, and deployment infrastructure. End with links to useful results.
