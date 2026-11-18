@@ -164,7 +164,7 @@ Save a short, dated record of actual changes, supporting evidence, and pending c
   {
     id: "explain-workspace",
     name: "Explain Workspace",
-    description: "Explore this workspace's purpose, annotated directory tree, and source dependencies in HTML.",
+    description: "Explore this workspace's purpose, annotated directory tree, and information links in HTML.",
     prompt: `Explain this workspace to a person who needs to understand what it does, where its files belong, where to find results, and what those results depend on. Produce a standalone HTML guide that opens locally without a server or external assets.
 
 ${WORKSPACE_ENTRY_GUIDANCE}
@@ -181,13 +181,15 @@ Open with the workspace's actual purpose, responsibilities, and useful outputs. 
 
 Explain where human-facing materials and Agent support records actually live. Identify the root entry's real filename and the roles of existing support directories. If .agent/ is absent, say so; do not create it merely to make the described structure match a template. Do not describe upload caches as Agent memory or reflection records without evidence. If a setup preset is available, use it to distinguish the intended convention from the observed layout, not to claim the convention has already been applied.
 
-## Trace internal and external dependencies
+## Link important information inputs and outputs
 
-Use this workspace root as the boundary. Show concrete upstream-to-downstream relationships among local source files, processing scripts, reports, applications, and generated pages. Distinguish data flow, runtime dependencies, organizational rules, and historical code origins. A copied or split repository is not necessarily a live runtime dependency.
+Keep this section as simple as a set of linked notes:
 
-Include external websites and services, other local workspaces, databases outside this root, shared runtimes, repositories, and deployment destinations where the evidence supports them. For each important relationship, identify the consuming project, what enters or leaves, the saved result or destination, its current or historical status, and a link to the supporting source record. Internal snapshots still have external origins. Reading an existing report and refreshing its underlying data can have different dependencies. Do not equate an output file with a published or sent result, or a recorded URL with verified access.
+- **External upstream sources.** Use the workspace root as the boundary. Other local directories, online data sources, and uploaded files all count as external. Link to each important source or its receipt and explain what information it provides and where it is used. Preserve the origin of local copies.
+- **Information reused within the workspace.** Include only meaningful references between local materials and the work that uses them.
+- **Downstream agents.** List other agents that actually cite or use this workspace's outputs. Identify the specific output, the consuming agent, and what it uses the output for. Link to the consuming task or reference record. If no use is documented, say so.
 
-Reuse maintained source indexes and check key relationships against current scripts or instructions. Include a compact dependency table or diagram where it makes the relationships easier to follow. End with concrete links to the workspace's useful reports, workbooks, pages, or result indexes.
+Use a short list or a two-column table. Leave out Office and Python environments, package dependencies, build steps, and deployment infrastructure. End with links to useful results.
 
 ## Deliver the guide
 
