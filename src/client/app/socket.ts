@@ -25,6 +25,8 @@ type StatusListener = (status: SocketStatus) => void
 const STALE_CONNECTION_MS = 25_000
 const HEARTBEAT_INTERVAL_MS = 15_000
 const PING_TIMEOUT_MS = 4_000
+const CONNECT_TIMEOUT_MS = 10_000
+const CLOSE_TIMEOUT_MS = 4_000
 const SEND_TO_STARTING_PROFILE_STORAGE_KEY = "kanna:profile-send-to-starting"
 
 interface SubscriptionEntry<TSnapshot, TEvent = never> {
@@ -50,6 +52,8 @@ export class StillOnSocket {
   private transport: SocketTransport | null = null
   private started = false
   private reconnectTimer: number | null = null
+  private connectionTimer: number | null = null
+  private finishConnection: (() => void) | null = null
   private reconnectDelayMs = 750
   private readonly subscriptions = new Map<string, SubscriptionEntry<unknown, unknown>>()
   private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
@@ -62,18 +66,18 @@ export class StillOnSocket {
   private lastMessageAt = 0
   private reconnectImmediatelyOnClose = false
   private readonly handleWindowFocus = () => {
-    void this.ensureHealthyConnection()
+    void this.ensureHealthyConnection().catch(() => {})
   }
   private readonly handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       this.startHeartbeat()
-      void this.ensureHealthyConnection()
+      void this.ensureHealthyConnection().catch(() => {})
       return
     }
     this.stopHeartbeat()
   }
   private readonly handleOnline = () => {
-    void this.ensureHealthyConnection()
+    void this.ensureHealthyConnection().catch(() => {})
   }
 
   constructor(url: string) {
@@ -98,6 +102,7 @@ export class StillOnSocket {
       window.clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    this.clearConnectionTimer()
     this.stopHeartbeat()
     this.clearPingState()
     window.removeEventListener("focus", this.handleWindowFocus)
@@ -232,9 +237,17 @@ export class StillOnSocket {
       probe: () => connection.send(JSON.stringify({ v: 1, type: "command", id: "transport-probe", command: { type: "system.ping" } })),
     })
     this.transport = transport
+    this.clearConnectionTimer()
+    this.connectionTimer = window.setTimeout(() => {
+      if (this.ws !== connection) return
+      const finish = this.finishConnection
+      connection.close()
+      finish?.()
+    }, CONNECT_TIMEOUT_MS)
 
     this.ws.addEventListener("open", () => {
       if (this.ws !== connection) return
+      this.clearConnectionTimer()
       this.reconnectDelayMs = 750
       this.reconnectImmediatelyOnClose = false
       this.lastOpenAt = Date.now()
@@ -355,8 +368,10 @@ export class StillOnSocket {
       }
     })
 
-    this.ws.addEventListener("close", () => {
+    const finishConnection = () => {
       if (this.ws !== connection) return
+      this.ws = null
+      this.clearConnectionTimer()
       transport.dispose()
       if (!this.started) {
         return
@@ -376,7 +391,9 @@ export class StillOnSocket {
         return
       }
       this.scheduleReconnect()
-    })
+    }
+    this.finishConnection = finishConnection
+    connection.addEventListener("close", finishConnection)
   }
 
   private scheduleReconnect() {
@@ -449,6 +466,10 @@ export class StillOnSocket {
     }
 
     this.reconnectImmediatelyOnClose = true
+    if (this.connectionTimer === null) {
+      const finish = this.finishConnection
+      this.connectionTimer = window.setTimeout(() => finish?.(), CLOSE_TIMEOUT_MS)
+    }
     this.ws.close()
   }
 
@@ -469,8 +490,13 @@ export class StillOnSocket {
       if (this.ws?.readyState !== WebSocket.OPEN) {
         return
       }
-      void this.ensureHealthyConnection()
+      void this.ensureHealthyConnection().catch(() => {})
     }, HEARTBEAT_INTERVAL_MS)
+  }
+
+  private clearConnectionTimer() {
+    if (this.connectionTimer !== null) window.clearTimeout(this.connectionTimer)
+    this.connectionTimer = null
   }
 
   private stopHeartbeat() {

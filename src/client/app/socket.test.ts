@@ -320,6 +320,50 @@ describe("StillOnSocket", () => {
     socket.dispose()
   })
 
+  test("retries a handshake that never opens and ignores late events", () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    socket.start()
+    const first = FakeWebSocket.instances[0]!
+    first.close = () => { first.readyState = FakeWebSocket.CLOSING }
+    timers.runTimeout((socket as any).connectionTimer)
+    timers.runTimeout((socket as any).reconnectTimer)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    first.open()
+    expect((socket as any).ws).toBe(FakeWebSocket.instances[1])
+    socket.dispose()
+  })
+
+  test("replaces a closing socket even without a browser close event", () => {
+    const socket = new StillOnSocket("ws://localhost/ws")
+    socket.start()
+    const first = FakeWebSocket.instances[0]!
+    first.open()
+    first.close = () => { first.readyState = FakeWebSocket.CLOSING }
+    first.readyState = FakeWebSocket.CLOSING
+    void socket.ensureHealthyConnection()
+    timers.runTimeout((socket as any).connectionTimer)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    socket.dispose()
+  })
+
+  test("remote recovery rejects unsent commands without replaying them", async () => {
+    Object.assign(window.location, { hostname: "h-" + "a".repeat(32) + ".stillon.example.com" })
+    const socket = new StillOnSocket("wss://stillon.example.com/ws")
+    socket.start()
+    const first = FakeWebSocket.instances[0]!
+    first.close = () => { first.readyState = FakeWebSocket.CLOSING }
+    await expect(socket.command({ type: "system.ping" })).rejects.toThrow("command was not sent")
+    timers.runTimeout((socket as any).connectionTimer)
+    timers.runTimeout((socket as any).reconnectTimer)
+    const next = FakeWebSocket.instances[1]!
+    next.open()
+    expect(next.sent).toHaveLength(0)
+    const result = socket.command({ type: "system.ping" })
+    next.receive({ v: 1, type: "ack", id: next.sent[0]!.id, result: true })
+    expect(await result).toBe(true)
+    socket.dispose()
+  })
+
   test("does not ping when the connection is already fresh", async () => {
     const socket = new StillOnSocket("ws://localhost/ws")
     socket.start()
