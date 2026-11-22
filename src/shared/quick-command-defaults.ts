@@ -161,4 +161,29 @@ Use the user's established language preference or the workspace's usual language
 
 Save a short, dated record of actual changes, supporting evidence, and pending confirmations in .agent/, using an unused filename for a new record. Update continuation state and relevant indexes. Finish with a concise account of navigation and record improvements, knowledge or method changes, human-file operations actually completed under approval, and decisions or work still pending. If a plan awaits confirmation, show it clearly in chat and do not describe it as completed.`,
   },
+  {
+    id: "dreaming",
+    name: "Dreaming",
+    description: "Reflect on recent work, correct memory, and preserve useful knowledge.",
+    prompt: `Reflect on this workspace's recent work and maintain the knowledge that will help future sessions continue accurately and work more effectively.
+
+${WORKSPACE_ENTRY_GUIDANCE}
+
+Follow the user's established working habits, language, filenames, directory structure, and knowledge-maintenance conventions. Reuse existing topic pages, task records, indexes, and support locations, including a research wiki when present. Keep existing records in place. If no support location exists and a new record is useful, use .agent/. Create only what the work needs; do not impose a new taxonomy, database, or memory format.
+
+Read relevant task and decision records, previous maintenance notes, and recent materials. Focus on meaningful changes since the last recorded pass, following references back to older knowledge when affected. Use only conversations and tool results actually available to you; identify important gaps rather than implying that you reviewed inaccessible sessions. Proceed with clearly agent-maintained knowledge updates without a preliminary scope-selection question.
+
+Check important claims against original sources, actual outputs, validation results, and explicit user decisions. A transcript records what was said; it does not by itself verify an agent's claim. Distinguish confirmed facts, user decisions, tested methods, hypotheses, conflicting evidence, and open questions. Preserve source references, relevant dates, applicability, and reasons for corrections. Do not infer completion or authority from a newer timestamp alone. Keep unresolved contradictions visible when evidence cannot settle them.
+
+Integrate supported findings into the existing authoritative topic records instead of adding parallel summaries. Correct outdated conclusions, consolidate repeated agent notes, repair links, and preserve useful evidence and revision history. Separate current task state from durable knowledge: update goals, progress, blockers, and next steps in continuation records; retain reusable findings and methods in their appropriate topic records. Capture methods supported by outcomes or feedback, including when they apply and known failure conditions. Keep untested ideas as hypotheses rather than general rules.
+
+Keep the root entry short, with essential constraints, current orientation, and links to details. Put detailed knowledge in the established supporting records. Respect explicit user preferences and their scope. In shared workspaces, distinguish an individual's preference or suggestion from a confirmed project decision; do not promote it into a rule for everyone.
+
+Maintain only clearly agent-owned records and sections. Preserve human-authored content, source materials, official deliverables, and existing instruction policies. If ownership or authority is unclear, save a proposed amendment in the established support area and ask only about the specific unresolved decision. Respect pending approvals and pauses. This reflection does not authorize executing next steps, changing product code, reorganizing human files, publishing, sending messages, scheduling work, or changing external systems. Read external references in place; writes outside this workspace require existing explicit authorization. Check resolved paths before writing. Reread affected records before saving and reconcile concurrent edits instead of overwriting them.
+
+Verify updated references and continuation state. When substantive changes were made, save a short dated maintenance record in the existing support location with the reviewed scope, evidence, corrections, and unresolved items so a later pass can resume incrementally. If nothing merits an update, say so without creating empty records. Finish with a concise account of what knowledge changed, what became easier to continue, and any remaining evidence gaps or decisions.
+
+Use the user's established language preference or the workspace's usual language for replies, new records, filenames, and folder names. Preserve existing language conventions and fixed structural names.`,
+  },
+
 ]
