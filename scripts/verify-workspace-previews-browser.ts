@@ -310,7 +310,10 @@ try {
       await link.click()
       const external = await opened
       await external.getByRole("heading", { name: "Controlled external website" }).waitFor()
-      assert.equal(external.url(), destination)
+      const expected = label === "External HTTP" ? "http://example.com/report.md" : "https://example.com/report.html"
+      assert.equal(destination, expected)
+      // Visiting browsers may upgrade an HTTP navigation to HTTPS.
+      assert.ok(external.url() === expected || external.url() === expected.replace(/^http:/, "https:"), `Unexpected external destination: ${external.url()}`)
       assert.equal(browserRequests, before)
       assert.equal(externalRegistrations, 0)
       await external.close(); await page.bringToFront()
