@@ -7,11 +7,11 @@ const defaults = defaultQuickCommands().global
 
 describe("workspace entry preset migration", () => {
   for (const legacy of legacyPrompts) {
-    test(`updates shipped ${legacy.id} from ${legacy.revision} without changing labels or workspace copies`, () => {
-      const saved = { ...defaults.find(item => item.id === legacy.id)!, prompt: legacy.prompt, name: "My label", description: "My description" }
+    test(`migrates or preserves shipped ${legacy.id} from ${legacy.revision} without changing labels or workspace copies`, () => {
+      const saved = { id: legacy.id, prompt: legacy.prompt, name: "My label", description: "My description" }
       const input = { global: [saved], workspaces: { workspace: [saved] } }
       const migrated = migrateQuickCommandDefaults(input)
-      expect(migrated.global).toEqual([{ ...saved, prompt: defaults.find(item => item.id === legacy.id)!.prompt }])
+      expect(migrated.global).toEqual([{ ...saved, prompt: defaults.find(item => item.id === legacy.id)?.prompt ?? legacy.prompt }])
       expect(migrated.workspaces.workspace).toEqual([saved])
       expect(input.global[0]!.prompt).toBe(legacy.prompt)
       expect(migrateQuickCommandDefaults(migrated)).toEqual(migrated)
@@ -21,7 +21,7 @@ describe("workspace entry preset migration", () => {
   test("preserves every edited prompt, including single-character changes", () => {
     for (const legacy of legacyPrompts) {
       for (const prompt of [legacy.prompt + " ", legacy.prompt.replace(/work/i, "WORK"), "Only use Agent.md."]) {
-        const saved = { ...defaults.find(item => item.id === legacy.id)!, prompt }
+        const saved = { id: legacy.id, name: legacy.id, prompt }
         expect(migrateQuickCommandDefaults({ global: [saved] }).global).toEqual([saved])
       }
     }
@@ -32,7 +32,7 @@ describe("workspace entry preset migration", () => {
     const commands = [
       { id: "__proto__", name: "Custom", prompt: original.prompt },
       { id: "custom", name: "Custom copy", prompt: original.prompt },
-      { ...defaults[4]!, prompt: "My organization rules" },
+      { ...defaults.find(item => item.id === "organize-workspace")!, prompt: "My organization rules" },
       { ...defaults[0]!, prompt: original.prompt },
     ]
     const migrated = migrateQuickCommandDefaults({ global: commands })

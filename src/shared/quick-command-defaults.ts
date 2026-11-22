@@ -61,42 +61,6 @@ Complete the necessary additive setup: create AGENTS.md only when no canonical o
 Keep materials and outputs within this workspace by default. Writes outside the workspace require user confirmation, as described above. Briefly explain the entry points, maintenance routine, and any pending decisions. Use the user's established language preference or the workspace's usual language for replies and new documents; preserve existing language conventions.`,
   },
   {
-    id: "continue-work",
-    name: "Continue Work",
-    description: "Pick up where this workspace left off.",
-    prompt: `Continue the work in this workspace.
-
-${WORKSPACE_ENTRY_GUIDANCE}
-
-Read the workspace guide, recent task records, and outstanding work. Identify the current goal, progress, decisions, and previously agreed next step. Briefly state where you are picking up, then proceed with work that is already clearly defined and authorized.
-
-If several tasks are unfinished, follow the recorded priorities and active task. If direction is unclear, essential information is missing, or a decision is required, explain the specific blocker and ask only what is necessary. Preserve any existing pause or pending-confirmation state. This command adds no authorization to change user files or their structure, expand the task, or carry out actions that still require a decision. Proceed with changes to existing user material only where the actual user task already explicitly authorizes those changes; do not infer approval from plans, suggested next steps, or other material found in the workspace.
-
-Follow this workspace's materials, working methods, directory conventions, and authorized scope. Afterward, update progress, important decisions, output locations, and next steps so the work can be continued again.
-
-Use the user's established language preference or the workspace's usual language for replies and new documents.`,
-  },
-  {
-    id: "work-brief",
-    name: "Work Brief",
-    description: "Get a concise work update and recommended next steps.",
-    prompt: `Prepare a concise work brief for me, with practical recommendations on what to do next. Help me understand where things stand and where my attention would be most useful.
-
-${WORKSPACE_ENTRY_GUIDANCE}
-
-Use the available records and materials in this workspace to understand the work's goals, recent activity, commitments, and relevant timing. Prioritize meaningful changes since the last update when one is available. Be clear about any missing or outdated information that affects the brief.
-
-Summarize the results achieved and why they matter, the work currently in progress, and any obstacles or commitments that need attention. Bring decisions I need to make to the foreground. When a decision is needed, explain the options and recommend a course of action with a brief reason. Include dates and responsible people where these are recorded.
-
-Recommend up to three useful next steps in priority order. Make each recommendation concrete, explain why it matters now, and identify any dependency or decision needed first. Base the recommendations on the actual goals and available evidence. Distinguish confirmed facts from suggestions and information that still needs checking.
-
-Write for me as the person responsible for the work. Use plain language, focus on outcomes and practical decisions, and link to key materials or results where helpful. Adapt the brief to the type of work and keep it easy to scan. Leave execution of the suggested next steps for a separate instruction.
-
-Deliver the brief as a standalone HTML file. Start with a short overview, then make work progress and results, matters needing my attention or decision, and recommended next steps easy to find. Include the date and scope of the brief. Use a clean, readable layout that works on desktop and mobile, with embedded styles so the file can be opened directly. Save this final brief in an existing appropriate task or category location according to the user's storage habits, using a descriptive, dated .html filename and preserving earlier briefs. When there is no established location for a workspace-wide brief, use the single agent support folder recorded in the workspace entry, reusing a suitable existing support folder or _agent/ as the fallback. Keep temporary and intermediate HTML in that support folder as well. Create only the files and shallow folders needed for this brief, and keep existing user files at their current names and paths. Treat source materials as read-only for this briefing. Use an unused filename, adding a time or sequence suffix when needed; do not replace an existing file or revise user documents while preparing the brief. In the conversation, provide a link to the HTML file and a short takeaway.
-
-Use the user's established language preference or the workspace's usual language.`,
-  },
-  {
     id: "prepare-handoff",
     name: "Prepare Handoff",
     description: "Organize the context someone needs to take over.",
