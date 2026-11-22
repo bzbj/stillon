@@ -14,6 +14,7 @@ const LEGACY_PROMPTS: Readonly<Record<string, readonly string[]>> = {
   "continue-work": ["793d26f80577662610549247346046c59d38c54c488f9c767144f0399b97a23a"],
   "work-brief": ["2e9f2370c68249c756440ade388a24b594c4d4495fb6b3a5466373d437b860fb"],
   "prepare-handoff": ["5afc86b8522c616a1a48541ef64c545222d60662221399ebcb85216caf304199"],
+  "dreaming": ["03643a33949b570590f2abb3ab07cd0ba2b8c13fa2bfb97cc979a789af27aa95"],
   "organize-workspace": [
     "6353892c49dc20a48a4b2be9b127069d76b93d8ec05d017d65486344521a00ec",
     "956c9110da2b7ebec48bfd9b8eb6d75bab79db46e69388dc188116d14a5218b4",
