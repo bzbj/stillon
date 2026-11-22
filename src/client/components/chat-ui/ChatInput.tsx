@@ -339,6 +339,7 @@ interface Props {
   ) => Promise<void>
   onLayoutChange?: () => void
   onCancel?: () => void
+  reconnecting?: boolean
   disabled: boolean
   canCancel?: boolean
   chatId?: string | null
@@ -401,6 +402,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onLayoutChange,
   onCancel,
+  reconnecting = false,
   disabled,
   canCancel,
   chatId,
@@ -786,7 +788,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const newChatSubmittingRef = useRef(false)
 
   async function handleSubmit() {
-    if (disabled || (!chatId && newChatSubmittingRef.current) || !canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
+    if (reconnecting || disabled || (!chatId && newChatSubmittingRef.current) || !canSubmit || hasBlockingUploads || hasBlockingUploadsInFlight()) return
     if (!chatId) newChatSubmittingRef.current = true
 
     const nextValue = value
@@ -953,6 +955,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
     <div>
       <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
         <div data-stillon-part="composer-column" className="max-w-[840px] mx-auto rounded-[32px]">
+          {reconnecting && <p role="status" className="mb-2 text-sm text-muted-foreground">Reconnecting to your computer…</p>}
           {!providerAvailable && <p role="status" className="mb-3 text-sm text-muted-foreground">This provider is unavailable. Your chat history is preserved. <a href="/settings/integrations" className="underline">Enable its integration</a> to continue.</p>}
           {providerAvailable && !addonModelAvailable && <p role="status" className="mb-3 text-sm text-muted-foreground">This chat's model is no longer enabled. Select a model below, or enable it in <a href="/settings/providers" className="underline">model settings</a>.</p>}
           {uploadActivityNotice || hasFailedUploads || uploadError ? (
@@ -1081,7 +1084,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   void handleSubmit()
                 }
               }}
-              disabled={disabled || (!canCancel && !canSubmit) || hasBlockingUploads}
+              disabled={disabled || reconnecting || (!canCancel && !canSubmit) || hasBlockingUploads}
               aria-label={
                 hasPendingUploads
                   ? "Uploading attachments"

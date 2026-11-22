@@ -35,6 +35,7 @@ const ChatInput = lazy(loadHomeComposer)
 
 interface LocalDevProps {
   machineName?: string
+  requiresLiveConnection?: boolean
   connectionStatus: SocketStatus
   ready: boolean
   projectGroups: SidebarProjectGroup[]
@@ -151,6 +152,7 @@ function Step({
 
 export function LocalDev({
   machineName,
+  requiresLiveConnection,
   connectionStatus,
   ready,
   projectGroups,
@@ -343,6 +345,7 @@ export function LocalDev({
             <Suspense fallback={<div className="mx-3 h-16 animate-pulse rounded-[29px] border border-border bg-card" aria-label="Loading composer" />}>
               <ChatInput
                 ref={chatInputRef}
+                reconnecting={requiresLiveConnection && connectionStatus !== "connected"}
                 onSubmit={(content, options) => onSend(content, options, selectedProject?.groupKey)}
                 disabled={!sidebarReady || !selectedProject || !preferencesReady || isStartingConversation}
                 projectId={selectedProject?.groupKey ?? null}

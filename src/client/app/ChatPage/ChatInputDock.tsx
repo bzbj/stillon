@@ -5,6 +5,7 @@ import type { StillOnState } from "../useStillOnState"
 import type { CodexTransport } from "../../../shared/types"
 
 interface ChatInputDockProps {
+  reconnecting: boolean
   statistics?: import("../../../shared/session-statistics").SessionStatistics | null
   inputRef: RefObject<HTMLDivElement | null>
   onLayoutChange: () => void
@@ -26,6 +27,7 @@ interface ChatInputDockProps {
 }
 
 export const ChatInputDock = memo(function ChatInputDock({
+  reconnecting,
   statistics,
   inputRef,
   onLayoutChange,
@@ -55,6 +57,7 @@ export const ChatInputDock = memo(function ChatInputDock({
           onLayoutChange={onLayoutChange}
         />
         <ChatInput
+          reconnecting={reconnecting}
           ref={chatInputRef}
           inputElementRef={chatInputElementRef}
           onLayoutChange={onLayoutChange}

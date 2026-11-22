@@ -46,6 +46,7 @@ import {
 import { generateUUID } from "../lib/utils"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { StillOnSocket, type SocketStatus } from "./socket"
+import { deliverMessage } from "./messageDelivery"
 import { ConfirmedCommandError } from "./quickCommandDelivery"
 import { applySidebarChatChanges, SidebarChatActions, type SidebarChatChange } from "./sidebarChatActions"
 import type { LocalDirectoryListResult, OpenExternalAction, ResolvedLocalPath, AsyncQuestionAnswerResult } from "../../shared/protocol"
@@ -1716,7 +1717,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
     const attachments = options?.attachments ?? []
     if (activeChatId && isProcessing) {
       try {
-        await socket.command<{ queuedMessageId: string }>({
+        await deliverMessage<{ queuedMessageId: string }>(socket, {
           type: "message.enqueue",
           chatId: activeChatId,
           content,
@@ -1801,7 +1802,7 @@ export function useStillOnState(activeChatId: string | null, cacheScope: string 
         throw new Error("Open a workspace first")
       }
 
-      const result = await socket.command<{ chatId?: string; queued?: boolean }>({
+      const result = await deliverMessage<{ chatId?: string; queued?: boolean }>(socket, {
         type: "chat.send",
         chatId: activeChatId ?? undefined,
         projectId: activeChatId ? undefined : projectId ?? undefined,
