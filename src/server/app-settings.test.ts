@@ -427,7 +427,7 @@ test("quick commands preserve independent scope edits and survive a settings rel
 test("saved stock presets migrate to AGENTS.md on startup and remain migrated after reload", async () => {
   const filePath = await createTempFilePath()
   const defaults = defaultQuickCommands().global
-  const legacy = legacyWorkspacePresets.find(item => item.id === "set-up-agent-workspace" && item.revision === "4578495")!
+  const legacy = legacyWorkspacePresets.find(item => item.id === "organize-workspace" && item.revision === "1509a26")!
   const saved = { ...defaults[0]!, prompt: legacy.prompt }
   const edited = { ...defaults[2]!, prompt: "Use agent.md for my custom brief." }
   const commands = { global: [edited, saved], workspaces: { workspace: [saved] } }

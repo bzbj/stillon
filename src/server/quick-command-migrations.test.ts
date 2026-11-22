@@ -28,11 +28,11 @@ describe("workspace entry preset migration", () => {
   })
 
   test("keeps custom IDs, deletions and reordered lists", () => {
-    const original = legacyPrompts[0]!
+    const original = legacyPrompts.find(item => item.id === "organize-workspace")!
     const commands = [
       { id: "__proto__", name: "Custom", prompt: original.prompt },
       { id: "custom", name: "Custom copy", prompt: original.prompt },
-      { ...defaults.find(item => item.id === "organize-workspace")!, prompt: "My organization rules" },
+      { ...defaults.find(item => item.id === "prepare-handoff")!, prompt: "My handoff rules" },
       { ...defaults[0]!, prompt: original.prompt },
     ]
     const migrated = migrateQuickCommandDefaults({ global: commands })

@@ -11,8 +11,8 @@ describe("quick command configuration", () => {
       expect(prompt).toContain("do not create a second root entry or a redirect file")
       expect(prompt).not.toMatch(/(?:create|keep|update|root)\s+`?(?:Agent|agent)\.md/)
     }
-    const setup = defaultQuickCommands().global[0]!.prompt
-    expect(setup).toContain("create AGENTS.md only when no canonical or legacy entry exists")
+    const setup = defaultQuickCommands().global.find(item => item.id === "organize-workspace")!.prompt
+    expect(setup).toContain("Create AGENTS.md only when no canonical or legacy entry exists")
     expect(setup).toContain("a recoverable backup under .agent/")
   })
 
