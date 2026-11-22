@@ -22,6 +22,7 @@ export function LocalProjectsPage() {
       <StartupPart name="route" />
       <LocalDev
         machineName={state.machineName ?? undefined}
+        requiresLiveConnection={state.socket.requiresLiveConnection}
         connectionStatus={state.connectionStatus}
         ready={state.localProjectsReady}
         projectGroups={state.sidebarData.projectGroups}

@@ -341,7 +341,6 @@ describe("StillOnSocket", () => {
     first.close = () => { first.readyState = FakeWebSocket.CLOSING }
     first.readyState = FakeWebSocket.CLOSING
     void socket.ensureHealthyConnection()
-    timers.runTimeout((socket as any).connectionTimer)
     expect(FakeWebSocket.instances).toHaveLength(2)
     socket.dispose()
   })
@@ -357,9 +356,11 @@ describe("StillOnSocket", () => {
     timers.runTimeout((socket as any).reconnectTimer)
     const next = FakeWebSocket.instances[1]!
     next.open()
-    expect(next.sent).toHaveLength(0)
+    expect(next.sent).toHaveLength(1)
+    await expect(socket.command({ type: "system.ping" })).rejects.toThrow("command was not sent")
+    next.receive({ v: 1, type: "ack", id: next.sent[0]!.id })
     const result = socket.command({ type: "system.ping" })
-    next.receive({ v: 1, type: "ack", id: next.sent[0]!.id, result: true })
+    next.receive({ v: 1, type: "ack", id: next.sent[1]!.id, result: true })
     expect(await result).toBe(true)
     socket.dispose()
   })
@@ -408,9 +409,11 @@ describe("StillOnSocket", () => {
     const healthCheck = socket.ensureHealthyConnection()
     timers.runTimeout((socket as any).pingTimeoutTimer)
 
+    // The replacement can open before the retired ping rejection runs.
+    FakeWebSocket.instances[1]!.open()
     await expect(healthCheck).rejects.toThrow("Disconnected")
     expect(FakeWebSocket.instances).toHaveLength(2)
-    expect(FakeWebSocket.instances[1]?.readyState).toBe(FakeWebSocket.CONNECTING)
+    expect(FakeWebSocket.instances[1]?.readyState).toBe(FakeWebSocket.OPEN)
     socket.dispose()
   })
 

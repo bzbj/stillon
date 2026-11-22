@@ -1,5 +1,6 @@
 import { decodeSidebarEnvelope } from "../../shared/sidebar-wire"
 import { receiveClaudeModelPolicy } from "../stores/claudeModelPolicyStore"
+import { InterruptedOperation } from "./messageDelivery"
 import { ConfirmedCommandError } from "./quickCommandDelivery"
 import { ChatStreamDecoder, type ChatStreamFrame } from "../../shared/chat-stream"
 import { receiveCodexModelPolicy } from "../stores/codexModelPolicyStore"
@@ -26,7 +27,7 @@ const STALE_CONNECTION_MS = 25_000
 const HEARTBEAT_INTERVAL_MS = 15_000
 const PING_TIMEOUT_MS = 4_000
 const CONNECT_TIMEOUT_MS = 10_000
-const CLOSE_TIMEOUT_MS = 4_000
+type ConnectionPhase = "stopped" | "connecting" | "verifying" | "ready" | "backoff"
 const SEND_TO_STARTING_PROFILE_STORAGE_KEY = "kanna:profile-send-to-starting"
 
 interface SubscriptionEntry<TSnapshot, TEvent = never> {
@@ -47,13 +48,14 @@ function isSendToStartingProfilingEnabled() {
 
 export class StillOnSocket {
   private readonly url: string
-  private readonly remote: boolean
+  readonly requiresLiveConnection: boolean
   private ws: WebSocket | null = null
   private transport: SocketTransport | null = null
-  private started = false
+
   private reconnectTimer: number | null = null
   private connectionTimer: number | null = null
-  private finishConnection: (() => void) | null = null
+  private phase: ConnectionPhase = "stopped"
+  private deadline = 0
   private reconnectDelayMs = 750
   private readonly subscriptions = new Map<string, SubscriptionEntry<unknown, unknown>>()
   private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
@@ -64,40 +66,34 @@ export class StillOnSocket {
   private pingPromise: Promise<void> | null = null
   private lastOpenAt = 0
   private lastMessageAt = 0
-  private reconnectImmediatelyOnClose = false
-  private readonly handleWindowFocus = () => {
+  private readonly checkHealth = () => {
     void this.ensureHealthyConnection().catch(() => {})
   }
   private readonly handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       this.startHeartbeat()
-      void this.ensureHealthyConnection().catch(() => {})
+      this.checkHealth()
       return
     }
     this.stopHeartbeat()
   }
-  private readonly handleOnline = () => {
-    void this.ensureHealthyConnection().catch(() => {})
-  }
 
   constructor(url: string) {
     this.url = url
-    this.remote = isConnectBrowser()
+    this.requiresLiveConnection = isConnectBrowser()
   }
 
   start() {
-    if (this.started) {
+    if (this.phase !== "stopped") {
       return
     }
-    this.started = true
-    window.addEventListener("focus", this.handleWindowFocus)
-    window.addEventListener("online", this.handleOnline)
+    window.addEventListener("focus", this.checkHealth)
+    window.addEventListener("online", this.checkHealth)
     document.addEventListener("visibilitychange", this.handleVisibilityChange)
     this.connect()
   }
 
   dispose() {
-    this.started = false
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -105,12 +101,15 @@ export class StillOnSocket {
     this.clearConnectionTimer()
     this.stopHeartbeat()
     this.clearPingState()
-    window.removeEventListener("focus", this.handleWindowFocus)
-    window.removeEventListener("online", this.handleOnline)
+    window.removeEventListener("focus", this.checkHealth)
+    window.removeEventListener("online", this.checkHealth)
     document.removeEventListener("visibilitychange", this.handleVisibilityChange)
-    this.ws?.close()
-    this.transport?.dispose()
+    this.phase = "stopped"
+    const retired = this.ws
     this.ws = null
+    retired?.close()
+    this.transport?.dispose()
+    this.transport = null
     for (const pending of this.pending.values()) {
       pending.reject(new Error("Socket disposed"))
     }
@@ -168,8 +167,8 @@ export class StillOnSocket {
   }
 
   command<TResult = unknown>(command: ClientCommand, options?: { signal?: AbortSignal; operationId?: string }) {
-    if (this.remote && this.ws?.readyState !== WebSocket.OPEN) return Promise.reject<TResult>(new ConfirmedCommandError("Not connected. The command was not sent. Reconnect and try again."))
-    const id = options?.operationId ?? (this.remote ? `${Date.now()}-${generateUUID()}` : generateUUID())
+    if (this.requiresLiveConnection && (this.phase !== "ready" || this.ws?.readyState !== WebSocket.OPEN)) return Promise.reject<TResult>(new ConfirmedCommandError("Not connected. The command was not sent. Reconnect and try again."))
+    const id = options?.operationId ?? (this.requiresLiveConnection ? `${Date.now()}-${generateUUID()}` : generateUUID())
     const envelope: ClientEnvelope = { v: 1, type: "command", id, command }
     return new Promise<TResult>((resolve, reject) => {
       const signal = options?.signal
@@ -196,14 +195,12 @@ export class StillOnSocket {
   }
 
   ensureHealthyConnection() {
-    if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
+    if (this.phase === "stopped") return Promise.resolve()
+    if (!this.ws || this.ws.readyState >= WebSocket.CLOSING || (this.deadline && Date.now() >= this.deadline)) {
       this.reconnectNow()
       return Promise.resolve()
     }
-
-    if (this.ws.readyState === WebSocket.CONNECTING) {
-      return Promise.resolve()
-    }
+    if (this.phase !== "ready") return Promise.resolve()
 
     if (!this.isConnectionStale()) {
       return Promise.resolve()
@@ -220,36 +217,27 @@ export class StillOnSocket {
   }
 
   private connect() {
-    if (!this.started) {
-      return
-    }
+    this.phase = "connecting"
     this.emitStatus("connecting")
-    this.transport?.dispose()
     const url = new URL(this.url)
     url.searchParams.set(SOCKET_TRANSPORT_QUERY, "1")
     this.ws = new WebSocket(url.href)
     const connection = this.ws
     const transport = new SocketTransport({
       write: frame => { if (connection.readyState !== WebSocket.OPEN) return false; connection.send(frame); return true },
-      fail: reason => connection.close(1013, reason),
+      fail: () => this.retire(connection),
       // Only needed if a large command precedes every subscription/response.
       // Old servers answer this ordinary protocol-1 ping and select legacy mode.
       probe: () => connection.send(JSON.stringify({ v: 1, type: "command", id: "transport-probe", command: { type: "system.ping" } })),
     })
     this.transport = transport
-    this.clearConnectionTimer()
-    this.connectionTimer = window.setTimeout(() => {
-      if (this.ws !== connection) return
-      const finish = this.finishConnection
-      connection.close()
-      finish?.()
-    }, CONNECT_TIMEOUT_MS)
+    this.deadline = Date.now() + CONNECT_TIMEOUT_MS
+    this.connectionTimer = window.setTimeout(() => this.retire(connection), CONNECT_TIMEOUT_MS)
 
-    this.ws.addEventListener("open", () => {
-      if (this.ws !== connection) return
+    const ready = () => {
       this.clearConnectionTimer()
+      this.phase = "ready"
       this.reconnectDelayMs = 750
-      this.reconnectImmediatelyOnClose = false
       this.lastOpenAt = Date.now()
       this.lastMessageAt = this.lastOpenAt
       this.emitStatus("connected")
@@ -267,6 +255,14 @@ export class StillOnSocket {
           this.sendNow(envelope)
         }
       }
+    }
+
+    const probeId = `${Date.now()}-${generateUUID()}`
+    connection.addEventListener("open", () => {
+      if (this.ws !== connection) return
+      if (!this.requiresLiveConnection) { ready(); return }
+      this.phase = "verifying"
+      this.sendNow({ v: 1, type: "command", id: probeId, command: { type: "system.ping" } })
     })
 
     this.ws.addEventListener("message", (event) => {
@@ -283,7 +279,12 @@ export class StillOnSocket {
       }
 
       try { payload = decodeSidebarEnvelope(payload) }
-      catch { connection.close(1013, "Invalid sidebar snapshot"); return }
+      catch { this.retire(connection); return }
+
+      if (this.phase === "verifying") {
+        if (payload.type === "ack" && payload.id === probeId) ready()
+        return
+      }
 
       if (payload.claudeModelPolicy) {
         try { receiveClaudeModelPolicy(payload.claudeModelPolicy) }
@@ -368,36 +369,32 @@ export class StillOnSocket {
       }
     })
 
-    const finishConnection = () => {
-      if (this.ws !== connection) return
-      this.ws = null
-      this.clearConnectionTimer()
-      transport.dispose()
-      if (!this.started) {
-        return
-      }
-      const reconnectImmediately = this.reconnectImmediatelyOnClose
-      this.reconnectImmediatelyOnClose = false
-      this.stopHeartbeat()
-      this.clearPingState()
-      this.emitStatus("disconnected")
-      if (this.remote) this.outboundQueue.length = 0
-      for (const [id, pending] of this.pending) {
-        pending.reject(new Error(this.remote ? `连接中断，结果尚未确认。请先查看任务状态，勿重复提交。（操作 ${id}）` : "Disconnected"))
-      }
-      this.pending.clear()
-      if (reconnectImmediately) {
-        this.connect()
-        return
-      }
-      this.scheduleReconnect()
+    connection.addEventListener("close", () => this.retire(connection))
+  }
+
+  private retire(connection: WebSocket, immediate = false) {
+    if (this.ws !== connection) return
+    this.ws = null
+    this.phase = "backoff"
+    this.clearConnectionTimer()
+    this.clearPingState()
+    this.stopHeartbeat()
+    this.transport?.dispose()
+    this.transport = null
+    connection.close()
+    if (this.requiresLiveConnection) this.outboundQueue.length = 0
+    for (const [id, pending] of this.pending) {
+      pending.reject(this.requiresLiveConnection ? new InterruptedOperation(id) : new Error("Disconnected"))
     }
-    this.finishConnection = finishConnection
-    connection.addEventListener("close", finishConnection)
+    this.pending.clear()
+    this.emitStatus("disconnected")
+    if (this.phase !== "backoff") return
+    if (immediate) this.connect()
+    else this.scheduleReconnect()
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer !== null) return
+    if (this.phase !== "backoff" || this.reconnectTimer !== null) return
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
       this.connect()
@@ -406,12 +403,8 @@ export class StillOnSocket {
   }
 
   private getStatus(): SocketStatus {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      return "connected"
-    }
-    if (this.ws?.readyState === WebSocket.CONNECTING) {
-      return "connecting"
-    }
+    if (this.phase === "ready") return "connected"
+    if (this.phase === "connecting" || this.phase === "verifying") return "connecting"
     return "disconnected"
   }
 
@@ -431,19 +424,19 @@ export class StillOnSocket {
       return this.pingPromise
     }
 
+    const connection = this.ws
     const pingPromise = this.command({ type: "system.ping" })
       .then(() => {
-        this.clearPingState()
+        if (this.ws === connection) this.clearPingState()
       })
       .catch((error) => {
-        this.clearPingState()
-        this.reconnectNow()
+        if (connection) this.retire(connection, true)
         throw error
       })
 
+    this.deadline = Date.now() + PING_TIMEOUT_MS
     this.pingTimeoutTimer = window.setTimeout(() => {
-      this.clearPingState()
-      this.reconnectNow()
+      if (connection) this.retire(connection, true)
     }, PING_TIMEOUT_MS)
 
     this.pingPromise = pingPromise
@@ -456,21 +449,8 @@ export class StillOnSocket {
       this.reconnectTimer = null
     }
 
-    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-      this.connect()
-      return
-    }
-
-    if (this.ws.readyState === WebSocket.CONNECTING) {
-      return
-    }
-
-    this.reconnectImmediatelyOnClose = true
-    if (this.connectionTimer === null) {
-      const finish = this.finishConnection
-      this.connectionTimer = window.setTimeout(() => finish?.(), CLOSE_TIMEOUT_MS)
-    }
-    this.ws.close()
+    if (this.ws) this.retire(this.ws, true)
+    else this.connect()
   }
 
   private startHeartbeat() {
@@ -487,14 +467,12 @@ export class StillOnSocket {
         this.stopHeartbeat()
         return
       }
-      if (this.ws?.readyState !== WebSocket.OPEN) {
-        return
-      }
-      void this.ensureHealthyConnection().catch(() => {})
+      this.checkHealth()
     }, HEARTBEAT_INTERVAL_MS)
   }
 
   private clearConnectionTimer() {
+    this.deadline = 0
     if (this.connectionTimer !== null) window.clearTimeout(this.connectionTimer)
     this.connectionTimer = null
   }
@@ -508,6 +486,7 @@ export class StillOnSocket {
 
   private clearPingState() {
     if (this.pingTimeoutTimer !== null) {
+      this.deadline = 0
       window.clearTimeout(this.pingTimeoutTimer)
       this.pingTimeoutTimer = null
     }
@@ -515,11 +494,13 @@ export class StillOnSocket {
   }
 
   private enqueue(envelope: ClientEnvelope) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.phase === "ready" && this.ws?.readyState === WebSocket.OPEN) {
       this.sendNow(envelope)
       return
     }
-    if (envelope.type === "command" && envelope.command.type === "chat.answerAsyncQuestion") {
+    // Subscriptions are restored from the authoritative map when ready.
+    if (envelope.type !== "command") return
+    if (envelope.command.type === "chat.answerAsyncQuestion") {
       traceAsyncAnswer("queued_locally", { commandId: envelope.id, submissionId: envelope.command.submissionId })
     }
     this.outboundQueue.push(envelope)

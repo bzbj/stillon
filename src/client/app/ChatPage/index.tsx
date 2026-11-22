@@ -934,6 +934,7 @@ export function ChatPage() {
 
       <Suspense fallback={<ChatInputLoadingFallback />}>
         <ChatInputDock
+          reconnecting={state.socket.requiresLiveConnection && state.connectionStatus !== "connected"}
           statistics={state.statistics}
           inputRef={inputRef}
           onLayoutChange={syncInputHeight}
